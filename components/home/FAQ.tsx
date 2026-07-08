@@ -1,0 +1,1 @@
+export function FAQ(){return <section className="section section-white"><div className="container"><h2>Manual payments for now</h2><p className="section-intro">Google Maps and card payments were removed for now. The system supports Interac e-Transfer, cash at visit and cheque at visit.</p></div></section>}

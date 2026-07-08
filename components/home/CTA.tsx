@@ -1,0 +1,1 @@
+export function CTA(){return <section className="section section-white"><div className="container"><div className="cta-band"><div><h2>Ready to get your quote?</h2><p>Customers can submit their information, receive an estimate and request extra services from one simple flow.</p></div><a className="btn btn-white" href="#quote">Start Now</a></div></div></section>}

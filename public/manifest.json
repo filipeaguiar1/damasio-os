@@ -1,0 +1,12 @@
+{
+  "name": "Damasio OS Field App",
+  "short_name": "Damasio Field",
+  "description": "Simple mobile app for Damasio OS Admin, Employee and Customer operations.",
+  "start_url": "/mobile",
+  "display": "standalone",
+  "background_color": "#f6f8f3",
+  "theme_color": "#0f5132",
+  "orientation": "portrait-primary",
+  "icons": [],
+  "scope": "/"
+}
