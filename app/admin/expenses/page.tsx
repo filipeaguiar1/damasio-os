@@ -1,5 +1,6 @@
 "use client";
 
+import { createId } from "@/lib/id";
 import { useEffect, useState } from "react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Expense, ExpenseCategory, getExpenses, saveExpense, seedDemoExpenses, clearExpenses } from "@/lib/storage";
@@ -12,7 +13,7 @@ export default function ExpensesPage(){
   const total=expenses.reduce((s,e)=>s+e.amount,0);
 
   function add(){
-    saveExpense({id:crypto.randomUUID(),createdAt:new Date().toISOString(),date:form.date||new Date().toISOString().slice(0,10),vendor:form.vendor,category:form.category,amount:Number(form.amount||0),notes:form.notes});
+    saveExpense({id:createId(),createdAt:new Date().toISOString(),date:form.date||new Date().toISOString().slice(0,10),vendor:form.vendor,category:form.category,amount:Number(form.amount||0),notes:form.notes});
     setForm({date:"",vendor:"",category:"fuel",amount:"",notes:""});
     refresh();
   }

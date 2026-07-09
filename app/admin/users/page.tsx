@@ -1,4 +1,5 @@
 "use client";
+import { createId } from "@/lib/id";
 import {useEffect,useMemo,useState} from "react";
 import {AdminShell} from "@/components/admin/AdminShell";
 import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
@@ -20,7 +21,7 @@ export default function UsersPage(){
  const counts=useMemo(()=>({admins:users.filter(u=>u.role==="admin").length,employees:users.filter(u=>u.role==="employee").length,customers:users.filter(u=>u.role==="customer").length}),[users]);
  async function createUser(){
   if(!fullName||!email){setMsg("Full name and email are required.");return}
-  const row:LocalUser={id:crypto.randomUUID(),full_name:fullName,email,phone,role,active:true,created_at:new Date().toISOString()};
+  const row:LocalUser={id:createId(),full_name:fullName,email,phone,role,active:true,created_at:new Date().toISOString()};
   const next=[row,...users];setUsers(next);saveUsers(next);setFullName("");setEmail("");setPhone("");setRole("customer");
   if(isSupabaseConfigured()){
     try{const supabase=getSupabaseBrowserClient() as any; const {error}=await supabase.from("profiles").insert({full_name:row.full_name,email:row.email,phone:row.phone,role:row.role,active:true}); setMsg(error?`Saved locally. Supabase profile insert needs auth user id: ${error.message}`:"User saved to Supabase profile table.");}

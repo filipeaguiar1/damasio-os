@@ -1,3 +1,4 @@
+import { createId } from "@/lib/id";
 export type WorkflowStage =
   | "lead"
   | "quote"
@@ -63,7 +64,7 @@ export function workflowNextAction(stage: WorkflowStage) {
 }
 
 export function createWorkflowEvent(input: Omit<WorkflowEvent, "id" | "createdAt">): WorkflowEvent {
-  const id = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  const id = createId("workflow");
   return {
     id,
     createdAt: new Date().toISOString(),

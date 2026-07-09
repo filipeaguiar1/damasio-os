@@ -1,6 +1,6 @@
 {
-  "name": "damasio-os-v50-1-production-stabilization",
-  "version": "5.0.1",
+  "name": "damasio-os-v50-2-3-mobile-admin-access-fix",
+  "version": "5.0.2-3",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -1,5 +1,6 @@
 "use client";
 
+import { createId } from "@/lib/id";
 import { useMemo, useState } from "react";
 import { calculateQuote, ServiceKey, type QuoteSizeKey } from "@/lib/pricing";
 
@@ -30,7 +31,7 @@ export default function QuoteForm() {
   function saveLead() {
     const savedLeads = JSON.parse(window.localStorage.getItem("damasio_leads") || "[]");
     savedLeads.unshift({
-      id: window.crypto.randomUUID(),
+      id: createId(),
       createdAt: new Date().toISOString(),
       ...lead,
       service,

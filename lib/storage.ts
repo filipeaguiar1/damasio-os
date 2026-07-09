@@ -1,3 +1,4 @@
+import { createId } from "@/lib/id";
 import { createWorkflowEvent, getWorkflowSnapshot, stageFromOperationalState, type WorkflowEvent, type WorkflowStage } from "@/lib/workflow/workflowEngine";
 export type LeadStatus = "new" | "quoted" | "booked" | "lost" | "completed";
 export type PaymentMethod = "credit_card" | "etransfer" | "cash_visit" | "cheque_visit" | "other";
@@ -298,7 +299,7 @@ export function saveServiceRequest(
   input: Omit<ServiceRequest, "id" | "createdAt" | "status">,
 ) {
   const req: ServiceRequest = {
-    id: crypto.randomUUID(),
+    id: createId(),
     createdAt: new Date().toISOString(),
     status: "pending",
     ...input,
@@ -359,7 +360,7 @@ export function addActivityLog(
   details: string,
 ) {
   const log = {
-    id: crypto.randomUUID(),
+    id: createId(),
     createdAt: new Date().toISOString(),
     actor,
     action,
@@ -495,7 +496,7 @@ export function saveEstimate(
 ) {
   const totals = calculateEstimateTotals(input.items);
   const e = {
-    id: crypto.randomUUID(),
+    id: createId(),
     number: estimateNumber(),
     createdAt: new Date().toISOString(),
     ...input,
@@ -528,7 +529,7 @@ export function createEstimateFromRequest(requestId: string, total = 299) {
     requestId: r.id,
     items: [
       {
-        id: crypto.randomUUID(),
+        id: createId(),
         type: "service",
         description: r.service,
         quantity: 1,
@@ -625,7 +626,7 @@ export function assignRequestToCrew(
   const tax = estimate?.tax ?? 0;
   const total = estimate?.total ?? 0;
   const lead: Lead = {
-    id: crypto.randomUUID(),
+    id: createId(),
     createdAt: new Date().toISOString(),
     name: r.customerName,
     phone: r.phone,
@@ -665,7 +666,7 @@ export function convertEstimateToJob(id: string) {
   const e = getEstimates().find((x) => x.id === id);
   if (!e) return null;
   const lead: Lead = {
-    id: crypto.randomUUID(),
+    id: createId(),
     createdAt: new Date().toISOString(),
     name: e.customer,
     phone: e.phone,
@@ -783,7 +784,7 @@ export function createManualCustomer(input: {
   propertyDetails?: CustomerPropertyDetails;
 }) {
   const lead: Lead = {
-    id: crypto.randomUUID(),
+    id: createId(),
     createdAt: new Date().toISOString(),
     name: input.name,
     phone: input.phone,
@@ -1077,7 +1078,7 @@ export function saveEmployeeTask(
   input: Omit<EmployeeTask, "id" | "createdAt">,
 ) {
   const t = {
-    id: crypto.randomUUID(),
+    id: createId(),
     createdAt: new Date().toISOString(),
     ...input,
   };
@@ -1263,7 +1264,7 @@ export function startServiceSession(
   if (existing?.status === "running") return existing;
   if (existing?.status === "finished") return existing;
   const session = {
-    id: existing?.id || crypto.randomUUID(),
+    id: existing?.id || createId(),
     leadId,
     startedAt: new Date().toISOString(),
     status: "running" as const,
@@ -1326,7 +1327,7 @@ export function saveServiceComment(leadId: string, comment: string) {
   if (!clean) return null;
   const existing = getSessionForLead(leadId);
   const session: ServiceSession = existing || {
-    id: crypto.randomUUID(),
+    id: createId(),
     leadId,
     status: "not_started",
     employee: "Employee",
@@ -1395,7 +1396,7 @@ export function createInvoiceFromEstimate(estimateId: string) {
   const existing = getInvoices().find((i) => i.estimateId === estimateId);
   if (existing) return existing;
   const inv: Invoice = {
-    id: crypto.randomUUID(),
+    id: createId(),
     number: invoiceNumber(),
     createdAt: new Date().toISOString(),
     estimateId: e.id,
@@ -1417,7 +1418,7 @@ export function createInvoiceFromLead(lead: Lead) {
   const existing = getInvoices().find((i) => i.leadId === lead.id);
   if (existing) return existing;
   const inv: Invoice = {
-    id: crypto.randomUUID(),
+    id: createId(),
     number: invoiceNumber(),
     createdAt: new Date().toISOString(),
     leadId: lead.id,
@@ -1483,7 +1484,7 @@ export function confirmDailyChecklist(
   items: string[],
 ) {
   const c = {
-    id: crypto.randomUUID(),
+    id: createId(),
     date: getTodayKey(),
     employee,
     crew,
@@ -1502,7 +1503,7 @@ export function addNotification(
   message: string,
 ) {
   const n = {
-    id: crypto.randomUUID(),
+    id: createId(),
     createdAt: new Date().toISOString(),
     title,
     message,
@@ -1521,7 +1522,7 @@ export function getRecurrences(): Recurrence[] {
   return read<Recurrence[]>(K.rec, []);
 }
 export function saveRecurrence(input: Omit<Recurrence, "id">) {
-  write(K.rec, [{ id: crypto.randomUUID(), ...input }, ...getRecurrences()]);
+  write(K.rec, [{ id: createId(), ...input }, ...getRecurrences()]);
 }
 export function toggleRecurrence(id: string) {
   write(

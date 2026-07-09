@@ -178,3 +178,237 @@ button:disabled{opacity:.55;cursor:not-allowed}
 @media (min-width:760px){.mobile-app-shell{border-left:1px solid rgba(20,38,27,.08);border-right:1px solid rgba(20,38,27,.08)}}
 
 .mobile-skip-splash{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);border:0;border-radius:999px;background:#0f5132;color:white;font-weight:900;padding:12px 18px;box-shadow:0 10px 25px rgba(15,81,50,.22)}.mobile-mini-guide{background:#fff;border:1px solid rgba(20,38,27,.08);border-radius:22px;padding:16px;text-align:center;color:#14261b;box-shadow:0 12px 26px rgba(20,38,27,.06)}.mobile-mini-guide p{margin:6px 0 0;color:#64746a}
+
+/* V50.2 Mobile Responsiveness Stabilization - layout-safe overrides */
+html,body{max-width:100%;overflow-x:hidden}img,svg,video{max-width:100%;height:auto}.card,.quote-card,.mini-card,.feature-card,.service-card,.plan-card,.portal-card,.payment-card{min-width:0}.btn{min-height:44px}.input,select,textarea{font-size:16px}.table-wrap{-webkit-overflow-scrolling:touch}.table-wrap:after{content:"Swipe to view more";display:none;color:var(--muted);font-size:12px;font-weight:900;padding:10px 14px;background:#fff8e8;border-top:1px solid var(--line)}
+@media(max-width:760px){
+  :root{--radius:22px}.container{width:min(100% - 24px,1220px)}.header{position:sticky}.header-inner{height:auto;min-height:72px;padding:10px 0;gap:10px;display:grid;grid-template-columns:1fr auto;align-items:center}.brand{min-width:0;gap:12px}.brand-logo{width:74px;margin-right:-24px}.brand-title{font-size:19px;letter-spacing:-.04em;line-height:1}.brand-sub{font-size:11px;margin-top:3px}.header .btn{padding:11px 13px;font-size:12px;min-height:40px}.nav{grid-column:1 / -1;display:flex;gap:8px;overflow-x:auto;padding:4px 0 2px;scrollbar-width:none}.nav::-webkit-scrollbar{display:none}.nav a{flex:0 0 auto;background:#f1f6ef;border:1px solid var(--line);border-radius:999px;padding:9px 12px;font-size:12px;color:var(--forest);white-space:nowrap}.hero{padding:28px 0 44px}.hero-grid{gap:22px}.eyebrow{font-size:12px;padding:8px 12px;margin-bottom:14px}h1{font-size:clamp(38px,15vw,54px);line-height:.96;letter-spacing:-.07em}.hero-text{font-size:16px;line-height:1.58;margin-top:16px}.hero-actions{display:grid;grid-template-columns:1fr;gap:10px;margin-top:18px}.hero-actions .btn{width:100%;padding:13px 16px}.hero .grid-3{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px!important;margin-top:18px!important}.mini-card{padding:14px;border-radius:18px}.mini-label{font-size:10px}.mini-value{font-size:20px}.section{padding:46px 0}.section h2{font-size:34px;line-height:1.04}.section-intro{font-size:15px;line-height:1.55}.section-top{margin-bottom:18px}.grid-2,.grid-3,.grid-4{grid-template-columns:1fr;gap:12px}.service-card,.feature-card,.plan-card,.portal-card,.payment-card{padding:18px;border-radius:20px}.plan-card.featured{transform:none}.plan-price{font-size:34px}.plan-badge{position:static;display:inline-flex;margin-bottom:10px}.quote-card{padding:18px;border-radius:24px}.quote-head{gap:10px;margin-bottom:12px}.quote-head h2{font-size:24px}.pill{font-size:11px;padding:7px 9px}.option-grid{grid-template-columns:1fr;gap:9px}.option{border-radius:17px;padding:14px}.stack{gap:11px}.row{display:grid;grid-template-columns:1fr;gap:9px}.row .btn{width:100%}.quote-result{border-radius:20px;padding:20px}.quote-price{font-size:42px}.footer{padding:36px 0}.footer-grid{grid-template-columns:1fr;gap:18px}.app-main{padding:18px}.app-top h1{font-size:34px}.stats{grid-template-columns:1fr 1fr;gap:10px}.table-card{border-radius:20px}.table-head{padding:16px;flex-direction:column;align-items:stretch}.table-wrap:after{display:block}table{min-width:720px}th,td{padding:12px;font-size:13px}.kanban-col{min-height:auto}.schedule-grid{grid-template-columns:1fr}.form-grid,.tip-grid,.payment-grid{grid-template-columns:1fr}.star-row{flex-wrap:wrap}.price-row{grid-template-columns:1fr;gap:8px}.portal-hero{grid-template-columns:1fr}.route-stop{border-radius:16px}.compact-filter-panel{right:auto;left:0;min-width:min(92vw,320px)}
+  .admin-pro-shell{grid-template-columns:1fr}.pro-sidebar{position:relative;height:auto;max-height:none;padding:0 12px 14px}.season-logo{height:112px;margin:0 -12px 12px}.season-title{left:22px;top:22px}.season-title span{font-size:28px}.season-title strong{font-size:31px}.admin-profile{margin:0 4px 12px;padding:12px 4px}.pro-nav{display:flex;gap:8px;overflow-x:auto;padding:0 0 8px;scrollbar-width:none}.pro-nav::-webkit-scrollbar{display:none}.pro-nav a{flex:0 0 auto;height:40px;padding:0 13px;border-radius:999px;font-size:13px;background:rgba(255,255,255,.08)}.pro-nav a span{width:auto;font-size:15px}.help-card{display:none}.pro-topbar{height:auto;min-height:58px;padding:10px 14px;gap:10px;overflow-x:auto}.topbar-pill{font-size:13px;white-space:nowrap}.top-icon{font-size:20px}.mini-user span{width:36px;height:36px}.pro-content{padding:18px 14px 34px}.calendar-heading{flex-direction:column;gap:12px}.calendar-heading h1{font-size:32px}.week-range{min-width:0;width:100%;justify-content:center}.view-toggle{width:100%}.view-toggle button{flex:1}.pro-day-grid,.status-action-grid{grid-template-columns:1fr}.pro-day-card{min-height:auto;padding:16px}.status-action{grid-template-columns:42px 1fr 18px;gap:10px;min-height:82px}.status-action b{grid-column:2;font-size:28px}.calendar-work-head{padding:16px}.pro-route-row{grid-template-columns:34px 1fr;gap:10px;padding:14px}.home-thumb,.crew-cell{display:none}.booking-cell,.open-btn,.dots{grid-column:2}.mobile-app-shell{max-width:100%;padding-left:12px;padding-right:12px}.mobile-hero-card h1{font-size:28px}.mobile-action-grid,.mobile-rating-row{grid-template-columns:1fr}.mobile-stats-card{grid-template-columns:1fr 1fr}.mobile-service-head{flex-direction:column}.mobile-property-photo{height:150px}
+}
+@media(max-width:420px){.container{width:min(100% - 18px,1220px)}.header-inner{grid-template-columns:1fr}.header .btn{width:100%}.brand-logo{width:66px}.brand-title{font-size:18px}.hero .grid-3{grid-template-columns:1fr}.stats{grid-template-columns:1fr}.section h2{font-size:30px}.quote-price{font-size:38px}.mobile-stats-card{grid-template-columns:1fr}.mobile-tabs{grid-template-columns:1fr}.mobile-route-card{grid-template-columns:36px 1fr}.mobile-status{grid-column:2;justify-self:start}.pro-topbar{align-items:center}.topbar-spacer{display:none}.top-icon:nth-of-type(1){display:none}}
+
+/* V50.2.1 Mobile interaction + cut-content fix
+   Scope: mobile/tablet only. Desktop layout remains untouched. */
+@media(max-width:760px){
+  html,body,#__next{width:100%;max-width:100%;overflow-x:hidden;}
+  body{touch-action:manipulation;}
+  a,button,input,select,textarea{max-width:100%;}
+  a,button{touch-action:manipulation;-webkit-tap-highlight-color:rgba(15,81,50,.16);}
+  button,.btn,.mobile-primary,.mobile-finish,.mobile-outline,.mobile-tabs button,.status-action,.open-btn,.dots{cursor:pointer;position:relative;z-index:1;}
+
+  .admin-pro-shell,.portal-pro-shell,.pro-main,.pro-content,.app-shell,.app-main,.field-shell,.field-container,.mobile-app-shell{width:100%;max-width:100%;min-width:0;overflow-x:hidden;}
+  .pro-content,.app-main,.field-container{padding-left:14px!important;padding-right:14px!important;}
+  .card,.calendar-work-card,.neo-hero,.customer-hero,.employee-hero,.field-card,.details-table,.mobile-hero-card,.mobile-card-list,.mobile-role-card,.mobile-admin-action,.mobile-route-card,.mobile-issue-card,.mobile-service-screen,.mobile-empty{max-width:100%;min-width:0;overflow:hidden;}
+  .neo-hero,.customer-hero,.employee-hero{display:grid!important;grid-template-columns:1fr!important;gap:14px!important;padding:20px!important;border-radius:22px!important;}
+  .neo-hero h1,.customer-hero h1,.employee-hero h1{font-size:32px!important;line-height:1.04!important;overflow-wrap:anywhere;}
+  .neo-hero p,.customer-hero p,.employee-hero p,.section-intro{overflow-wrap:anywhere;}
+  .neo-hero .btn,.customer-hero .btn,.employee-hero .btn{width:100%;}
+
+  .pro-topbar{overflow-x:auto;overflow-y:hidden;scrollbar-width:none;max-width:100%;}
+  .pro-topbar::-webkit-scrollbar{display:none;}
+  .pro-nav{max-width:100%;}
+  .pro-nav a{min-width:max-content;}
+
+  .status-action-grid{display:grid!important;grid-template-columns:1fr!important;gap:12px!important;}
+  .status-action{width:100%;grid-template-columns:42px 54px minmax(0,1fr) 18px!important;padding:14px!important;min-height:86px!important;border-radius:18px!important;}
+  .status-action div{min-width:0;}
+  .status-action strong,.status-action span{white-space:normal;overflow-wrap:anywhere;}
+  .status-action b{grid-column:auto!important;font-size:28px!important;}
+
+  .calendar-work-head{display:grid!important;grid-template-columns:1fr!important;gap:12px!important;align-items:stretch!important;}
+  .calendar-work-head .row{display:grid!important;grid-template-columns:1fr!important;width:100%;}
+  .calendar-work-head .btn,.calendar-work-head a{width:100%;}
+  .pro-route-list{display:grid!important;gap:12px!important;padding:12px!important;}
+  .pro-route-row{display:grid!important;grid-template-columns:34px minmax(0,1fr)!important;gap:10px!important;padding:14px!important;border:1px solid #e5e7eb!important;border-radius:18px!important;background:#fff!important;align-items:start!important;}
+  .pro-route-row>*{min-width:0;}
+  .home-info,.booking-cell,.open-btn,.dots{grid-column:2!important;}
+  .home-info strong,.home-info p,.booking-cell strong,.booking-cell p{white-space:normal!important;overflow-wrap:anywhere!important;}
+  .open-btn{width:100%;height:42px;margin-top:6px;}
+  .dots{width:42px;height:42px;border-radius:14px;background:#ecfdf5;color:#14532d;margin-top:4px;}
+
+  .field-topbar{display:grid!important;grid-template-columns:1fr!important;gap:10px!important;padding:12px!important;}
+  .field-topbar .btn{width:100%;}
+  .house-image{max-width:100%;overflow:hidden;}
+  .details-row{display:grid!important;grid-template-columns:1fr!important;gap:4px!important;}
+  .details-row span{min-width:0;overflow-wrap:anywhere;}
+
+  .mobile-app-shell{padding-left:12px!important;padding-right:12px!important;}
+  .mobile-topbar{max-width:calc(100% + 24px);}
+  .mobile-route-card{grid-template-columns:38px minmax(0,1fr)!important;align-items:start!important;}
+  .mobile-route-card>*{min-width:0;}
+  .mobile-route-card .mobile-status{grid-column:2!important;justify-self:start;margin-top:8px;}
+  .mobile-route-card strong,.mobile-route-card p,.mobile-route-card em,.mobile-admin-action strong,.mobile-admin-action p,.mobile-issue-card strong,.mobile-issue-card p{white-space:normal;overflow-wrap:anywhere;}
+  .mobile-admin-action{grid-template-columns:minmax(0,1fr) 24px!important;}
+  .mobile-action-grid,.mobile-rating-row{grid-template-columns:1fr!important;}
+  .mobile-primary,.mobile-finish,.mobile-outline,.mobile-rating-row button{width:100%;min-height:48px;display:flex;align-items:center;justify-content:center;}
+  .mobile-primary:disabled,.mobile-finish:disabled{pointer-events:none;}
+}
+
+@media(max-width:420px){
+  .status-action{grid-template-columns:38px 46px minmax(0,1fr)!important;}
+  .status-action em{display:none;}
+  .mobile-tabs{grid-template-columns:repeat(3,minmax(0,1fr))!important;}
+  .mobile-tabs button{font-size:12px;padding:11px 6px;}
+}
+
+/* V50.2.2 hard mobile overflow fix
+   Goal: prevent customer/employee portals from rendering wider than the phone viewport.
+   Desktop remains unchanged. */
+@media(max-width:760px){
+  html,body{width:100%!important;max-width:100%!important;margin:0!important;overflow-x:hidden!important;}
+  body *{box-sizing:border-box;}
+
+  .portal-pro-shell,
+  .admin-pro-shell,
+  .app-shell{
+    display:block!important;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    overflow-x:hidden!important;
+  }
+
+  .pro-sidebar,
+  .sidebar{
+    position:relative!important;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    height:auto!important;
+    overflow-x:hidden!important;
+  }
+
+  .pro-main,
+  .app-main,
+  .pro-content,
+  .field-container{
+    display:block!important;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    overflow-x:hidden!important;
+  }
+
+  .pro-content,
+  .app-main{
+    padding-left:12px!important;
+    padding-right:12px!important;
+  }
+
+  .pro-topbar{
+    display:grid!important;
+    grid-template-columns:42px minmax(0,1fr) 42px 42px!important;
+    width:100%!important;
+    max-width:100%!important;
+    overflow:hidden!important;
+    gap:8px!important;
+  }
+  .pro-topbar .topbar-spacer,
+  .pro-topbar .mini-user,
+  .pro-topbar .top-icon:first-of-type{display:none!important;}
+  .topbar-pill{min-width:0!important;width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;}
+  .hamburger,.top-icon{width:42px!important;height:42px!important;min-width:42px!important;display:grid!important;place-items:center!important;}
+
+  .pro-nav{display:flex!important;width:100%!important;max-width:100%!important;overflow-x:auto!important;overflow-y:hidden!important;padding-bottom:8px!important;}
+  .pro-nav a{flex:0 0 auto!important;max-width:72vw!important;white-space:nowrap!important;}
+
+  .neo-hero,.customer-hero,.employee-hero,.calendar-work-card,.profile-card,.table-card,.dash-card,.portal-card,.task-card,.estimate-preview,.confirm-box,.notice,.feedback-service-list,.feedback-panel{
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    overflow:hidden!important;
+  }
+
+  .app-top,.section-top,.table-head,.calendar-work-head,.estimate-compact-head,.profile-head{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:12px!important;
+    align-items:stretch!important;
+    width:100%!important;
+  }
+
+  .row,.inline-actions,.hero-actions{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    width:100%!important;
+    gap:10px!important;
+  }
+  .row > *, .inline-actions > *, .hero-actions > *, .btn{width:100%!important;max-width:100%!important;}
+
+  .grid-2,.grid-3,.grid-4,.stats,.detail-grid,.feedback-clean-layout,.compact-grid,.tip-grid,.form-grid,.payment-grid,.status-action-grid,.schedule-grid,.settings-grid{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+  }
+
+  .status-action{
+    display:grid!important;
+    grid-template-columns:40px minmax(0,1fr) 20px!important;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    gap:10px!important;
+  }
+  .status-action b{display:none!important;}
+  .status-action div{min-width:0!important;}
+
+  .pro-route-list,.task-list,.history-list,.estimate-list,.feedback-list-stack{
+    display:grid!important;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    overflow:hidden!important;
+    gap:12px!important;
+  }
+
+  .pro-route-row{
+    display:grid!important;
+    grid-template-columns:34px minmax(0,1fr)!important;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    overflow:hidden!important;
+  }
+  .home-thumb,.crew-cell{display:none!important;}
+  .home-info,.booking-cell,.open-btn,.dots{grid-column:2!important;width:100%!important;max-width:100%!important;min-width:0!important;}
+
+  .history-summary,.feedback-list-item,.request-choice,.checklist-item{
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+  }
+  .history-summary{display:grid!important;grid-template-columns:minmax(0,1fr) 28px!important;}
+
+  .table-wrap{width:100%!important;max-width:100%!important;overflow-x:auto!important;overflow-y:hidden!important;}
+  table{min-width:620px!important;max-width:none!important;}
+
+  h1,h2,h3,p,span,strong,small,em,label,td,th,a,button{
+    overflow-wrap:anywhere;
+  }
+}
+
+@media(max-width:420px){
+  .pro-content,.app-main{padding-left:10px!important;padding-right:10px!important;}
+  .season-logo{height:92px!important;}
+  .season-title span{font-size:22px!important;}
+  .season-title strong{font-size:24px!important;}
+  .admin-profile{grid-template-columns:42px minmax(0,1fr) 16px!important;}
+  .profile-avatar{width:42px!important;height:42px!important;}
+  .pro-topbar{grid-template-columns:40px minmax(0,1fr) 40px!important;}
+  .pro-topbar .top-icon:nth-of-type(2){display:none!important;}
+}
+
+/* V50.2.3 mobile admin access fix */
+@media(max-width:760px){
+  .mobile-role-card,.mobile-admin-action,.mobile-back{
+    position:relative!important;
+    z-index:5!important;
+    pointer-events:auto!important;
+    touch-action:manipulation!important;
+    cursor:pointer!important;
+  }
+  .mobile-role-grid{position:relative!important;z-index:4!important;}
+  .mobile-admin-shell{overflow-x:hidden!important;}
+}

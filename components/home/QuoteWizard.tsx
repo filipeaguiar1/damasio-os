@@ -1,4 +1,5 @@
 "use client";
+import { createId } from "@/lib/id";
 import {useMemo,useState} from "react";
 import {calculateQuote,serviceLabels,ServiceKey} from "@/lib/pricing";
 import {saveLead,updateLeadPayment,PaymentMethod,GrassHandling,LawnSize,GrassHeight} from "@/lib/storage";
@@ -30,7 +31,7 @@ export function QuoteWizard(){
   const quote=useMemo(()=>calculateQuote({service,size,annual,backyard,gated}),[service,size,annual,backyard,gated]);
 
   function submit(){
-    const id=crypto.randomUUID();
+    const id=createId();
     setLeadId(id);
     saveLead({
       id,

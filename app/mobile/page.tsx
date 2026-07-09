@@ -48,9 +48,9 @@ export default function MobileAppHome(){
     </section>
 
     <section className="mobile-role-grid">
-      <Link className="mobile-role-card admin" href="/mobile/admin"><span>01</span><strong>Admin</strong><p>Today, routes, alerts and return visits.</p></Link>
-      <Link className="mobile-role-card employee" href="/mobile/employee"><span>02</span><strong>Employee</strong><p>Route, Service Screen, Start, Finish and photos.</p></Link>
-      <Link className="mobile-role-card customer" href="/mobile/customer"><span>03</span><strong>Customer</strong><p>Status, feedback and return visit request.</p></Link>
+      <Link className="mobile-role-card admin" href="/mobile/admin" prefetch={false}><span>01</span><strong>Admin</strong><p>Today, routes, alerts and return visits.</p></Link>
+      <Link className="mobile-role-card employee" href="/mobile/employee" prefetch={false}><span>02</span><strong>Employee</strong><p>Route, Service Screen, Start, Finish and photos.</p></Link>
+      <Link className="mobile-role-card customer" href="/mobile/customer" prefetch={false}><span>03</span><strong>Customer</strong><p>Status, feedback and return visit request.</p></Link>
     </section>
 
     <section className="mobile-mini-guide">
