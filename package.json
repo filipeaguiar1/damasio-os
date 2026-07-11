@@ -1,6 +1,6 @@
 {
-  "name": "damasio-os-v50-2-3-mobile-admin-access-fix",
-  "version": "5.0.2-3",
+  "name": "damasio-os-v50-3-1-integrated-reset-skip",
+  "version": "5.0.3-1",
   "private": true,
   "scripts": {
     "dev": "next dev",

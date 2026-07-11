@@ -163,8 +163,11 @@ export type ServiceSession = {
   startedAt?: string;
   finishedAt?: string;
   durationSeconds?: number;
-  status: "not_started" | "running" | "finished" | "paused";
+  status: "not_started" | "running" | "finished" | "paused" | "skipped";
   completionComment?: string;
+  skippedAt?: string;
+  skipComment?: string;
+  skipPhotos?: string[];
   employee: string;
   crew: string;
 };
@@ -1338,6 +1341,59 @@ export function saveServiceComment(leadId: string, comment: string) {
   addActivityLog(updated.employee || "Employee", "Saved comment", leadId, clean);
   broadcastOperationsChange(`Comment saved for ${leadId}.`);
   return updated;
+}
+
+export function skipServiceSession(
+  leadId: string,
+  comment = "",
+  photos: string[] = [],
+  employee = "Employee",
+  crew = "Crew A",
+) {
+  const lead = getLead(leadId);
+  if (!lead) return null;
+  const existing = getSessionForLead(leadId);
+  const now = new Date().toISOString();
+  const startedAt = existing?.startedAt;
+  const durationSeconds = startedAt
+    ? Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000))
+    : existing?.durationSeconds || 0;
+  const skipped: ServiceSession = {
+    id: existing?.id || createId(),
+    leadId,
+    startedAt,
+    durationSeconds,
+    status: "skipped",
+    employee: existing?.employee || employee,
+    crew: existing?.crew || crew,
+    skippedAt: now,
+    skipComment: comment.trim() || undefined,
+    skipPhotos: photos.slice(0, 5),
+  };
+  write(K.sess, [skipped, ...getSessions().filter((s) => s.leadId !== leadId)]);
+  const openStatus: LeadStatus = lead.assignedCrew || lead.scheduledDate || lead.nextVisitDate ? "booked" : "quoted";
+  updateLeadStatus(leadId, openStatus);
+  addActivityLog(
+    skipped.employee,
+    "Skipped house",
+    lead.name,
+    `${comment.trim() || "No comment provided."}${photos.length ? ` Photos: ${Math.min(photos.length, 5)}.` : ""}`,
+  );
+  addNotification(
+    "schedule",
+    "House skipped — review required",
+    `${lead.name} at ${lead.address} was skipped by ${skipped.employee}.${comment.trim() ? ` Comment: ${comment.trim()}` : ""}`,
+  );
+  addWorkflowEvent({
+    entityType: "visit",
+    entityId: leadId,
+    fromStage: existing?.status === "running" ? "in_progress" : "assigned",
+    toStage: "assigned",
+    actor: skipped.employee,
+    note: `House skipped and requires Admin/Dispatch review.${comment.trim() ? ` ${comment.trim()}` : ""}`,
+  });
+  broadcastOperationsChange(`${lead.name} skipped and marked for review.`);
+  return skipped;
 }
 
 export function resetServiceSession(leadId: string) {

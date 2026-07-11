@@ -240,7 +240,6 @@ export default function EmployeeRoutePage(){
 
     <div className="field-nav-tabs">
       <button className={view==="route"?"field-nav-tab active":"field-nav-tab"} onClick={()=>setView("route")}>Route</button>
-      <button className={view==="details"?"field-nav-tab active":"field-nav-tab"} onClick={()=>selected&&setView("details")}>Service Screen</button>
       <button className={view==="tasks"?"field-nav-tab active":"field-nav-tab"} onClick={()=>setView("tasks")}>Service Issues {openTasks.length>0&&`(${openTasks.length})`}</button>
       <button className={view==="summary"?"field-nav-tab active":"field-nav-tab"} onClick={()=>setView("summary")}>Day Summary</button>
     </div>
