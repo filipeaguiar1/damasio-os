@@ -14,6 +14,7 @@ const links=[
   ["Workflow","/admin/workflow","↻"],
   ["Dispatch","/admin/schedule","⇄"],
   ["Routes","/admin/routes","⌘"],
+  ["Map","/admin/map","⌖"],
   ["Calendar","/admin/calendar","▣"],
   ["Crews","/admin/employees","♧"],
   ["Finance","/admin/finance","$"],
@@ -57,7 +58,7 @@ export function AdminShell({children,active}:{children:React.ReactNode;active:st
     <main className="pro-main">
       <header className="pro-topbar">
         <Link href="/admin" className="hamburger" aria-label="Open dashboard">☰</Link>
-        <Link href="/admin/leads" className="topbar-pill">🌿 Damasio OS V48</Link>
+        <Link href="/admin/leads" className="topbar-pill">🌿 Damasio OS V51.3</Link>
         <div className="topbar-spacer"></div>
         <Link href="/admin/customers" className="top-icon" aria-label="Search customers">⌕</Link>
         <Link href="/admin/alerts" onClick={openNotifications} className="top-icon notify" aria-label="Open notifications">♢{unread>0&&<b>{unread}</b>}</Link>

@@ -30,7 +30,8 @@ export default function LoginPage(){
         setMessage("User exists, but no profile/role was found yet. For now, keep using demo access while database users are connected.");
         return;
       }
-      if(profile.role==="admin") router.push("/admin");
+      if(profile.role==="master") router.push("/master");
+      else if(profile.role==="admin") router.push("/admin");
       else if(profile.role==="employee") router.push("/employee");
       else router.push("/customer");
     }catch(err){setMessage(err instanceof Error?err.message:"Could not sign in.");}
@@ -40,7 +41,7 @@ export default function LoginPage(){
   return <main className="auth-page">
     <section className="auth-card">
       <div className="season-title auth-logo"><span>DAMASIO</span><strong>OS</strong></div>
-      <span className="eyebrow">V41.1 Database First</span>
+      <span className="eyebrow">Damasio OS</span>
       <h1>Sign in</h1>
       <p>The company signup/onboarding screen was removed for now. We will keep the system simple, connect the database first, then add real onboarding later.</p>
       <label>Email<input value={email} onChange={e=>setEmail(e.target.value)} placeholder="admin@company.com" /></label>
@@ -48,6 +49,7 @@ export default function LoginPage(){
       <button className="btn btn-primary" onClick={login} disabled={loading}>{loading?"Signing in...":"Sign In"}</button>
       {message&&<p className="auth-message">{message}</p>}
       <div className="demo-grid">
+        <button className="btn btn-primary" onClick={()=>demo("master")}>Master Access</button>
         <button className="btn btn-white" onClick={()=>demo("admin")}>Demo Admin</button>
         <button className="btn btn-white" onClick={()=>demo("employee")}>Demo Employee</button>
         <button className="btn btn-white" onClick={()=>demo("customer")}>Demo Customer</button>

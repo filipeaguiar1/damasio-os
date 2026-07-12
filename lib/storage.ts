@@ -97,6 +97,8 @@ export type Lead = {
   propertyDetails?: CustomerPropertyDetails;
   propertyPhoto?: string;
   propertyPhotoUpdatedAt?: string;
+  latitude?: number;
+  longitude?: number;
 };
 export type Expense = {
   id: string;

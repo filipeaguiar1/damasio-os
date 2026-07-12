@@ -3,6 +3,7 @@
 import { useMobileRealtime } from "@/lib/mobile/useMobileRealtime";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import {
   DAMASIO_SYNC_EVENT,
   Lead,
@@ -29,6 +30,7 @@ export default function MobileEmployeeApp(){
   const [leads,setLeads]=useState<Lead[]>([]);
   const [selectedId,setSelectedId]=useState("");
   const [tab,setTab]=useState<"route"|"service"|"issues">("route");
+  const [routeView,setRouteView]=useState<"list"|"map">("list");
   const [comment,setComment]=useState("");
   const [tick,setTick]=useState(0);
   const [message,setMessage]=useState("");
@@ -150,13 +152,19 @@ export default function MobileEmployeeApp(){
       <button className={tab==="issues"?"active":""} onClick={()=>setTab("issues")}>Issues</button>
     </nav>
 
-    {tab==="route"&&<section className="mobile-card-list">
-      {route.map((lead,index)=><button className="mobile-route-card" key={lead.id} onClick={()=>openService(lead)}>
-        <span className="mobile-route-index">{index+1}</span>
-        <div><strong>{lead.name}</strong><p>{lead.address}</p><em>{lead.serviceFrequency||"weekly"} · Next: {lead.nextVisitDate||lead.scheduledDate||"—"}</em></div>
-        <b className={lead.status==="completed"?"mobile-status done":getSessionForLead(lead.id)?.status==="skipped"?"mobile-status skipped":"mobile-status"}>{statusLabel(lead,getSessionForLead(lead.id))}</b>
-      </button>)}
-    </section>}
+    {tab==="route"&&<>
+      <div className="employee-route-view-toggle" role="tablist" aria-label="Route view">
+        <button type="button" className={routeView==="list"?"active":""} onClick={()=>setRouteView("list")}>List</button>
+        <button type="button" className={routeView==="map"?"active":""} onClick={()=>setRouteView("map")}>Map</button>
+      </div>
+      {routeView==="list"?<section className="mobile-card-list">
+        {route.map((lead,index)=><button className="mobile-route-card" key={lead.id} onClick={()=>openService(lead)}>
+          <span className="mobile-route-index">{index+1}</span>
+          <div><strong>{lead.name}</strong><p>{lead.address}</p><em>{lead.serviceFrequency||"weekly"} · Next: {lead.nextVisitDate||lead.scheduledDate||"—"}</em></div>
+          <b className={lead.status==="completed"?"mobile-status done":getSessionForLead(lead.id)?.status==="skipped"?"mobile-status skipped":"mobile-status"}>{statusLabel(lead,getSessionForLead(lead.id))}</b>
+        </button>)}
+      </section>:<EmployeeRouteMap route={route} onOpenVisit={openService}/>}
+    </>}
 
     {tab==="service"&&selected&&<section className="mobile-service-screen mobile-browser-service">
       <button className="mobile-inline-back" onClick={()=>setTab("route")}>← Back to Route</button>
