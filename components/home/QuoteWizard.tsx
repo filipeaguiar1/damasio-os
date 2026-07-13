@@ -3,6 +3,7 @@ import { createId } from "@/lib/id";
 import {useMemo,useState} from "react";
 import {calculateQuote,serviceLabels,ServiceKey} from "@/lib/pricing";
 import {saveLead,updateLeadPayment,PaymentMethod,GrassHandling,LawnSize,GrassHeight} from "@/lib/storage";
+import {AddressAutocomplete} from "@/components/home/AddressAutocomplete";
 
 const services:{key:ServiceKey;note?:string}[]=[
   {key:"weekly_lawn"},
@@ -69,7 +70,7 @@ export function QuoteWizard(){
     </div>}
 
     {step===2&&<div className="stack">
-      <div className="field"><label>Property address</label><input className="input" value={lead.address} onChange={e=>setLead({...lead,address:e.target.value})} placeholder="Street, city, postal code"/></div>
+      <div className="field"><label>Property address</label><AddressAutocomplete value={lead.address} onChange={address=>setLead({...lead,address})} placeholder="Street, city, postal code" ariaLabel="Property address"/></div>
       {!isExtra?<>
         <div className="field"><label>Lawn size</label><select className="input" value={size} onChange={e=>setSize(e.target.value as LawnSize)}><option value="xs">XS</option><option value="small">Small</option><option value="legacy">Legacy</option><option value="oversize">Oversize</option></select></div>
         <div className="field"><label>Grass height</label><select className="input" value={grassHeight} onChange={e=>setGrassHeight(e.target.value as GrassHeight)}><option value="2in">2&quot;</option><option value="3in">3&quot;</option><option value="4in">4&quot;</option><option value="5in">5&quot;</option></select></div>

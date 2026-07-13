@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { GrassHandling, LawnSize, GrassHeight } from "@/lib/storage";
 import { addCustomerWithProperty } from "@/lib/services/customerPropertyService";
+import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
 
 export default function AddClientPage(){
   const [form,setForm]=useState({
@@ -64,7 +65,7 @@ export default function AddClientPage(){
           <div className="field"><label>Name</label><input className="input" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></div>
           <div className="field"><label>Phone</label><input className="input" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></div>
           <div className="field"><label>Email</label><input className="input" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></div>
-          <div className="field"><label>Address</label><input className="input" value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/></div>
+          <div className="field"><label>Address</label><AddressAutocomplete value={form.address} onChange={address=>setForm({...form,address})} ariaLabel="Customer address"/></div>
         </div>
 
         <h2>Property Preferences</h2>
