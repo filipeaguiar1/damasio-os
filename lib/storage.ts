@@ -99,6 +99,7 @@ export type Lead = {
   propertyPhotoUpdatedAt?: string;
   latitude?: number;
   longitude?: number;
+  routeOrder?: number;
 };
 export type Expense = {
   id: string;
@@ -200,6 +201,7 @@ export type EmployeeProfile = {
   name: string;
   email: string;
   photoLabel: string;
+  crew?: string;
 };
 export type EmployeePermissions = {
   viewRoute: boolean;
@@ -1240,6 +1242,7 @@ export function getEmployeeProfile(): EmployeeProfile {
     name: "Filipe",
     email: "filipe@damasioseasons.ca",
     photoLabel: "F",
+    crew: "Crew A",
   });
 }
 export function saveEmployeeProfile(p: EmployeeProfile) {
@@ -1805,14 +1808,31 @@ export function seedDemoLeads(force = false) {
     write(K.logs, []);
     write(K.workflow, []);
   }
-  if (getLeads().length > 0) return;
+  const existingLeads = getLeads();
+  if (existingLeads.length > 0) {
+    const today = getTodayKey();
+    const todayName = DAMASIO_WEEK_DAYS[(new Date().getDay() + 6) % 7];
+    const demoRouteIds = new Set(Array.from({ length: 10 }, (_, index) => `DEMO-${String(index + 1).padStart(3, "0")}`));
+    if (existingLeads.some(lead => demoRouteIds.has(lead.id))) {
+      setLeads(existingLeads.map(lead => demoRouteIds.has(lead.id) ? {
+        ...lead,
+        status: lead.status === "completed" ? lead.status : "booked",
+        assignedCrew: lead.assignedCrew || "Crew A",
+        scheduledDate: today,
+        nextVisitDate: today,
+        serviceDay: todayName,
+      } : lead));
+    }
+    return;
+  }
   const now = new Date().toISOString();
-  const routeDate = "2026-07-04";
+  const routeDate = getTodayKey();
+  const routeDay = DAMASIO_WEEK_DAYS[(new Date().getDay() + 6) % 7];
   const common = {
     scheduledDate: routeDate,
     scheduledWindow: "Flexible",
     assignedCrew: "Crew A",
-    serviceDay: "Saturday",
+    serviceDay: routeDay,
     serviceFrequency: "weekly" as ServiceFrequency,
     nextVisitDate: routeDate,
     paymentStatus: "pending" as PaymentStatus,
@@ -1963,16 +1983,20 @@ export function seedDemoLeads(force = false) {
       email: "isabella.garcia@example.com",
       address: "44 Brant St, Burlington",
       service: "Spring Cleanup",
-      status: "quoted",
-      serviceDay: "Tuesday",
+      status: "booked",
+      scheduledDate: routeDate,
+      scheduledWindow: "Flexible",
+      assignedCrew: "Crew A",
+      serviceDay: routeDay,
       serviceFrequency: "biweekly",
-      nextVisitDate: "2026-07-07",
+      nextVisitDate: routeDate,
       subtotal: 160,
       tax: 20.8,
       total: 180.8,
-      paymentStatus: "not_selected",
+      paymentStatus: "pending",
+      paymentMethod: "etransfer",
       photos: [],
-      propertyDetails: { lawnSize: "legacy", grassHeight: "4in", grassHandling: "bag_green_bin", backyard: true, gated: false, adminNotes: "Unassigned demo customer for dispatch testing." },
+      propertyDetails: { lawnSize: "legacy", grassHeight: "4in", grassHandling: "bag_green_bin", backyard: true, gated: false, adminNotes: "Tenth assigned test customer." },
     },
     {
       id: "DEMO-011",
@@ -2087,20 +2111,29 @@ export function generateAiRouteDraft(crew: string, day: string) {
   );
   return sorted;
 }
+export function saveSmartRouteDraft(crew: string, day: string, orderedIds: string[]) {
+  const key = `damasio_os_ai_route_draft_${crew}_${day}`;
+  const ordered = orderedIds.map(id => getLeads().find(lead => lead.id === id)).filter(Boolean) as Lead[];
+  if (typeof window !== "undefined") window.localStorage.setItem(key, JSON.stringify({ crew, day, ids: orderedIds, createdAt: new Date().toISOString(), published: false }));
+  addActivityLog("Route Optimizer", "Generated driving-time draft", crew, `${ordered.length} mapped home(s) optimized. Awaiting Admin approval.`);
+  return ordered;
+}
 export function publishAiRoute(crew: string, day: string) {
   const key = `damasio_os_ai_route_draft_${crew}_${day}`;
   if (typeof window === "undefined") return;
   const raw = window.localStorage.getItem(key);
   if (!raw) return;
   const draft = JSON.parse(raw) as { ids: string[] };
+  const positions = new Map(draft.ids.map((id, index) => [id, index + 1]));
   setLeads(
     getLeads().map((l) =>
-      draft.ids.includes(l.id)
+      positions.has(l.id)
         ? {
             ...l,
             assignedCrew: crew,
             serviceDay: day,
             status: "booked" as LeadStatus,
+            routeOrder: positions.get(l.id),
           }
         : l,
     ),

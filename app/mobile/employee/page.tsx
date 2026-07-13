@@ -4,6 +4,7 @@ import { useMobileRealtime } from "@/lib/mobile/useMobileRealtime";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
+import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
 import {
   DAMASIO_SYNC_EVENT,
   Lead,
@@ -42,6 +43,7 @@ export default function MobileEmployeeApp(){
   const skipPhotoInput=useRef<HTMLInputElement|null>(null);
   const photoInput=useRef<HTMLInputElement|null>(null);
   const profile=getEmployeeProfile();
+  const [crew,setCrew]=useState(profile.crew||"Crew A");
 
   function refresh(){
     try{
@@ -57,9 +59,9 @@ export default function MobileEmployeeApp(){
   }
 
   useMobileRealtime(refresh);
-  useEffect(()=>{refresh(); const on=()=>refresh(); window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener); window.addEventListener("storage",on); const t=window.setInterval(()=>setTick(v=>v+1),1000); return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);window.clearInterval(t)}},[]);
+  useEffect(()=>{refresh(); void loadEmployeeOperationalIdentity().then(identity=>setCrew(identity.crew)); const on=()=>refresh(); window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener); window.addEventListener("storage",on); const t=window.setInterval(()=>setTick(v=>v+1),1000); return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);window.clearInterval(t)}},[]);
 
-  const route=useMemo(()=>leads.filter(l=>l.assignedCrew==="Crew A").sort((a,b)=>(a.serviceDay||"").localeCompare(b.serviceDay||"")||a.address.localeCompare(b.address)),[leads]);
+  const route=useMemo(()=>leads.filter(l=>l.assignedCrew===crew).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew]);
   const selected=useMemo(()=>leads.find(l=>l.id===selectedId)||route[0]||null,[leads,route,selectedId]);
   const session=selected?getSessionForLead(selected.id):null;
   const workflow=selected?getLeadWorkflowSnapshot(selected):null;
@@ -70,9 +72,9 @@ export default function MobileEmployeeApp(){
     return session.durationSeconds||0;
   },[session,tick]);
   const tasks=useMemo(()=>{
-    try{return getEmployeeTasks().filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===profile.name||t.assignedTo==="Crew A"))}
+    try{return getEmployeeTasks().filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===profile.name||t.assignedTo===crew))}
     catch{return []}
-  },[leads,profile.name,tick]);
+  },[leads,profile.name,crew,tick]);
   const done=route.filter(l=>l.status==="completed").length;
   const skipped=route.filter(l=>getSessionForLead(l.id)?.status==="skipped").length;
 
@@ -80,7 +82,7 @@ export default function MobileEmployeeApp(){
   function start(){
     if(!selected||busy)return;
     setBusy(true); setError("");
-    try{startServiceSession(selected.id,profile.name,"Crew A"); refresh(); setMessage("Service started.")}
+    try{startServiceSession(selected.id,profile.name,crew); refresh(); setMessage("Service started.")}
     catch{setError("Service could not be started. Please try again.")}
     finally{setBusy(false)}
   }
@@ -112,7 +114,7 @@ export default function MobileEmployeeApp(){
   function confirmSkip(){
     if(!selected||busy)return;
     setBusy(true); setError("");
-    try{skipServiceSession(selected.id,skipComment,skipPhotos,profile.name,"Crew A"); setSkipOpen(false); refresh(); setMessage("House skipped. Admin and Dispatch were notified."); setTab("route")}
+    try{skipServiceSession(selected.id,skipComment,skipPhotos,profile.name,crew); setSkipOpen(false); refresh(); setMessage("House skipped. Admin and Dispatch were notified."); setTab("route")}
     catch{setError("House could not be skipped.")}
     finally{setBusy(false)}
   }

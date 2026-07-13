@@ -22,6 +22,8 @@ export type Database = {
       quotes: { Row: Quote; Insert: Partial<Quote>; Update: Partial<Quote> };
       invoices: { Row: Invoice; Insert: Partial<Invoice>; Update: Partial<Invoice> };
       payments: { Row: Payment; Insert: Partial<Payment>; Update: Partial<Payment> };
+      route_map_cache: { Row: RouteMapCacheRow; Insert: Partial<RouteMapCacheRow>; Update: Partial<RouteMapCacheRow> };
+      route_map_rebuild_queue: { Row: RouteMapRebuildQueueRow; Insert: Partial<RouteMapRebuildQueueRow>; Update: Partial<RouteMapRebuildQueueRow> };
     };
     Views: Record<string, never>;
     Functions: {
@@ -90,8 +92,16 @@ export type Property = {
   irrigation: boolean;
   access_notes: string | null;
   property_notes: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  geocoded_at: string | null;
+  geocode_provider: string | null;
+  geocode_status: "not_mapped" | "mapped" | "failed" | "needs_review";
   created_at: string;
 };
+
+export type RouteMapCacheRow = { route_id: string; company_id: string; geometry: Json | null; bounds: Json | null; distance_meters: number | null; duration_seconds: number | null; points_hash: string; status: "pending" | "ready" | "failed"; provider: string | null; error_message: string | null; rebuilt_at: string | null; updated_at: string };
+export type RouteMapRebuildQueueRow = { route_id: string; company_id: string; reason: string; attempts: number; requested_at: string; locked_at: string | null; last_error: string | null };
 
 export type ServiceRequest = { id: string; organization_id: string; customer_id: string | null; property_id: string | null; service_name: string; message: string | null; status: string; created_at: string };
 export type Job = { id: string; organization_id: string; customer_id: string | null; property_id: string | null; quote_id: string | null; invoice_id: string | null; service_name: string; frequency: ServiceFrequency; active: boolean; next_visit_date: string | null; created_at: string };

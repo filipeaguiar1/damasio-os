@@ -3,6 +3,8 @@
 import { ChangeEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { CompactFilter } from "@/components/admin/CompactFilter";
+import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
+import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
 import {
   finishServiceSession,
   formatClock,
@@ -20,7 +22,6 @@ import {
   saveServiceComment,
   seedDemoLeads,
   DAMASIO_WEEK_DAYS,
-  DAMASIO_CREWS,
   DAMASIO_SYNC_EVENT,
   seedEmployeeTasks,
   startServiceSession,
@@ -54,9 +55,9 @@ function grassLabel(value?: string){
 export default function EmployeeRoutePage(){
   const [leads,setLeads]=useState<Lead[]>([]);
   const [selectedId,setSelectedId]=useState<string>("");
-  const [crew,setCrew]=useState("Crew A");
+  const [crew,setCrew]=useState("");
   const [day,setDay]=useState("");
-  const [view,setView]=useState<"route"|"details"|"tasks"|"summary">("route");
+  const [view,setView]=useState<"route"|"map"|"details"|"tasks"|"summary">("route");
   const [tick,setTick]=useState(0);
   const [photoCount,setPhotoCount]=useState(0);
   const [tasks,setTasks]=useState(getEmployeeTasks());
@@ -83,13 +84,14 @@ export default function EmployeeRoutePage(){
     const params=new URLSearchParams(window.location.search);
     const qDay=params.get("day");
     const qProperty=params.get("property");
-    const qCrew=params.get("crew");
-    if(qCrew&&DAMASIO_CREWS.includes(qCrew))setCrew(qCrew);
+    const qView=params.get("view");
+    void loadEmployeeOperationalIdentity().then(identity=>setCrew(identity.crew));
     const today=DAMASIO_WEEK_DAYS[(new Date().getDay()+6)%7];
     if(qDay&&DAMASIO_WEEK_DAYS.includes(qDay))setDay(qDay);
     else setDay(today);
     refresh();
     if(qProperty){setSelectedId(qProperty);setView("details");}
+    else if(qView==="map")setView("map");
     const on=()=>refresh();
     window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener);
     window.addEventListener("storage",on);
@@ -101,7 +103,7 @@ export default function EmployeeRoutePage(){
     return()=>clearInterval(interval);
   },[]);
 
-  const allRouteLeads=useMemo(()=>leads.filter(l=>l.assignedCrew===crew && (!day || l.serviceDay===day)).sort((a,b)=>a.address.localeCompare(b.address)),[leads,crew,day]);
+  const allRouteLeads=useMemo(()=>leads.filter(l=>l.assignedCrew===crew && (!day || l.serviceDay===day)).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,day]);
   const routeLeads=useMemo(()=>allRouteLeads.filter(l=>routeFilter==="all"?true:routeFilter==="open"?l.status!=="completed":routeFilter==="done"?l.status==="completed":true),[allRouteLeads,routeFilter]);
   const selected=useMemo(()=>leads.find(l=>l.id===selectedId)||allRouteLeads[0]||null,[leads,allRouteLeads,selectedId]);
   const session=selected?getSessionForLead(selected.id):null;
@@ -240,6 +242,7 @@ export default function EmployeeRoutePage(){
 
     <div className="field-nav-tabs">
       <button className={view==="route"?"field-nav-tab active":"field-nav-tab"} onClick={()=>setView("route")}>Route</button>
+      <button className={view==="map"?"field-nav-tab active":"field-nav-tab"} onClick={()=>setView("map")}>Map</button>
       <button className={view==="tasks"?"field-nav-tab active":"field-nav-tab"} onClick={()=>setView("tasks")}>Service Issues {openTasks.length>0&&`(${openTasks.length})`}</button>
       <button className={view==="summary"?"field-nav-tab active":"field-nav-tab"} onClick={()=>setView("summary")}>Day Summary</button>
     </div>
@@ -248,7 +251,7 @@ export default function EmployeeRoutePage(){
       <div><strong>{crew}</strong><span>{selectedDateLabel} · {day} route</span></div>
       <span className="privacy-pill">Private route</span>
       <CompactFilter label="Route filter"><label><input type="radio" checked={routeFilter==="all"} onChange={()=>setRouteFilter("all")}/> All</label><label><input type="radio" checked={routeFilter==="open"} onChange={()=>setRouteFilter("open")}/> Open</label><label><input type="radio" checked={routeFilter==="done"} onChange={()=>setRouteFilter("done")}/> Done</label></CompactFilter>
-      <select value={crew} onChange={e=>{setCrew(e.target.value);setSelectedId("")}}>{DAMASIO_CREWS.map(c=><option key={c}>{c}</option>)}</select>
+      <div className="employee-assigned-crew"><small>Assigned crew</small><strong>{crew||"Loading…"}</strong></div>
       <select value={day} onChange={e=>{setDay(e.target.value);setSelectedId("")}}>{DAMASIO_WEEK_DAYS.map(d=><option key={d}>{d}</option>)}</select>
     </div>
 
@@ -300,6 +303,25 @@ export default function EmployeeRoutePage(){
           <div className={lead.status==="completed"?"done-pill":"done-pill open"}>{lead.status==="completed"?"Done":"Open"}</div>
         </div>)}
       </div>
+    </main>}
+
+    {view==="map"&&<main className="employee-web-map-shell">
+      <aside className="employee-web-map-sidebar">
+        <div className="employee-web-map-sidebar-head"><span className="eyebrow">Today&apos;s route</span><strong>{routeLeads.length} visits</strong><small>{completed} completed</small></div>
+        <div className="employee-web-map-route-list">
+          {routeLeads.map((lead,index)=>{
+            const leadSession=getSessionForLead(lead.id);
+            const attention=tasks.some(task=>task.leadId===lead.id&&task.status!=="resolved");
+            const nextId=routeLeads.find(item=>item.status!=="completed"&&getSessionForLead(item.id)?.status!=="skipped")?.id;
+            const state=attention?"attention":leadSession?.status==="skipped"?"skipped":lead.status==="completed"?"completed":lead.id===nextId?"next":"pending";
+            return <button type="button" key={lead.id} className={`employee-web-map-route-item ${state}`} onClick={()=>openLead(lead)}>
+              <span>{index+1}</span><div><strong>{lead.address||"Not mapped"}</strong><small>{lead.service}</small></div><em>{state==="attention"?"Needs attention":state==="next"?"Next visit":state}</em>
+            </button>;
+          })}
+          {routeLeads.length===0&&<div className="employee-web-map-empty">No visits assigned to this route.</div>}
+        </div>
+      </aside>
+      <EmployeeRouteMap route={routeLeads} onOpenVisit={openLead} desktop />
     </main>}
 
     {view==="summary"&&<main className="field-container">
