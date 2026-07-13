@@ -14,7 +14,7 @@ export function PortalShell({children,active,type}:{children:React.ReactNode;act
   return <div className="admin-pro-shell portal-pro-shell">
     <aside className="pro-sidebar">
       <Link href={base} className="season-logo" aria-label="Damasio Seasons portal">
-        <div className="season-title"><span>{type==="Employee"?"DAMASIU":"DAMASIO"}</span><strong>SEASONS</strong></div>
+        <div className="season-title"><span>DAMASIO</span><strong>SEASONS</strong></div>
         <div className="grass-mask" aria-hidden="true"><span></span><span></span><span></span></div>
         <div className="mower-man" aria-hidden="true"><i className="head"></i><i className="body"></i><i className="leg one"></i><i className="leg two"></i><i className="arm"></i><i className="mower"></i></div>
       </Link>
