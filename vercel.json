@@ -3,5 +3,5 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build",
   "outputDirectory": ".next",
-  "crons": [{ "path": "/api/map/rebuild", "schedule": "* * * * *" }]
+  "crons": [{ "path": "/api/map/rebuild", "schedule": "0 5 * * *" }]
 }
