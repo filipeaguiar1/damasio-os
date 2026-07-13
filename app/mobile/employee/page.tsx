@@ -7,6 +7,7 @@ import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
 import {
   DAMASIO_SYNC_EVENT,
+  DAMASIO_WEEK_DAYS,
   Lead,
   finishServiceSession,
   formatDuration,
@@ -61,8 +62,9 @@ export default function MobileEmployeeApp(){
   useMobileRealtime(refresh);
   useEffect(()=>{refresh(); void loadEmployeeOperationalIdentity().then(identity=>setCrew(identity.crew)); const on=()=>refresh(); window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener); window.addEventListener("storage",on); const t=window.setInterval(()=>setTick(v=>v+1),1000); return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);window.clearInterval(t)}},[]);
 
-  const route=useMemo(()=>leads.filter(l=>l.assignedCrew===crew).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew]);
-  const selected=useMemo(()=>leads.find(l=>l.id===selectedId)||route[0]||null,[leads,route,selectedId]);
+  const todayDay=DAMASIO_WEEK_DAYS[(new Date().getDay()+6)%7];
+  const route=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&l.serviceDay===todayDay).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,todayDay]);
+  const selected=useMemo(()=>route.find(l=>l.id===selectedId)||route[0]||null,[route,selectedId]);
   const session=selected?getSessionForLead(selected.id):null;
   const workflow=selected?getLeadWorkflowSnapshot(selected):null;
   const details=selected?.propertyDetails;

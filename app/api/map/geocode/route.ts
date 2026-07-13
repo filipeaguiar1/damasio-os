@@ -22,6 +22,7 @@ function searchCandidates(value: string) {
 export async function GET(request: NextRequest) {
   const address = request.nextUrl.searchParams.get("address")?.trim();
   if (!address) return NextResponse.json({ error: "Address is required." }, { status: 400 });
+  if (address.length > 240) return NextResponse.json({ error: "Address is too long." }, { status: 400 });
 
   try {
     let match: { lat: string; lon: string; display_name?: string } | undefined;

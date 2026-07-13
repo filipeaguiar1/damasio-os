@@ -11,8 +11,11 @@ export async function POST(request: NextRequest) {
     if (!Array.isArray(coordinates) || coordinates.length < 2 || coordinates.length > 75) {
       return NextResponse.json({ error: "Provide between 2 and 75 route points." }, { status: 400 });
     }
+    if (coordinates.some(point => !Array.isArray(point) || point.length !== 2)) {
+      return NextResponse.json({ error: "Invalid route coordinate format." }, { status: 400 });
+    }
     const clean = coordinates.map(([longitude, latitude]) => [Number(longitude), Number(latitude)] as Coordinate);
-    if (clean.some(([longitude, latitude]) => !Number.isFinite(longitude) || !Number.isFinite(latitude))) {
+    if (clean.some(([longitude, latitude]) => !Number.isFinite(longitude) || !Number.isFinite(latitude) || longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90)) {
       return NextResponse.json({ error: "Invalid route coordinates." }, { status: 400 });
     }
 

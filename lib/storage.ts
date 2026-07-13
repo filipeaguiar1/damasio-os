@@ -751,7 +751,17 @@ export function getLead(id: string) {
   return getLeads().find((l) => l.id === id) || null;
 }
 export function updateLead(id: string, patch: Partial<Lead>) {
-  setLeads(getLeads().map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  setLeads(getLeads().map((l) => {
+    if (l.id !== id) return l;
+    const addressChanged = typeof patch.address === "string" && patch.address.trim().toLowerCase() !== l.address.trim().toLowerCase();
+    return {
+      ...l,
+      ...patch,
+      ...(addressChanged && patch.latitude === undefined && patch.longitude === undefined
+        ? { latitude: undefined, longitude: undefined }
+        : {}),
+    };
+  }));
   addActivityLog(
     "Admin",
     "Updated lead",
@@ -2113,8 +2123,18 @@ export function generateAiRouteDraft(crew: string, day: string) {
 }
 export function saveSmartRouteDraft(crew: string, day: string, orderedIds: string[]) {
   const key = `damasio_os_ai_route_draft_${crew}_${day}`;
-  const ordered = orderedIds.map(id => getLeads().find(lead => lead.id === id)).filter(Boolean) as Lead[];
-  if (typeof window !== "undefined") window.localStorage.setItem(key, JSON.stringify({ crew, day, ids: orderedIds, createdAt: new Date().toISOString(), published: false }));
+  const routeHomes = getLeads().filter(lead => lead.assignedCrew === crew && lead.serviceDay === day);
+  const allowed = new Set(routeHomes.map(lead => lead.id));
+  const safeIds = [...new Set(orderedIds.filter(id => allowed.has(id)))];
+  const ordered = safeIds.map(id => routeHomes.find(lead => lead.id === id)).filter(Boolean) as Lead[];
+  let previousOrder = routeHomes.sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999)).map(lead => lead.id);
+  if (typeof window !== "undefined") {
+    try {
+      const existing = JSON.parse(window.localStorage.getItem(key) || "null") as { previousOrder?: string[] } | null;
+      if (Array.isArray(existing?.previousOrder)) previousOrder = existing.previousOrder;
+    } catch { /* replace an invalid draft safely */ }
+    window.localStorage.setItem(key, JSON.stringify({ crew, day, ids: safeIds, previousOrder, createdAt: new Date().toISOString(), published: false }));
+  }
   addActivityLog("Route Optimizer", "Generated driving-time draft", crew, `${ordered.length} mapped home(s) optimized. Awaiting Admin approval.`);
   return ordered;
 }
@@ -2123,8 +2143,16 @@ export function publishAiRoute(crew: string, day: string) {
   if (typeof window === "undefined") return;
   const raw = window.localStorage.getItem(key);
   if (!raw) return;
-  const draft = JSON.parse(raw) as { ids: string[] };
-  const positions = new Map(draft.ids.map((id, index) => [id, index + 1]));
+  let draft: { ids: string[]; previousOrder?: string[] };
+  try { draft = JSON.parse(raw) as { ids: string[]; previousOrder?: string[] }; }
+  catch { window.localStorage.removeItem(key); return; }
+  if (!Array.isArray(draft.ids)) { window.localStorage.removeItem(key); return; }
+  const routeHomes = getLeads().filter(l => l.assignedCrew === crew && l.serviceDay === day);
+  const allowed = new Set(routeHomes.map(l => l.id));
+  const optimized = [...new Set(draft.ids.filter(id => allowed.has(id)))];
+  const remaining = routeHomes.filter(l => !optimized.includes(l.id)).sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999)).map(l => l.id);
+  const publishedIds = [...optimized, ...remaining];
+  const positions = new Map(publishedIds.map((id, index) => [id, index + 1]));
   setLeads(
     getLeads().map((l) =>
       positions.has(l.id)
@@ -2141,7 +2169,8 @@ export function publishAiRoute(crew: string, day: string) {
   window.localStorage.setItem(
     key,
     JSON.stringify({
-      ...JSON.parse(raw),
+      ...draft,
+      ids: publishedIds,
       published: true,
       publishedAt: new Date().toISOString(),
     }),
@@ -2150,13 +2179,22 @@ export function publishAiRoute(crew: string, day: string) {
     "Admin",
     "Published AI route",
     crew,
-    `${draft.ids.length} home(s) published to Employee Dashboard.`,
+    `${publishedIds.length} home(s) published to Employee Dashboard.`,
   );
   broadcastOperationsChange(`Published route for ${crew}.`);
 }
 export function undoAiRoute(crew: string, day: string) {
   const key = `damasio_os_ai_route_draft_${crew}_${day}`;
-  if (typeof window !== "undefined") window.localStorage.removeItem(key);
+  if (typeof window !== "undefined") {
+    try {
+      const draft = JSON.parse(window.localStorage.getItem(key) || "null") as { published?: boolean; previousOrder?: string[] } | null;
+      if (draft?.published && Array.isArray(draft.previousOrder)) {
+        const positions = new Map(draft.previousOrder.map((id, index) => [id, index + 1]));
+        setLeads(getLeads().map(lead => lead.assignedCrew === crew && lead.serviceDay === day && positions.has(lead.id) ? { ...lead, routeOrder: positions.get(lead.id) } : lead));
+      }
+    } catch { /* an invalid draft can still be discarded */ }
+    window.localStorage.removeItem(key);
+  }
   addActivityLog(
     "Admin",
     "Undo AI route",

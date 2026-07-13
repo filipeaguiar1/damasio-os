@@ -11,7 +11,8 @@ declare global { interface Window { L?: any } }
 type RoutePoint = Lead & { lat:number; lng:number; color:string; label:string };
 const HAMILTON={lat:43.2557,lng:-79.8711};
 function stateFor(lead:Lead){
-  const sessions=typeof window!=="undefined"?JSON.parse(localStorage.getItem("damasio_os_service_sessions")||"[]"):[];
+  let sessions:any[]=[];
+  if(typeof window!=="undefined")try{const parsed=JSON.parse(localStorage.getItem("damasio_os_service_sessions")||"[]");sessions=Array.isArray(parsed)?parsed:[]}catch{/* ignore invalid local cache */}
   const session=sessions.find((s:any)=>s.leadId===lead.id);
   const issue=getEmployeeTasks().some(t=>t.leadId===lead.id&&t.status!=="resolved");
   if(issue)return{color:"#dc2626",label:"Issue"};
@@ -63,6 +64,7 @@ export default function RouteMap(){
       })).then(values=>values.filter((home):home is Lead=>Boolean(home)));
       if(cancelled)return;
       setLocated(mapped);
+      if(mapped.length<2){setRoadGeometry([]);return}
       if(mapped.length>1){
         const coordinates=mapped.map(home=>[Number(home.longitude),Number(home.latitude)] as [number,number]);
         const cached=readRoadGeometry(coordinates);

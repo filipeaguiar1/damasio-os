@@ -105,7 +105,7 @@ export default function EmployeeRoutePage(){
 
   const allRouteLeads=useMemo(()=>leads.filter(l=>l.assignedCrew===crew && (!day || l.serviceDay===day)).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,day]);
   const routeLeads=useMemo(()=>allRouteLeads.filter(l=>routeFilter==="all"?true:routeFilter==="open"?l.status!=="completed":routeFilter==="done"?l.status==="completed":true),[allRouteLeads,routeFilter]);
-  const selected=useMemo(()=>leads.find(l=>l.id===selectedId)||allRouteLeads[0]||null,[leads,allRouteLeads,selectedId]);
+  const selected=useMemo(()=>allRouteLeads.find(l=>l.id===selectedId)||allRouteLeads[0]||null,[allRouteLeads,selectedId]);
   const session=selected?getSessionForLead(selected.id):null;
   const openTasks=tasks.filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===profile.name||t.assignedTo===crew));
 

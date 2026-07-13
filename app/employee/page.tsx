@@ -4,15 +4,16 @@ import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {PortalShell} from "@/components/admin/PortalShell";
 import {EmployeeRouteMap} from "@/components/mobile/EmployeeRouteMap";
-import {DAMASIO_SYNC_EVENT,Lead,getEmployeeProfile,getEmployeeTasks,getLeads,hasChecklistToday,seedDemoLeads,updateEmployeeTaskStatus,returnEmployeeTaskToAdmin,simulateCustomerServiceComplete} from "@/lib/storage";
+import {DAMASIO_SYNC_EVENT,DAMASIO_WEEK_DAYS,Lead,getEmployeeProfile,getEmployeeTasks,getLeads,hasChecklistToday,seedDemoLeads,updateEmployeeTaskStatus,returnEmployeeTaskToAdmin,simulateCustomerServiceComplete} from "@/lib/storage";
 import {loadEmployeeOperationalIdentity} from "@/lib/services/employeeIdentityService";
 
 export default function Employee(){
   const router=useRouter();
   const profile=getEmployeeProfile();const[done,setDone]=useState(true);const[leads,setLeads]=useState<Lead[]>([]);const[crew,setCrew]=useState(profile.crew||"Crew A");const[employeeName,setEmployeeName]=useState(profile.name);const[sync,setSync]=useState("");const[filter,setFilter]=useState<"assigned"|"pending"|"completed"|"issues">("assigned");const[notificationOpen,setNotificationOpen]=useState(false);const[notificationSeen,setNotificationSeen]=useState(false);
-  function refresh(){setDone(hasChecklistToday(employeeName));setLeads(getLeads());const raw=typeof window!=="undefined"?window.localStorage.getItem("damasio_os_last_sync"):"";setSync(raw?JSON.parse(raw).message:"")}
+  function refresh(){setDone(hasChecklistToday(employeeName));setLeads(getLeads());const raw=typeof window!=="undefined"?window.localStorage.getItem("damasio_os_last_sync"):"";try{setSync(raw?String(JSON.parse(raw)?.message||""):"")}catch{setSync("")}}
   useEffect(()=>{seedDemoLeads();refresh();void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setEmployeeName(identity.name)});const onSync=()=>refresh();window.addEventListener(DAMASIO_SYNC_EVENT,onSync as EventListener);window.addEventListener("storage",onSync);const t=setInterval(refresh,2500);return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,onSync as EventListener);window.removeEventListener("storage",onSync);clearInterval(t)}},[]);
-  const jobs=useMemo(()=>leads.filter(l=>l.assignedCrew===crew).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew]);
+  const todayDay=DAMASIO_WEEK_DAYS[(new Date().getDay()+6)%7];
+  const jobs=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&l.serviceDay===todayDay).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,todayDay]);
   const tasks=getEmployeeTasks().filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===employeeName||t.assignedTo===crew));
   const pending=jobs.filter(j=>j.status!=="completed");
   const completed=jobs.filter(j=>j.status==="completed");

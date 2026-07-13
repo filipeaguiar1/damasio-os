@@ -2,18 +2,19 @@
 import {ChangeEvent,useEffect,useState} from "react";
 import Link from "next/link";
 import {useParams} from "next/navigation";
-import {Lead,getLead,getLeads,updateEmployeeTaskStatus,getEmployeeTasks,setPropertyPhoto} from "@/lib/storage";
+import {Lead,getLeads,updateEmployeeTaskStatus,getEmployeeTasks,setPropertyPhoto} from "@/lib/storage";
+import {loadEmployeeOperationalIdentity} from "@/lib/services/employeeIdentityService";
 function hasValidAddress(address?: string){return Boolean(address && address.trim().length>5)}
 function mapsHref(address:string){return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`}
 function grassLabel(value?: string){if(value==="mulched")return "Mulched";if(value==="bag_green_bin")return "Bag to green bin";if(value==="bag_leave_property")return "Bag and leave";return "No preference"}
 function fileToDataUrl(file: File){return new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=reject;reader.readAsDataURL(file);});}
 export default function EmployeeProperty(){
   const params=useParams<{id:string}>();
-  const[lead,setLead]=useState<Lead|null>(null);const[message,setMessage]=useState("");
-  useEffect(()=>{if(params?.id)setLead(getLead(params.id))},[params?.id]);
+  const[lead,setLead]=useState<Lead|null>(null);const[message,setMessage]=useState("");const[identity,setIdentity]=useState<{name:string;crew:string}|null>(null);
+  useEffect(()=>{let active=true;void loadEmployeeOperationalIdentity().then(value=>{if(!active)return;setIdentity(value);setLead(getLeads().find(item=>item.id===params?.id&&item.assignedCrew===value.crew)||null)});return()=>{active=false}},[params?.id]);
   async function upload(e:ChangeEvent<HTMLInputElement>){const file=e.target.files?.[0];if(!file||!lead)return;const data=await fileToDataUrl(file);setPropertyPhoto(lead.id,data);setLead(getLeads().find(l=>l.id===lead.id)||lead);setMessage("Official property photo saved.")}
-  if(!lead)return <div className="field-shell"><div className="field-topbar"><Link className="btn btn-outline" href="/employee/route">Back Route</Link></div><main className="field-container"><div className="field-card" style={{padding:24}}><h1>Property not found</h1></div></main></div>;
-  const details=lead.propertyDetails;const openTasks=getEmployeeTasks().filter(t=>t.leadId===lead.id&&(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo==="Filipe"||t.assignedTo==="Crew A"));
+  if(!lead)return <div className="field-shell"><div className="field-topbar"><Link className="btn btn-outline" href="/employee/route">Back Route</Link></div><main className="field-container"><div className="field-card" style={{padding:24}}><h1>{identity?"Property not assigned to your crew":"Loading property..."}</h1></div></main></div>;
+  const details=lead.propertyDetails;const openTasks=getEmployeeTasks().filter(t=>t.leadId===lead.id&&(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===identity?.name||t.assignedTo===identity?.crew));
   return <div className="field-shell"><div className="field-topbar"><div className="field-brand-mini"><div className="field-brand-mark">D</div><div>Damasio Field</div></div><Link className="btn btn-outline" href="/employee/route">Back to Route</Link></div>
     <main className="field-container"><div className="house-image">{lead.propertyPhoto?<img src={lead.propertyPhoto} alt="Official property"/>:<div className="house-placeholder">🏠</div>}{hasValidAddress(lead.address)?<a className="direction-btn" href={mapsHref(lead.address)} target="_blank" rel="noopener noreferrer">Get directions</a>:<span className="direction-btn disabled">Address missing</span>}</div>
     <div className="field-card" style={{padding:16,marginBottom:18}}><strong>Official property photo</strong><p className="section-intro">On the first visit, upload the front photo of the house. It becomes the default property photo for this address.</p><input className="input" type="file" accept="image/*" onChange={upload}/></div>
