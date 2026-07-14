@@ -32,6 +32,8 @@ function statusLabel(lead:Lead, session?:ReturnType<typeof getSessionForLead>){r
 function timeLabel(value?:string){return value?new Date(value).toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"}):"—"}
 function handlingLabel(value?:string){return ({mulched:"Mulched",bag_green_bin:"Green bin",bag_leave_property:"Bagged",no_preference:"No preference"} as Record<string,string>)[value||""]||"No preference"}
 function localDateKey(date:Date){const year=date.getFullYear();const month=String(date.getMonth()+1).padStart(2,"0");const day=String(date.getDate()).padStart(2,"0");return `${year}-${month}-${day}`}
+function mondayKey(date:Date){const monday=new Date(date);const day=(monday.getDay()+6)%7;monday.setDate(monday.getDate()-day);return localDateKey(monday)}
+function shiftDateKey(value:string,days:number){const date=new Date(`${value}T12:00:00`);date.setDate(date.getDate()+days);return localDateKey(date)}
 
 export default function MobileEmployeeApp(){
   const [leads,setLeads]=useState<Lead[]>([]);
@@ -46,6 +48,7 @@ export default function MobileEmployeeApp(){
   const [skipOpen,setSkipOpen]=useState(false);
   const [contractOpen,setContractOpen]=useState(true);
   const [selectedDate,setSelectedDate]=useState(()=>localDateKey(new Date()));
+  const [weekStart,setWeekStart]=useState(()=>mondayKey(new Date()));
   const [routeReload,setRouteReload]=useState(0);
   const [skipComment,setSkipComment]=useState("");
   const [skipPhotos,setSkipPhotos]=useState<string[]>([]);
@@ -78,7 +81,9 @@ export default function MobileEmployeeApp(){
   useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,selectedDate,routeReload]);
   const route=useMemo(()=>applyEmployeeRouteMapContext(localRoute,mapContext),[localRoute,mapContext]);
   const mapRoute=route;
-  const dayOptions=useMemo(()=>Array.from({length:15},(_,index)=>{const date=new Date();date.setDate(date.getDate()+index-7);return{key:localDateKey(date),weekday:date.toLocaleDateString("en-CA",{weekday:"short"}),day:date.getDate()}}),[]);
+  const dayOptions=useMemo(()=>Array.from({length:7},(_,index)=>{const date=new Date(`${weekStart}T12:00:00`);date.setDate(date.getDate()+index);return{key:localDateKey(date),weekday:date.toLocaleDateString("en-CA",{weekday:"short"}),day:date.getDate()}}),[weekStart]);
+  const weekLabel=`${new Date(`${weekStart}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"})} – ${new Date(`${shiftDateKey(weekStart,6)}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"})}`;
+  function moveWeek(days:-7|7){setWeekStart(current=>shiftDateKey(current,days));setSelectedDate(current=>shiftDateKey(current,days));setSelectedId("");setTab("route")}
   const selected=useMemo(()=>route.find(l=>l.id===selectedId)||route[0]||null,[route,selectedId]);
   const session=selected?getSessionForLead(selected.id):null;
   const workflow=selected?getLeadWorkflowSnapshot(selected):null;
@@ -166,9 +171,12 @@ export default function MobileEmployeeApp(){
 
     {error&&<p className="mobile-message mobile-error" role="alert">{error}</p>}
 
-    <nav className="employee-day-strip" aria-label="Route days">
-      {dayOptions.map(item=><button key={item.key} className={selectedDate===item.key?"active":item.key<todayKey?"past":""} onClick={()=>{setSelectedDate(item.key);setSelectedId("");setTab("route")}}><span>{item.weekday}</span><strong>{item.day}</strong>{item.key===todayKey&&<i>Today</i>}</button>)}
-    </nav>
+    <section className="employee-week-picker">
+      <div><button type="button" aria-label="Previous week" onClick={()=>moveWeek(-7)}>‹</button><strong>{weekLabel}</strong><button type="button" aria-label="Next week" onClick={()=>moveWeek(7)}>›</button></div>
+      <nav className="employee-day-strip" aria-label="Route days">
+        {dayOptions.map(item=><button key={item.key} className={selectedDate===item.key?"active":item.key<todayKey?"past":""} onClick={()=>{setSelectedDate(item.key);setSelectedId("");setTab("route")}}><span>{item.weekday}</span><strong>{item.day}</strong>{item.key===todayKey&&<i>Today</i>}</button>)}
+      </nav>
+    </section>
 
     <section className="employee-mobile-progress">
       <div><strong>{selectedDate===todayKey?"Today’s Route":new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"})}</strong><span>{done} / {route.length} completed</span></div>
