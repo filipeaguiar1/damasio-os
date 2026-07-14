@@ -5,6 +5,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
+import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, routeDateForWeekday, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
 import {
   DAMASIO_SYNC_EVENT,
   DAMASIO_WEEK_DAYS,
@@ -45,6 +46,7 @@ export default function MobileEmployeeApp(){
   const photoInput=useRef<HTMLInputElement|null>(null);
   const profile=getEmployeeProfile();
   const [crew,setCrew]=useState(profile.crew||"Crew A");
+  const [mapContext,setMapContext]=useState<EmployeeRouteMapContext>({routeId:null,stops:[]});
 
   function refresh(){
     try{
@@ -64,6 +66,8 @@ export default function MobileEmployeeApp(){
 
   const todayDay=DAMASIO_WEEK_DAYS[(new Date().getDay()+6)%7];
   const route=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&l.serviceDay===todayDay).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,todayDay]);
+  useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(routeDateForWeekday(todayDay),crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,todayDay]);
+  const mapRoute=useMemo(()=>applyEmployeeRouteMapContext(route,mapContext),[route,mapContext]);
   const selected=useMemo(()=>route.find(l=>l.id===selectedId)||route[0]||null,[route,selectedId]);
   const session=selected?getSessionForLead(selected.id):null;
   const workflow=selected?getLeadWorkflowSnapshot(selected):null;
@@ -167,7 +171,7 @@ export default function MobileEmployeeApp(){
           <div><strong>{lead.name}</strong><p>{lead.address}</p><em>{lead.serviceFrequency||"weekly"} · Next: {lead.nextVisitDate||lead.scheduledDate||"—"}</em></div>
           <b className={lead.status==="completed"?"mobile-status done":getSessionForLead(lead.id)?.status==="skipped"?"mobile-status skipped":"mobile-status"}>{statusLabel(lead,getSessionForLead(lead.id))}</b>
         </button>)}
-      </section>:<EmployeeRouteMap route={route} onOpenVisit={openService}/>}
+      </section>:<EmployeeRouteMap route={mapRoute} routeId={mapContext.routeId||undefined} onOpenVisit={openService}/>}
     </>}
 
     {tab==="service"&&selected&&<section className="mobile-service-screen mobile-browser-service">
