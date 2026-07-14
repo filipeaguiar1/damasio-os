@@ -13,9 +13,6 @@ export default function AddClientPage(){
     subtotal:"45",
     tax:"5.85",
     total:"50.85",
-    scheduledDate:"",
-    scheduledWindow:"Morning",
-    assignedCrew:"Crew A",
     notes:"",
     lawnSize:"small" as LawnSize,
     grassHeight:"3in" as GrassHeight,
@@ -49,8 +46,11 @@ export default function AddClientPage(){
         gate: form.gated === "yes",
         accessNotes: form.accessNotes,
         propertyNotes: [form.adminNotes, form.propertyAlerts, `Grass handling: ${form.grassHandling}`].filter(Boolean).join(" | "),
+        serviceName:form.service,
+        frequency:form.service.includes("Biweekly")?"biweekly":form.service.includes("Weekly")?"weekly":form.service.includes("Monthly")?"monthly":"one_time",
+        subtotal:Number(form.subtotal||0),
       });
-      setMessage("Client saved to Supabase successfully.");
+      setMessage("Client, property and active job saved. It is now available in Dispatch.");
     } catch (error) {
       setMessage(error instanceof Error ? `Action needed: ${error.message}` : "Could not save client.");
     }
@@ -85,12 +85,7 @@ export default function AddClientPage(){
           <div className="field"><label>Total</label><input className="input" value={form.total} onChange={e=>setForm({...form,total:e.target.value})}/></div>
         </div>
 
-        <h2>Admin Schedule / Notes</h2>
-        <div className="form-grid">
-          <div className="field"><label>Service Date (Admin Only)</label><input className="input" type="date" value={form.scheduledDate} onChange={e=>setForm({...form,scheduledDate:e.target.value})}/></div>
-          <div className="field"><label>Window</label><select className="input" value={form.scheduledWindow} onChange={e=>setForm({...form,scheduledWindow:e.target.value})}><option>Morning</option><option>Afternoon</option><option>Evening</option><option>Flexible</option></select></div>
-          <div className="field"><label>Crew</label><select className="input" value={form.assignedCrew} onChange={e=>setForm({...form,assignedCrew:e.target.value})}><option>Crew A</option><option>Crew B</option><option>Filipe</option><option>Unassigned</option></select></div>
-        </div>
+        <h2>Admin Notes</h2>
         <div className="field"><label>Access Notes</label><textarea className="input" value={form.accessNotes} onChange={e=>setForm({...form,accessNotes:e.target.value})}/></div>
         <div className="field"><label>Property Alerts</label><textarea className="input" value={form.propertyAlerts} onChange={e=>setForm({...form,propertyAlerts:e.target.value})}/></div>
         <div className="field"><label>Admin Notes</label><textarea className="input" value={form.adminNotes} onChange={e=>setForm({...form,adminNotes:e.target.value})}/></div>
