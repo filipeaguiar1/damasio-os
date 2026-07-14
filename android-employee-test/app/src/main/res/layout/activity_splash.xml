@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/splash_background"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="32dp">
+
+    <TextView
+        android:id="@+id/splashMark"
+        android:layout_width="104dp"
+        android:layout_height="104dp"
+        android:background="@drawable/splash_mark"
+        android:elevation="14dp"
+        android:gravity="center"
+        android:text="D"
+        android:textColor="#FFFFFF"
+        android:textSize="48sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/splashTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:letterSpacing="0.08"
+        android:text="DAMASIO"
+        android:textColor="#FFFFFF"
+        android:textSize="30sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/splashSubtitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="EMPLOYEE  •  FIELD APP"
+        android:textColor="#BDE8CE"
+        android:textSize="13sp"
+        android:textStyle="bold" />
+
+    <View
+        android:id="@+id/splashLoader"
+        android:layout_width="148dp"
+        android:layout_height="4dp"
+        android:layout_marginTop="34dp"
+        android:background="@drawable/splash_loader" />
+</LinearLayout>
