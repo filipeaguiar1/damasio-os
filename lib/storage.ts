@@ -100,6 +100,10 @@ export type Lead = {
   latitude?: number;
   longitude?: number;
   routeOrder?: number;
+  canonicalVisitId?: string;
+  visitStartedAt?: string;
+  visitFinishedAt?: string;
+  visitDurationSeconds?: number;
 };
 export type Expense = {
   id: string;
