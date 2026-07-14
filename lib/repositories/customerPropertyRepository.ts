@@ -39,6 +39,9 @@ export type CreateCustomerPropertyInput = {
   irrigation?: boolean;
   accessNotes?: string;
   propertyNotes?: string;
+  serviceName?: string;
+  frequency?: "weekly"|"biweekly"|"monthly"|"adaptive"|"one_time";
+  subtotal?: number;
 };
 
 type RpcRecord = {
