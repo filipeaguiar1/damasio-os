@@ -14,13 +14,14 @@ export default function Employee(){
   function refresh(){setDone(hasChecklistToday(employeeName));setLeads(getLeads());const raw=typeof window!=="undefined"?window.localStorage.getItem("damasio_os_last_sync"):"";try{setSync(raw?String(JSON.parse(raw)?.message||""):"")}catch{setSync("")}}
   useEffect(()=>{seedDemoLeads();refresh();void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setEmployeeName(identity.name)});const onSync=()=>refresh();window.addEventListener(DAMASIO_SYNC_EVENT,onSync as EventListener);window.addEventListener("storage",onSync);const t=setInterval(refresh,2500);return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,onSync as EventListener);window.removeEventListener("storage",onSync);clearInterval(t)}},[]);
   const todayDay=DAMASIO_WEEK_DAYS[(new Date().getDay()+6)%7];
-  const jobs=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&l.serviceDay===todayDay).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,todayDay]);
+  const localJobs=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&l.serviceDay===todayDay).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,todayDay]);
   useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(routeDateForWeekday(todayDay),crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,todayDay]);
+  const jobs=useMemo(()=>applyEmployeeRouteMapContext(localJobs,mapContext),[localJobs,mapContext]);
   const tasks=getEmployeeTasks().filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===employeeName||t.assignedTo===crew));
   const pending=jobs.filter(j=>j.status!=="completed");
   const completed=jobs.filter(j=>j.status==="completed");
   const visible=filter==="pending"?pending:filter==="completed"?completed:jobs;
-  const mapVisible=useMemo(()=>applyEmployeeRouteMapContext(visible,mapContext),[visible,mapContext]);
+  const mapVisible=visible;
   const currentDay=jobs[0]?.serviceDay||new Date().toLocaleDateString([], {weekday:"long"});
   function dateForDay(day:string){const days=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];const now=new Date();const current=(now.getDay()+6)%7;const target=days.indexOf(day);const d=new Date(now);if(target>=0)d.setDate(now.getDate()+target-current);return d.toLocaleDateString([], {weekday:"long", month:"long", day:"numeric", year:"numeric"});}
   const todayLabel=dateForDay(currentDay);
