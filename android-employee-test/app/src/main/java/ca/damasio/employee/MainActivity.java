@@ -32,6 +32,7 @@ import java.io.IOException;
 public class MainActivity extends Activity {
     private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile/employee";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
+    private static final String EMPLOYEE_PATH = "/mobile/employee";
     private static final int FILE_CHOOSER_REQUEST = 4101;
     private static final int PERMISSION_REQUEST = 4102;
 
@@ -80,7 +81,12 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
-                if ("https".equals(uri.getScheme()) && APP_HOST.equals(uri.getHost())) return false;
+                if (isEmployeeUrl(uri)) return false;
+                if ("https".equals(uri.getScheme()) && APP_HOST.equals(uri.getHost())) {
+                    view.loadUrl(APP_URL);
+                    Toast.makeText(MainActivity.this, "This app is for Employee access only.", Toast.LENGTH_SHORT).show();
+                    return true;
+                }
                 openExternal(uri);
                 return true;
             }
@@ -126,6 +132,12 @@ public class MainActivity extends Activity {
         });
 
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, length) -> openExternal(Uri.parse(url)));
+    }
+
+    private boolean isEmployeeUrl(Uri uri) {
+        if (!"https".equals(uri.getScheme()) || !APP_HOST.equals(uri.getHost())) return false;
+        String path = uri.getPath();
+        return path != null && (path.equals(EMPLOYEE_PATH) || path.startsWith(EMPLOYEE_PATH + "/"));
     }
 
     private void requestOptionalPermissions() {
@@ -205,8 +217,9 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
+        Uri current = Uri.parse(webView.getUrl() == null ? APP_URL : webView.getUrl());
+        if (!isEmployeeUrl(current)) webView.loadUrl(APP_URL);
+        else moveTaskToBack(true);
     }
 
     @Override
