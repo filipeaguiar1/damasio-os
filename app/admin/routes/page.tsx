@@ -4,7 +4,10 @@ import Link from "next/link";
 import {AdminShell} from "@/components/admin/AdminShell";
 import {CompactFilter} from "@/components/admin/CompactFilter";
 import {AddressAutocomplete} from "@/components/home/AddressAutocomplete";
-import {DAMASIO_CREWS,DAMASIO_SYNC_EVENT,DAMASIO_WEEK_DAYS,Lead,calculateVisitStatus,getLeads,getRegionFromAddress,publishAiRoute,saveSmartRouteDraft,seedDemoLeads,undoAiRoute,updateHomeSchedule,updateLead,moveHomesToCrew} from "@/lib/storage";
+import {DAMASIO_CREWS,DAMASIO_WEEK_DAYS,Lead,calculateVisitStatus,getRegionFromAddress} from "@/lib/storage";
+import {loadSchedulingDispatchBoard,rescheduleVisit,schedulingBoardToLeads} from "@/lib/services/schedulingService";
+import {routeDateForWeekday} from "@/lib/services/routeMapService";
+import type {DispatchCrew} from "@/lib/repositories/schedulingRepository";
 
 function mapsHref(address:string){return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`}
 function openNativeDirections(address:string,e:MouseEvent<HTMLAnchorElement>){
@@ -35,10 +38,11 @@ export default function RoutesPage(){
   const[filter,setFilter]=useState("all");
   const[optimizing,setOptimizing]=useState(false);
   const[startAddress,setStartAddress]=useState("");
+  const[databaseCrews,setDatabaseCrews]=useState<DispatchCrew[]>([]);
   const today=new Date().toISOString().slice(0,10);
 
-  function refresh(){setLeads(getLeads())}
-  useEffect(()=>{seedDemoLeads();refresh();const on=()=>refresh();window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.addEventListener("storage",on);const t=setInterval(refresh,2500);return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);clearInterval(t)}},[]);
+  async function refresh(){try{const board=await loadSchedulingDispatchBoard({force:true});setLeads(schedulingBoardToLeads(board));setDatabaseCrews(board.crews)}catch(error){setMessage(error instanceof Error?error.message:"Database routes could not be loaded.")}}
+  useEffect(()=>{void refresh();const t=setInterval(()=>void refresh(),10000);return()=>clearInterval(t)},[]);
   useEffect(()=>{const params=new URLSearchParams(window.location.search);const q=params.get("day");const c=params.get("crew");if(q&&DAMASIO_WEEK_DAYS.includes(q)){setDay(q);setTargetDay(q);setDraft([])}if(c&&DAMASIO_CREWS.includes(c)){setCrew(c);setTargetCrew(c);setDraft([])}},[]);
   useEffect(()=>{setStartAddress(localStorage.getItem(`damasio_os_route_start_${crew}_${day}`)||"")},[crew,day]);
 
@@ -57,20 +61,20 @@ export default function RoutesPage(){
     setOptimizing(true);setMessage("Calculating the fastest driving sequence from the starting address...");
     try{
       localStorage.setItem(`damasio_os_route_start_${crew}_${day}`,startAddress.trim());
-      const [startResponse,mappedValues]=await Promise.all([fetch(`/api/map/geocode?address=${encodeURIComponent(startAddress.trim())}`,{cache:"no-store"}),Promise.all(source.map(async home=>{if(Number.isFinite(home.latitude)&&Number.isFinite(home.longitude))return home;const response=await fetch(`/api/map/geocode?address=${encodeURIComponent(home.address)}`,{cache:"no-store"});if(!response.ok)return null;const point=await response.json() as {latitude:number;longitude:number};updateLead(home.id,point);return{...home,...point}}))]);
+      const [startResponse,mappedValues]=await Promise.all([fetch(`/api/map/geocode?address=${encodeURIComponent(startAddress.trim())}`,{cache:"no-store"}),Promise.all(source.map(async home=>{if(Number.isFinite(home.latitude)&&Number.isFinite(home.longitude))return home;const response=await fetch(`/api/map/geocode?address=${encodeURIComponent(home.address)}`,{cache:"no-store"});if(!response.ok)return null;const point=await response.json() as {latitude:number;longitude:number};return{...home,...point}}))]);
       if(!startResponse.ok)throw new Error("Starting address could not be found. Include the city or postal code.");
       const start=await startResponse.json() as {latitude:number;longitude:number};
       const mapped=mappedValues.filter((home):home is Lead=>Boolean(home));
       if(mapped.length<2){setMessage("Not enough properties could be mapped. Complete their addresses first.");return}
       const response=await fetch("/api/map/optimize",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({start:[start.longitude,start.latitude],coordinates:mapped.map(home=>[home.longitude,home.latitude])})});
       if(!response.ok)throw new Error("Route optimization is temporarily unavailable.");
-      const result=await response.json() as {order:number[];provider:string};const ordered=result.order.map(index=>mapped[index]);setDraft(saveSmartRouteDraft(crew,day,ordered.map(home=>home.id)));setMessage(`Smart draft created using ${result.provider}. Review it and publish only if you accept the sequence.`);refresh();
+      const result=await response.json() as {order:number[];provider:string};const ordered=result.order.map(index=>mapped[index]);setDraft(ordered);setMessage(`Smart draft created using ${result.provider}. Review it and publish only if you accept the sequence.`);
     }catch(error){setMessage(error instanceof Error?error.message:"Could not generate the smart route.")}finally{setOptimizing(false)}
   }
-  function moveDraft(index:number,direction:-1|1){const target=index+direction;if(target<0||target>=draft.length)return;const next=[...draft];[next[index],next[target]]=[next[target],next[index]];setDraft(saveSmartRouteDraft(crew,day,next.map(home=>home.id)));}
-  function publish(){publishAiRoute(crew,day);setMessage("Route published. Employee route updates immediately.");setDraft([]);refresh()}
-  function undo(){undoAiRoute(crew,day);setDraft([]);setMessage("AI draft removed. Manual route control restored.")}
-  function moveSelected(){selected.forEach(id=>updateHomeSchedule(id,targetDay,(leads.find(l=>l.id===id)?.serviceFrequency)||"weekly"));moveHomesToCrew(selected,targetCrew);setMessage(`${selected.length} home(s) moved to ${targetCrew} on ${targetDay}. Employee route updated.`);setSelected([]);refresh()}
+  function moveDraft(index:number,direction:-1|1){const target=index+direction;if(target<0||target>=draft.length)return;const next=[...draft];[next[index],next[target]]=[next[target],next[index]];setDraft(next);}
+  async function publish(){const crewId=databaseCrews.find(item=>item.name===crew)?.id;if(!crewId){setMessage("Crew not found in Supabase.");return}setOptimizing(true);try{for(let index=0;index<draft.length;index++)await rescheduleVisit({visitId:draft[index].id,crewId,routeDate:routeDateForWeekday(day),routeOrder:index+1});setMessage("Route published in Supabase. Every Employee device now uses this sequence.");setDraft([]);await refresh()}catch(error){setMessage(error instanceof Error?error.message:"Route could not be published.")}finally{setOptimizing(false)}}
+  function undo(){setDraft([]);setMessage("Draft removed. The published Supabase route was not changed.")}
+  async function moveSelected(){const crewId=databaseCrews.find(item=>item.name===targetCrew)?.id;if(!crewId){setMessage("Target crew not found in Supabase.");return}setOptimizing(true);try{for(let index=0;index<selected.length;index++)await rescheduleVisit({visitId:selected[index],crewId,routeDate:routeDateForWeekday(targetDay),routeOrder:index+1});setMessage(`${selected.length} home(s) moved in Supabase to ${targetCrew} on ${targetDay}.`);setSelected([]);await refresh()}catch(error){setMessage(error instanceof Error?error.message:"Visits could not be moved.")}finally{setOptimizing(false)}}
 
   return <AdminShell active="Routes">
     <div className="neo-hero route-hero"><div><span className="eyebrow">V42.8.1 Route Manager</span><h1>Routes linked to each Employee/Crew.</h1><p>Admin controls day, crew, route order, next cut and pending houses. Employees only see their own route for the selected day.</p></div><div className="route-controls"><CompactFilter><label><input type="radio" checked={filter==="all"} onChange={()=>setFilter("all")}/> All</label><label><input type="radio" checked={filter==="open"} onChange={()=>setFilter("open")}/> Open</label><label><input type="radio" checked={filter==="done"} onChange={()=>setFilter("done")}/> Done</label><label><input type="radio" checked={filter==="pending"} onChange={()=>setFilter("pending")}/> Pending today</label><label><input type="radio" checked={filter==="overdue"} onChange={()=>setFilter("overdue")}/> Overdue</label></CompactFilter><select className="input" value={crew} onChange={e=>{setCrew(e.target.value);setTargetCrew(e.target.value);setSelected([]);setDraft([])}}>{DAMASIO_CREWS.map(c=><option key={c}>{c}</option>)}</select><select className="input" value={day} onChange={e=>{setDay(e.target.value);setTargetDay(e.target.value);setSelected([]);setDraft([])}}>{DAMASIO_WEEK_DAYS.map(d=><option key={d}>{d}</option>)}</select><Link className="btn btn-outline" href="/admin/schedule">Create Route</Link><Link className="btn btn-primary" href={`/employee/route?crew=${encodeURIComponent(crew)}&day=${encodeURIComponent(day)}`}>Open Employee Route</Link></div></div>
