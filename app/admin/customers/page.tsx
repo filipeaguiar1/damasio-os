@@ -41,7 +41,7 @@ export default function Customers(){
   const allVisibleSelected=visibleCustomerIds.length>0&&visibleCustomerIds.every(id=>selected.includes(id));
   function toggle(id:string){setSelected(current=>current.includes(id)?current.filter(item=>item!==id):[...current,id])}
   function toggleAll(){setSelected(current=>allVisibleSelected?current.filter(id=>!visibleCustomerIds.includes(id)):[...new Set([...current,...visibleCustomerIds])])}
-  async function remove(ids:string[],label:string){if(!ids.length)return;if(!window.confirm(`Permanently delete ${label}? Properties, jobs, visits, photos and history linked to the selected customer(s) will also be deleted. This cannot be undone.`))return;setBusy(true);setMessage("");try{const total=await deleteCustomers(ids);setSelected(current=>current.filter(id=>!ids.includes(id)));await refresh();setMessage(`${total} customer(s) deleted permanently.`)}catch(error){setMessage(error instanceof Error?error.message:"Customers could not be deleted.")}finally{setBusy(false)}}
+  async function remove(ids:string[],label:string){if(!ids.length)return;if(!window.confirm(`Remove ${label} from active customers? Future scheduled work will be cancelled, while invoices, payments, photos and visit history stay safely preserved.`))return;setBusy(true);setMessage("");try{const total=await deleteCustomers(ids);setSelected(current=>current.filter(id=>!ids.includes(id)));await refresh();setMessage(`${total} customer(s) removed. Historical records were preserved.`)}catch(error){setMessage(error instanceof Error?error.message:"Customers could not be removed.")}finally{setBusy(false)}}
 
   return <AdminShell active="Customers">
     <div className="app-top">
