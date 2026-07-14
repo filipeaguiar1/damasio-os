@@ -30,7 +30,7 @@ import java.io.File;
 import java.io.IOException;
 
 public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile/employee";
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile/employee?appVersion=51.4.2";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
     private static final String EMPLOYEE_PATH = "/mobile/employee";
     private static final int FILE_CHOOSER_REQUEST = 4101;
@@ -62,10 +62,12 @@ public class MainActivity extends Activity {
         settings.setDatabaseEnabled(true);
         settings.setGeolocationEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " DamasioEmployeeAndroid/51.4");
+        settings.setUserAgentString(settings.getUserAgentString() + " DamasioEmployeeAndroid/51.4.2");
+        webView.clearCache(true);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
