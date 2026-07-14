@@ -9,6 +9,7 @@ const links=[
   ["CRM","/admin/leads","☲"],
   ["Estimates","/admin/estimates","☷"],
   ["Requests","/admin/requests","＋"],
+  ["Referrals","/admin/referrals","↗"],
   ["Customers","/admin/customers","♙"],
   ["Operations","/admin/operations","◎"],
   ["Workflow","/admin/workflow","↻"],
