@@ -27,6 +27,8 @@ import {
 
 function mapsHref(address:string){return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`}
 function statusLabel(lead:Lead, session?:ReturnType<typeof getSessionForLead>){return lead.status==="completed"?"Done":session?.status==="skipped"?"Skipped":"Open"}
+function timeLabel(value?:string){return value?new Date(value).toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"}):"—"}
+function handlingLabel(value?:string){return ({mulched:"Mulched",bag_green_bin:"Green bin",bag_leave_property:"Bagged",no_preference:"No preference"} as Record<string,string>)[value||""]||"No preference"}
 
 export default function MobileEmployeeApp(){
   const [leads,setLeads]=useState<Lead[]>([]);
@@ -39,6 +41,7 @@ export default function MobileEmployeeApp(){
   const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
   const [skipOpen,setSkipOpen]=useState(false);
+  const [contractOpen,setContractOpen]=useState(true);
   const [skipComment,setSkipComment]=useState("");
   const [skipPhotos,setSkipPhotos]=useState<string[]>([]);
   const skipPhotoInput=useRef<HTMLInputElement|null>(null);
@@ -82,8 +85,10 @@ export default function MobileEmployeeApp(){
   },[leads,profile.name,crew,tick]);
   const done=route.filter(l=>l.status==="completed").length;
   const skipped=route.filter(l=>getSessionForLead(l.id)?.status==="skipped").length;
+  const progress=route.length?Math.round((done/route.length)*100):0;
+  const nextStop=route.find(l=>l.status!=="completed"&&getSessionForLead(l.id)?.status!=="skipped")||route[0]||null;
 
-  function openService(lead:Lead){setSelectedId(lead.id); setComment(getSessionForLead(lead.id)?.completionComment||""); setTab("service"); setMessage("")}
+  function openService(lead:Lead){setSelectedId(lead.id); setComment(getSessionForLead(lead.id)?.completionComment||""); setContractOpen(true); setTab("service"); setMessage("")}
   function start(){
     if(!selected||busy)return;
     setBusy(true); setError("");
@@ -139,23 +144,22 @@ export default function MobileEmployeeApp(){
   }
 
   return <main className="mobile-app-shell">
-    <header className="mobile-topbar">
-      <div><strong>Employee App</strong><span>{profile.name || "Field user"}</span></div>
+    <header className="mobile-topbar employee-mobile-topbar">
+      <div className="employee-mobile-brand"><span>D</span><div><strong>Employee</strong><small>{profile.name || "Field user"} · {crew}</small></div></div>
       <div className="mobile-avatar">{(profile.photoLabel||profile.name||"E").slice(0,1)}</div>
     </header>
 
     {error&&<p className="mobile-message mobile-error" role="alert">{error}</p>}
 
-    <section className="mobile-stats-card">
-      <div><span>Today</span><strong>{route.length}</strong><small>homes</small></div>
-      <div><span>Done</span><strong>{done}</strong><small>completed</small></div>
-      <div><span>Skipped</span><strong>{skipped}</strong><small>review</small></div>
-      <div><span>Issues</span><strong>{tasks.length}</strong><small>return</small></div>
+    <section className="employee-mobile-progress">
+      <div><strong>Today&apos;s Route</strong><span>{done} / {route.length} completed</span></div>
+      <div className="employee-progress-track"><i style={{width:`${progress}%`}}/></div>
+      <small>{route.length-done-skipped} remaining · {skipped} skipped · {tasks.length} issues</small>
     </section>
 
     <nav className="mobile-tabs mobile-tabs-two">
-      <button className={tab==="route"?"active":""} onClick={()=>setTab("route")}>Route</button>
-      <button className={tab==="issues"?"active":""} onClick={()=>setTab("issues")}>Issues</button>
+      <button className={tab==="route"||tab==="service"?"active":""} onClick={()=>setTab("route")}>Today&apos;s Route</button>
+      <button className={tab==="issues"?"active":""} onClick={()=>setTab("issues")}>Tasks {tasks.length>0&&<b>{tasks.length}</b>}</button>
     </nav>
 
     {tab==="route"&&<>
@@ -164,41 +168,49 @@ export default function MobileEmployeeApp(){
         <button type="button" className={routeView==="map"?"active":""} onClick={()=>setRouteView("map")}>Map</button>
       </div>
       {routeView==="list"?<section className="mobile-card-list">
-        {route.map((lead,index)=><button className="mobile-route-card" key={lead.id} onClick={()=>openService(lead)}>
+        {route.map((lead,index)=><button className={`mobile-route-card employee-video-route-card ${lead.status==="completed"?"completed":""}`} key={lead.id} onClick={()=>openService(lead)}>
           <span className="mobile-route-index">{index+1}</span>
-          <div><strong>{lead.name}</strong><p>{lead.address}</p><em>{lead.serviceFrequency||"weekly"} · Next: {lead.nextVisitDate||lead.scheduledDate||"—"}</em></div>
+          <div><strong>{lead.address}</strong><p>{lead.name}</p><em>{lead.service} · {lead.serviceFrequency||"weekly"}</em></div>
           <b className={lead.status==="completed"?"mobile-status done":getSessionForLead(lead.id)?.status==="skipped"?"mobile-status skipped":"mobile-status"}>{statusLabel(lead,getSessionForLead(lead.id))}</b>
         </button>)}
       </section>:<EmployeeRouteMap route={mapRoute} routeId={mapContext.routeId||undefined} onOpenVisit={openService}/>}
+      {routeView==="list"&&nextStop&&<a className="employee-next-directions" href={mapsHref(nextStop.address)} target="_blank" rel="noopener noreferrer"><span>Get directions to next</span><b>⌖</b></a>}
     </>}
 
     {tab==="service"&&selected&&<section className="mobile-service-screen mobile-browser-service">
-      <button className="mobile-inline-back" onClick={()=>setTab("route")}>← Back to Route</button>
+      <button className="mobile-inline-back" onClick={()=>setTab("route")}>← Route</button>
       <div className="mobile-property-photo mobile-property-photo-browser">{selected.propertyPhoto?<img src={selected.propertyPhoto} alt="Property"/>:<span className="mobile-house-placeholder">🏠</span>}<a className="mobile-directions" href={mapsHref(selected.address)} target="_blank" rel="noopener noreferrer">Get directions</a></div>
-      <span className="eyebrow">Service Details</span>
       <div className="mobile-service-head">
         <div><h1>{selected.address}</h1><p>{selected.name}</p></div>
         <b className={selected.status==="completed"?"mobile-status done":session?.status==="skipped"?"mobile-status skipped":"mobile-status"}>{statusLabel(selected,session)}</b>
       </div>
-      <div className="mobile-detail-list">
-        <div><span>Client</span><strong>{selected.name}</strong></div>
-        <div><span>Status</span><strong>{statusLabel(selected,session)}</strong></div>
-        <div><span>Workflow</span><strong>{workflow?.label || "Assigned"}<small>{workflow?.nextAction || "Start job"}</small></strong></div>
-        <div><span>Phone</span><strong>{selected.phone?<a href={`tel:${selected.phone}`}>{selected.phone}</a>:"-"}</strong></div>
-        <div><span>Email</span><strong>{selected.email?<a href={`mailto:${selected.email}`}>{selected.email}</a>:"-"}</strong></div>
-        <div><span>Address</span><strong>{selected.address||"-"}</strong></div>
+      <div className="employee-video-row"><span>Client</span><strong>{selected.name}</strong></div>
+      <section className="employee-contract-card">
+        <button type="button" onClick={()=>setContractOpen(value=>!value)}><span>Contract</span><b>{contractOpen?"Hide details":"Show details"}</b></button>
+        <div className="employee-contract-service"><i>✂</i><div><strong>{selected.service}</strong><small>{selected.scheduledDate||"Season"} · {selected.scheduledWindow||"Flexible"}</small></div></div>
+        {contractOpen&&<>
+          {(details?.accessNotes||details?.propertyAlerts||details?.adminNotes||selected.notes)&&<div className="employee-access-note">ⓘ {details?.accessNotes||details?.propertyAlerts||details?.adminNotes||selected.notes}</div>}
+          <div className="mobile-detail-list compact employee-contract-details">
+            <div><span>Cut height</span><strong>{details?.grassHeight||"3in"}</strong></div>
+            <div><span>Grass clippings</span><strong>{handlingLabel(details?.grassHandling)}</strong></div>
+            <div><span>Lot size</span><strong>{details?.lawnSize?.toUpperCase()||"SMALL"}</strong></div>
+            <div><span>Backyard</span><strong>{details?.backyard?"Yes":"No"}</strong></div>
+            <div><span>Gate</span><strong>{details?.gated?"Yes":"No"}</strong></div>
+            <div><span>Workflow</span><strong>{workflow?.label||"Assigned"}</strong></div>
+          </div>
+        </>}
+      </section>
+      <div className="employee-contact-actions">
+        {selected.phone&&<a href={`tel:${selected.phone}`}>Call client</a>}
+        {selected.email&&<a href={`mailto:${selected.email}`}>Email client</a>}
       </div>
-      <div className="mobile-service-info"><span>Service</span><strong>{selected.service}</strong><small>{selected.scheduledDate||"Season"} · {selected.scheduledWindow||"Flexible"}</small></div>
-      <div className="mobile-detail-list compact">
-        <div><span>Grass height</span><strong>{details?.grassHeight||"3in"}</strong></div>
-        <div><span>Lot size</span><strong>{details?.lawnSize?.toUpperCase()||"SMALL"}</strong></div>
-        <div><span>Backyard</span><strong>{details?.backyard?"Yes":"No"}</strong></div>
-        <div><span>Gate</span><strong>{details?.gated?"Yes":"No"}</strong></div>
-        <div><span>Access</span><strong>{details?.accessNotes||"-"}</strong></div>
-        <div><span>Alerts</span><strong>{details?.propertyAlerts||"-"}</strong></div>
-        <div><span>Admin notes</span><strong>{details?.adminNotes||selected.notes||"-"}</strong></div>
+      <div className="employee-visit-date">{selected.scheduledDate||"Today"}</div>
+      <div className="employee-time-grid">
+        <div><span>Started</span><strong>{timeLabel(session?.startedAt)}</strong></div>
+        <div><span>Duration</span><strong>{formatDuration(seconds)}</strong></div>
+        <div><span>Finished</span><strong>{timeLabel(session?.finishedAt)}</strong></div>
       </div>
-      <div className="mobile-timer-card"><span>Timer</span><strong>{formatDuration(seconds)}</strong><small>{session?.status||"not started"}</small></div>
+      {(selected.photos?.length||0)>0&&<section className="employee-image-section"><strong>Images</strong><div>{selected.photos?.map((photo,index)=><img key={index} src={photo} alt={`Service ${index+1}`}/>)}</div></section>}
       <div className="mobile-action-grid">
         <button className="mobile-primary" disabled={busy||session?.status==="running"||selected.status==="completed"} onClick={start}>Start</button>
         <button className="mobile-finish" disabled={busy||session?.status!=="running"} onClick={finish}>Finish</button>
@@ -210,6 +222,7 @@ export default function MobileEmployeeApp(){
       <input ref={photoInput} type="file" accept="image/*" capture="environment" multiple hidden onChange={upload}/>
       <button className="mobile-outline" disabled={busy||(selected.photos?.length||0)>=5} onClick={()=>photoInput.current?.click()}>Take / Upload Photo ({selected.photos?.length||0}/5)</button>
       {message&&<p className="mobile-message">{message}</p>}
+      <div className="employee-service-footer"><button className="mobile-reset" disabled={busy||(!session&&selected.status!=="completed")} onClick={reset}>Reset ↻</button><button className="mobile-primary" onClick={()=>setTab("route")}>Route</button></div>
     </section>}
 
     {skipOpen&&selected&&<div className="mobile-modal-backdrop" role="presentation" onClick={()=>!busy&&setSkipOpen(false)}>
