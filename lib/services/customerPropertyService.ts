@@ -1,5 +1,7 @@
 import { createCustomerProperty, listCustomerProperties, type CreateCustomerPropertyInput, type CustomerPropertyRecord } from "@/lib/repositories/customerPropertyRepository";
 import { createManualCustomer, getLeads, Lead } from "@/lib/storage";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createOperationQuote, updateOperationQuoteStatus } from "@/lib/repositories/operationsRepository";
 
 function normalize(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
@@ -74,7 +76,7 @@ export async function addCustomerWithProperty(input: CreateCustomerPropertyInput
       phone: input.phone || "",
       email: input.email || "",
       address: input.addressLine1,
-      service: "Weekly Lawn Care",
+      service: input.serviceName || "Weekly Lawn Care",
       subtotal: 0,
       tax: 0,
       total: 0,
@@ -93,7 +95,19 @@ export async function addCustomerWithProperty(input: CreateCustomerPropertyInput
   }
 
   try {
-    return await createCustomerProperty(input);
+    const record=await createCustomerProperty(input);
+    if(input.serviceName){
+      const supabase=getSupabaseBrowserClient();
+      const {error}=await supabase.rpc("create_job_for_customer_property" as never,{
+        p_customer_id:record.customerId,p_property_id:record.propertyId,p_service_name:input.serviceName,p_frequency:input.frequency||"one_time"
+      } as never);
+      if(error){
+        const board=await createOperationQuote({customerId:record.customerId,propertyId:record.propertyId,serviceName:input.serviceName,subtotal:input.subtotal||0,notes:input.serviceName});
+        const quote=board.quotes.find(item=>item.propertyId===record.propertyId&&item.status==="draft");
+        if(quote)await updateOperationQuoteStatus(quote.id,"approved");
+      }
+    }
+    return record;
   } catch {
     return localRecord || localRecords()[0];
   }
