@@ -122,7 +122,7 @@ export async function createCustomerProperty(input: CreateCustomerPropertyInput)
 
 export async function deleteCustomerRecords(customerIds:string[]):Promise<number>{
   const supabase=getSupabaseBrowserClient();
-  const{data,error}=await supabase.rpc("delete_company_customers" as never,{p_customer_ids:customerIds} as never);
+  const{data,error}=await supabase.rpc("archive_company_customers" as never,{p_customer_ids:customerIds} as never);
   if(error)throw new Error(error.message);
   return Number(data||0);
 }
