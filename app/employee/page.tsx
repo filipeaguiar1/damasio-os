@@ -4,30 +4,35 @@ import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {PortalShell} from "@/components/admin/PortalShell";
 import {EmployeeRouteMap} from "@/components/mobile/EmployeeRouteMap";
-import {DAMASIO_SYNC_EVENT,DAMASIO_WEEK_DAYS,Lead,getEmployeeProfile,getEmployeeTasks,getLeads,hasChecklistToday,seedDemoLeads,updateEmployeeTaskStatus,returnEmployeeTaskToAdmin,simulateCustomerServiceComplete} from "@/lib/storage";
+import {DAMASIO_SYNC_EVENT,Lead,dayNameFromDate,getEmployeeProfile,getEmployeeTasks,getLeads,hasChecklistToday,seedDemoLeads,updateEmployeeTaskStatus,returnEmployeeTaskToAdmin,simulateCustomerServiceComplete} from "@/lib/storage";
 import {loadEmployeeOperationalIdentity} from "@/lib/services/employeeIdentityService";
 import {applyEmployeeRouteMapContext,loadEmployeeRouteMapContext,routeDateForWeekday,type EmployeeRouteMapContext} from "@/lib/services/routeMapService";
+function dateKey(date:Date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`}
+function mondayKey(date:Date){const value=new Date(date);value.setDate(value.getDate()-(value.getDay()+6)%7);return dateKey(value)}
+function shift(value:string,days:number){const date=new Date(`${value}T12:00:00`);date.setDate(date.getDate()+days);return dateKey(date)}
 
 export default function Employee(){
   const router=useRouter();
-  const profile=getEmployeeProfile();const[done,setDone]=useState(true);const[leads,setLeads]=useState<Lead[]>([]);const[crew,setCrew]=useState(profile.crew||"Crew A");const[employeeName,setEmployeeName]=useState(profile.name);const[sync,setSync]=useState("");const[filter,setFilter]=useState<"assigned"|"pending"|"completed"|"issues">("assigned");const[notificationOpen,setNotificationOpen]=useState(false);const[notificationSeen,setNotificationSeen]=useState(false);const[mapContext,setMapContext]=useState<EmployeeRouteMapContext>({routeId:null,stops:[]});
+  const profile=getEmployeeProfile();const[done,setDone]=useState(true);const[leads,setLeads]=useState<Lead[]>([]);const[crew,setCrew]=useState(profile.crew||"Crew A");const[employeeName,setEmployeeName]=useState(profile.name);const[sync,setSync]=useState("");const[filter,setFilter]=useState<"assigned"|"pending"|"completed"|"issues">("assigned");const[notificationOpen,setNotificationOpen]=useState(false);const[notificationSeen,setNotificationSeen]=useState(false);const[mapContext,setMapContext]=useState<EmployeeRouteMapContext>({routeId:null,stops:[]});const[selectedDate,setSelectedDate]=useState(()=>dateKey(new Date()));const[weekStart,setWeekStart]=useState(()=>mondayKey(new Date()));
   function refresh(){setDone(hasChecklistToday(employeeName));setLeads(getLeads());const raw=typeof window!=="undefined"?window.localStorage.getItem("damasio_os_last_sync"):"";try{setSync(raw?String(JSON.parse(raw)?.message||""):"")}catch{setSync("")}}
   useEffect(()=>{seedDemoLeads();refresh();void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setEmployeeName(identity.name)});const onSync=()=>refresh();window.addEventListener(DAMASIO_SYNC_EVENT,onSync as EventListener);window.addEventListener("storage",onSync);const t=setInterval(refresh,2500);return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,onSync as EventListener);window.removeEventListener("storage",onSync);clearInterval(t)}},[]);
-  const todayDay=DAMASIO_WEEK_DAYS[(new Date().getDay()+6)%7];
-  const localJobs=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&l.serviceDay===todayDay).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,todayDay]);
-  useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(routeDateForWeekday(todayDay),crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,todayDay]);
+  const selectedDay=dayNameFromDate(selectedDate);const todayKey=dateKey(new Date());
+  const localJobs=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&(l.scheduledDate===selectedDate||l.nextVisitDate===selectedDate||l.serviceDay===selectedDay)).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,selectedDate,selectedDay]);
+  useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(selectedDate||routeDateForWeekday(selectedDay),crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,selectedDate,selectedDay]);
   const jobs=useMemo(()=>applyEmployeeRouteMapContext(localJobs,mapContext),[localJobs,mapContext]);
   const tasks=getEmployeeTasks().filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===employeeName||t.assignedTo===crew));
   const pending=jobs.filter(j=>j.status!=="completed");
   const completed=jobs.filter(j=>j.status==="completed");
   const visible=filter==="pending"?pending:filter==="completed"?completed:jobs;
   const mapVisible=visible;
-  const currentDay=jobs[0]?.serviceDay||new Date().toLocaleDateString([], {weekday:"long"});
-  function dateForDay(day:string){const days=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];const now=new Date();const current=(now.getDay()+6)%7;const target=days.indexOf(day);const d=new Date(now);if(target>=0)d.setDate(now.getDate()+target-current);return d.toLocaleDateString([], {weekday:"long", month:"long", day:"numeric", year:"numeric"});}
-  const todayLabel=dateForDay(currentDay);
+  const todayLabel=new Date(`${selectedDate}T12:00:00`).toLocaleDateString([],{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+  const dayOptions=useMemo(()=>Array.from({length:7},(_,index)=>{const date=new Date(`${weekStart}T12:00:00`);date.setDate(date.getDate()+index);return{key:dateKey(date),weekday:date.toLocaleDateString("en-CA",{weekday:"short"}),day:date.getDate()}}),[weekStart]);
+  const weekLabel=`${new Date(`${weekStart}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"})} – ${new Date(`${shift(weekStart,6)}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"})}`;
+  function moveWeek(days:-7|7){setWeekStart(value=>shift(value,days));setSelectedDate(value=>shift(value,days))}
   const unreadIssues=notificationSeen?0:tasks.length;
   return <PortalShell type="Employee" active="Today">
     <div className="neo-hero employee-hero"><div><span className="eyebrow">Field App</span><h1>{todayLabel}</h1><p>{crew} private route. Employees only see their assigned homes and service issues — no other crews, prices, invoices, payments or financial reports.</p></div><div className="row"><Link className="btn btn-primary" href="/employee/route">Open Route</Link><Link className="btn btn-outline" href="/employee/route?view=map">Open Map</Link></div></div>
+    <section className="employee-desktop-week employee-week-picker"><div><button type="button" onClick={()=>moveWeek(-7)} aria-label="Previous week">‹</button><strong>{weekLabel}</strong><button type="button" onClick={()=>moveWeek(7)} aria-label="Next week">›</button></div><nav className="employee-day-strip">{dayOptions.map(item=><button key={item.key} className={selectedDate===item.key?"active":item.key<todayKey?"past":""} onClick={()=>setSelectedDate(item.key)}><span>{item.weekday}</span><strong>{item.day}</strong>{item.key===todayKey&&<i>Today</i>}</button>)}</nav></section>
     <div className="employee-inline-notifications"><button className="btn btn-outline" onClick={()=>{setNotificationOpen(!notificationOpen);setNotificationSeen(true)}}>Notifications {unreadIssues>0&&<span className="notification-badge inline">{unreadIssues}</span>}</button>{notificationOpen&&<div className="notification-popover"><strong>Current notifications</strong>{tasks.length===0?<p>No notifications right now.</p>:tasks.map(t=><p key={t.id}>• {t.title} — {t.customer}</p>)}</div>}</div>
     {!done&&<div className="notice" style={{marginBottom:20}}>Daily checklist required before route. <Link href="/employee/checklist"><strong>Open Checklist</strong></Link></div>}
     <section className="status-action-grid">
