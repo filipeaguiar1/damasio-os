@@ -58,6 +58,12 @@ export type Estimate = {
   approvedAt?: string;
   requestId?: string;
 };
+export type CustomerPaymentProfile = {
+  primaryMethod:"stripe"|"account_balance";
+  balance:number;
+  automaticPayments:boolean;
+  updatedAt:string;
+};
 export type Feedback = {
   rating: number;
   comment: string;
@@ -269,6 +275,7 @@ const K = {
   logs: "damasio_os_activity_log",
   workflow: "damasio_os_workflow_events",
   req: "damasio_os_service_requests",
+  customerPayment: "damasio_os_customer_payment_profile",
 };
 function ensureStorageVersion() {
   if (typeof window === "undefined") return;
@@ -585,6 +592,19 @@ export function updateEstimateStatus(id: string, status: EstimateStatus) {
     });
   }
 }
+
+export function reviseEstimateTotal(id:string,total:number){
+  const estimate=getEstimates().find(item=>item.id===id);if(!estimate)return null;
+  const safeTotal=Math.max(0,Math.round(total*100)/100);const subtotal=money(safeTotal/1.13);const tax=money(safeTotal-subtotal);
+  const items:EstimateItem[]=[{id:estimate.items[0]?.id||createId(),type:"service",description:estimate.items[0]?.description||estimate.title,quantity:1,unit:"service",unitPrice:subtotal}];
+  const next={...estimate,items,subtotal,tax,total:safeTotal};write(K.est,getEstimates().map(item=>item.id===id?next:item));
+  addActivityLog("Master","Revised quote",estimate.number,`Quote total changed to $${safeTotal.toFixed(2)}.`);return next;
+}
+
+export function findEstimateByNumber(number:string){const normalized=number.trim().toUpperCase();return getEstimates().find(item=>item.number.toUpperCase()===normalized)||null}
+
+export function getCustomerPaymentProfile():CustomerPaymentProfile{return read<CustomerPaymentProfile>(K.customerPayment,{primaryMethod:"stripe",balance:0,automaticPayments:false,updatedAt:new Date(0).toISOString()})}
+export function saveCustomerPaymentProfile(patch:Partial<CustomerPaymentProfile>){const next={...getCustomerPaymentProfile(),...patch,updatedAt:new Date().toISOString()};write(K.customerPayment,next);return next}
 
 export function canFinalizeEstimate(id: string, nextStatus: "approved" | "declined") {
   const e = getEstimates().find((x) => x.id === id);
