@@ -2,22 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-
-function GrassAnimation(){
-  return <div className="mobile-splash-scene" aria-hidden="true">
-    <div className="mobile-sun" />
-    <div className="mobile-cloud c1" />
-    <div className="mobile-cloud c2" />
-    <div className="mobile-worker">
-      <div className="worker-head" />
-      <div className="worker-body" />
-      <div className="worker-arm" />
-      <div className="mower-handle" />
-      <div className="mower-base"><span /><span /></div>
-    </div>
-    <div className="grass-lines"><i/><i/><i/><i/><i/><i/><i/><i/></div>
-  </div>
-}
+import { MobileStartupSplash } from "@/components/mobile/MobileStartupSplash";
 
 export default function MobileAppHome(){
   const [showSplash,setShowSplash]=useState(false);
@@ -30,15 +15,7 @@ export default function MobileAppHome(){
     return()=>{window.clearTimeout(t); window.clearTimeout(emergency)};
   },[]);
 
-  if(showSplash){
-    return <main className="mobile-splash">
-      <div className="mobile-logo-pulse"><span>D</span></div>
-      <h1>Damasio OS</h1>
-      <p>Field app loading...</p>
-      <GrassAnimation />
-      <button className="mobile-skip-splash" onClick={()=>setShowSplash(false)}>Open app</button>
-    </main>
-  }
+  if(showSplash)return <MobileStartupSplash onOpen={()=>setShowSplash(false)}/>;
 
   return <main className="mobile-app-shell mobile-entry">
     <section className="mobile-hero-card">
