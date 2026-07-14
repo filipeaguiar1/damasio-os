@@ -3,40 +3,24 @@ import {useEffect,useState} from "react";
 import Link from "next/link";
 import {getNotifications,markNotificationsRead,DAMASIO_SYNC_EVENT,getServiceRequests} from "@/lib/storage";
 
-const links=[
-  ["Command","/admin/command","⌂"],
-  ["Dashboard","/admin","▦"],
-  ["CRM","/admin/leads","☲"],
-  ["Estimates","/admin/estimates","☷"],
-  ["Requests","/admin/requests","＋"],
-  ["Referrals","/admin/referrals","↗"],
-  ["Customers","/admin/customers","♙"],
-  ["Operations","/admin/operations","◎"],
-  ["Workflow","/admin/workflow","↻"],
-  ["Dispatch","/admin/schedule","⇄"],
-  ["Routes","/admin/routes","⌘"],
-  ["Map","/admin/map","⌖"],
-  ["Calendar","/admin/calendar","▣"],
-  ["Crews","/admin/employees","♧"],
-  ["Finance","/admin/finance","$"],
-  ["SaaS","/admin/saas","◈"],
-  ["AI","/admin/ai","✦"],
-  ["Mobile","/admin/mobile","▣"],
-  ["Invoices","/admin/invoices","▤"],
-  ["Alerts","/admin/alerts","♢"],
-  ["Tasks","/admin/tasks","!"],
-  ["Reports","/admin/performance","▥"],
-  ["Settings","/admin/settings","⚙"],
-  ["Users","/admin/users","♙"],
-  ["Database","/admin/database","▣"],
+type NavLink=[label:string,href:string,icon:string];
+const navGroups:{id:string;label:string;icon:string;links:NavLink[]}[]=[
+  {id:"overview",label:"Overview",icon:"▦",links:[["Command","/admin/command","⌂"],["Dashboard","/admin","▦"]]},
+  {id:"clients",label:"Clients & Sales",icon:"♙",links:[["CRM","/admin/leads","☲"],["Estimates","/admin/estimates","☷"],["Requests","/admin/requests","＋"],["Referrals","/admin/referrals","↗"],["Customers","/admin/customers","♙"]]},
+  {id:"field",label:"Field Operations",icon:"⇄",links:[["Operations","/admin/operations","◎"],["Workflow","/admin/workflow","↻"],["Dispatch","/admin/schedule","⇄"],["Routes","/admin/routes","⌘"],["Map","/admin/map","⌖"],["Calendar","/admin/calendar","▣"],["Crews","/admin/employees","♧"]]},
+  {id:"business",label:"Business",icon:"$",links:[["Finance","/admin/finance","$"],["Invoices","/admin/invoices","▤"],["Reports","/admin/performance","▥"],["SaaS","/admin/saas","◈"],["AI","/admin/ai","✦"]]},
+  {id:"management",label:"Management",icon:"⚙",links:[["Alerts","/admin/alerts","♢"],["Tasks","/admin/tasks","!"],["Mobile","/admin/mobile","▣"],["Settings","/admin/settings","⚙"],["Users","/admin/users","♙"],["Database","/admin/database","▣"]]},
 ];
 
 export function AdminShell({children,active}:{children:React.ReactNode;active:string}){
   const[unread,setUnread]=useState(0);
   const[pendingRequests,setPendingRequests]=useState(0);
+  const activeGroup=navGroups.find(group=>group.links.some(([label])=>label===active))?.id??"overview";
+  const[openGroup,setOpenGroup]=useState(activeGroup);
   function refreshNotifications(){setUnread(getNotifications().filter(n=>!n.read).length);setPendingRequests(getServiceRequests().filter(r=>r.status==="pending").length)}
   function openNotifications(){markNotificationsRead();setUnread(0)}
   useEffect(()=>{refreshNotifications();const on=()=>refreshNotifications();window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.addEventListener("storage",on);return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on)}},[]);
+  useEffect(()=>{setOpenGroup(activeGroup)},[activeGroup]);
 
   return <div className="admin-pro-shell">
     <aside className="pro-sidebar">
@@ -51,7 +35,18 @@ export function AdminShell({children,active}:{children:React.ReactNode;active:st
       </Link>
 
       <nav className="pro-nav">
-        {links.map(([label,href,icon])=><Link key={href} href={href} onClick={label==="Alerts"?openNotifications:undefined} className={active===label?"active":""}><span>{icon}</span>{label}{label==="Alerts"&&unread>0&&<em>{unread}</em>}{label==="Requests"&&pendingRequests>0&&<em>{pendingRequests}</em>}</Link>)}
+        {navGroups.map(group=>{
+          const isOpen=openGroup===group.id;
+          const count=group.id==="clients"?pendingRequests:group.id==="management"?unread:0;
+          return <section className={`pro-nav-group ${isOpen?"open":""}`} key={group.id}>
+            <button type="button" className="pro-nav-group-toggle" aria-expanded={isOpen} onClick={()=>setOpenGroup(isOpen?"":group.id)}>
+              <span>{group.icon}</span><strong>{group.label}</strong>{count>0&&<em>{count}</em>}<b>⌄</b>
+            </button>
+            {isOpen&&<div className="pro-nav-group-links">
+              {group.links.map(([label,href,icon])=><Link key={href} href={href} onClick={label==="Alerts"?openNotifications:undefined} className={active===label?"active":""}><span>{icon}</span>{label}{label==="Alerts"&&unread>0&&<em>{unread}</em>}{label==="Requests"&&pendingRequests>0&&<em>{pendingRequests}</em>}</Link>)}
+            </div>}
+          </section>
+        })}
       </nav>
 
       <Link href="/admin/alerts?tab=support" className="help-card"><span>☏</span><div><strong>Need Help?</strong><small>Contact Support</small></div></Link>
