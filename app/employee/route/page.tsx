@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CompactFilter } from "@/components/admin/CompactFilter";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
+import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, routeDateForWeekday, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
 import {
   finishServiceSession,
   formatClock,
@@ -70,6 +71,7 @@ export default function EmployeeRoutePage(){
   const [serviceComment,setServiceComment]=useState("");
   const [doneMessage,setDoneMessage]=useState("");
   const [routeFilter,setRouteFilter]=useState("all");
+  const [mapContext,setMapContext]=useState<EmployeeRouteMapContext>({routeId:null,stops:[]});
   const photoInputRef=useRef<HTMLInputElement|null>(null);
 
   function refresh(){
@@ -105,6 +107,8 @@ export default function EmployeeRoutePage(){
 
   const allRouteLeads=useMemo(()=>leads.filter(l=>l.assignedCrew===crew && (!day || l.serviceDay===day)).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,day]);
   const routeLeads=useMemo(()=>allRouteLeads.filter(l=>routeFilter==="all"?true:routeFilter==="open"?l.status!=="completed":routeFilter==="done"?l.status==="completed":true),[allRouteLeads,routeFilter]);
+  useEffect(()=>{let cancelled=false;if(!day||!crew)return;void loadEmployeeRouteMapContext(routeDateForWeekday(day),crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[day,crew]);
+  const mapRouteLeads=useMemo(()=>applyEmployeeRouteMapContext(routeLeads,mapContext),[routeLeads,mapContext]);
   const selected=useMemo(()=>allRouteLeads.find(l=>l.id===selectedId)||allRouteLeads[0]||null,[allRouteLeads,selectedId]);
   const session=selected?getSessionForLead(selected.id):null;
   const openTasks=tasks.filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===profile.name||t.assignedTo===crew));
@@ -307,21 +311,21 @@ export default function EmployeeRoutePage(){
 
     {view==="map"&&<main className="employee-web-map-shell">
       <aside className="employee-web-map-sidebar">
-        <div className="employee-web-map-sidebar-head"><span className="eyebrow">Today&apos;s route</span><strong>{routeLeads.length} visits</strong><small>{completed} completed</small></div>
+        <div className="employee-web-map-sidebar-head"><span className="eyebrow">Today&apos;s route</span><strong>{mapRouteLeads.length} visits</strong><small>{completed} completed</small></div>
         <div className="employee-web-map-route-list">
-          {routeLeads.map((lead,index)=>{
+          {mapRouteLeads.map((lead,index)=>{
             const leadSession=getSessionForLead(lead.id);
             const attention=tasks.some(task=>task.leadId===lead.id&&task.status!=="resolved");
-            const nextId=routeLeads.find(item=>item.status!=="completed"&&getSessionForLead(item.id)?.status!=="skipped")?.id;
+            const nextId=mapRouteLeads.find(item=>item.status!=="completed"&&getSessionForLead(item.id)?.status!=="skipped")?.id;
             const state=attention?"attention":leadSession?.status==="skipped"?"skipped":lead.status==="completed"?"completed":lead.id===nextId?"next":"pending";
             return <button type="button" key={lead.id} className={`employee-web-map-route-item ${state}`} onClick={()=>openLead(lead)}>
               <span>{index+1}</span><div><strong>{lead.address||"Not mapped"}</strong><small>{lead.service}</small></div><em>{state==="attention"?"Needs attention":state==="next"?"Next visit":state}</em>
             </button>;
           })}
-          {routeLeads.length===0&&<div className="employee-web-map-empty">No visits assigned to this route.</div>}
+          {mapRouteLeads.length===0&&<div className="employee-web-map-empty">No visits assigned to this route.</div>}
         </div>
       </aside>
-      <EmployeeRouteMap route={routeLeads} onOpenVisit={openLead} desktop />
+      <EmployeeRouteMap route={mapRouteLeads} routeId={mapContext.routeId||undefined} onOpenVisit={openLead} desktop />
     </main>}
 
     {view==="summary"&&<main className="field-container">
