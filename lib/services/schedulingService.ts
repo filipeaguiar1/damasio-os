@@ -5,7 +5,26 @@ import {
   scheduleJobOnRoute,
   updateVisitDispatchStatus,
   type DispatchVisit,
+  type SchedulingDispatchBoard,
 } from "@/lib/repositories/schedulingRepository";
+import { dayNameFromDate, type Lead, type ServiceFrequency } from "@/lib/storage";
+
+export function schedulingBoardToLeads(board: SchedulingDispatchBoard): Lead[] {
+  const jobs: Lead[] = board.unscheduledJobs.map(job => ({
+    id: job.id, createdAt: job.createdAt, name: job.customerName || "Customer", phone: "", email: "",
+    address: job.address || "Address missing", service: job.serviceName, status: "new", subtotal: 0, tax: 0, total: 0,
+    nextVisitDate: job.nextVisitDate || undefined, serviceFrequency: job.frequency as ServiceFrequency, photos: []
+  }));
+  const visits: Lead[] = board.visits.filter(visit => visit.status !== "cancelled" && visit.status !== "missed").map(visit => ({
+    id: visit.id, createdAt: visit.createdAt, name: visit.customerName || "Customer", phone: "", email: "",
+    address: visit.address || "Address missing", service: visit.serviceName || "Property Service",
+    status: visit.status === "completed" ? "completed" : "booked", subtotal: 0, tax: 0, total: 0,
+    scheduledDate: visit.scheduledDate, nextVisitDate: visit.scheduledDate, assignedCrew: visit.crewName || undefined,
+    serviceDay: dayNameFromDate(visit.scheduledDate), routeOrder: visit.routeOrder ?? undefined, photos: [], canonicalVisitId: visit.id,
+    visitStartedAt: visit.startedAt || undefined, visitFinishedAt: visit.finishedAt || undefined, visitDurationSeconds: visit.durationSeconds ?? undefined
+  }));
+  return [...jobs, ...visits];
+}
 
 export async function loadSchedulingDispatchBoard(options?: { force?: boolean }) {
   return cachedQuery("scheduling:dispatch-board", () => getSchedulingDispatchBoard(), { ttlMs: 20_000, force: options?.force });
