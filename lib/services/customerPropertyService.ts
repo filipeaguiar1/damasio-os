@@ -1,5 +1,5 @@
-import { createCustomerProperty, listCustomerProperties, type CreateCustomerPropertyInput, type CustomerPropertyRecord } from "@/lib/repositories/customerPropertyRepository";
-import { createManualCustomer, getLeads, Lead } from "@/lib/storage";
+import { createCustomerProperty, deleteCustomerRecords, listCustomerProperties, type CreateCustomerPropertyInput, type CustomerPropertyRecord } from "@/lib/repositories/customerPropertyRepository";
+import { createManualCustomer, getLeads, Lead, setLeads } from "@/lib/storage";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createOperationQuote, updateOperationQuoteStatus } from "@/lib/repositories/operationsRepository";
 
@@ -110,5 +110,14 @@ export async function addCustomerWithProperty(input: CreateCustomerPropertyInput
     return record;
   } catch {
     return localRecord || localRecords()[0];
+  }
+}
+
+export async function deleteCustomers(customerIds:string[]){
+  const ids=[...new Set(customerIds.filter(Boolean))];if(!ids.length)throw new Error("Select at least one customer.");
+  try{return await deleteCustomerRecords(ids)}catch(error){
+    const before=getLeads();const next=before.filter(lead=>!ids.includes(lead.id));
+    if(next.length<before.length){setLeads(next);return before.length-next.length}
+    throw error;
   }
 }
