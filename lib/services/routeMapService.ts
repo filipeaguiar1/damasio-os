@@ -17,6 +17,9 @@ type VisitMapRow = {
   property_id: string | null;
   route_order: number | null;
   status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_seconds: number | null;
   properties: PropertyRow | PropertyRow[] | null;
 };
 
@@ -31,6 +34,9 @@ type DispatchBoardVisit = {
   scheduledDate: string;
   status: string;
   routeOrder: number | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  durationSeconds?: number | null;
 };
 
 export type EmployeeRouteMapContext = {
@@ -46,6 +52,9 @@ export type EmployeeRouteMapContext = {
     customerName?: string;
     serviceName?: string;
     scheduledDate?: string;
+    startedAt?: string;
+    finishedAt?: string;
+    durationSeconds?: number;
   }>;
 };
 
@@ -93,7 +102,7 @@ export async function loadEmployeeRouteMapContext(routeDate: string, crewName: s
     if (routeError || !route?.id) return loadPublishedEmployeeRoute(routeDate, crewName);
     const { data, error } = await supabase
       .from("visits")
-      .select("id,route_id,property_id,route_order,status,properties(address_line1,city,province,postal_code,latitude,longitude)")
+      .select("id,route_id,property_id,route_order,status,started_at,finished_at,duration_seconds,properties(address_line1,city,province,postal_code,latitude,longitude)")
       .eq("route_id", route.id)
       .order("route_order", { ascending: true, nullsFirst: false });
     if (error) throw new Error(error.message);
@@ -109,7 +118,10 @@ export async function loadEmployeeRouteMapContext(routeDate: string, crewName: s
           latitude: property?.latitude ?? null,
           longitude: property?.longitude ?? null,
           routeOrder: row.route_order,
-          status: row.status
+          status: row.status,
+          startedAt: row.started_at || undefined,
+          finishedAt: row.finished_at || undefined,
+          durationSeconds: row.duration_seconds ?? undefined
         };
       })
     };
@@ -140,7 +152,10 @@ async function loadPublishedEmployeeRoute(routeDate: string, crewName: string): 
         status: visit.status,
         customerName: visit.customerName || "Customer",
         serviceName: visit.serviceName || "Property Service",
-        scheduledDate: visit.scheduledDate
+        scheduledDate: visit.scheduledDate,
+        startedAt: visit.startedAt || undefined,
+        finishedAt: visit.finishedAt || undefined,
+        durationSeconds: visit.durationSeconds ?? undefined
       }))
     };
   } catch {
@@ -175,6 +190,10 @@ export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRou
       name: stop.customerName || lead?.name || "Customer",
       service: stop.serviceName || lead?.service || "Property Service",
       scheduledDate: stop.scheduledDate || lead?.scheduledDate,
+      canonicalVisitId: stop.visitId,
+      visitStartedAt: stop.startedAt || lead?.visitStartedAt,
+      visitFinishedAt: stop.finishedAt || lead?.visitFinishedAt,
+      visitDurationSeconds: stop.durationSeconds ?? lead?.visitDurationSeconds,
       latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : lead?.latitude,
       longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : lead?.longitude,
       routeOrder: stop.routeOrder ?? lead?.routeOrder,
