@@ -2,7 +2,6 @@
 
 import { useMobileRealtime } from "@/lib/mobile/useMobileRealtime";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
 import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, routeDateForWeekday, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
@@ -141,7 +140,6 @@ export default function MobileEmployeeApp(){
 
   return <main className="mobile-app-shell">
     <header className="mobile-topbar">
-      <Link href="/mobile" className="mobile-back">‹</Link>
       <div><strong>Employee App</strong><span>{profile.name || "Field user"}</span></div>
       <div className="mobile-avatar">{(profile.photoLabel||profile.name||"E").slice(0,1)}</div>
     </header>
