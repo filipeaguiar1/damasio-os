@@ -101,6 +101,7 @@ export type Lead = {
   longitude?: number;
   routeOrder?: number;
   canonicalVisitId?: string;
+  canonicalJobId?: string;
   visitStartedAt?: string;
   visitFinishedAt?: string;
   visitDurationSeconds?: number;
