@@ -20,6 +20,19 @@ type VisitMapRow = {
   properties: PropertyRow | PropertyRow[] | null;
 };
 
+type DispatchBoardVisit = {
+  id: string;
+  routeId: string | null;
+  crewName: string | null;
+  customerName: string | null;
+  propertyId: string | null;
+  address: string | null;
+  serviceName: string | null;
+  scheduledDate: string;
+  status: string;
+  routeOrder: number | null;
+};
+
 export type EmployeeRouteMapContext = {
   routeId: string | null;
   stops: Array<{
@@ -30,6 +43,9 @@ export type EmployeeRouteMapContext = {
     longitude: number | null;
     routeOrder: number | null;
     status: string;
+    customerName?: string;
+    serviceName?: string;
+    scheduledDate?: string;
   }>;
 };
 
@@ -65,7 +81,7 @@ export async function loadEmployeeRouteMapContext(routeDate: string, crewName: s
       .eq("name", crewName)
       .eq("active", true)
       .maybeSingle();
-    if (crewError || !crew?.id) return emptyContext;
+    if (crewError || !crew?.id) return loadPublishedEmployeeRoute(routeDate, crewName);
     const { data: route, error: routeError } = await supabase
       .from("routes")
       .select("id")
@@ -74,7 +90,7 @@ export async function loadEmployeeRouteMapContext(routeDate: string, crewName: s
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (routeError || !route?.id) return emptyContext;
+    if (routeError || !route?.id) return loadPublishedEmployeeRoute(routeDate, crewName);
     const { data, error } = await supabase
       .from("visits")
       .select("id,route_id,property_id,route_order,status,properties(address_line1,city,province,postal_code,latitude,longitude)")
@@ -98,25 +114,71 @@ export async function loadEmployeeRouteMapContext(routeDate: string, crewName: s
       })
     };
   } catch {
+    return loadPublishedEmployeeRoute(routeDate, crewName);
+  }
+}
+
+async function loadPublishedEmployeeRoute(routeDate: string, crewName: string): Promise<EmployeeRouteMapContext> {
+  try {
+    const supabase = getSupabaseBrowserClient() as any;
+    const { data, error } = await supabase.rpc("get_scheduling_dispatch_board");
+    if (error) return emptyContext;
+    const visits = (Array.isArray(data?.visits) ? data.visits : []) as DispatchBoardVisit[];
+    const rows = visits
+      .filter(visit => visit.crewName === crewName && visit.scheduledDate === routeDate && !["cancelled", "missed"].includes(visit.status))
+      .sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999));
+    if (!rows.length) return emptyContext;
+    return {
+      routeId: null,
+      stops: rows.map(visit => ({
+        visitId: visit.id,
+        propertyId: visit.propertyId,
+        addressLine1: visit.address || "",
+        latitude: null,
+        longitude: null,
+        routeOrder: visit.routeOrder,
+        status: visit.status,
+        customerName: visit.customerName || "Customer",
+        serviceName: visit.serviceName || "Property Service",
+        scheduledDate: visit.scheduledDate
+      }))
+    };
+  } catch {
     return emptyContext;
   }
 }
 
 export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRouteMapContext) {
   if (!context.stops.length) return route;
-  const enriched = route.map(lead => {
-    const leadAddress = normalizeAddress(lead.address);
-    const stop = context.stops.find(candidate => {
-      const propertyAddress = normalizeAddress(candidate.addressLine1);
-      return Boolean(propertyAddress && leadAddress.includes(propertyAddress));
+  const enriched = context.stops.map(stop => {
+    const propertyAddress = normalizeAddress(stop.addressLine1);
+    const lead = route.find(candidate => {
+      const leadAddress = normalizeAddress(candidate.address);
+      return Boolean(propertyAddress && (leadAddress.includes(propertyAddress) || propertyAddress.includes(leadAddress)));
     });
-    if (!stop) return lead;
     return {
-      ...lead,
-      latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : lead.latitude,
-      longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : lead.longitude,
-      routeOrder: stop.routeOrder ?? lead.routeOrder,
-      status: stop.status === "completed" ? "completed" as const : lead.status
+      ...(lead || {
+        id: stop.visitId,
+        createdAt: new Date().toISOString(),
+        name: stop.customerName || "Customer",
+        phone: "",
+        email: "",
+        address: stop.addressLine1,
+        service: stop.serviceName || "Property Service",
+        status: "booked" as const,
+        subtotal: 0,
+        tax: 0,
+        total: 0,
+        photos: []
+      }),
+      address: stop.addressLine1 || lead?.address || "",
+      name: stop.customerName || lead?.name || "Customer",
+      service: stop.serviceName || lead?.service || "Property Service",
+      scheduledDate: stop.scheduledDate || lead?.scheduledDate,
+      latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : lead?.latitude,
+      longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : lead?.longitude,
+      routeOrder: stop.routeOrder ?? lead?.routeOrder,
+      status: stop.status === "completed" ? "completed" as const : "booked" as const
     };
   });
   return enriched.sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999) || a.address.localeCompare(b.address));
