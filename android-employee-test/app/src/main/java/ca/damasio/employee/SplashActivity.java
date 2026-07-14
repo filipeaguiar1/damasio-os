@@ -9,7 +9,7 @@ import android.view.View;
 import android.view.animation.AccelerateDecelerateInterpolator;
 
 public class SplashActivity extends Activity {
-    private static final long SPLASH_DURATION_MS = 1800L;
+    private static final long SPLASH_DURATION_MS = 1200L;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
