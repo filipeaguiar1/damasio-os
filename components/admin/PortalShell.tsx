@@ -5,7 +5,7 @@ import Link from "next/link";
 export function PortalShell({children,active,type}:{children:React.ReactNode;active:string;type:"Customer"|"Employee"}){
   const base=type==="Customer"?"/customer":"/employee";
   const links=type==="Customer"
-    ?[["Dashboard",base,"⌂"],["Services",base+"/services","▣"],["Service Issues",base+"/tasks","!"],["History",base+"/history","◷"],["Estimates",base+"/estimates","☷"],["Invoices",base+"/invoices","▤"],["Requests",base+"/requests","＋"],["Feedback",base+"/feedback","★"],["Profile",base+"/profile","⚙"]]
+    ?[["Dashboard",base,"⌂"],["Services",base+"/services","▣"],["Service Issues",base+"/tasks","!"],["History",base+"/history","◷"],["Estimates",base+"/estimates","☷"],["Invoices",base+"/invoices","▤"],["Payments",base+"/payments","$"],["Requests",base+"/requests","＋"],["Feedback",base+"/feedback","★"],["Profile",base+"/profile","⚙"]]
     :[["Today",base,"⌂"],["Checklist",base+"/checklist","✓"],["Route",base+"/route","⌘"],["Photos",base+"/photos","▧"],["Hours",base+"/hours","◷"],["Training",base+"/training","▣"]];
   const initials=type==="Customer"?"CS":"FD";
   const subtitle=type==="Customer"?"Customer Portal":"Field App";
@@ -25,8 +25,7 @@ export function PortalShell({children,active,type}:{children:React.ReactNode;act
       </Link>
       <nav className="pro-nav">
         {links.map(([label,href,icon])=><Link key={href} href={href} className={active===label?"active":""}><span>{icon}</span>{label}</Link>)}
-        <Link href="/"><span>⌂</span>Website</Link>
-        <Link href="/admin"><span>↗</span>Admin</Link>
+        {type==="Customer"&&<Link href="/"><span>⌂</span>Website</Link>}
       </nav>
       <Link href={type==="Customer"?"/customer/requests":"/employee/training"} className="help-card"><span>☏</span><div><strong>Need Help?</strong><small>Contact Support</small></div></Link>
     </aside>
