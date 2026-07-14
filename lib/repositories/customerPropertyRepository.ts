@@ -119,3 +119,10 @@ export async function createCustomerProperty(input: CreateCustomerPropertyInput)
   if (!first) throw new Error("Customer was not created.");
   return mapRecord(first as RpcRecord);
 }
+
+export async function deleteCustomerRecords(customerIds:string[]):Promise<number>{
+  const supabase=getSupabaseBrowserClient();
+  const{data,error}=await supabase.rpc("delete_company_customers" as never,{p_customer_ids:customerIds} as never);
+  if(error)throw new Error(error.message);
+  return Number(data||0);
+}
