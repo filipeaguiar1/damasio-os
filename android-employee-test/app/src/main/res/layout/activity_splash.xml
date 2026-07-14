@@ -25,8 +25,8 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
         android:letterSpacing="0.08"
-        android:text="DAMASIO"
-        android:textColor="#FFFFFF"
+        android:text="Damasio OS"
+        android:textColor="#123B27"
         android:textSize="30sp"
         android:textStyle="bold" />
 
@@ -35,8 +35,8 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:text="EMPLOYEE  •  FIELD APP"
-        android:textColor="#BDE8CE"
+        android:text="Field app loading..."
+        android:textColor="#4D6F5A"
         android:textSize="13sp"
         android:textStyle="bold" />
 
