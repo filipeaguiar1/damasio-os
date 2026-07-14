@@ -1,15 +1,12 @@
+"use client";
+import {FormEvent,Suspense,useState} from "react";
 import Link from "next/link";
+import {useRouter,useSearchParams} from "next/navigation";
+import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
 
-export default function SignupDisabledPage(){
-  return <main className="auth-page">
-    <section className="auth-card wide">
-      <span className="eyebrow">Onboarding paused</span>
-      <h1>Company signup is not active yet</h1>
-      <p>We removed the company creation flow from this version to avoid errors while the real database is being connected. The system will continue with demo access and database setup first.</p>
-      <div className="hero-actions">
-        <Link className="btn btn-primary" href="/login">Go to Login</Link>
-        <Link className="btn btn-white" href="/admin/database">Database Setup</Link>
-      </div>
-    </section>
-  </main>;
+function CustomerSignupForm(){
+  const router=useRouter();const search=useSearchParams();const[number,setNumber]=useState(search.get("quote")||"");const[email,setEmail]=useState("");const[password,setPassword]=useState("");const[message,setMessage]=useState("");const[busy,setBusy]=useState(false);
+  async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();if(!isSupabaseConfigured()){setMessage("Account creation requires the Supabase connection.");return}setBusy(true);setMessage("");const supabase=getSupabaseBrowserClient() as any;const{data,error}=await supabase.auth.signUp({email:email.trim(),password});if(error){setMessage(error.message);setBusy(false);return}if(!data.session){setMessage("Check your email to confirm the account. After confirmation, return with the same quote number.");setBusy(false);return}const{error:claimError}=await supabase.rpc("claim_quote_by_number",{p_quote_number:number.trim().toUpperCase()});if(claimError){setMessage(claimError.message);setBusy(false);return}router.push("/customer/estimates")}
+  return <main className="auth-page"><form className="auth-card wide" onSubmit={submit}><span className="eyebrow">Customer invitation</span><h1>Create your Damasio account</h1><p>Use any quote number sent to your email. Supabase verifies the signed-in email before connecting estimates, invoices and payments.</p><label className="field">Quote number<input className="input" value={number} onChange={e=>setNumber(e.target.value.toUpperCase())} placeholder="EST-2026-0001" required/></label><label className="field">Email used for the quote<input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} required/></label><label className="field">Create password<input className="input" type="password" minLength={8} value={password} onChange={e=>setPassword(e.target.value)} required/></label>{message&&<div className="payment-message">{message}</div>}<button className="btn btn-primary" type="submit" disabled={busy}>{busy?"Creating secure account…":"Create account and connect quote"}</button><Link className="btn btn-white" href="/login">Already have an account</Link></form></main>
 }
+export default function CustomerSignupPage(){return <Suspense fallback={<main className="auth-page"><section className="auth-card">Loading invitation…</section></main>}><CustomerSignupForm/></Suspense>}
