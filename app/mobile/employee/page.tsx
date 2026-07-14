@@ -4,11 +4,12 @@ import { useMobileRealtime } from "@/lib/mobile/useMobileRealtime";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
-import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, routeDateForWeekday, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
+import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
 import {
   DAMASIO_SYNC_EVENT,
   DAMASIO_WEEK_DAYS,
   Lead,
+  dayNameFromDate,
   finishServiceSession,
   formatDuration,
   getEmployeeProfile,
@@ -24,11 +25,13 @@ import {
   startServiceSession,
   updateEmployeeTaskStatus
 } from "@/lib/storage";
+import { changeVisitStatus } from "@/lib/services/schedulingService";
 
 function mapsHref(address:string){return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`}
 function statusLabel(lead:Lead, session?:ReturnType<typeof getSessionForLead>){return lead.status==="completed"?"Done":session?.status==="skipped"?"Skipped":"Open"}
 function timeLabel(value?:string){return value?new Date(value).toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"}):"—"}
 function handlingLabel(value?:string){return ({mulched:"Mulched",bag_green_bin:"Green bin",bag_leave_property:"Bagged",no_preference:"No preference"} as Record<string,string>)[value||""]||"No preference"}
+function localDateKey(date:Date){const year=date.getFullYear();const month=String(date.getMonth()+1).padStart(2,"0");const day=String(date.getDate()).padStart(2,"0");return `${year}-${month}-${day}`}
 
 export default function MobileEmployeeApp(){
   const [leads,setLeads]=useState<Lead[]>([]);
@@ -42,6 +45,8 @@ export default function MobileEmployeeApp(){
   const [busy,setBusy]=useState(false);
   const [skipOpen,setSkipOpen]=useState(false);
   const [contractOpen,setContractOpen]=useState(true);
+  const [selectedDate,setSelectedDate]=useState(()=>localDateKey(new Date()));
+  const [routeReload,setRouteReload]=useState(0);
   const [skipComment,setSkipComment]=useState("");
   const [skipPhotos,setSkipPhotos]=useState<string[]>([]);
   const skipPhotoInput=useRef<HTMLInputElement|null>(null);
@@ -57,6 +62,7 @@ export default function MobileEmployeeApp(){
       setLeads(rows);
       setError("");
       setSelectedId(current=>current&&rows.some(row=>row.id===current)?current:(rows[0]?.id||""));
+      setRouteReload(value=>value+1);
     }catch{
       setError("Route data is temporarily unavailable.");
       setLeads([]);
@@ -66,20 +72,28 @@ export default function MobileEmployeeApp(){
   useMobileRealtime(refresh);
   useEffect(()=>{refresh(); void loadEmployeeOperationalIdentity().then(identity=>setCrew(identity.crew)); const on=()=>refresh(); window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener); window.addEventListener("storage",on); const t=window.setInterval(()=>setTick(v=>v+1),1000); return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);window.clearInterval(t)}},[]);
 
-  const todayDay=DAMASIO_WEEK_DAYS[(new Date().getDay()+6)%7];
-  const localRoute=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&l.serviceDay===todayDay).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,todayDay]);
-  useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(routeDateForWeekday(todayDay),crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,todayDay]);
+  const todayKey=localDateKey(new Date());
+  const selectedDay=dayNameFromDate(selectedDate);
+  const localRoute=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&(l.scheduledDate===selectedDate||(selectedDate===todayKey&&l.serviceDay===selectedDay))).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,selectedDate,selectedDay,todayKey]);
+  useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,selectedDate,routeReload]);
   const route=useMemo(()=>applyEmployeeRouteMapContext(localRoute,mapContext),[localRoute,mapContext]);
   const mapRoute=route;
+  const dayOptions=useMemo(()=>Array.from({length:15},(_,index)=>{const date=new Date();date.setDate(date.getDate()+index-7);return{key:localDateKey(date),weekday:date.toLocaleDateString("en-CA",{weekday:"short"}),day:date.getDate()}}),[]);
   const selected=useMemo(()=>route.find(l=>l.id===selectedId)||route[0]||null,[route,selectedId]);
   const session=selected?getSessionForLead(selected.id):null;
   const workflow=selected?getLeadWorkflowSnapshot(selected):null;
   const details=selected?.propertyDetails;
   const seconds=useMemo(()=>{
-    if(!session)return 0;
+    if(!session){
+      if(selected?.visitDurationSeconds)return selected.visitDurationSeconds;
+      const started=selected?.visitStartedAt?new Date(selected.visitStartedAt).getTime():0;
+      const finished=selected?.visitFinishedAt?new Date(selected.visitFinishedAt).getTime():0;
+      if(started)return Math.max(0,Math.round(((finished||Date.now())-started)/1000));
+      return 0;
+    }
     if(session.status==="running"&&session.startedAt)return Math.max(0,Math.round((Date.now()-new Date(session.startedAt).getTime())/1000));
     return session.durationSeconds||0;
-  },[session,tick]);
+  },[session,tick,selected?.visitDurationSeconds,selected?.visitStartedAt,selected?.visitFinishedAt]);
   const tasks=useMemo(()=>{
     try{return getEmployeeTasks().filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===profile.name||t.assignedTo===crew))}
     catch{return []}
@@ -90,26 +104,26 @@ export default function MobileEmployeeApp(){
   const nextStop=route.find(l=>l.status!=="completed"&&getSessionForLead(l.id)?.status!=="skipped")||route[0]||null;
 
   function openService(lead:Lead){setSelectedId(lead.id); setComment(getSessionForLead(lead.id)?.completionComment||""); setContractOpen(true); setTab("service"); setMessage("")}
-  function start(){
+  async function start(){
     if(!selected||busy)return;
     setBusy(true); setError("");
-    try{startServiceSession(selected.id,profile.name,crew); refresh(); setMessage("Service started.")}
+    try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"in_progress");else startServiceSession(selected.id,profile.name,crew); setRouteReload(value=>value+1); refresh(); setMessage("Service started and synchronized.")}
     catch{setError("Service could not be started. Please try again.")}
     finally{setBusy(false)}
   }
-  function finish(){
+  async function finish(){
     if(!selected||busy)return;
     if(!window.confirm("Finish this service and mark this house as Done?"))return;
     setBusy(true); setError("");
-    try{finishServiceSession(selected.id,comment); refresh(); setMessage("Done. Service sent to history.")}
+    try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"completed");else finishServiceSession(selected.id,comment); setRouteReload(value=>value+1); refresh(); setMessage("Done. Every device was updated.")}
     catch{setError("Service could not be completed. Please try again.")}
     finally{setBusy(false)}
   }
-  function reset(){
+  async function reset(){
     if(!selected||busy)return;
     if(!window.confirm("Reset this house? The timer will be cleared and the visit will return to Open."))return;
     setBusy(true); setError("");
-    try{resetServiceSession(selected.id); setComment(""); refresh(); setMessage("House reset to Open.")}
+    try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"scheduled");else resetServiceSession(selected.id); setComment(""); setRouteReload(value=>value+1); refresh(); setMessage("House reset to Open on every device.")}
     catch{setError("House could not be reset.")}
     finally{setBusy(false)}
   }
@@ -152,8 +166,12 @@ export default function MobileEmployeeApp(){
 
     {error&&<p className="mobile-message mobile-error" role="alert">{error}</p>}
 
+    <nav className="employee-day-strip" aria-label="Route days">
+      {dayOptions.map(item=><button key={item.key} className={selectedDate===item.key?"active":item.key<todayKey?"past":""} onClick={()=>{setSelectedDate(item.key);setSelectedId("");setTab("route")}}><span>{item.weekday}</span><strong>{item.day}</strong>{item.key===todayKey&&<i>Today</i>}</button>)}
+    </nav>
+
     <section className="employee-mobile-progress">
-      <div><strong>Today&apos;s Route</strong><span>{done} / {route.length} completed</span></div>
+      <div><strong>{selectedDate===todayKey?"Today’s Route":new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"})}</strong><span>{done} / {route.length} completed</span></div>
       <div className="employee-progress-track"><i style={{width:`${progress}%`}}/></div>
       <small>{route.length-done-skipped} remaining · {skipped} skipped · {tasks.length} issues</small>
     </section>
@@ -207,15 +225,15 @@ export default function MobileEmployeeApp(){
       </div>
       <div className="employee-visit-date">{selected.scheduledDate||"Today"}</div>
       <div className="employee-time-grid">
-        <div><span>Started</span><strong>{timeLabel(session?.startedAt)}</strong></div>
+        <div><span>Started</span><strong>{timeLabel(session?.startedAt||selected.visitStartedAt)}</strong></div>
         <div><span>Duration</span><strong>{formatDuration(seconds)}</strong></div>
-        <div><span>Finished</span><strong>{timeLabel(session?.finishedAt)}</strong></div>
+        <div><span>Finished</span><strong>{timeLabel(session?.finishedAt||selected.visitFinishedAt)}</strong></div>
       </div>
       {(selected.photos?.length||0)>0&&<section className="employee-image-section"><strong>Images</strong><div>{selected.photos?.map((photo,index)=><img key={index} src={photo} alt={`Service ${index+1}`}/>)}</div></section>}
       <div className="mobile-action-grid">
         <button className="mobile-primary" disabled={busy||session?.status==="running"||selected.status==="completed"} onClick={start}>Start</button>
-        <button className="mobile-finish" disabled={busy||session?.status!=="running"} onClick={finish}>Finish</button>
-        <button className="mobile-reset" disabled={busy||(!session&&selected.status!=="completed")} onClick={reset}>Reset</button>
+        <button className="mobile-finish" disabled={busy||(!selected.canonicalVisitId&&session?.status!=="running")||(Boolean(selected.canonicalVisitId)&&!selected.visitStartedAt)||selected.status==="completed"} onClick={finish}>Finish</button>
+        <button className="mobile-reset" disabled={busy||(!session&&!selected.canonicalVisitId&&selected.status!=="completed")} onClick={reset}>Reset</button>
         <button className="mobile-skip" disabled={busy||selected.status==="completed"} onClick={openSkip}>Skip</button>
       </div>
       <textarea className="mobile-textarea" value={comment} onChange={e=>setComment(e.target.value)} placeholder="Optional comment for this visit" />
@@ -223,7 +241,7 @@ export default function MobileEmployeeApp(){
       <input ref={photoInput} type="file" accept="image/*" capture="environment" multiple hidden onChange={upload}/>
       <button className="mobile-outline" disabled={busy||(selected.photos?.length||0)>=5} onClick={()=>photoInput.current?.click()}>Take / Upload Photo ({selected.photos?.length||0}/5)</button>
       {message&&<p className="mobile-message">{message}</p>}
-      <div className="employee-service-footer"><button className="mobile-reset" disabled={busy||(!session&&selected.status!=="completed")} onClick={reset}>Reset ↻</button><button className="mobile-primary" onClick={()=>setTab("route")}>Route</button></div>
+      <div className="employee-service-footer"><button className="mobile-reset" disabled={busy||(!session&&!selected.canonicalVisitId&&selected.status!=="completed")} onClick={reset}>Reset ↻</button><button className="mobile-primary" onClick={()=>setTab("route")}>Route</button></div>
     </section>}
 
     {skipOpen&&selected&&<div className="mobile-modal-backdrop" role="presentation" onClick={()=>!busy&&setSkipOpen(false)}>
