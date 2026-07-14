@@ -204,29 +204,18 @@ export default function MobileEmployeeApp(){
       {routeView==="list"&&nextStop&&<a className="employee-next-directions" href={mapsHref(nextStop.address)} target="_blank" rel="noopener noreferrer"><span>Get directions to next</span><b>⌖</b></a>}
     </>}
 
-    {tab==="service"&&selected&&<section className="mobile-service-screen mobile-browser-service">
+    {tab==="service"&&selected&&<section className="mobile-service-screen mobile-browser-service mobile-property-reference">
       <button className="mobile-inline-back" onClick={()=>setTab("route")}>← Route</button>
-      <div className="mobile-property-photo mobile-property-photo-browser">{selected.propertyPhoto?<img src={selected.propertyPhoto} alt="Property"/>:<span className="mobile-house-placeholder">🏠</span>}<a className="mobile-directions" href={mapsHref(selected.address)} target="_blank" rel="noopener noreferrer">Get directions</a></div>
       <div className="mobile-service-head">
         <div><h1>{selected.address}</h1><p>{selected.name}</p></div>
         <b className={selected.status==="completed"?"mobile-status done":session?.status==="skipped"?"mobile-status skipped":"mobile-status"}>{statusLabel(selected,session)}</b>
       </div>
-      <div className="employee-video-row"><span>Client</span><strong>{selected.name}</strong></div>
-      <section className="employee-contract-card">
-        <button type="button" onClick={()=>setContractOpen(value=>!value)}><span>Contract</span><b>{contractOpen?"Hide details":"Show details"}</b></button>
-        <div className="employee-contract-service"><i>✂</i><div><strong>{selected.service}</strong><small>{selected.scheduledDate||"Season"} · {selected.scheduledWindow||"Flexible"}</small></div></div>
-        {contractOpen&&<>
-          {(details?.accessNotes||details?.propertyAlerts||details?.adminNotes||selected.notes)&&<div className="employee-access-note">ⓘ {details?.accessNotes||details?.propertyAlerts||details?.adminNotes||selected.notes}</div>}
-          <div className="mobile-detail-list compact employee-contract-details">
-            <div><span>Cut height</span><strong>{details?.grassHeight||"3in"}</strong></div>
-            <div><span>Grass clippings</span><strong>{handlingLabel(details?.grassHandling)}</strong></div>
-            <div><span>Lot size</span><strong>{details?.lawnSize?.toUpperCase()||"SMALL"}</strong></div>
-            <div><span>Backyard</span><strong>{details?.backyard?"Yes":"No"}</strong></div>
-            <div><span>Gate</span><strong>{details?.gated?"Yes":"No"}</strong></div>
-            <div><span>Workflow</span><strong>{workflow?.label||"Assigned"}</strong></div>
-          </div>
-        </>}
-      </section>
+      <div className="property-reference-head mobile-property-contract-head"><h2>Contract</h2><button type="button" onClick={()=>setContractOpen(value=>!value)}>{contractOpen?"Hide details":"Show details"}</button></div>
+      <article className="property-contract-summary"><div className="property-contract-thumb">{selected.propertyPhoto?<img src={selected.propertyPhoto} alt="Property"/>:<span>🏡</span>}</div><div><strong>{selected.service}</strong><small>{selected.serviceFrequency||"one time"} · {selected.scheduledDate||"Route pending"}</small></div><i>ⓘ</i></article>
+      {contractOpen&&<article className="property-compact-card mobile-property-data-card">
+        {(details?.accessNotes||details?.propertyAlerts||details?.adminNotes||selected.notes)&&<div className="property-access-banner">ⓘ {details?.accessNotes||details?.propertyAlerts||details?.adminNotes||selected.notes}</div>}
+        <dl><div><dt>Cut height</dt><dd>{(details?.grassHeight||"3in").replace("in","")} inches</dd></div><div><dt>Grass clippings</dt><dd>{handlingLabel(details?.grassHandling)}</dd></div><div><dt>Lot size</dt><dd>{details?.lawnSize?.toUpperCase()||"SMALL"}</dd></div><div><dt>Service level</dt><dd>{selected.serviceFrequency||"One time"}</dd></div><div><dt>Backyard / gate</dt><dd>{details?.backyard?"Backyard":"No backyard"} · {details?.gated?"Gated":"Open"}</dd></div><div><dt>Workflow</dt><dd>{workflow?.label||"Assigned"}</dd></div></dl>
+      </article>}
       <div className="employee-contact-actions">
         {selected.phone&&<a href={`tel:${selected.phone}`}>Call client</a>}
         {selected.email&&<a href={`mailto:${selected.email}`}>Email client</a>}
@@ -237,7 +226,7 @@ export default function MobileEmployeeApp(){
         <div><span>Duration</span><strong>{formatDuration(seconds)}</strong></div>
         <div><span>Finished</span><strong>{timeLabel(session?.finishedAt||selected.visitFinishedAt)}</strong></div>
       </div>
-      {(selected.photos?.length||0)>0&&<section className="employee-image-section"><strong>Images</strong><div>{selected.photos?.map((photo,index)=><img key={index} src={photo} alt={`Service ${index+1}`}/>)}</div></section>}
+      <section className="employee-image-section"><strong>Images</strong><div>{[selected.propertyPhoto,...(selected.photos||[])].filter(Boolean).map((photo,index)=><img key={index} src={photo} alt={`Service ${index+1}`}/>)}{!selected.propertyPhoto&&!(selected.photos?.length)&&<span className="mobile-property-no-images">No images yet</span>}</div></section>
       <div className="mobile-action-grid">
         <button className="mobile-primary" disabled={busy||session?.status==="running"||selected.status==="completed"} onClick={start}>Start</button>
         <button className="mobile-finish" disabled={busy||(!selected.canonicalVisitId&&session?.status!=="running")||(Boolean(selected.canonicalVisitId)&&!selected.visitStartedAt)||selected.status==="completed"} onClick={finish}>Finish</button>
