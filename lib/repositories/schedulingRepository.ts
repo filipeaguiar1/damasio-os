@@ -38,6 +38,7 @@ export type DispatchVisit = {
   routeOrder: number | null;
   startedAt: string | null;
   finishedAt: string | null;
+  durationSeconds?: number | null;
   createdAt: string;
 };
 
