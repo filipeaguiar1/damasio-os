@@ -30,7 +30,8 @@ import java.io.File;
 import java.io.IOException;
 
 public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5201";
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5210";
+    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5210";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
     private static final String MOBILE_PATH = "/mobile";
     private static final int FILE_CHOOSER_REQUEST = 4101;
@@ -40,6 +41,7 @@ public class MainActivity extends Activity {
     private ProgressBar progressBar;
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraOutputUri;
+    private long lastBackPressedAt = 0L;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -66,7 +68,7 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " DamasioOSAndroid/52.0.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " DamasioOSAndroid/52.1.0");
         webView.clearCache(true);
 
         webView.setWebViewClient(new WebViewClient() {
@@ -225,8 +227,14 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
         Uri current = Uri.parse(webView.getUrl() == null ? APP_URL : webView.getUrl());
-        if (!isEmployeeUrl(current)) webView.loadUrl(APP_URL);
-        else moveTaskToBack(true);
+        String path = current.getPath() == null ? "" : current.getPath();
+        if (!isEmployeeUrl(current)) { webView.loadUrl(APP_URL); return; }
+        if (webView.canGoBack() && !path.equals("/mobile/admin") && !path.equals("/mobile/customer")) { webView.goBack(); return; }
+        if (path.equals("/mobile/admin") || path.equals("/mobile/customer")) { webView.loadUrl(LOGIN_URL); return; }
+        long now = System.currentTimeMillis();
+        if (now - lastBackPressedAt < 2000L) { moveTaskToBack(true); return; }
+        lastBackPressedAt = now;
+        Toast.makeText(this, "Press back again to exit", Toast.LENGTH_SHORT).show();
     }
 
     @Override

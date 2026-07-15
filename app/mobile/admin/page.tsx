@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DAMASIO_SYNC_EVENT, getEmployeeTasks, getLeads, getNotifications, seedDemoLeads } from "@/lib/storage";
 import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
 import {signOutAccount} from "@/lib/auth/signOut";
+import {MobileBackButton} from "@/components/mobile/MobileBackButton";
 
 type MobileAdminData = {
   open: number;
@@ -69,54 +70,51 @@ export default function MobileAdminApp() {
     return readAdminData();
   }, [refreshKey]);
 
+  const actions=[
+    {href:"/admin/command",icon:"⌁",label:"Command",detail:"Live operation"},
+    {href:"/admin/routes",icon:"↗",label:"Routes",detail:"Dispatch crews"},
+    {href:"/admin/schedule",icon:"□",label:"Schedule",detail:"Plan the day"},
+    {href:"/admin/customers",icon:"◎",label:"Customers",detail:"Homes & contacts"},
+    {href:"/admin/tasks",icon:"✓",label:"Tasks",detail:"Return visits"},
+    {href:"/admin/notifications",icon:"!",label:"Alerts",detail:`${data.alerts} unread`},
+  ];
+
   return (
-    <MobileRoleGuard allowed={["admin","manager"]}><main className="mobile-app-shell mobile-admin-shell">
-      <header className="mobile-topbar">
-        <div className="mobile-brand-mark">D</div>
-        <div>
-          <strong>Admin Mobile</strong>
-          <span>Command snapshot</span>
-        </div>
-        <button type="button" className="mobile-avatar mobile-signout" onClick={()=>void signOutAccount("/mobile/login")} aria-label="Sign out">A</button>
+    <MobileRoleGuard allowed={["admin","manager"]}><main className="mobile-app-shell role-mobile-shell role-admin-mobile">
+      <header className="role-mobile-topbar">
+        <MobileBackButton/>
+        <div><strong>Operations</strong><span>Admin workspace</span></div>
+        <button type="button" className="role-mobile-avatar" onClick={()=>void signOutAccount("/mobile/login")} aria-label="Sign out">A</button>
       </header>
 
       <section className="mobile-hero-card compact">
-        <div className="mobile-brand-row">
-          <div className="mobile-brand-mark">D</div>
-          <div>
-            <strong>Today</strong>
-            <span>Live operations</span>
-          </div>
-        </div>
-        <h1>{data.open} open homes</h1>
-        <p>Fast mobile access for Admin. Full editing still opens the existing Admin screens.</p>
+        <span className="role-mobile-eyebrow">TODAY · LIVE OPERATIONS</span>
+        <h1>Everything under control.</h1>
+        <p><strong>{data.open} homes</strong> are open and {data.returnVisits} tasks need follow-up.</p>
+        <Link className="role-mobile-hero-link" href="/admin/command">Open Command Center <span>→</span></Link>
       </section>
 
       <section className="mobile-stats-card">
         <div><span>Open</span><strong>{data.open}</strong><small>homes</small></div>
-        <div><span>Done</span><strong>{data.done}</strong><small>today</small></div>
-        <div><span>Tasks</span><strong>{data.returnVisits}</strong><small>return</small></div>
+        <div><span>Done</span><strong>{data.done}</strong><small>completed</small></div>
+        <div><span>Tasks</span><strong>{data.returnVisits}</strong><small>follow-up</small></div>
+        <div><span>Alerts</span><strong>{data.alerts}</strong><small>unread</small></div>
       </section>
 
-      <section className="mobile-card-list">
-        <Link className="mobile-admin-action" href="/admin/command"><strong>Command Center</strong><p>Open full operations dashboard.</p><span>›</span></Link>
-        <Link className="mobile-admin-action" href="/admin/routes"><strong>Dispatch / Routes</strong><p>Manage assignments and route order.</p><span>›</span></Link>
-        <Link className="mobile-admin-action" href="/admin/tasks"><strong>Return Visits</strong><p>Assign, unassign and resolve tasks.</p><span>›</span></Link>
-        <Link className="mobile-admin-action" href="/admin/customers"><strong>Customers</strong><p>Search customer and property data.</p><span>›</span></Link>
+      <section className="role-mobile-section">
+        <div className="role-mobile-section-head"><div><span>QUICK ACCESS</span><h2>Run the business</h2></div><Link href="/admin">View all</Link></div>
+        <div className="role-mobile-action-grid">{actions.map(action=><Link href={action.href} key={action.href}><i>{action.icon}</i><strong>{action.label}</strong><small>{action.detail}</small></Link>)}</div>
       </section>
 
-      <section className="mobile-card-list">
-        <h2 className="mobile-section-title">Needs attention</h2>
+      <section className="role-mobile-section role-attention-section">
+        <div className="role-mobile-section-head"><div><span>PRIORITIES</span><h2>Needs attention</h2></div><Link href="/admin/tasks">All tasks</Link></div>
         {data.tasks.length ? data.tasks.map((task) => (
-          <article className="mobile-issue-card" key={task.id}>
-            <strong>{task.title}</strong>
-            <p>{task.customer}<br />{task.address}</p>
-            <small>Status: {task.status}</small>
-          </article>
+          <Link className="role-mobile-priority" href="/admin/tasks" key={task.id}><i>!</i><span><strong>{task.title}</strong><small>{task.customer} · {task.address}</small></span><b>›</b></Link>
         )) : (
-          <div className="mobile-empty"><strong>No return visits open.</strong><p>Admin mobile is working and ready for live data.</p></div>
+          <div className="role-mobile-clear"><i>✓</i><span><strong>No return visits open</strong><small>Your priority list is clear.</small></span></div>
         )}
       </section>
+      <nav className="role-mobile-bottom" aria-label="Admin navigation"><Link className="active" href="/mobile/admin"><i>⌂</i><span>Home</span></Link><Link href="/admin/schedule"><i>□</i><span>Schedule</span></Link><Link href="/admin/routes"><i>↗</i><span>Routes</span></Link><Link href="/admin/customers"><i>◎</i><span>Customers</span></Link><Link href="/admin"><i>•••</i><span>More</span></Link></nav>
     </main></MobileRoleGuard>
   );
 }
