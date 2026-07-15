@@ -1,6 +1,7 @@
 "use client";
 import {useState} from "react";
 import Link from "next/link";
+import {signOutAccount} from "@/lib/auth/signOut";
 
 export function PortalShell({children,active,type}:{children:React.ReactNode;active:string;type:"Customer"|"Employee"}){
   const base=type==="Customer"?"/customer":"/employee";
@@ -38,6 +39,7 @@ export function PortalShell({children,active,type}:{children:React.ReactNode;act
         <Link href={type==="Customer"?"/customer/tasks":"/employee/route"} onClick={clearNotifications} className="top-icon notify">♢{unread>0&&<b>{unread}</b>}</Link>
         <Link href={base+"/profile"} className="top-icon">☾</Link>
         <Link href={base+"/profile"} className="mini-user"><span>{initials}</span><i></i></Link>
+        <button type="button" className="top-signout" onClick={()=>void signOutAccount()} aria-label="Sign out">Sign out</button>
       </header>
       <div className="pro-content">{children}</div>
     </main>
