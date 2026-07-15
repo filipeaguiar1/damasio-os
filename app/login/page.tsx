@@ -2,7 +2,7 @@
 import {useState} from "react";
 import {useRouter} from "next/navigation";
 import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
-import {DemoRole,getRoleHome,saveDemoSession} from "@/lib/auth/demoAuth";
+import {clearDemoSession,DemoRole,getRoleHome,saveDemoSession} from "@/lib/auth/demoAuth";
 
 export default function LoginPage(){
   const router=useRouter();
@@ -23,15 +23,28 @@ export default function LoginPage(){
       const supabase=getSupabaseBrowserClient() as any;
       const {data,error}=await supabase.auth.signInWithPassword({email,password});
       if(error){setMessage(error.message);return;}
+      clearDemoSession();
       const userId=data.user?.id;
       if(!userId){setMessage("Login worked, but no user was returned.");return;}
-      const {data:profile,error:profileError}=await supabase.from("profiles").select("role, full_name").eq("id",userId).single();
+      const {data:profile,error:profileError}=await supabase.from("profiles").select("role, full_name, active").eq("id",userId).single();
       if(profileError || !profile){
         setMessage("User exists, but no profile/role was found yet. For now, keep using demo access while database users are connected.");
         return;
       }
+      if(!profile.active){
+        await supabase.auth.signOut();
+        setMessage("This account is inactive. Contact the company Admin.");
+        return;
+      }
+      if(profile.role==="customer"){
+        const pendingQuote=window.localStorage.getItem("damasio_pending_quote");
+        if(pendingQuote){
+          const {error:claimError}=await supabase.rpc("claim_quote_by_number",{p_quote_number:pendingQuote});
+          if(!claimError)window.localStorage.removeItem("damasio_pending_quote");
+        }
+      }
       if(profile.role==="master") router.push("/master");
-      else if(profile.role==="admin") router.push("/admin");
+      else if(profile.role==="admin"||profile.role==="manager") router.push("/admin");
       else if(profile.role==="employee") router.push("/employee");
       else router.push("/customer");
     }catch(err){setMessage(err instanceof Error?err.message:"Could not sign in.");}
