@@ -4,6 +4,7 @@ import { useMobileRealtime } from "@/lib/mobile/useMobileRealtime";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { DAMASIO_SYNC_EVENT, createCustomerTaskFromService, getLeads, saveFeedback, seedDemoLeads } from "@/lib/storage";
+import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
 
 type Sentiment = "like" | "dislike" | null;
 
@@ -91,8 +92,8 @@ export default function MobileCustomerApp(){
     }
   }
 
-  return <main className="mobile-app-shell">
-    <header className="mobile-topbar"><Link href="/mobile" className="mobile-back" aria-label="Back to mobile home">‹</Link><div><strong>Customer Mobile</strong><span>Service status</span></div><div className="mobile-avatar">C</div></header>
+  return <MobileRoleGuard allowed={["customer"]}><main className="mobile-app-shell">
+    <header className="mobile-topbar"><div className="mobile-brand-mark">D</div><div><strong>Customer Mobile</strong><span>Service status</span></div><div className="mobile-avatar">C</div></header>
     {error&&<p className="mobile-message mobile-error" role="alert">{error}</p>}
     {!lead?<section className="mobile-empty"><strong>No property found.</strong><p>Customer information will appear here as soon as the account is connected.</p><Link className="mobile-outline" href="/customer">Open Customer Portal</Link></section>:<>
       <section className="mobile-hero-card compact"><div className="mobile-brand-row"><div className="mobile-brand-mark">D</div><div><strong>{lead.name}</strong><span>{lead.service}</span></div></div><h1>{lead.status==="completed"?"Service completed":"Service scheduled"}</h1><p>{lead.address}</p></section>
@@ -144,5 +145,5 @@ export default function MobileCustomerApp(){
         </section>
       </div>}
     </>}
-  </main>
+  </main></MobileRoleGuard>
 }
