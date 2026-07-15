@@ -2,6 +2,11 @@ name: Build Employee Test APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "android-employee-test/**"
+      - ".github/workflows/build-employee-apk.yml"
   push:
     branches: [main, agent/mobile-role-experiences]
     paths:
