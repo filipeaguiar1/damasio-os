@@ -30,7 +30,7 @@ import java.io.File;
 import java.io.IOException;
 
 public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5200";
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5201";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
     private static final String MOBILE_PATH = "/mobile";
     private static final int FILE_CHOOSER_REQUEST = 4101;

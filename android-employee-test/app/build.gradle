@@ -10,8 +10,8 @@ android {
         applicationId "ca.damasio.employee.test"
         minSdk 24
         targetSdk 35
-        versionCode 5
-        versionName "52.0.0-test"
+        versionCode 6
+        versionName "52.0.1-test"
     }
 
     buildTypes {

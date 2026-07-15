@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { DAMASIO_SYNC_EVENT, getEmployeeTasks, getLeads, getNotifications, seedDemoLeads } from "@/lib/storage";
 import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
+import {signOutAccount} from "@/lib/auth/signOut";
 
 type MobileAdminData = {
   open: number;
@@ -76,7 +77,7 @@ export default function MobileAdminApp() {
           <strong>Admin Mobile</strong>
           <span>Command snapshot</span>
         </div>
-        <div className="mobile-avatar">A</div>
+        <button type="button" className="mobile-avatar mobile-signout" onClick={()=>void signOutAccount("/mobile/login")} aria-label="Sign out">A</button>
       </header>
 
       <section className="mobile-hero-card compact">

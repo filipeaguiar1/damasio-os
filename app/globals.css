@@ -660,3 +660,22 @@ html[data-season="winter"] .mobile-splash{background:linear-gradient(180deg,#f7f
 @media(max-width:760px){.season-atmosphere.spring .season-particles,.season-atmosphere.autumn .season-particles{width:34vw}.master-season-save{align-items:stretch;flex-direction:column}.master-season-save button{width:100%}.mobile-splash-scene{height:220px}.mobile-employee-startup .mobile-logo-pulse{width:82px;height:82px}.mobile-employee-startup .mobile-logo-pulse span{font-size:41px}}
 .mobile-login-page{min-height:100vh;display:grid;align-content:center;gap:18px;max-width:520px}.mobile-login-card{display:grid;gap:14px;padding:22px;border:1px solid #dbe7df;border-radius:22px;background:#fff;box-shadow:0 16px 40px rgba(15,81,50,.08)}.mobile-login-card label{display:grid;gap:7px;color:#234735;font-size:13px;font-weight:900}.mobile-login-card a{text-align:center;color:var(--season-primary);font-weight:800;font-size:13px}.mobile-login-card .mobile-primary{width:100%;border:0;border-radius:13px;padding:14px;color:#fff;font-weight:900}
 .top-signout{border:1px solid #dbe4df;border-radius:999px;background:#fff;padding:8px 12px;color:#395249;font-size:12px;font-weight:900;cursor:pointer}.mobile-signout{border:0;cursor:pointer}
+
+/* V52.0.1 — mobile opening, public demos and compact navigation */
+.mobile-menu-toggle{border:0;background:transparent;cursor:pointer}.mobile-menu-close,.mobile-menu-signout{display:none}
+.mobile-demo-access{display:grid;gap:14px;padding:18px;border:1px solid #d8e5dc;border-radius:22px;background:#fff;box-shadow:0 14px 34px rgba(15,81,50,.08)}.mobile-demo-access>div:first-child{display:grid;gap:3px}.mobile-demo-access>div:first-child span{color:#64746a;font-size:12px}.mobile-demo-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.mobile-demo-grid button{min-width:0;min-height:76px;border:1px solid #dbe7df;border-radius:16px;background:#f4faf6;color:#164f32;display:grid;place-items:center;align-content:center;gap:5px;font:inherit;font-weight:900;cursor:pointer}.mobile-demo-grid button b{width:32px;height:32px;border-radius:11px;background:#0f6b43;color:#fff;display:grid;place-items:center}.mobile-demo-grid button span{font-size:12px}
+@media(max-width:800px){
+  .mobile-login-page{align-content:start;padding-top:max(16px,env(safe-area-inset-top));padding-bottom:max(24px,env(safe-area-inset-bottom))}
+  .admin-pro-shell>.pro-sidebar:not(.mobile-menu-open){display:none!important}
+  .admin-pro-shell>.pro-sidebar.mobile-menu-open{display:flex!important;position:fixed!important;inset:0!important;width:100%!important;max-width:none!important;height:100dvh!important;max-height:none!important;z-index:100!important;padding:12px 12px max(18px,env(safe-area-inset-bottom))!important;overflow-y:auto!important}
+  .mobile-menu-close{display:grid;position:absolute;right:14px;top:14px;z-index:5;width:42px;height:42px;border:0;border-radius:50%;place-items:center;background:rgba(6,51,35,.88);color:#fff;font-size:30px;line-height:1;cursor:pointer}
+  .mobile-menu-signout{display:block;width:100%;min-height:46px;margin-top:12px;border:1px solid rgba(255,255,255,.22);border-radius:12px;background:rgba(255,255,255,.09);color:#fff;font:inherit;font-weight:900;cursor:pointer}
+  .admin-pro-shell>.pro-sidebar.mobile-menu-open .season-logo{height:94px;margin:0 -12px 8px}
+  .admin-pro-shell>.pro-sidebar.mobile-menu-open .season-title{left:20px;top:18px}.admin-pro-shell>.pro-sidebar.mobile-menu-open .season-title span{font-size:25px}.admin-pro-shell>.pro-sidebar.mobile-menu-open .season-title strong{font-size:28px}
+  .admin-pro-shell>.pro-sidebar.mobile-menu-open .admin-profile{min-height:58px;margin:0 4px 10px;padding:9px 4px}
+  .portal-pro-shell>.pro-sidebar.mobile-menu-open .pro-nav{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:7px!important;overflow:visible!important}
+  .portal-pro-shell>.pro-sidebar.mobile-menu-open .pro-nav a{width:100%!important;min-width:0!important;max-width:none!important;height:46px!important;padding:0 11px!important;border-radius:11px!important;font-size:12px!important;white-space:normal!important;background:rgba(255,255,255,.08)}
+  .admin-pro-shell>.pro-sidebar.mobile-menu-open .pro-nav{overflow:visible!important}
+  .admin-pro-shell>.pro-sidebar.mobile-menu-open .help-card{display:none!important}
+  .top-signout{display:none!important}
+}

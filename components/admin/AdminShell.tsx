@@ -16,6 +16,7 @@ const navGroups:{id:string;label:string;icon:string;links:NavLink[]}[]=[
 export function AdminShell({children,active}:{children:React.ReactNode;active:string}){
   const[unread,setUnread]=useState(0);
   const[pendingRequests,setPendingRequests]=useState(0);
+  const[mobileMenuOpen,setMobileMenuOpen]=useState(false);
   const activeGroup=navGroups.find(group=>group.links.some(([label])=>label===active))?.id??"overview";
   const[openGroup,setOpenGroup]=useState(activeGroup);
   function refreshNotifications(){setUnread(getNotifications().filter(n=>!n.read).length);setPendingRequests(getServiceRequests().filter(r=>r.status==="pending").length)}
@@ -24,7 +25,8 @@ export function AdminShell({children,active}:{children:React.ReactNode;active:st
   useEffect(()=>{setOpenGroup(activeGroup)},[activeGroup]);
 
   return <div className="admin-pro-shell">
-    <aside className="pro-sidebar">
+    <aside className={`pro-sidebar ${mobileMenuOpen?"mobile-menu-open":""}`}>
+      <button type="button" className="mobile-menu-close" onClick={()=>setMobileMenuOpen(false)} aria-label="Close menu">×</button>
       <Link href="/admin" className="season-logo" aria-label="Damasio Seasons dashboard">
         <div className="season-title"><span>DAMASIO</span><strong>SEASONS</strong></div>
         <div className="grass-mask" aria-hidden="true"><span></span><span></span><span></span></div>
@@ -44,17 +46,18 @@ export function AdminShell({children,active}:{children:React.ReactNode;active:st
               <span>{group.icon}</span><strong>{group.label}</strong>{count>0&&<em>{count}</em>}<b>⌄</b>
             </button>
             {isOpen&&<div className="pro-nav-group-links">
-              {group.links.map(([label,href,icon])=><Link key={href} href={href} onClick={label==="Alerts"?openNotifications:undefined} className={active===label?"active":""}><span>{icon}</span>{label}{label==="Alerts"&&unread>0&&<em>{unread}</em>}{label==="Requests"&&pendingRequests>0&&<em>{pendingRequests}</em>}</Link>)}
+              {group.links.map(([label,href,icon])=><Link key={href} href={href} onClick={()=>{if(label==="Alerts")openNotifications();setMobileMenuOpen(false)}} className={active===label?"active":""}><span>{icon}</span>{label}{label==="Alerts"&&unread>0&&<em>{unread}</em>}{label==="Requests"&&pendingRequests>0&&<em>{pendingRequests}</em>}</Link>)}
             </div>}
           </section>
         })}
       </nav>
 
       <Link href="/admin/alerts?tab=support" className="help-card"><span>☏</span><div><strong>Need Help?</strong><small>Contact Support</small></div></Link>
+      <button type="button" className="mobile-menu-signout" onClick={()=>void signOutAccount("/mobile/login")}>Sign out</button>
     </aside>
     <main className="pro-main">
       <header className="pro-topbar">
-        <Link href="/admin" className="hamburger" aria-label="Open dashboard">☰</Link>
+        <button type="button" className="hamburger mobile-menu-toggle" onClick={()=>setMobileMenuOpen(true)} aria-label="Open menu">☰</button>
         <Link href="/admin/leads" className="topbar-pill">🌿 Damasio OS V51.3</Link>
         <div className="topbar-spacer"></div>
         <Link href="/admin/customers" className="top-icon" aria-label="Search customers">⌕</Link>
