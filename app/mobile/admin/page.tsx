@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { DAMASIO_SYNC_EVENT, getEmployeeTasks, getLeads, getNotifications, seedDemoLeads } from "@/lib/storage";
+import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
 
 type MobileAdminData = {
   open: number;
@@ -68,9 +69,9 @@ export default function MobileAdminApp() {
   }, [refreshKey]);
 
   return (
-    <main className="mobile-app-shell mobile-admin-shell">
+    <MobileRoleGuard allowed={["admin","manager"]}><main className="mobile-app-shell mobile-admin-shell">
       <header className="mobile-topbar">
-        <Link href="/mobile" className="mobile-back" aria-label="Back to mobile home">‹</Link>
+        <div className="mobile-brand-mark">D</div>
         <div>
           <strong>Admin Mobile</strong>
           <span>Command snapshot</span>
@@ -115,6 +116,6 @@ export default function MobileAdminApp() {
           <div className="mobile-empty"><strong>No return visits open.</strong><p>Admin mobile is working and ready for live data.</p></div>
         )}
       </section>
-    </main>
+    </main></MobileRoleGuard>
   );
 }
