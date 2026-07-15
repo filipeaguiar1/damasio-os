@@ -3,7 +3,6 @@
 import { useMobileRealtime } from "@/lib/mobile/useMobileRealtime";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
-import { MobileStartupSplash } from "@/components/mobile/MobileStartupSplash";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
 import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
@@ -39,7 +38,6 @@ function mondayKey(date:Date){const monday=new Date(date);const day=(monday.getD
 function shiftDateKey(value:string,days:number){const date=new Date(`${value}T12:00:00`);date.setDate(date.getDate()+days);return localDateKey(date)}
 
 export default function MobileEmployeeApp(){
-  const [showStartup,setShowStartup]=useState(true);
   const [leads,setLeads]=useState<Lead[]>([]);
   const [selectedId,setSelectedId]=useState("");
   const [tab,setTab]=useState<"route"|"service"|"issues">("route");
@@ -166,8 +164,6 @@ export default function MobileEmployeeApp(){
     Promise.all(files.map(f=>new Promise<string>((resolve,reject)=>{const reader=new FileReader(); reader.onload=()=>resolve(String(reader.result||"")); reader.onerror=()=>reject(new Error("read failed")); reader.readAsDataURL(f)}))).then(images=>{saveServicePhotos(selected.id,[...(selected.photos||[]),...images].slice(0,5)); refresh(); setMessage("Photo saved.")}).catch(()=>setError("Photo could not be saved.")).finally(()=>setBusy(false));
     e.target.value="";
   }
-
-  if(showStartup)return <MobileRoleGuard allowed={["employee"]}><MobileStartupSplash onOpen={()=>setShowStartup(false)}/></MobileRoleGuard>;
 
   return <MobileRoleGuard allowed={["employee"]}><main className="mobile-app-shell">
     <header className="mobile-topbar employee-mobile-topbar">
