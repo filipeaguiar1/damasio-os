@@ -3,7 +3,6 @@
 import { useMobileRealtime } from "@/lib/mobile/useMobileRealtime";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
-import { MobileStartupSplash } from "@/components/mobile/MobileStartupSplash";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
 import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
@@ -39,7 +38,6 @@ function mondayKey(date:Date){const monday=new Date(date);const day=(monday.getD
 function shiftDateKey(value:string,days:number){const date=new Date(`${value}T12:00:00`);date.setDate(date.getDate()+days);return localDateKey(date)}
 
 export default function MobileEmployeeApp(){
-  const [showStartup,setShowStartup]=useState(true);
   const [leads,setLeads]=useState<Lead[]>([]);
   const [selectedId,setSelectedId]=useState("");
   const [tab,setTab]=useState<"route"|"service"|"issues">("route");
@@ -167,12 +165,10 @@ export default function MobileEmployeeApp(){
     e.target.value="";
   }
 
-  if(showStartup)return <MobileRoleGuard allowed={["employee"]}><MobileStartupSplash onOpen={()=>setShowStartup(false)}/></MobileRoleGuard>;
-
   return <MobileRoleGuard allowed={["employee"]}><main className="mobile-app-shell">
     <header className="mobile-topbar employee-mobile-topbar">
       <div className="employee-mobile-brand"><span>D</span><div><strong>Employee</strong><small>{profile.name || "Field user"} · {crew}</small></div></div>
-      <button type="button" className="mobile-avatar mobile-signout" onClick={()=>void signOutAccount("/mobile/login")} aria-label="Sign out">{(profile.photoLabel||profile.name||"E").slice(0,1)}</button>
+      <button type="button" className="mobile-user-signout" onClick={()=>void signOutAccount("/mobile/login")} aria-label="Sign out"><span>{(profile.photoLabel||profile.name||"E").slice(0,1)}</span><small>Sign out</small></button>
     </header>
 
     {error&&<p className="mobile-message mobile-error" role="alert">{error}</p>}
