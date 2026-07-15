@@ -5,7 +5,7 @@ import {readDemoSession,type DemoRole} from "@/lib/auth/demoAuth";
 import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
 
 type Role=DemoRole|"manager";
-function mobileHome(role:Role){if(role==="master")return"/master";if(role==="admin"||role==="manager")return"/admin";if(role==="employee")return"/mobile/employee";return"/customer"}
+function mobileHome(role:Role){if(role==="master")return"/master";if(role==="admin"||role==="manager")return"/mobile/admin";if(role==="employee")return"/mobile/employee";return"/mobile/customer"}
 
 export function MobileRoleGuard({allowed,children}:{allowed:Role[];children:React.ReactNode}){
   const router=useRouter();const[ready,setReady]=useState(false);const allowedKey=allowed.join(",");
