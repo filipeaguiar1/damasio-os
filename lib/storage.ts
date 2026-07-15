@@ -1,5 +1,6 @@
 import { createId } from "@/lib/id";
 import { createWorkflowEvent, getWorkflowSnapshot, stageFromOperationalState, type WorkflowEvent, type WorkflowStage } from "@/lib/workflow/workflowEngine";
+function allowDemoSeed(){if(typeof window==="undefined")return false;try{const session=JSON.parse(localStorage.getItem("damasio_os_session")||"null") as {email?:string}|null;return Boolean(session?.email?.endsWith("@damasioos.demo"))}catch{return false}}
 export type LeadStatus = "new" | "quoted" | "booked" | "lost" | "completed";
 export type PaymentMethod = "credit_card" | "etransfer" | "cash_visit" | "cheque_visit" | "other";
 export type PaymentStatus = "not_selected" | "pending" | "processing" | "paid" | "manual" | "failed" | "refunded";
@@ -353,6 +354,7 @@ export function updateServiceRequest(
   );
 }
 export function seedDemoRequests() {
+  if(!allowDemoSeed())return;
   if (getServiceRequests().length > 0) return;
   write(K.req, [
     {
@@ -732,6 +734,7 @@ export function deleteEstimate(id: string) {
   );
 }
 export function seedDemoEstimates() {
+  if(!allowDemoSeed())return;
   if (getEstimates().length > 0) return;
   saveEstimate({
     validUntil: "2026-07-30",
@@ -1241,6 +1244,7 @@ export function updateEmployeeTaskStatus(
   }
 }
 export function seedEmployeeTasks() {
+  if(!allowDemoSeed())return;
   if (getEmployeeTasks().length > 0) return;
   const leads = getLeads();
   const a = leads[0],
@@ -1835,6 +1839,7 @@ export function getTodaysAssignedJobs(crew?: string) {
 }
 
 export function seedDemoLeads(force = false) {
+  if(!allowDemoSeed())return;
   if (force && typeof window !== "undefined") {
     write(K.leads, []);
     write(K.tasks, []);
@@ -2053,6 +2058,7 @@ export function seedDemoLeads(force = false) {
   addActivityLog("System", force ? "Demo reset" : "Demo loaded", "Demo Data", "Fake customers, route houses and test jobs were created.");
 }
 export function seedDemoExpenses() {
+  if(!allowDemoSeed())return;
   if (getExpenses().length > 0) return;
   write(K.expenses, [
     {
@@ -2067,6 +2073,7 @@ export function seedDemoExpenses() {
   ]);
 }
 export function seedDemoRecurrences() {
+  if(!allowDemoSeed())return;
   if (getRecurrences().length > 0) return;
   write(K.rec, [
     {

@@ -4,6 +4,7 @@ import { useMobileRealtime } from "@/lib/mobile/useMobileRealtime";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { MobileStartupSplash } from "@/components/mobile/MobileStartupSplash";
+import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
 import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
 import {
@@ -27,6 +28,7 @@ import {
   updateEmployeeTaskStatus
 } from "@/lib/storage";
 import { changeVisitStatus } from "@/lib/services/schedulingService";
+import {signOutAccount} from "@/lib/auth/signOut";
 
 function mapsHref(address:string){return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`}
 function statusLabel(lead:Lead, session?:ReturnType<typeof getSessionForLead>){return lead.status==="completed"?"Done":session?.status==="skipped"?"Skipped":"Open"}
@@ -165,12 +167,12 @@ export default function MobileEmployeeApp(){
     e.target.value="";
   }
 
-  if(showStartup)return <MobileStartupSplash onOpen={()=>setShowStartup(false)}/>;
+  if(showStartup)return <MobileRoleGuard allowed={["employee"]}><MobileStartupSplash onOpen={()=>setShowStartup(false)}/></MobileRoleGuard>;
 
-  return <main className="mobile-app-shell">
+  return <MobileRoleGuard allowed={["employee"]}><main className="mobile-app-shell">
     <header className="mobile-topbar employee-mobile-topbar">
       <div className="employee-mobile-brand"><span>D</span><div><strong>Employee</strong><small>{profile.name || "Field user"} · {crew}</small></div></div>
-      <div className="mobile-avatar">{(profile.photoLabel||profile.name||"E").slice(0,1)}</div>
+      <button type="button" className="mobile-avatar mobile-signout" onClick={()=>void signOutAccount("/mobile/login")} aria-label="Sign out">{(profile.photoLabel||profile.name||"E").slice(0,1)}</button>
     </header>
 
     {error&&<p className="mobile-message mobile-error" role="alert">{error}</p>}
@@ -264,5 +266,5 @@ export default function MobileEmployeeApp(){
         <div className="mobile-action-grid"><button className="mobile-primary" onClick={()=>{updateEmployeeTaskStatus(task.id,"in_progress"); setMessage("Task started."); refresh()}}>Start</button><button className="mobile-finish" onClick={()=>{if(window.confirm("Mark this return visit as completed? It will leave your account and go to Admin review.")){updateEmployeeTaskStatus(task.id,"completed","Completed from mobile app",profile.name); refresh()}}}>Complete</button></div>
       </article>)}
     </section>}
-  </main>
+  </main></MobileRoleGuard>
 }

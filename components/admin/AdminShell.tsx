@@ -2,6 +2,7 @@
 import {useEffect,useState} from "react";
 import Link from "next/link";
 import {getNotifications,markNotificationsRead,DAMASIO_SYNC_EVENT,getServiceRequests} from "@/lib/storage";
+import {signOutAccount} from "@/lib/auth/signOut";
 
 type NavLink=[label:string,href:string,icon:string];
 const navGroups:{id:string;label:string;icon:string;links:NavLink[]}[]=[
@@ -60,6 +61,7 @@ export function AdminShell({children,active}:{children:React.ReactNode;active:st
         <Link href="/admin/alerts" onClick={openNotifications} className="top-icon notify" aria-label="Open notifications">♢{unread>0&&<b>{unread}</b>}</Link>
         <Link href="/admin/settings" className="top-icon" aria-label="Theme settings">☾</Link>
         <Link href="/admin/settings" className="mini-user" aria-label="Open profile"><span>FD</span><i></i></Link>
+        <button type="button" className="top-signout" onClick={()=>void signOutAccount()} aria-label="Sign out">Sign out</button>
       </header>
       <div className="pro-content">{children}</div>
     </main>

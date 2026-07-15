@@ -1,0 +1,11 @@
+"use client";
+import {useEffect,useState} from "react";
+import {useRouter} from "next/navigation";
+import {getSupabaseBrowserClient} from "@/lib/supabase/client";
+
+export default function CompleteInvitation(){
+  const router=useRouter();const[password,setPassword]=useState("");const[confirm,setConfirm]=useState("");const[message,setMessage]=useState("Checking your invitation…");const[ready,setReady]=useState(false);const[busy,setBusy]=useState(false);
+  useEffect(()=>{void(async()=>{const client=getSupabaseBrowserClient() as any;const code=new URLSearchParams(window.location.search).get("code");if(code){const{error}=await client.auth.exchangeCodeForSession(code);if(error){setMessage(error.message);return}}const{data}=await client.auth.getUser();if(!data?.user){setMessage("This invitation is invalid or expired. Ask the company Admin to send a new one.");return}setReady(true);setMessage("Create your password to activate the account.")})()},[]);
+  async function activate(){if(password.length<8){setMessage("Use at least 8 characters.");return}if(password!==confirm){setMessage("The passwords do not match.");return}setBusy(true);const client=getSupabaseBrowserClient() as any;const{error}=await client.auth.updateUser({password});if(error){setMessage(error.message);setBusy(false);return}const{data:auth}=await client.auth.getUser();const{data:profile}=await client.from("profiles").select("role").eq("id",auth.user.id).single();const role=profile?.role;router.replace(role==="master"?"/master":role==="admin"||role==="manager"?"/admin":role==="employee"?"/employee":"/customer")}
+  return <main className="auth-page"><section className="auth-card"><div className="mobile-logo-pulse"><span>D</span></div><span className="eyebrow">Account invitation</span><h1>Activate your account</h1><p>{message}</p>{ready&&<><label>New password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="new-password"/></label><label>Confirm password<input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} autoComplete="new-password"/></label><button className="btn btn-primary" disabled={busy} onClick={()=>void activate()}>{busy?"Activating…":"Activate account"}</button></>}</section></main>
+}
