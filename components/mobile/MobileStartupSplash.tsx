@@ -18,14 +18,14 @@ function SeasonalFieldScene(){
   </div>
 }
 
-export function MobileStartupSplash({onOpen}:{onOpen:()=>void}){
+export function MobileStartupSplash({onOpen,showMark=true,message="Field app loading..."}:{onOpen:()=>void;showMark?:boolean;message?:string}){
   const openRef=useRef(onOpen);
   openRef.current=onOpen;
   useEffect(()=>{const timer=window.setTimeout(()=>openRef.current(),2800);return()=>window.clearTimeout(timer)},[]);
   return <main className="mobile-splash mobile-employee-startup">
-    <div className="mobile-logo-pulse"><span>D</span></div>
+    {showMark&&<div className="mobile-logo-pulse"><span>D</span></div>}
     <h1>Damasio OS</h1>
-    <p>Field app loading...</p>
+    <p>{message}</p>
     <SeasonalFieldScene />
     <button className="mobile-skip-splash" onClick={onOpen}>Open app</button>
   </main>
