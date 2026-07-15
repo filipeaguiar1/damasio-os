@@ -1,9 +1,9 @@
 # Damasio Employee Android Test
 
-Android test wrapper for `https://damasio-os-h1mc.vercel.app/mobile/employee`.
+Android test wrapper for `https://damasio-os-h1mc.vercel.app/mobile`.
 
-- Animated native startup screen.
-- Employee Mobile only.
+- The approved Damasio OS web animation is the only branded startup screen.
+- Login routes Master, Admin, Employee and Customer profiles automatically.
 - Camera and gallery uploads.
 - Geolocation permission for the route map.
 - External directions open in the device maps app.
