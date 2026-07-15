@@ -30,9 +30,9 @@ import java.io.File;
 import java.io.IOException;
 
 public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile/employee?v=5190";
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5200";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
-    private static final String EMPLOYEE_PATH = "/mobile/employee";
+    private static final String MOBILE_PATH = "/mobile";
     private static final int FILE_CHOOSER_REQUEST = 4101;
     private static final int PERMISSION_REQUEST = 4102;
 
@@ -66,7 +66,7 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " DamasioEmployeeAndroid/51.9.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " DamasioOSAndroid/52.0.0");
         webView.clearCache(true);
 
         webView.setWebViewClient(new WebViewClient() {
@@ -86,7 +86,7 @@ public class MainActivity extends Activity {
                 if (isEmployeeUrl(uri)) return false;
                 if ("https".equals(uri.getScheme()) && APP_HOST.equals(uri.getHost())) {
                     view.loadUrl(APP_URL);
-                    Toast.makeText(MainActivity.this, "This app is for Employee access only.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, "This link is not available inside Damasio OS.", Toast.LENGTH_SHORT).show();
                     return true;
                 }
                 openExternal(uri);
@@ -139,7 +139,12 @@ public class MainActivity extends Activity {
     private boolean isEmployeeUrl(Uri uri) {
         if (!"https".equals(uri.getScheme()) || !APP_HOST.equals(uri.getHost())) return false;
         String path = uri.getPath();
-        return path != null && (path.equals(EMPLOYEE_PATH) || path.startsWith(EMPLOYEE_PATH + "/"));
+        return path != null && (path.equals(MOBILE_PATH) || path.startsWith(MOBILE_PATH + "/")
+            || path.equals("/master") || path.startsWith("/master/")
+            || path.equals("/admin") || path.startsWith("/admin/")
+            || path.equals("/employee") || path.startsWith("/employee/")
+            || path.equals("/customer") || path.startsWith("/customer/")
+            || path.equals("/auth") || path.startsWith("/auth/"));
     }
 
     private void requestOptionalPermissions() {
