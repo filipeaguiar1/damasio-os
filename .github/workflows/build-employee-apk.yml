@@ -2,8 +2,13 @@ name: Build Employee Test APK
 
 on:
   workflow_dispatch:
-  push:
+  pull_request:
     branches: [main]
+    paths:
+      - "android-employee-test/**"
+      - ".github/workflows/build-employee-apk.yml"
+  push:
+    branches: [main, agent/mobile-role-experiences]
     paths:
       - "android-employee-test/**"
       - ".github/workflows/build-employee-apk.yml"
@@ -31,11 +36,11 @@ jobs:
         run: gradle -p android-employee-test :app:assembleDebug --no-daemon
 
       - name: Prepare APK
-        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk damasio-employee-test-v51.4.3.apk
+        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk damasio-os-mobile-v52.0.1.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: damasio-employee-test-v51.4.3
-          path: damasio-employee-test-v51.4.3.apk
+          name: damasio-os-mobile-v52.0.1
+          path: damasio-os-mobile-v52.0.1.apk
           if-no-files-found: error
           retention-days: 30
