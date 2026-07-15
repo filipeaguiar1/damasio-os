@@ -13,11 +13,19 @@ function serverClient(){
 async function requireMaster(request:NextRequest){
   const token=request.headers.get("authorization")?.replace(/^Bearer\s+/i,"");
   if(!token)throw new Error("Sign in as Master.");
-  const client=serverClient();
-  const{data:auth,error:authError}=await client.auth.getUser(token);
+  const url=process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if(!url||!anonKey)throw new Error("Master authentication is not configured on the server.");
+  const authClient=createClient(url,anonKey,{
+    auth:{persistSession:false,autoRefreshToken:false},
+    global:{headers:{Authorization:`Bearer ${token}`}},
+  });
+  const{data:auth,error:authError}=await authClient.auth.getUser(token);
   if(authError||!auth.user)throw new Error("Your login expired. Sign in again.");
-  const{data:profile}=await client.from("profiles").select("id,role,active").eq("id",auth.user.id).single();
+  const{data:profile,error:profileError}=await authClient.from("profiles").select("id,role,active").eq("id",auth.user.id).maybeSingle();
+  if(profileError)throw new Error(`Master profile verification failed: ${profileError.message}`);
   if(!profile?.active||profile.role!=="master")throw new Error("Only an active Master can create a company.");
+  const client=serverClient();
   return{client,masterId:auth.user.id};
 }
 
