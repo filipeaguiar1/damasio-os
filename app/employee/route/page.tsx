@@ -6,6 +6,7 @@ import { CompactFilter } from "@/components/admin/CompactFilter";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
 import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, routeDateForWeekday, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
+import {changeVisitStatus} from "@/lib/services/schedulingService";
 import {
   finishServiceSession,
   formatClock,
@@ -173,7 +174,7 @@ export default function EmployeeRoutePage(){
     refresh();
   }
 
-  function start(){ if(!selected)return; startServiceSession(selected.id,profile.name,crew); setCommentOpen(false); setServiceComment(""); setDoneMessage(""); refresh(); }
+  async function start(){if(!selected)return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"in_progress");else startServiceSession(selected.id,profile.name,crew);setCommentOpen(false);setServiceComment("");setDoneMessage("");setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh()}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be started.")}}
   function saveComment(){
     if(!selected)return;
     if(!serviceComment.trim()){setMenuMessage("Type a comment before saving.");return;}
@@ -182,8 +183,8 @@ export default function EmployeeRoutePage(){
     setCommentOpen(false);
     refresh();
   }
-  function finish(){ if(!selected)return; if(!window.confirm("Complete this house and mark it as Done?")) return; finishServiceSession(selected.id,serviceComment); setDoneMessage("Done"); setServiceComment(""); setCommentOpen(false); refresh(); window.setTimeout(()=>{setDoneMessage("");setView("route")},850); }
-  function reset(){ if(!selected)return; if(!window.confirm("Reset only this house? Status returns to Open across Admin, Dispatch and Employee Route."))return; resetServiceSession(selected.id); setDoneMessage("Reset to Open"); refresh(); }
+  async function finish(){if(!selected)return;if(!window.confirm("Complete this house and mark it as Done?"))return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"completed");else finishServiceSession(selected.id,serviceComment);setDoneMessage("Done");setServiceComment("");setCommentOpen(false);setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh();window.setTimeout(()=>{setDoneMessage("");setView("route")},850)}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be completed.")}}
+  async function reset(){if(!selected)return;if(!window.confirm("Reset only this house? Status returns to Open across Admin, Dispatch and Employee Route."))return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"scheduled");else resetServiceSession(selected.id);setDoneMessage("Reset to Open");setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh()}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be reset.")}}
 
   function addPhoto(){
     photoInputRef.current?.click();
