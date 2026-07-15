@@ -23,8 +23,7 @@ export function MobileStartupSplash({onOpen}:{onOpen:()=>void}){
   openRef.current=onOpen;
   useEffect(()=>{const timer=window.setTimeout(()=>openRef.current(),2400);return()=>window.clearTimeout(timer)},[]);
   return <main className="mobile-splash mobile-employee-startup">
-    <div className="mobile-logo-pulse"><span>D</span></div>
-    <h1>Damasio OS</h1>
+    <h1 className="mobile-splash-wordmark">Damasio <strong>OS</strong></h1>
     <p>Your workday, connected.</p>
     <SeasonalFieldScene />
     <button className="mobile-skip-splash" onClick={onOpen}>Skip</button>
