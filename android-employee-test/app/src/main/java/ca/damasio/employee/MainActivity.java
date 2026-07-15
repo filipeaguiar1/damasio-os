@@ -25,13 +25,16 @@ import android.widget.Toast;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import java.io.File;
 import java.io.IOException;
 
 public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5210";
-    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5210";
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5211";
+    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5211";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
     private static final String MOBILE_PATH = "/mobile";
     private static final int FILE_CHOOSER_REQUEST = 4101;
@@ -50,6 +53,7 @@ public class MainActivity extends Activity {
 
         webView = findViewById(R.id.employeeWebView);
         progressBar = findViewById(R.id.pageProgress);
+        applySystemBarInsets();
         configureWebView();
         requestOptionalPermissions();
 
@@ -64,12 +68,11 @@ public class MainActivity extends Activity {
         settings.setDatabaseEnabled(true);
         settings.setGeolocationEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " DamasioOSAndroid/52.1.0");
-        webView.clearCache(true);
+        settings.setUserAgentString(settings.getUserAgentString() + " DamasioOSAndroid/52.1.1");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -138,6 +141,16 @@ public class MainActivity extends Activity {
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, length) -> openExternal(Uri.parse(url)));
     }
 
+    private void applySystemBarInsets() {
+        View root = findViewById(R.id.appRoot);
+        ViewCompat.setOnApplyWindowInsetsListener(root, (view, windowInsets) -> {
+            Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(root);
+    }
+
     private boolean isEmployeeUrl(Uri uri) {
         if (!"https".equals(uri.getScheme()) || !APP_HOST.equals(uri.getHost())) return false;
         String path = uri.getPath();
@@ -150,6 +163,8 @@ public class MainActivity extends Activity {
     }
 
     private void requestOptionalPermissions() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) return;
         String[] permissions = { Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION };
         ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST);
     }

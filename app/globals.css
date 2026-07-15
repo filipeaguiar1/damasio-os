@@ -687,3 +687,7 @@ html[data-season="winter"] .mobile-splash{background:linear-gradient(180deg,#f7f
   .admin-pro-shell>.pro-sidebar.mobile-menu-open .help-card{display:none!important}
   .top-signout{display:none!important}
 }
+
+/* Mobile safe-area correction for gesture and three-button navigation bars. */
+.role-mobile-shell{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))!important}
+.role-mobile-bottom{padding-bottom:max(9px,env(safe-area-inset-bottom,0px));height:calc(72px + env(safe-area-inset-bottom,0px))}
