@@ -2,6 +2,7 @@
 -- Run once in Supabase SQL Editor.
 
 alter type public.visit_status add value if not exists 'missed';
+alter type public.app_role add value if not exists 'master';
 alter type public.app_role add value if not exists 'manager';
 
 begin;
