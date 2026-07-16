@@ -4,6 +4,7 @@ import { useMobileRealtime } from "@/lib/mobile/useMobileRealtime";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
+import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
 import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
 import {
@@ -21,7 +22,9 @@ import {
   saveServiceComment,
   saveServicePhotos,
   saveEmployeeProfile,
-  saveSmartRouteDraft,
+  applyEmployeeSmartRoute,
+  getEmployeeSmartRouteState,
+  restoreEmployeeSmartRoute,
   resetServiceSession,
   skipServiceSession,
   seedDemoLeads,
@@ -47,6 +50,10 @@ export default function MobileEmployeeApp(){
   const [smartSelected,setSmartSelected]=useState<string[]>([]);
   const [smartOrigin,setSmartOrigin]=useState<"current"|"last"|"profile"|"manual">("current");
   const [manualOrigin,setManualOrigin]=useState("");
+  const [smartPreview,setSmartPreview]=useState<Lead[]>([]);
+  const [smartOriginPoint,setSmartOriginPoint]=useState<{latitude:number;longitude:number;label:string}|null>(null);
+  const [smartPreparing,setSmartPreparing]=useState(false);
+  const [smartRouteActive,setSmartRouteActive]=useState(false);
   const [selectedTaskId,setSelectedTaskId]=useState("");
   const [routeView,setRouteView]=useState<"list"|"map">("map");
   const [comment,setComment]=useState("");
@@ -90,7 +97,7 @@ export default function MobileEmployeeApp(){
   const selectedDay=dayNameFromDate(selectedDate);
   const localRoute=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&(l.scheduledDate===selectedDate||(selectedDate===todayKey&&l.serviceDay===selectedDay))).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,selectedDate,selectedDay,todayKey]);
   useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,selectedDate,routeReload]);
-  const route=useMemo(()=>applyEmployeeRouteMapContext(localRoute,mapContext),[localRoute,mapContext]);
+  const route=useMemo(()=>smartRouteActive?localRoute:applyEmployeeRouteMapContext(localRoute,mapContext),[localRoute,mapContext,smartRouteActive]);
   const mapRoute=route;
   const dayOptions=useMemo(()=>Array.from({length:7},(_,index)=>{const date=new Date(`${weekStart}T12:00:00`);date.setDate(date.getDate()+index);return{key:localDateKey(date),weekday:date.toLocaleDateString("en-CA",{weekday:"short"}),day:date.getDate()}}),[weekStart]);
   const weekLabel=`${new Date(`${weekStart}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"})} – ${new Date(`${shiftDateKey(weekStart,6)}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"})}`;
@@ -122,25 +129,52 @@ export default function MobileEmployeeApp(){
   const nextStop=route.find(l=>l.status!=="completed"&&getSessionForLead(l.id)?.status!=="skipped")||route[0]||null;
   const smartCandidates=useMemo(()=>route.filter(lead=>lead.status!=="completed"&&getSessionForLead(lead.id)?.status!=="skipped"),[route,tick]);
   const lastCompleted=useMemo(()=>[...route].reverse().find(lead=>lead.status==="completed")||null,[route]);
-  useEffect(()=>{setSmartSelected(current=>current.filter(id=>smartCandidates.some(lead=>lead.id===id)))},[smartCandidates]);
+  useEffect(()=>{setSmartSelected(current=>current.filter(id=>smartCandidates.some(lead=>lead.id===id)));setSmartRouteActive(Boolean(getEmployeeSmartRouteState(crew,selectedDate)?.active))},[smartCandidates,crew,selectedDate,routeReload]);
 
-  function toggleSmartStop(id:string){setSmartSelected(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id])}
-  function smartOriginValue(){if(smartOrigin==="last")return lastCompleted?.address||"";if(smartOrigin==="profile")return profileDraft.defaultAddress||"";if(smartOrigin==="manual")return manualOrigin.trim();return "My Location"}
-  function buildSmartRoute(){
+  function toggleSmartStop(id:string){setSmartSelected(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);setSmartPreview([])}
+  function smartOriginValue(){if(smartOrigin==="last")return lastCompleted?.address||"";if(smartOrigin==="profile")return profileDraft.defaultAddress||"";if(smartOrigin==="manual")return manualOrigin.trim();return "Current location"}
+  async function geocodeAddress(address:string){
+    const response=await fetch(`/api/map/geocode?address=${encodeURIComponent(address)}`,{cache:"no-store"});
+    if(!response.ok)throw new Error("Starting address could not be located.");
+    return await response.json() as {latitude:number;longitude:number};
+  }
+  async function resolveSmartOrigin(){
+    if(smartOrigin==="current"){
+      if(!navigator.geolocation)throw new Error("Location is not available on this device.");
+      const position=await new Promise<GeolocationPosition>((resolve,reject)=>navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout:12000,maximumAge:30000}));
+      return {latitude:position.coords.latitude,longitude:position.coords.longitude,label:"Current location"};
+    }
+    const address=smartOriginValue();if(!address)throw new Error("Choose a valid starting point.");
+    const point=await geocodeAddress(address);return {...point,label:address};
+  }
+  async function ensureCoordinates(lead:Lead){
+    if(Number.isFinite(lead.latitude)&&Number.isFinite(lead.longitude))return lead;
+    const point=await geocodeAddress(lead.address);return {...lead,...point};
+  }
+  function distance(a:{latitude:number;longitude:number},b:{latitude:number;longitude:number}){const x=(a.longitude-b.longitude)*Math.cos((a.latitude+b.latitude)*Math.PI/360);const y=a.latitude-b.latitude;return x*x+y*y}
+  async function prepareSmartRoute(){
     const chosen=smartCandidates.filter(lead=>smartSelected.includes(lead.id));
     if(!chosen.length){setError("Select at least one pending house.");return}
-    if((smartOrigin==="profile"||smartOrigin==="manual"||smartOrigin==="last")&&!smartOriginValue()){setError("Choose a valid starting point.");return}
-    const ordered=[...chosen].sort((a,b)=>{
-      const aHas=typeof a.latitude==="number"&&typeof a.longitude==="number";const bHas=typeof b.latitude==="number"&&typeof b.longitude==="number";
-      if(aHas&&bHas)return (a.latitude!-b.latitude!)||(a.longitude!-b.longitude!);
-      return a.address.localeCompare(b.address);
-    });
-    saveSmartRouteDraft(crew,selectedDay,ordered.map(lead=>lead.id));
-    const origin=smartOriginValue();const destination=ordered[ordered.length-1].address;const waypoints=ordered.slice(0,-1).map(lead=>lead.address).join("|");
-    const params=new URLSearchParams({api:"1",travelmode:"driving",destination});
-    if(origin!=="My Location")params.set("origin",origin);if(waypoints)params.set("waypoints",waypoints);
-    window.open(`https://www.google.com/maps/dir/?${params.toString()}`,"_blank","noopener,noreferrer");
-    setMessage(`Smart route created with ${ordered.length} pending house${ordered.length===1?"":"s"}.`);
+    setSmartPreparing(true);setError("");setMessage("");
+    try{
+      const origin=await resolveSmartOrigin();
+      const located=await Promise.all(chosen.map(ensureCoordinates));
+      const remaining=[...located];const ordered:Lead[]=[];let cursor=origin;
+      while(remaining.length){let best=0;for(let index=1;index<remaining.length;index++)if(distance(cursor,remaining[index] as Lead&{latitude:number;longitude:number})<distance(cursor,remaining[best] as Lead&{latitude:number;longitude:number}))best=index;const next=remaining.splice(best,1)[0];ordered.push(next);cursor={latitude:Number(next.latitude),longitude:Number(next.longitude),label:next.address}}
+      setSmartOriginPoint(origin);setSmartPreview(ordered);setMessage("Preview ready. Review the map before applying this route.");
+    }catch(cause){setError(cause instanceof Error?cause.message:"Smart Route could not be prepared.")}finally{setSmartPreparing(false)}
+  }
+  function applySmartPreview(){
+    if(!smartPreview.length||!smartOriginPoint)return;
+    const locked=route.filter(lead=>lead.status==="completed"||getSessionForLead(lead.id)?.status==="skipped").map(lead=>lead.id);
+    const optimized=smartPreview.map(lead=>lead.id);
+    const unselected=route.filter(lead=>!locked.includes(lead.id)&&!optimized.includes(lead.id)).map(lead=>lead.id);
+    applyEmployeeSmartRoute(crew,selectedDate,route.map(lead=>lead.id),[...locked,...optimized,...unselected],smartOriginPoint.label);
+    setSmartRouteActive(true);setSmartPreview([]);setRouteReload(value=>value+1);refresh();setHomeMode("route");setRouteView("map");setMessage("Smart Route applied. Your map and stop order are updated.");
+  }
+  function restoreOriginalRoute(){
+    if(!window.confirm("Restore the original route assigned by Admin? Completed visits will stay completed."))return;
+    if(restoreEmployeeSmartRoute(crew,selectedDate)){setSmartRouteActive(false);setSmartPreview([]);setRouteReload(value=>value+1);refresh();setMessage("Original route restored.")}
   }
 
   function openService(lead:Lead){setSelectedId(lead.id); setComment(getSessionForLead(lead.id)?.completionComment||""); setContractOpen(true); setTab("service"); setMessage("")}
@@ -231,27 +265,27 @@ export default function MobileEmployeeApp(){
     </nav>}
 
     {tab==="route"&&homeMode==="route"&&<>
-      <div className="employee-route-view-toggle" role="tablist" aria-label="Route view">
+      <div className="employee-route-tools"><div className="employee-route-view-toggle" role="tablist" aria-label="Route view">
         <button type="button" className={routeView==="list"?"active":""} onClick={()=>setRouteView("list")}>List</button>
         <button type="button" className={routeView==="map"?"active":""} onClick={()=>setRouteView("map")}>Map</button>
-      </div>
+      </div>{smartRouteActive&&<button type="button" className="employee-route-restore" onClick={restoreOriginalRoute} aria-label="Restore original route">↶<span>Original</span></button>}</div>
       {routeView==="list"?<section className="mobile-card-list">
         {route.map((lead,index)=><button className={`mobile-route-card employee-video-route-card ${lead.status==="completed"?"completed":""}`} key={lead.id} onClick={()=>openService(lead)}>
           <span className="mobile-route-index">{index+1}</span>
           <div><strong>{lead.address}</strong><p>{lead.name}</p><em>{lead.service} · {lead.serviceFrequency||"weekly"}</em></div>
           <b className={lead.status==="completed"?"mobile-status done":getSessionForLead(lead.id)?.status==="skipped"?"mobile-status skipped":"mobile-status"}>{statusLabel(lead,getSessionForLead(lead.id))}</b>
         </button>)}
-      </section>:<EmployeeRouteMap route={mapRoute} routeId={mapContext.routeId||undefined} onOpenVisit={openService}/>}
+      </section>:<EmployeeRouteMap route={mapRoute} routeId={smartRouteActive?undefined:(mapContext.routeId||undefined)} onOpenVisit={openService}/>}
       {routeView==="list"&&nextStop&&<a className="employee-next-directions" href={mapsHref(nextStop.address)} target="_blank" rel="noopener noreferrer"><span>Get directions to next</span><b>⌖</b></a>}
     </>}
 
 
     {tab==="route"&&homeMode==="smart"&&<section className="employee-smart-route">
-      <header><div><small>SMART ROUTE</small><h1>Replan pending houses</h1><p>Completed houses stay locked. Only visits assigned to you can be included.</p></div><i>↗</i></header>
-      <div className="employee-smart-origin"><strong>Starting point</strong><div>{[["current","Current location"],["last","Last completed house"],["profile","Profile address"],["manual","Manual address"]].map(([value,label])=><button key={value} className={smartOrigin===value?"active":""} onClick={()=>setSmartOrigin(value as typeof smartOrigin)}>{label}</button>)}</div>{smartOrigin==="manual"&&<input value={manualOrigin} onChange={event=>setManualOrigin(event.target.value)} placeholder="Enter starting address"/>}{smartOrigin==="profile"&&<p>{profileDraft.defaultAddress||"Add a default route address in your profile."}</p>}{smartOrigin==="last"&&<p>{lastCompleted?.address||"No completed house is available yet."}</p>}</div>
-      <div className="employee-smart-head"><span>{smartSelected.length} selected</span><button onClick={()=>setSmartSelected(smartCandidates.map(lead=>lead.id))}>Select all pending</button></div>
+      <header><div><small>SMART ROUTE · {new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-CA",{weekday:"long",month:"short",day:"numeric"})}</small><h1>Replan pending houses</h1><p>Preview the suggested order on our map. Nothing changes until you approve it.</p></div><i>↗</i></header>
+      <div className="employee-smart-origin"><strong>Starting point</strong><div>{[["current","Current location"],["last","Last completed house"],["profile","Profile address"],["manual","Manual address"]].map(([value,label])=><button key={value} className={smartOrigin===value?"active":""} onClick={()=>{setSmartOrigin(value as typeof smartOrigin);setSmartPreview([])}}>{label}</button>)}</div>{smartOrigin==="manual"&&<AddressAutocomplete value={manualOrigin} onChange={value=>{setManualOrigin(value);setSmartPreview([])}} placeholder="Start typing the route address" ariaLabel="Manual route start"/>}{smartOrigin==="profile"&&<p>{profileDraft.defaultAddress||"Add a default route address in your profile."}</p>}{smartOrigin==="last"&&<p>{lastCompleted?.address||"No completed house is available yet."}</p>}{smartOrigin==="current"&&<p>Uses the employee phone GPS after permission is granted.</p>}</div>
+      <div className="employee-smart-head"><span>{smartSelected.length} selected · {smartCandidates.length} pending</span><button onClick={()=>{setSmartSelected(smartSelected.length===smartCandidates.length?[]:smartCandidates.map(lead=>lead.id));setSmartPreview([])}}>{smartSelected.length===smartCandidates.length?"Clear":"Select all pending"}</button></div>
       <div className="employee-smart-list">{route.map((lead,index)=>{const completed=lead.status==="completed";const skippedState=getSessionForLead(lead.id)?.status==="skipped";const disabled=completed||skippedState;const selectedStop=smartSelected.includes(lead.id);return <button key={lead.id} disabled={disabled} className={`${selectedStop?"selected":""} ${disabled?"locked":""}`} onClick={()=>toggleSmartStop(lead.id)}><b>{disabled?"✓":selectedStop?"✓":index+1}</b><div><strong>{lead.address}</strong><span>{lead.name} · {lead.service}</span><small>{completed?"Completed — locked":skippedState?"Skipped — excluded":"Pending and available"}</small></div><i>{disabled?"Locked":selectedStop?"Included":"Add"}</i></button>})}</div>
-      <button className="employee-smart-build" disabled={!smartSelected.length} onClick={buildSmartRoute}>Create smart route <span>↗</span></button>
+      {!smartPreview.length?<button className="employee-smart-build" disabled={!smartSelected.length||smartPreparing} onClick={()=>void prepareSmartRoute()}>{smartPreparing?"Preparing preview…":"Preview Smart Route"}<span>↗</span></button>:<section className="employee-smart-preview"><header><div><small>ROUTE PREVIEW</small><strong>{smartPreview.length} pending stops</strong><span>Start: {smartOriginPoint?.label}</span></div><button onClick={()=>setSmartPreview([])}>Edit</button></header><EmployeeRouteMap route={smartPreview} originPoint={smartOriginPoint} onOpenVisit={()=>{}} actionLabel="Preview stop"/><div className="employee-smart-preview-actions"><button onClick={()=>setSmartPreview([])}>Cancel</button><button onClick={applySmartPreview}>Apply Smart Route</button></div></section>}
       {message&&<p className="mobile-message">{message}</p>}
     </section>}
 

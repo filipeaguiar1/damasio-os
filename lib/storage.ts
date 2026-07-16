@@ -2159,6 +2159,46 @@ export function generateAiRouteDraft(crew: string, day: string) {
   );
   return sorted;
 }
+
+export type EmployeeSmartRouteState = {
+  crew: string;
+  date: string;
+  originalOrder: string[];
+  appliedOrder: string[];
+  originLabel: string;
+  appliedAt: string;
+  active: boolean;
+};
+function employeeSmartRouteKey(crew:string,date:string){return `damasio_os_employee_smart_route_${crew}_${date}`}
+export function getEmployeeSmartRouteState(crew:string,date:string):EmployeeSmartRouteState|null{
+  if(typeof window==="undefined")return null;
+  try{return JSON.parse(window.localStorage.getItem(employeeSmartRouteKey(crew,date))||"null") as EmployeeSmartRouteState|null}catch{return null}
+}
+export function applyEmployeeSmartRoute(crew:string,date:string,originalOrder:string[],appliedOrder:string[],originLabel:string){
+  const uniqueOriginal=[...new Set(originalOrder)];
+  const allowed=new Set(uniqueOriginal);
+  const safeApplied=[...new Set(appliedOrder.filter(id=>allowed.has(id)))];
+  const finalOrder=[...safeApplied,...uniqueOriginal.filter(id=>!safeApplied.includes(id))];
+  const positions=new Map(finalOrder.map((id,index)=>[id,index+1]));
+  setLeads(getLeads().map(lead=>positions.has(lead.id)?{...lead,routeOrder:positions.get(lead.id)}:lead));
+  const existing=getEmployeeSmartRouteState(crew,date);
+  const state:EmployeeSmartRouteState={crew,date,originalOrder:existing?.active?existing.originalOrder:uniqueOriginal,appliedOrder:finalOrder,originLabel,appliedAt:new Date().toISOString(),active:true};
+  if(typeof window!=="undefined")window.localStorage.setItem(employeeSmartRouteKey(crew,date),JSON.stringify(state));
+  addActivityLog("Employee","Applied Smart Route",crew,`${safeApplied.length} pending stop(s) reordered for ${date}.`);
+  broadcastOperationsChange(`Employee Smart Route applied for ${crew}.`);
+  return state;
+}
+export function restoreEmployeeSmartRoute(crew:string,date:string){
+  const state=getEmployeeSmartRouteState(crew,date);
+  if(!state?.active)return false;
+  const positions=new Map(state.originalOrder.map((id,index)=>[id,index+1]));
+  setLeads(getLeads().map(lead=>positions.has(lead.id)?{...lead,routeOrder:positions.get(lead.id)}:lead));
+  if(typeof window!=="undefined")window.localStorage.removeItem(employeeSmartRouteKey(crew,date));
+  addActivityLog("Employee","Restored original route",crew,`Original route restored for ${date}.`);
+  broadcastOperationsChange(`Original route restored for ${crew}.`);
+  return true;
+}
+
 export function saveSmartRouteDraft(crew: string, day: string, orderedIds: string[]) {
   const key = `damasio_os_ai_route_draft_${crew}_${day}`;
   const routeHomes = getLeads().filter(lead => lead.assignedCrew === crew && lead.serviceDay === day);

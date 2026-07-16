@@ -11,12 +11,15 @@ declare global { interface Window { L?: any } }
 
 type Point = Lead & { latitude: number; longitude: number; color: string; label: string };
 
+type RouteOriginPoint = { latitude:number; longitude:number; label?:string };
+
 type Props = {
   route: Lead[];
   onOpenVisit: (lead: Lead) => void;
   routeId?: string;
   desktop?: boolean;
   actionLabel?: string;
+  originPoint?: RouteOriginPoint | null;
 };
 
 const HAMILTON: [number, number] = [43.2557, -79.8711];
@@ -31,7 +34,7 @@ function visualState(lead: Lead, isNext: boolean) {
   return { color: "#64748b", label: "Pending" };
 }
 
-export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false, actionLabel = "Open Visit" }: Props) {
+export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false, actionLabel = "Open Visit", originPoint = null }: Props) {
   const mapNode = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const markerLayerRef = useRef<any>(null);
@@ -45,6 +48,7 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false,
   const [mapReady, setMapReady] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
   const routeKey = route.map(lead => `${lead.id}:${lead.address}`).join("|");
+  const originKey = originPoint ? `${originPoint.latitude}:${originPoint.longitude}` : "";
 
   useEffect(() => {
     let cancelled = false;
@@ -69,7 +73,10 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false,
       if (cancelled) return;
       setResolvedRoute(located);
       if (located.length < 2) { setGeometry(null); setMapStatus("Map ready"); return; }
-      const coordinates = located.map(lead => [Number(lead.longitude), Number(lead.latitude)] as [number, number]);
+      const coordinates = [
+        ...(originPoint ? [[Number(originPoint.longitude), Number(originPoint.latitude)] as [number, number]] : []),
+        ...located.map(lead => [Number(lead.longitude), Number(lead.latitude)] as [number, number])
+      ];
       const cached = readRoadGeometry(coordinates);
       if (cached) { setGeometry(cached); setMapStatus("Driving route"); return; }
       setMapStatus("Calculating driving route...");
@@ -85,7 +92,7 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false,
     }
     locateAndRoute();
     return () => { cancelled = true; };
-  }, [routeKey, routeId]); // Re-geocode only when the assigned stops or their addresses change.
+  }, [routeKey, routeId, originKey]); // Re-geocode only when the assigned stops or their addresses change.
 
   useEffect(() => {
     let cancelled = false;
@@ -115,8 +122,9 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false,
   const selected = points.find(point => point.id === selectedId) || points[0] || null;
 
   function fitRoute() {
-    if (!mapRef.current || !window.L || !points.length) return;
-    mapRef.current.fitBounds(window.L.latLngBounds(points.map(point => [point.latitude, point.longitude])).pad(.16), { maxZoom: 16 });
+    if (!mapRef.current || !window.L || (!points.length && !originPoint)) return;
+    const bounds=[...points.map(point => [point.latitude, point.longitude] as [number,number]),...(originPoint?[[originPoint.latitude,originPoint.longitude] as [number,number]]:[])];
+    mapRef.current.fitBounds(window.L.latLngBounds(bounds).pad(.16), { maxZoom: 16 });
   }
 
   function recenterMe() {
@@ -145,6 +153,10 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false,
         setMapReady(true);
       }
       markerLayerRef.current.clearLayers();
+      if(originPoint){
+        const originIcon=L.divIcon({className:"employee-map-marker-shell",html:`<div class="employee-map-origin-marker">●</div>`,iconSize:[38,38],iconAnchor:[19,19]});
+        L.marker([originPoint.latitude,originPoint.longitude],{icon:originIcon}).bindTooltip(originPoint.label||"Route start",{direction:"top"}).addTo(markerLayerRef.current);
+      }
       points.forEach((point, index) => {
         const active = selected?.id === point.id;
         const icon = L.divIcon({
@@ -176,7 +188,7 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false,
       return () => { cancelled = true; script?.removeEventListener("load", setup); };
     }
     return () => { cancelled = true; };
-  }, [points, selected?.id]);
+  }, [points, selected?.id, originKey]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !window.L) return;
