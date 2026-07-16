@@ -50,6 +50,8 @@ export default function MobileEmployeeApp(){
   const [smartSelected,setSmartSelected]=useState<string[]>([]);
   const [smartOrigin,setSmartOrigin]=useState<"current"|"last"|"profile"|"manual">("current");
   const [manualOrigin,setManualOrigin]=useState("");
+  const [manualOriginPoint,setManualOriginPoint]=useState<{latitude:number;longitude:number;label:string}|null>(null);
+  const [smartAlternative,setSmartAlternative]=useState(0);
   const [smartPreview,setSmartPreview]=useState<Lead[]>([]);
   const [smartOriginPoint,setSmartOriginPoint]=useState<{latitude:number;longitude:number;label:string}|null>(null);
   const [smartPreparing,setSmartPreparing]=useState(false);
@@ -131,7 +133,8 @@ export default function MobileEmployeeApp(){
   const lastCompleted=useMemo(()=>[...route].reverse().find(lead=>lead.status==="completed")||null,[route]);
   useEffect(()=>{setSmartSelected(current=>current.filter(id=>smartCandidates.some(lead=>lead.id===id)));setSmartRouteActive(Boolean(getEmployeeSmartRouteState(crew,selectedDate)?.active))},[smartCandidates,crew,selectedDate,routeReload]);
 
-  function toggleSmartStop(id:string){setSmartSelected(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);setSmartPreview([])}
+  function clearSmartPreview(){setSmartPreview([]);setSmartOriginPoint(null);setSmartAlternative(0)}
+  function toggleSmartStop(id:string){setSmartSelected(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);clearSmartPreview()}
   function smartOriginValue(){if(smartOrigin==="last")return lastCompleted?.address||"";if(smartOrigin==="profile")return profileDraft.defaultAddress||"";if(smartOrigin==="manual")return manualOrigin.trim();return "Current location"}
   async function geocodeAddress(address:string){
     const response=await fetch(`/api/map/geocode?address=${encodeURIComponent(address)}`,{cache:"no-store"});
@@ -145,6 +148,7 @@ export default function MobileEmployeeApp(){
       return {latitude:position.coords.latitude,longitude:position.coords.longitude,label:"Current location"};
     }
     const address=smartOriginValue();if(!address)throw new Error("Choose a valid starting point.");
+    if(smartOrigin==="manual"&&manualOriginPoint&&manualOriginPoint.label===address)return manualOriginPoint;
     const point=await geocodeAddress(address);return {...point,label:address};
   }
   async function ensureCoordinates(lead:Lead){
@@ -152,18 +156,34 @@ export default function MobileEmployeeApp(){
     const point=await geocodeAddress(lead.address);return {...lead,...point};
   }
   function distance(a:{latitude:number;longitude:number},b:{latitude:number;longitude:number}){const x=(a.longitude-b.longitude)*Math.cos((a.latitude+b.latitude)*Math.PI/360);const y=a.latitude-b.latitude;return x*x+y*y}
-  async function prepareSmartRoute(){
+  function buildSmartOrder(located:Lead[],origin:{latitude:number;longitude:number},alternative:number){
+    if(alternative%3===1){
+      const angle=(lead:Lead)=>Math.atan2(Number(lead.latitude)-origin.latitude,Number(lead.longitude)-origin.longitude);
+      return [...located].sort((a,b)=>angle(a)-angle(b)||distance(origin,a as Lead&{latitude:number;longitude:number})-distance(origin,b as Lead&{latitude:number;longitude:number}));
+    }
+    if(alternative%3===2){
+      const farthest=[...located].sort((a,b)=>distance(origin,b as Lead&{latitude:number;longitude:number})-distance(origin,a as Lead&{latitude:number;longitude:number}));
+      const remaining=[...farthest];const ordered:Lead[]=[];let cursor=origin;
+      if(remaining.length){const first=remaining.shift()!;ordered.push(first);cursor={latitude:Number(first.latitude),longitude:Number(first.longitude)}}
+      while(remaining.length){let best=0;for(let index=1;index<remaining.length;index++)if(distance(cursor,remaining[index] as Lead&{latitude:number;longitude:number})<distance(cursor,remaining[best] as Lead&{latitude:number;longitude:number}))best=index;const next=remaining.splice(best,1)[0];ordered.push(next);cursor={latitude:Number(next.latitude),longitude:Number(next.longitude)}}
+      return ordered;
+    }
+    const remaining=[...located];const ordered:Lead[]=[];let cursor=origin;
+    while(remaining.length){let best=0;for(let index=1;index<remaining.length;index++)if(distance(cursor,remaining[index] as Lead&{latitude:number;longitude:number})<distance(cursor,remaining[best] as Lead&{latitude:number;longitude:number}))best=index;const next=remaining.splice(best,1)[0];ordered.push(next);cursor={latitude:Number(next.latitude),longitude:Number(next.longitude)}}
+    return ordered;
+  }
+  async function prepareSmartRoute(nextAlternative=0){
     const chosen=smartCandidates.filter(lead=>smartSelected.includes(lead.id));
     if(!chosen.length){setError("Select at least one pending house.");return}
     setSmartPreparing(true);setError("");setMessage("");
     try{
       const origin=await resolveSmartOrigin();
       const located=await Promise.all(chosen.map(ensureCoordinates));
-      const remaining=[...located];const ordered:Lead[]=[];let cursor=origin;
-      while(remaining.length){let best=0;for(let index=1;index<remaining.length;index++)if(distance(cursor,remaining[index] as Lead&{latitude:number;longitude:number})<distance(cursor,remaining[best] as Lead&{latitude:number;longitude:number}))best=index;const next=remaining.splice(best,1)[0];ordered.push(next);cursor={latitude:Number(next.latitude),longitude:Number(next.longitude),label:next.address}}
-      setSmartOriginPoint(origin);setSmartPreview(ordered);setMessage("Preview ready. Review the map before applying this route.");
+      const ordered=buildSmartOrder(located,origin,nextAlternative);
+      setSmartAlternative(nextAlternative);setSmartOriginPoint(origin);setSmartPreview(ordered);setMessage(nextAlternative?"Another route is ready. Review it before applying.":"Preview ready. Review the map before applying this route.");
     }catch(cause){setError(cause instanceof Error?cause.message:"Smart Route could not be prepared.")}finally{setSmartPreparing(false)}
   }
+  function tryAnotherSmartRoute(){void prepareSmartRoute(smartAlternative+1)}
   function applySmartPreview(){
     if(!smartPreview.length||!smartOriginPoint)return;
     const locked=route.filter(lead=>lead.status==="completed"||getSessionForLead(lead.id)?.status==="skipped").map(lead=>lead.id);
@@ -282,10 +302,10 @@ export default function MobileEmployeeApp(){
 
     {tab==="route"&&homeMode==="smart"&&<section className="employee-smart-route">
       <header><div><small>SMART ROUTE · {new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-CA",{weekday:"long",month:"short",day:"numeric"})}</small><h1>Replan pending houses</h1><p>Preview the suggested order on our map. Nothing changes until you approve it.</p></div><i>↗</i></header>
-      <div className="employee-smart-origin"><strong>Starting point</strong><div>{[["current","Current location"],["last","Last completed house"],["profile","Profile address"],["manual","Manual address"]].map(([value,label])=><button key={value} className={smartOrigin===value?"active":""} onClick={()=>{setSmartOrigin(value as typeof smartOrigin);setSmartPreview([])}}>{label}</button>)}</div>{smartOrigin==="manual"&&<AddressAutocomplete value={manualOrigin} onChange={value=>{setManualOrigin(value);setSmartPreview([])}} placeholder="Start typing the route address" ariaLabel="Manual route start"/>}{smartOrigin==="profile"&&<p>{profileDraft.defaultAddress||"Add a default route address in your profile."}</p>}{smartOrigin==="last"&&<p>{lastCompleted?.address||"No completed house is available yet."}</p>}{smartOrigin==="current"&&<p>Uses the employee phone GPS after permission is granted.</p>}</div>
+      <div className="employee-smart-origin"><strong>Starting point</strong><div>{[["current","Current location"],["last","Last completed house"],["profile","Profile address"],["manual","Manual address"]].map(([value,label])=><button key={value} className={smartOrigin===value?"active":""} onClick={()=>{setSmartOrigin(value as typeof smartOrigin);setManualOriginPoint(null);clearSmartPreview()}}>{label}</button>)}</div>{smartOrigin==="manual"&&<AddressAutocomplete value={manualOrigin} onChange={value=>{setManualOrigin(value);setManualOriginPoint(null);clearSmartPreview()}} onSelect={suggestion=>{setManualOrigin(suggestion.label);setManualOriginPoint({latitude:suggestion.latitude,longitude:suggestion.longitude,label:suggestion.label});clearSmartPreview()}} placeholder="Start typing the route address" ariaLabel="Manual route start"/>}{smartOrigin==="profile"&&<p>{profileDraft.defaultAddress||"Add a default route address in your profile."}</p>}{smartOrigin==="last"&&<p>{lastCompleted?.address||"No completed house is available yet."}</p>}{smartOrigin==="current"&&<p>Uses the employee phone GPS after permission is granted.</p>}</div>
       <div className="employee-smart-head"><span>{smartSelected.length} selected · {smartCandidates.length} pending</span><button onClick={()=>{setSmartSelected(smartSelected.length===smartCandidates.length?[]:smartCandidates.map(lead=>lead.id));setSmartPreview([])}}>{smartSelected.length===smartCandidates.length?"Clear":"Select all pending"}</button></div>
       <div className="employee-smart-list">{route.map((lead,index)=>{const completed=lead.status==="completed";const skippedState=getSessionForLead(lead.id)?.status==="skipped";const disabled=completed||skippedState;const selectedStop=smartSelected.includes(lead.id);return <button key={lead.id} disabled={disabled} className={`${selectedStop?"selected":""} ${disabled?"locked":""}`} onClick={()=>toggleSmartStop(lead.id)}><b>{disabled?"✓":selectedStop?"✓":index+1}</b><div><strong>{lead.address}</strong><span>{lead.name} · {lead.service}</span><small>{completed?"Completed — locked":skippedState?"Skipped — excluded":"Pending and available"}</small></div><i>{disabled?"Locked":selectedStop?"Included":"Add"}</i></button>})}</div>
-      {!smartPreview.length?<button className="employee-smart-build" disabled={!smartSelected.length||smartPreparing} onClick={()=>void prepareSmartRoute()}>{smartPreparing?"Preparing preview…":"Preview Smart Route"}<span>↗</span></button>:<section className="employee-smart-preview"><header><div><small>ROUTE PREVIEW</small><strong>{smartPreview.length} pending stops</strong><span>Start: {smartOriginPoint?.label}</span></div><button onClick={()=>setSmartPreview([])}>Edit</button></header><EmployeeRouteMap route={smartPreview} originPoint={smartOriginPoint} onOpenVisit={()=>{}} actionLabel="Preview stop"/><div className="employee-smart-preview-actions"><button onClick={()=>setSmartPreview([])}>Cancel</button><button onClick={applySmartPreview}>Apply Smart Route</button></div></section>}
+      {!smartPreview.length?<button className="employee-smart-build" disabled={!smartSelected.length||smartPreparing} onClick={()=>void prepareSmartRoute(0)}>{smartPreparing?"Preparing preview…":"Preview Smart Route"}<span>↗</span></button>:<section className="employee-smart-preview"><header><div><small>ROUTE PREVIEW</small><strong>{smartPreview.length} pending stops</strong><span>Start: {smartOriginPoint?.label}</span></div><button onClick={clearSmartPreview}>Edit</button></header><div className="employee-smart-map-wrap"><EmployeeRouteMap route={smartPreview} originPoint={smartOriginPoint} onOpenVisit={()=>{}} actionLabel="Preview stop"/><button type="button" className="employee-smart-alternate" disabled={smartPreparing} onClick={tryAnotherSmartRoute} aria-label="Try another route" title="Try another route">{smartPreparing?"…":"↻"}</button></div><div className="employee-smart-preview-actions"><button onClick={clearSmartPreview}>Cancel</button><button onClick={applySmartPreview}>Apply Smart Route</button></div></section>}
       {message&&<p className="mobile-message">{message}</p>}
     </section>}
 

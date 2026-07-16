@@ -3,9 +3,9 @@
 import { useEffect, useId, useRef, useState } from "react";
 
 type Suggestion = { id: string; label: string; latitude: number; longitude: number };
-type Props = { value: string; onChange: (value: string) => void; placeholder?: string; ariaLabel?: string };
+type Props = { value: string; onChange: (value: string) => void; onSelect?: (suggestion: Suggestion) => void; placeholder?: string; ariaLabel?: string };
 
-export function AddressAutocomplete({ value, onChange, placeholder = "Start typing your address...", ariaLabel = "Address" }: Props) {
+export function AddressAutocomplete({ value, onChange, onSelect, placeholder = "Start typing your address...", ariaLabel = "Address" }: Props) {
   const listId = useId();
   const requestId = useRef(0);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -31,6 +31,7 @@ export function AddressAutocomplete({ value, onChange, placeholder = "Start typi
 
   function select(suggestion: Suggestion) {
     onChange(suggestion.label);
+    onSelect?.(suggestion);
     setSuggestions([]);
     setOpen(false);
   }
