@@ -74,18 +74,18 @@ export default function MobileAdminApp() {
   }, [refreshKey]);
 
   const actions=[
-    {href:"/admin/command",icon:"⌁",label:"Command",detail:"Live operation"},
+    {href:"/mobile/admin/command",icon:"⌁",label:"Command",detail:"Live operation"},
     {href:"/mobile/admin/routes",icon:"↗",label:"Routes",detail:"Dispatch crews"},
-    {href:"/admin/schedule",icon:"□",label:"Schedule",detail:"Plan the day"},
-    {href:"/admin/customers",icon:"◎",label:"Customers",detail:"Homes & contacts"},
+    {href:"/mobile/admin/routes",icon:"□",label:"Schedule",detail:"Plan the day"},
+    {href:"/mobile/admin/customers",icon:"◎",label:"Customers",detail:"Homes & contacts"},
     {href:"/mobile/admin/tasks",icon:"✓",label:"Tasks",detail:"Return visits"},
     {href:"/mobile/admin/alerts",icon:"!",label:"Alerts",detail:`${data.alerts} unread`},
-    {href:"/admin/estimates",icon:"▤",label:"Estimates",detail:"Quotes & approvals"},
-    {href:"/admin/invoices",icon:"$",label:"Invoices",detail:"Billing status"},
-    {href:"/admin/requests",icon:"＋",label:"Requests",detail:"Customer needs"},
-    {href:"/admin/employees",icon:"♧",label:"Employees",detail:"Team & crews"},
-    {href:"/admin/finance",icon:"◈",label:"Finance",detail:"Revenue & costs"},
-    {href:"/admin/performance",icon:"▥",label:"Reports",detail:"Business results"},
+    {href:"/mobile/admin/estimates",icon:"▤",label:"Estimates",detail:"Quotes & approvals"},
+    {href:"/mobile/admin/invoices",icon:"$",label:"Invoices",detail:"Billing status"},
+    {href:"/mobile/admin/requests",icon:"＋",label:"Requests",detail:"Customer needs"},
+    {href:"/mobile/admin/employees",icon:"♧",label:"Employees",detail:"Team & crews"},
+    {href:"/mobile/admin/finance",icon:"◈",label:"Finance",detail:"Revenue & costs"},
+    {href:"/mobile/admin/reports",icon:"▥",label:"Reports",detail:"Business results"},
   ];
   const actionPages=[actions.slice(0,6),actions.slice(6,12)];
 
@@ -108,7 +108,7 @@ export default function MobileAdminApp() {
         <span className="role-mobile-eyebrow">TODAY · LIVE OPERATIONS</span>
         <h1>Everything under control.</h1>
         <p><strong>{data.open} homes</strong> are open and {data.returnVisits} tasks need follow-up.</p>
-        <Link className="role-mobile-hero-link" href="/admin/command">Open Command Center <span>→</span></Link>
+        <Link className="role-mobile-hero-link" href="/mobile/admin/command">Open Command Center <span>→</span></Link>
       </section>
 
       <section className="mobile-stats-card">
