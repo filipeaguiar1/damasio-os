@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AdminShell } from "@/components/admin/AdminShell";
-import { DAMASIO_CREWS, DAMASIO_SYNC_EVENT, DAMASIO_WEEK_DAYS, Lead, getEmployeeTasks, getLeads, seedDemoLeads, updateLead } from "@/lib/storage";
+import { DAMASIO_CREWS, DAMASIO_WEEK_DAYS, Lead, getEmployeeTasks } from "@/lib/storage";
 import { readRoadGeometry, saveRoadGeometry } from "@/lib/maps/clientMapCache";
+import { loadSchedulingDispatchBoard, schedulingBoardToLeads } from "@/lib/services/schedulingService";
+import { routeDateForWeekday } from "@/lib/services/routeMapService";
 
 declare global { interface Window { L?: any } }
 
@@ -34,12 +36,14 @@ export default function RouteMap(){
   const layerRef=useRef<any>(null);
   const lineRef=useRef<any>(null);
 
-  function refresh(){seedDemoLeads();setLeads(getLeads())}
-  useEffect(()=>{refresh();const on=()=>refresh();window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.addEventListener("storage",on);return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on)}},[]);
+  async function refresh(){try{const board=await loadSchedulingDispatchBoard({force:true});setLeads(schedulingBoardToLeads(board))}catch{setLeads([])}}
+  useEffect(()=>{void refresh();const timer=window.setInterval(()=>void refresh(),10000);return()=>window.clearInterval(timer)},[]);
 
   const crews=useMemo(()=>Array.from(new Set(leads.map(l=>l.assignedCrew).filter(Boolean))) as string[],[leads]);
+  const crewOptions=crews.length?crews:DAMASIO_CREWS;
+  const routeDate=routeDateForWeekday(day);
   const assigned=useMemo(()=>leads
-    .filter(l=>l.assignedCrew===crew&&l.serviceDay===day)
+    .filter(l=>l.assignedCrew===crew&&(l.scheduledDate===routeDate||(!l.canonicalVisitId&&l.serviceDay===day)))
     .sort((a,b)=>(a.routeOrder??999)-(b.routeOrder??999)||(a.scheduledDate||a.nextVisitDate||"").localeCompare(b.scheduledDate||b.nextVisitDate||"")||a.address.localeCompare(b.address)),[leads,crew,day]);
   const assignedKey=assigned.map(l=>`${l.id}:${l.address}`).join("|");
   const points=useMemo<RoutePoint[]>(()=>located.flatMap(l=>Number.isFinite(l.latitude)&&Number.isFinite(l.longitude)?[{...l,lat:Number(l.latitude),lng:Number(l.longitude),...stateFor(l)}]:[]),[located]);
@@ -58,7 +62,6 @@ export default function RouteMap(){
           const response=await fetch(`/api/map/geocode?address=${encodeURIComponent(home.address)}`,{cache:"no-store"});
           if(!response.ok)throw new Error("Address not found");
           const position=await response.json() as {latitude:number;longitude:number};
-          updateLead(home.id,position);
           return {...home,...position};
         }catch{return null}
       })).then(values=>values.filter((home):home is Lead=>Boolean(home)));
@@ -121,7 +124,7 @@ export default function RouteMap(){
       <header className="pw-route-header">
         <div><span className="eyebrow">{crew} · {day}</span><h1>Route map</h1><p>{points.length} properties · {done} done · {skipped} skipped</p></div>
         <div className="pw-route-actions">
-          <select value={crew} onChange={e=>{setCrew(e.target.value);setSelected("")}} aria-label="Select crew">{crews.map(c=><option key={c}>{c}</option>)}</select>
+          <select value={crew} onChange={e=>{setCrew(e.target.value);setSelected("")}} aria-label="Select crew">{crewOptions.map(c=><option key={c}>{c}</option>)}</select>
           <select value={day} onChange={e=>{setDay(e.target.value);setSelected("")}} aria-label="Select route day">{DAMASIO_WEEK_DAYS.map(value=><option key={value}>{value}</option>)}</select>
           <Link className="btn btn-outline" href="/admin/schedule">Schedule</Link>
         </div>

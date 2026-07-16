@@ -41,7 +41,7 @@ export default function MobileEmployeeApp(){
   const [leads,setLeads]=useState<Lead[]>([]);
   const [selectedId,setSelectedId]=useState("");
   const [tab,setTab]=useState<"route"|"service"|"issues">("route");
-  const [routeView,setRouteView]=useState<"list"|"map">("list");
+  const [routeView,setRouteView]=useState<"list"|"map">("map");
   const [comment,setComment]=useState("");
   const [tick,setTick]=useState(0);
   const [message,setMessage]=useState("");

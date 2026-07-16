@@ -16,6 +16,7 @@ type Props = {
   onOpenVisit: (lead: Lead) => void;
   routeId?: string;
   desktop?: boolean;
+  actionLabel?: string;
 };
 
 const HAMILTON: [number, number] = [43.2557, -79.8711];
@@ -30,7 +31,7 @@ function visualState(lead: Lead, isNext: boolean) {
   return { color: "#64748b", label: "Pending" };
 }
 
-export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false }: Props) {
+export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false, actionLabel = "Open Visit" }: Props) {
   const mapNode = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const markerLayerRef = useRef<any>(null);
@@ -201,7 +202,7 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false 
         <div><strong>{selected.address}</strong><span>{selected.name} · {selected.service}</span></div>
         <b style={{ color: selected.color }}>{selected.label}</b>
       </div>
-      <div className="employee-map-sheet-actions"><button type="button" onClick={() => onOpenVisit(selected)}>Open Visit</button><a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selected.address)}&travelmode=driving`} target="_blank" rel="noreferrer">Directions</a></div>
+      <div className="employee-map-sheet-actions"><button type="button" onClick={() => onOpenVisit(selected)}>{actionLabel}</button><a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selected.address)}&travelmode=driving`} target="_blank" rel="noreferrer">Directions</a></div>
     </article>}
   </section>;
 }
