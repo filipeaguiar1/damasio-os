@@ -21,6 +21,7 @@ import {
   saveServiceComment,
   saveServicePhotos,
   saveEmployeeProfile,
+  saveSmartRouteDraft,
   resetServiceSession,
   skipServiceSession,
   seedDemoLeads,
@@ -42,6 +43,10 @@ export default function MobileEmployeeApp(){
   const [leads,setLeads]=useState<Lead[]>([]);
   const [selectedId,setSelectedId]=useState("");
   const [tab,setTab]=useState<"route"|"service"|"issues"|"task"|"profile">("route");
+  const [homeMode,setHomeMode]=useState<"route"|"smart">("route");
+  const [smartSelected,setSmartSelected]=useState<string[]>([]);
+  const [smartOrigin,setSmartOrigin]=useState<"current"|"last"|"profile"|"manual">("current");
+  const [manualOrigin,setManualOrigin]=useState("");
   const [selectedTaskId,setSelectedTaskId]=useState("");
   const [routeView,setRouteView]=useState<"list"|"map">("map");
   const [comment,setComment]=useState("");
@@ -115,6 +120,28 @@ export default function MobileEmployeeApp(){
   const skipped=route.filter(l=>getSessionForLead(l.id)?.status==="skipped").length;
   const progress=route.length?Math.round((done/route.length)*100):0;
   const nextStop=route.find(l=>l.status!=="completed"&&getSessionForLead(l.id)?.status!=="skipped")||route[0]||null;
+  const smartCandidates=useMemo(()=>route.filter(lead=>lead.status!=="completed"&&getSessionForLead(lead.id)?.status!=="skipped"),[route,tick]);
+  const lastCompleted=useMemo(()=>[...route].reverse().find(lead=>lead.status==="completed")||null,[route]);
+  useEffect(()=>{setSmartSelected(current=>current.filter(id=>smartCandidates.some(lead=>lead.id===id)))},[smartCandidates]);
+
+  function toggleSmartStop(id:string){setSmartSelected(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id])}
+  function smartOriginValue(){if(smartOrigin==="last")return lastCompleted?.address||"";if(smartOrigin==="profile")return profileDraft.defaultAddress||"";if(smartOrigin==="manual")return manualOrigin.trim();return "My Location"}
+  function buildSmartRoute(){
+    const chosen=smartCandidates.filter(lead=>smartSelected.includes(lead.id));
+    if(!chosen.length){setError("Select at least one pending house.");return}
+    if((smartOrigin==="profile"||smartOrigin==="manual"||smartOrigin==="last")&&!smartOriginValue()){setError("Choose a valid starting point.");return}
+    const ordered=[...chosen].sort((a,b)=>{
+      const aHas=typeof a.latitude==="number"&&typeof a.longitude==="number";const bHas=typeof b.latitude==="number"&&typeof b.longitude==="number";
+      if(aHas&&bHas)return (a.latitude!-b.latitude!)||(a.longitude!-b.longitude!);
+      return a.address.localeCompare(b.address);
+    });
+    saveSmartRouteDraft(crew,selectedDay,ordered.map(lead=>lead.id));
+    const origin=smartOriginValue();const destination=ordered[ordered.length-1].address;const waypoints=ordered.slice(0,-1).map(lead=>lead.address).join("|");
+    const params=new URLSearchParams({api:"1",travelmode:"driving",destination});
+    if(origin!=="My Location")params.set("origin",origin);if(waypoints)params.set("waypoints",waypoints);
+    window.open(`https://www.google.com/maps/dir/?${params.toString()}`,"_blank","noopener,noreferrer");
+    setMessage(`Smart route created with ${ordered.length} pending house${ordered.length===1?"":"s"}.`);
+  }
 
   function openService(lead:Lead){setSelectedId(lead.id); setComment(getSessionForLead(lead.id)?.completionComment||""); setContractOpen(true); setTab("service"); setMessage("")}
   function openTask(taskId:string){setSelectedTaskId(taskId);setTab("task");setMessage("")}
@@ -176,31 +203,34 @@ export default function MobileEmployeeApp(){
 
   return <MobileRoleGuard allowed={["employee"]}><main className="mobile-app-shell">
     <header className="mobile-topbar employee-mobile-topbar">
+      <button type="button" className="employee-top-back" onClick={()=>{if(tab==="service")setTab("route");else if(tab==="task")setTab("issues");else if(tab==="profile")setTab("route");else window.history.back()}} aria-label="Go back">‹</button>
       <div className="employee-mobile-brand"><span>D</span><div><strong>Employee</strong><small>{profile.name || "Field user"} · {crew}</small></div></div>
       <button type="button" className="mobile-avatar employee-profile-trigger" onClick={()=>{setProfileDraft(getEmployeeProfile());setTab("profile")}} aria-label="Open employee profile">{profile.photoUrl?<img src={profile.photoUrl} alt="Employee profile"/>:(profile.photoLabel||profile.name||"E").slice(0,1)}</button>
     </header>
 
     {error&&<p className="mobile-message mobile-error" role="alert">{error}</p>}
 
-    <section className="employee-week-picker">
+    {(tab==="route"||tab==="issues")&&<nav className="employee-home-switch" aria-label="Employee workspace"><button className={homeMode==="route"?"active":""} onClick={()=>{setHomeMode("route");setTab("route")}}><i>⌂</i><span><strong>Routes</strong><small>Today and visits</small></span></button><button className={homeMode==="smart"?"active":""} onClick={()=>{setHomeMode("smart");setTab("route")}}><i>↗</i><span><strong>Smart Route</strong><small>Replan pending stops</small></span></button></nav>}
+
+    {homeMode==="route"&&<section className="employee-week-picker">
       <div><button type="button" aria-label="Previous week" onClick={()=>moveWeek(-7)}>‹</button><strong>{weekLabel}</strong><button type="button" aria-label="Next week" onClick={()=>moveWeek(7)}>›</button></div>
       <nav className="employee-day-strip" aria-label="Route days">
         {dayOptions.map(item=><button key={item.key} className={selectedDate===item.key?"active":item.key<todayKey?"past":""} onClick={()=>{setSelectedDate(item.key);setSelectedId("");setTab("route")}}><span>{item.weekday}</span><strong>{item.day}</strong>{item.key===todayKey&&<i>Today</i>}</button>)}
       </nav>
-    </section>
+    </section>}
 
-    <section className="employee-mobile-progress">
+    {homeMode==="route"&&<section className="employee-mobile-progress">
       <div><strong>{selectedDate===todayKey?"Today’s Route":new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"})}</strong><span>{done} / {route.length} completed</span></div>
       <div className="employee-progress-track"><i style={{width:`${progress}%`}}/></div>
       <small>{route.length-done-skipped} remaining · {skipped} skipped · {tasks.length} issues</small>
-    </section>
+    </section>}
 
-    <nav className="mobile-tabs mobile-tabs-two">
+    {homeMode==="route"&&<nav className="mobile-tabs mobile-tabs-two">
       <button className={tab==="route"||tab==="service"?"active":""} onClick={()=>setTab("route")}>Today&apos;s Route</button>
       <button className={tab==="issues"||tab==="task"?"active":""} onClick={()=>setTab("issues")}>Tasks {tasks.length>0&&<b>{tasks.length}</b>}</button>
-    </nav>
+    </nav>}
 
-    {tab==="route"&&<>
+    {tab==="route"&&homeMode==="route"&&<>
       <div className="employee-route-view-toggle" role="tablist" aria-label="Route view">
         <button type="button" className={routeView==="list"?"active":""} onClick={()=>setRouteView("list")}>List</button>
         <button type="button" className={routeView==="map"?"active":""} onClick={()=>setRouteView("map")}>Map</button>
@@ -214,6 +244,16 @@ export default function MobileEmployeeApp(){
       </section>:<EmployeeRouteMap route={mapRoute} routeId={mapContext.routeId||undefined} onOpenVisit={openService}/>}
       {routeView==="list"&&nextStop&&<a className="employee-next-directions" href={mapsHref(nextStop.address)} target="_blank" rel="noopener noreferrer"><span>Get directions to next</span><b>⌖</b></a>}
     </>}
+
+
+    {tab==="route"&&homeMode==="smart"&&<section className="employee-smart-route">
+      <header><div><small>SMART ROUTE</small><h1>Replan pending houses</h1><p>Completed houses stay locked. Only visits assigned to you can be included.</p></div><i>↗</i></header>
+      <div className="employee-smart-origin"><strong>Starting point</strong><div>{[["current","Current location"],["last","Last completed house"],["profile","Profile address"],["manual","Manual address"]].map(([value,label])=><button key={value} className={smartOrigin===value?"active":""} onClick={()=>setSmartOrigin(value as typeof smartOrigin)}>{label}</button>)}</div>{smartOrigin==="manual"&&<input value={manualOrigin} onChange={event=>setManualOrigin(event.target.value)} placeholder="Enter starting address"/>}{smartOrigin==="profile"&&<p>{profileDraft.defaultAddress||"Add a default route address in your profile."}</p>}{smartOrigin==="last"&&<p>{lastCompleted?.address||"No completed house is available yet."}</p>}</div>
+      <div className="employee-smart-head"><span>{smartSelected.length} selected</span><button onClick={()=>setSmartSelected(smartCandidates.map(lead=>lead.id))}>Select all pending</button></div>
+      <div className="employee-smart-list">{route.map((lead,index)=>{const completed=lead.status==="completed";const skippedState=getSessionForLead(lead.id)?.status==="skipped";const disabled=completed||skippedState;const selectedStop=smartSelected.includes(lead.id);return <button key={lead.id} disabled={disabled} className={`${selectedStop?"selected":""} ${disabled?"locked":""}`} onClick={()=>toggleSmartStop(lead.id)}><b>{disabled?"✓":selectedStop?"✓":index+1}</b><div><strong>{lead.address}</strong><span>{lead.name} · {lead.service}</span><small>{completed?"Completed — locked":skippedState?"Skipped — excluded":"Pending and available"}</small></div><i>{disabled?"Locked":selectedStop?"Included":"Add"}</i></button>})}</div>
+      <button className="employee-smart-build" disabled={!smartSelected.length} onClick={buildSmartRoute}>Create smart route <span>↗</span></button>
+      {message&&<p className="mobile-message">{message}</p>}
+    </section>}
 
     {tab==="service"&&selected&&<section className="mobile-service-screen mobile-browser-service mobile-property-reference">
       <button className="mobile-inline-back" onClick={()=>setTab("route")}>← Route</button>
@@ -276,6 +316,7 @@ export default function MobileEmployeeApp(){
       <div className="employee-task-banner"><span>!</span><div><small>RETURN TASK</small><strong>{selectedTask.priority==="urgent"?"Urgent follow-up":"Follow-up required"}</strong></div><b>{selectedTask.status.replace("_"," ")}</b></div>
       <div className="mobile-service-head"><div><h1>{selectedTask.address}</h1><p>{selectedTask.customer}</p></div></div>
       <article className="property-contract-summary employee-task-property"><div className="property-contract-thumb">{taskProperty?.propertyPhoto?<img src={taskProperty.propertyPhoto} alt="Property"/>:<span>🏡</span>}</div><div><strong>{taskProperty?.service||"Property follow-up"}</strong><small>{taskProperty?.serviceFrequency||"Return visit"} · {selectedTask.scheduledDate||"Assigned"}</small></div><i>ⓘ</i></article>
+      {taskProperty&&<article className="property-compact-card mobile-property-data-card employee-task-property-data"><dl><div><dt>Primary service</dt><dd>{taskProperty.service}</dd></div><div><dt>Frequency</dt><dd>{taskProperty.serviceFrequency||"One time"}</dd></div><div><dt>Customer since</dt><dd>{new Date(taskProperty.createdAt).toLocaleDateString("en-CA",{month:"short",year:"numeric"})}</dd></div><div><dt>Lot size</dt><dd>{taskProperty.propertyDetails?.lawnSize?.toUpperCase()||"Not set"}</dd></div><div><dt>Cut height</dt><dd>{taskProperty.propertyDetails?.grassHeight||"Not set"}</dd></div><div><dt>Grass handling</dt><dd>{handlingLabel(taskProperty.propertyDetails?.grassHandling)}</dd></div><div><dt>Backyard / gate</dt><dd>{taskProperty.propertyDetails?.backyard?"Backyard":"No backyard"} · {taskProperty.propertyDetails?.gated?"Gated":"Open"}</dd></div><div><dt>Phone</dt><dd>{taskProperty.phone||"Not available"}</dd></div><div><dt>Email</dt><dd>{taskProperty.email||"Not available"}</dd></div></dl></article>}
       <article className="employee-task-request"><small>WHAT NEEDS TO BE FIXED</small><h2>{selectedTask.title}</h2><p>{selectedTask.description}</p></article>
       {taskProperty&&(taskProperty.propertyDetails?.accessNotes||taskProperty.propertyDetails?.propertyAlerts||taskProperty.notes)&&<div className="property-access-banner">ⓘ {taskProperty.propertyDetails?.accessNotes||taskProperty.propertyDetails?.propertyAlerts||taskProperty.notes}</div>}
       <a className="employee-task-directions" href={mapsHref(selectedTask.address)} target="_blank" rel="noopener noreferrer"><span>Directions to property</span><b>⌖</b></a>
