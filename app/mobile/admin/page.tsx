@@ -6,6 +6,7 @@ import { DAMASIO_SYNC_EVENT, getEmployeeTasks, getLeads, getNotifications, seedD
 import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
 import {signOutAccount} from "@/lib/auth/signOut";
 import {MobileBackButton} from "@/components/mobile/MobileBackButton";
+import {MobileAdminNav} from "@/components/mobile/MobileAdminNav";
 
 type MobileAdminData = {
   open: number;
@@ -74,11 +75,11 @@ export default function MobileAdminApp() {
 
   const actions=[
     {href:"/admin/command",icon:"⌁",label:"Command",detail:"Live operation"},
-    {href:"/admin/routes",icon:"↗",label:"Routes",detail:"Dispatch crews"},
+    {href:"/mobile/admin/routes",icon:"↗",label:"Routes",detail:"Dispatch crews"},
     {href:"/admin/schedule",icon:"□",label:"Schedule",detail:"Plan the day"},
     {href:"/admin/customers",icon:"◎",label:"Customers",detail:"Homes & contacts"},
-    {href:"/admin/tasks",icon:"✓",label:"Tasks",detail:"Return visits"},
-    {href:"/admin/notifications",icon:"!",label:"Alerts",detail:`${data.alerts} unread`},
+    {href:"/mobile/admin/tasks",icon:"✓",label:"Tasks",detail:"Return visits"},
+    {href:"/mobile/admin/alerts",icon:"!",label:"Alerts",detail:`${data.alerts} unread`},
     {href:"/admin/estimates",icon:"▤",label:"Estimates",detail:"Quotes & approvals"},
     {href:"/admin/invoices",icon:"$",label:"Invoices",detail:"Billing status"},
     {href:"/admin/requests",icon:"＋",label:"Requests",detail:"Customer needs"},
@@ -111,10 +112,10 @@ export default function MobileAdminApp() {
       </section>
 
       <section className="mobile-stats-card">
-        <Link href="/admin/routes?filter=open"><span>Open</span><strong>{data.open}</strong><small>homes</small></Link>
-        <Link href="/admin/routes?filter=done"><span>Done</span><strong>{data.done}</strong><small>completed</small></Link>
-        <Link href="/admin/tasks/open"><span>Tasks</span><strong>{data.returnVisits}</strong><small>follow-up</small></Link>
-        <Link href="/admin/alerts"><span>Alerts</span><strong>{data.alerts}</strong><small>unread</small></Link>
+        <Link href="/mobile/admin/routes"><span>Open</span><strong>{data.open}</strong><small>homes</small></Link>
+        <Link href="/mobile/admin/routes"><span>Done</span><strong>{data.done}</strong><small>completed</small></Link>
+        <Link href="/mobile/admin/tasks"><span>Tasks</span><strong>{data.returnVisits}</strong><small>follow-up</small></Link>
+        <Link href="/mobile/admin/alerts"><span>Alerts</span><strong>{data.alerts}</strong><small>unread</small></Link>
       </section>
 
       <section className="role-mobile-section">
@@ -126,14 +127,14 @@ export default function MobileAdminApp() {
       </section>
 
       <section className="role-mobile-section role-attention-section">
-        <div className="role-mobile-section-head"><div><span>PRIORITIES</span><h2>Needs attention</h2></div><Link href="/admin/tasks">All tasks</Link></div>
+        <div className="role-mobile-section-head"><div><span>PRIORITIES</span><h2>Needs attention</h2></div><Link href="/mobile/admin/tasks">All tasks</Link></div>
         {data.tasks.length ? data.tasks.map((task) => (
-          <Link className="role-mobile-priority" href="/admin/tasks" key={task.id}><i>!</i><span><strong>{task.title}</strong><small>{task.customer} · {task.address}</small></span><b>›</b></Link>
+          <Link className="role-mobile-priority" href="/mobile/admin/tasks" key={task.id}><i>!</i><span><strong>{task.title}</strong><small>{task.customer} · {task.address}</small></span><b>›</b></Link>
         )) : (
           <div className="role-mobile-clear"><i>✓</i><span><strong>No return visits open</strong><small>Your priority list is clear.</small></span></div>
         )}
       </section>
-      <nav className="role-mobile-bottom" aria-label="Admin navigation"><Link className="active" href="/mobile/admin"><i>⌂</i><span>Home</span></Link><Link href="/admin/schedule"><i>□</i><span>Schedule</span></Link><Link href="/admin/routes"><i>↗</i><span>Routes</span></Link><Link href="/admin/customers"><i>◎</i><span>Customers</span></Link><Link href="/admin"><i>•••</i><span>More</span></Link></nav>
+      <MobileAdminNav active="home"/>
     </main></MobileRoleGuard>
   );
 }

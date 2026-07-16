@@ -1,0 +1,19 @@
+"use client";
+import {useEffect,useMemo,useState} from "react";
+import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
+import {MobileBackButton} from "@/components/mobile/MobileBackButton";
+import {MobileAdminNav} from "@/components/mobile/MobileAdminNav";
+import {EmployeeRouteMap} from "@/components/mobile/EmployeeRouteMap";
+import {DAMASIO_CREWS,Lead} from "@/lib/storage";
+import {loadSchedulingDispatchBoard,schedulingBoardToLeads} from "@/lib/services/schedulingService";
+import type {DispatchCrew} from "@/lib/repositories/schedulingRepository";
+
+const today=()=>new Date().toISOString().slice(0,10);
+export default function MobileAdminRoutes(){
+ const[leads,setLeads]=useState<Lead[]>([]);const[crews,setCrews]=useState<DispatchCrew[]>([]);const[crew,setCrew]=useState(DAMASIO_CREWS[0]);const[date,setDate]=useState(today());const[view,setView]=useState<"map"|"list">("map");const[message,setMessage]=useState("Loading routes...");
+ async function refresh(){try{const board=await loadSchedulingDispatchBoard({force:true});setLeads(schedulingBoardToLeads(board));setCrews(board.crews);if(board.crews.length&&!board.crews.some(item=>item.name===crew))setCrew(board.crews[0].name);setMessage("")}catch(error){setMessage(error instanceof Error?error.message:"Routes could not be loaded.")}}
+ useEffect(()=>{void refresh();const timer=window.setInterval(()=>void refresh(),10000);return()=>window.clearInterval(timer)},[]);
+ const route=useMemo(()=>{const visits=leads.filter(item=>item.canonicalVisitId&&item.assignedCrew===crew&&item.scheduledDate===date);const jobs=new Set(visits.map(item=>item.canonicalJobId).filter(Boolean));const templates=leads.filter(item=>!item.canonicalVisitId&&item.assignedCrew===crew&&item.scheduledDate===date&&!jobs.has(item.canonicalJobId));return[...visits,...templates].sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address))},[leads,crew,date]);
+ const done=route.filter(item=>item.status==="completed").length;const crewNames=crews.length?crews.map(item=>item.name):DAMASIO_CREWS;
+ return <MobileRoleGuard allowed={["admin","manager"]}><main className="mobile-app-shell role-mobile-shell mobile-native-subpage"><header className="role-mobile-topbar"><MobileBackButton fallback="/mobile/admin"/><div><strong>Routes</strong><span>Admin route viewer</span></div><button className="mobile-native-add mobile-native-check" onClick={()=>void refresh()} aria-label="Refresh">↻</button></header><section className="mobile-native-hero routes"><span>FIELD MAP</span><h1>{route.length} stops for {crew}.</h1><p>{done} completed · {route.length-done} remaining</p></section><section className="mobile-route-controls"><label>Employee / Crew<select value={crew} onChange={e=>setCrew(e.target.value)}>{crewNames.map(name=><option key={name}>{name}</option>)}</select></label><label>Date<input type="date" value={date} onChange={e=>setDate(e.target.value)}/></label></section><div className="mobile-native-toggle"><button className={view==="map"?"active":""} onClick={()=>setView("map")}>Map</button><button className={view==="list"?"active":""} onClick={()=>setView("list")}>List <b>{route.length}</b></button></div>{message&&<div className="mobile-native-message">{message}</div>}{view==="map"?<EmployeeRouteMap route={route} actionLabel="Select stop" onOpenVisit={()=>setView("list")}/>:<section className="mobile-native-route-list">{route.map((home,index)=><article key={home.id}><b>{index+1}</b><div><strong>{home.name}</strong><span>{home.address}</span><small>{home.service}</small></div><i className={home.status==="completed"?"done":""}>{home.status==="completed"?"Done":"Open"}</i></article>)}{!route.length&&<div className="mobile-native-empty"><i>⌖</i><strong>No route published</strong><p>Choose another Employee or date.</p></div>}</section>}<MobileAdminNav active="routes"/></main></MobileRoleGuard>
+}
