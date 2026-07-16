@@ -2183,14 +2183,18 @@ export function getEmployeeSmartRouteState(crew:string,date:string):EmployeeSmar
   try{return JSON.parse(window.localStorage.getItem(employeeSmartRouteKey(crew,date))||"null") as EmployeeSmartRouteState|null}catch{return null}
 }
 export function applyEmployeeSmartRoute(crew:string,date:string,originalOrder:string[],appliedOrder:string[],origin:{label:string;latitude:number;longitude:number}){
-  const uniqueOriginal=[...new Set(originalOrder)];
-  const allowed=new Set(uniqueOriginal);
+  const day=dayNameFromDate(date);
+  const routeHomes=getLeads().filter(lead=>lead.assignedCrew===crew&&(lead.scheduledDate===date||lead.serviceDay===day));
+  const allowed=new Set(routeHomes.map(lead=>lead.id));
+  const uniqueOriginal=[...new Set(originalOrder.filter(id=>allowed.has(id)))];
+  const currentIds=routeHomes.sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)).map(lead=>lead.id);
+  const completeOriginal=[...uniqueOriginal,...currentIds.filter(id=>!uniqueOriginal.includes(id))];
   const safeApplied=[...new Set(appliedOrder.filter(id=>allowed.has(id)))];
-  const finalOrder=[...safeApplied,...uniqueOriginal.filter(id=>!safeApplied.includes(id))];
+  const finalOrder=[...safeApplied,...completeOriginal.filter(id=>!safeApplied.includes(id))];
   const positions=new Map(finalOrder.map((id,index)=>[id,index+1]));
   setLeads(getLeads().map(lead=>positions.has(lead.id)?{...lead,routeOrder:positions.get(lead.id)}:lead));
   const existing=getEmployeeSmartRouteState(crew,date);
-  const state:EmployeeSmartRouteState={crew,date,originalOrder:existing?.active?existing.originalOrder:uniqueOriginal,appliedOrder:finalOrder,originLabel:origin.label,originLatitude:origin.latitude,originLongitude:origin.longitude,appliedAt:new Date().toISOString(),active:true};
+  const state:EmployeeSmartRouteState={crew,date,originalOrder:existing?.active?existing.originalOrder:completeOriginal,appliedOrder:finalOrder,originLabel:origin.label,originLatitude:origin.latitude,originLongitude:origin.longitude,appliedAt:new Date().toISOString(),active:true};
   if(typeof window!=="undefined")window.localStorage.setItem(employeeSmartRouteKey(crew,date),JSON.stringify(state));
   addActivityLog("Employee","Applied Smart Route",crew,`${safeApplied.length} pending stop(s) reordered for ${date}.`);
   broadcastOperationsChange(`Employee Smart Route applied for ${crew}.`);
@@ -2199,10 +2203,14 @@ export function applyEmployeeSmartRoute(crew:string,date:string,originalOrder:st
 export function restoreEmployeeSmartRoute(crew:string,date:string){
   const state=getEmployeeSmartRouteState(crew,date);
   if(!state?.active)return false;
-  const positions=new Map(state.originalOrder.map((id,index)=>[id,index+1]));
+  const day=dayNameFromDate(date);
+  const currentRoute=getLeads().filter(lead=>lead.assignedCrew===crew&&(lead.scheduledDate===date||lead.serviceDay===day)).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address));
+  const currentIds=currentRoute.map(lead=>lead.id);
+  const restored=[...state.originalOrder.filter(id=>currentIds.includes(id)),...currentIds.filter(id=>!state.originalOrder.includes(id))];
+  const positions=new Map(restored.map((id,index)=>[id,index+1]));
   setLeads(getLeads().map(lead=>positions.has(lead.id)?{...lead,routeOrder:positions.get(lead.id)}:lead));
   if(typeof window!=="undefined")window.localStorage.removeItem(employeeSmartRouteKey(crew,date));
-  addActivityLog("Employee","Restored original route",crew,`Original route restored for ${date}.`);
+  addActivityLog("Employee","Restored original route",crew,`Original route restored for ${date}; newly assigned stops were kept.`);
   broadcastOperationsChange(`Original route restored for ${crew}.`);
   return true;
 }
