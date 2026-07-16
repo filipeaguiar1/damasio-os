@@ -2166,15 +2166,23 @@ export type EmployeeSmartRouteState = {
   originalOrder: string[];
   appliedOrder: string[];
   originLabel: string;
+  originLatitude?: number;
+  originLongitude?: number;
   appliedAt: string;
   active: boolean;
+};
+export type EmployeeRouteRunState = {
+  crew:string;
+  date:string;
+  startedAt:string;
+  active:boolean;
 };
 function employeeSmartRouteKey(crew:string,date:string){return `damasio_os_employee_smart_route_${crew}_${date}`}
 export function getEmployeeSmartRouteState(crew:string,date:string):EmployeeSmartRouteState|null{
   if(typeof window==="undefined")return null;
   try{return JSON.parse(window.localStorage.getItem(employeeSmartRouteKey(crew,date))||"null") as EmployeeSmartRouteState|null}catch{return null}
 }
-export function applyEmployeeSmartRoute(crew:string,date:string,originalOrder:string[],appliedOrder:string[],originLabel:string){
+export function applyEmployeeSmartRoute(crew:string,date:string,originalOrder:string[],appliedOrder:string[],origin:{label:string;latitude:number;longitude:number}){
   const uniqueOriginal=[...new Set(originalOrder)];
   const allowed=new Set(uniqueOriginal);
   const safeApplied=[...new Set(appliedOrder.filter(id=>allowed.has(id)))];
@@ -2182,7 +2190,7 @@ export function applyEmployeeSmartRoute(crew:string,date:string,originalOrder:st
   const positions=new Map(finalOrder.map((id,index)=>[id,index+1]));
   setLeads(getLeads().map(lead=>positions.has(lead.id)?{...lead,routeOrder:positions.get(lead.id)}:lead));
   const existing=getEmployeeSmartRouteState(crew,date);
-  const state:EmployeeSmartRouteState={crew,date,originalOrder:existing?.active?existing.originalOrder:uniqueOriginal,appliedOrder:finalOrder,originLabel,appliedAt:new Date().toISOString(),active:true};
+  const state:EmployeeSmartRouteState={crew,date,originalOrder:existing?.active?existing.originalOrder:uniqueOriginal,appliedOrder:finalOrder,originLabel:origin.label,originLatitude:origin.latitude,originLongitude:origin.longitude,appliedAt:new Date().toISOString(),active:true};
   if(typeof window!=="undefined")window.localStorage.setItem(employeeSmartRouteKey(crew,date),JSON.stringify(state));
   addActivityLog("Employee","Applied Smart Route",crew,`${safeApplied.length} pending stop(s) reordered for ${date}.`);
   broadcastOperationsChange(`Employee Smart Route applied for ${crew}.`);
@@ -2197,6 +2205,20 @@ export function restoreEmployeeSmartRoute(crew:string,date:string){
   addActivityLog("Employee","Restored original route",crew,`Original route restored for ${date}.`);
   broadcastOperationsChange(`Original route restored for ${crew}.`);
   return true;
+}
+
+
+function employeeRouteRunKey(crew:string,date:string){return `damasio_os_employee_route_run_${crew}_${date}`}
+export function getEmployeeRouteRunState(crew:string,date:string):EmployeeRouteRunState|null{
+  if(typeof window==="undefined")return null;
+  try{return JSON.parse(window.localStorage.getItem(employeeRouteRunKey(crew,date))||"null") as EmployeeRouteRunState|null}catch{return null}
+}
+export function startEmployeeRoute(crew:string,date:string){
+  const state:EmployeeRouteRunState={crew,date,startedAt:new Date().toISOString(),active:true};
+  if(typeof window!=="undefined")window.localStorage.setItem(employeeRouteRunKey(crew,date),JSON.stringify(state));
+  addActivityLog("Employee","Started route",crew,`Route started for ${date}.`);
+  broadcastOperationsChange(`Employee route started for ${crew}.`);
+  return state;
 }
 
 export function saveSmartRouteDraft(crew: string, day: string, orderedIds: string[]) {

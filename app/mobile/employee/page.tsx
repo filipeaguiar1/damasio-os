@@ -24,6 +24,8 @@ import {
   saveEmployeeProfile,
   applyEmployeeSmartRoute,
   getEmployeeSmartRouteState,
+  getEmployeeRouteRunState,
+  startEmployeeRoute,
   restoreEmployeeSmartRoute,
   resetServiceSession,
   skipServiceSession,
@@ -56,6 +58,8 @@ export default function MobileEmployeeApp(){
   const [smartOriginPoint,setSmartOriginPoint]=useState<{latitude:number;longitude:number;label:string}|null>(null);
   const [smartPreparing,setSmartPreparing]=useState(false);
   const [smartRouteActive,setSmartRouteActive]=useState(false);
+  const [activeSmartState,setActiveSmartState]=useState<ReturnType<typeof getEmployeeSmartRouteState>>(null);
+  const [routeStarted,setRouteStarted]=useState(false);
   const [selectedTaskId,setSelectedTaskId]=useState("");
   const [routeView,setRouteView]=useState<"list"|"map">("map");
   const [comment,setComment]=useState("");
@@ -131,7 +135,7 @@ export default function MobileEmployeeApp(){
   const nextStop=route.find(l=>l.status!=="completed"&&getSessionForLead(l.id)?.status!=="skipped")||route[0]||null;
   const smartCandidates=useMemo(()=>route.filter(lead=>lead.status!=="completed"&&getSessionForLead(lead.id)?.status!=="skipped"),[route,tick]);
   const lastCompleted=useMemo(()=>[...route].reverse().find(lead=>lead.status==="completed")||null,[route]);
-  useEffect(()=>{setSmartSelected(current=>current.filter(id=>smartCandidates.some(lead=>lead.id===id)));setSmartRouteActive(Boolean(getEmployeeSmartRouteState(crew,selectedDate)?.active))},[smartCandidates,crew,selectedDate,routeReload]);
+  useEffect(()=>{const smartState=getEmployeeSmartRouteState(crew,selectedDate);setSmartSelected(current=>current.filter(id=>smartCandidates.some(lead=>lead.id===id)));setSmartRouteActive(Boolean(smartState?.active));setActiveSmartState(smartState);setRouteStarted(Boolean(getEmployeeRouteRunState(crew,selectedDate)?.active))},[smartCandidates,crew,selectedDate,routeReload]);
 
   function clearSmartPreview(){setSmartPreview([]);setSmartOriginPoint(null);setSmartAlternative(0)}
   function toggleSmartStop(id:string){setSmartSelected(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);clearSmartPreview()}
@@ -189,13 +193,16 @@ export default function MobileEmployeeApp(){
     const locked=route.filter(lead=>lead.status==="completed"||getSessionForLead(lead.id)?.status==="skipped").map(lead=>lead.id);
     const optimized=smartPreview.map(lead=>lead.id);
     const unselected=route.filter(lead=>!locked.includes(lead.id)&&!optimized.includes(lead.id)).map(lead=>lead.id);
-    applyEmployeeSmartRoute(crew,selectedDate,route.map(lead=>lead.id),[...locked,...optimized,...unselected],smartOriginPoint.label);
-    setSmartRouteActive(true);setSmartPreview([]);setRouteReload(value=>value+1);refresh();setHomeMode("route");setRouteView("map");setMessage("Smart Route applied. Your map and stop order are updated.");
+    const state=applyEmployeeSmartRoute(crew,selectedDate,route.map(lead=>lead.id),[...locked,...optimized,...unselected],smartOriginPoint);
+    setSmartRouteActive(true);setActiveSmartState(state);setSmartPreview([]);refresh();setHomeMode("route");setRouteView("map");setMessage("Smart Route applied. Your map and stop order are synchronized.");
   }
   function restoreOriginalRoute(){
     if(!window.confirm("Restore the original route assigned by Admin? Completed visits will stay completed."))return;
-    if(restoreEmployeeSmartRoute(crew,selectedDate)){setSmartRouteActive(false);setSmartPreview([]);setRouteReload(value=>value+1);refresh();setMessage("Original route restored.")}
+    if(restoreEmployeeSmartRoute(crew,selectedDate)){setSmartRouteActive(false);setActiveSmartState(null);setSmartPreview([]);refresh();setMessage("Original route restored.")}
   }
+
+  const smartMetrics=useMemo(()=>{if(!smartPreview.length||!smartOriginPoint)return null;const points=[smartOriginPoint,...smartPreview.map(lead=>({latitude:Number(lead.latitude),longitude:Number(lead.longitude)}))];let km=0;for(let index=1;index<points.length;index++){const a=points[index-1],b=points[index];const toRad=(value:number)=>value*Math.PI/180;const dLat=toRad(b.latitude-a.latitude);const dLon=toRad(b.longitude-a.longitude);const x=Math.sin(dLat/2)**2+Math.cos(toRad(a.latitude))*Math.cos(toRad(b.latitude))*Math.sin(dLon/2)**2;km+=6371*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}const roadKm=km*1.22;return{distance:roadKm,time:Math.max(1,Math.round(roadKm/35*60))}},[smartPreview,smartOriginPoint]);
+  function startRoute(){const state=startEmployeeRoute(crew,selectedDate);setRouteStarted(Boolean(state.active));setMessage("Route started.")}
 
   function openService(lead:Lead){setSelectedId(lead.id); setComment(getSessionForLead(lead.id)?.completionComment||""); setContractOpen(true); setTab("service"); setMessage("")}
   function openTask(taskId:string){setSelectedTaskId(taskId);setTab("task");setMessage("")}
@@ -295,8 +302,8 @@ export default function MobileEmployeeApp(){
           <div><strong>{lead.address}</strong><p>{lead.name}</p><em>{lead.service} · {lead.serviceFrequency||"weekly"}</em></div>
           <b className={lead.status==="completed"?"mobile-status done":getSessionForLead(lead.id)?.status==="skipped"?"mobile-status skipped":"mobile-status"}>{statusLabel(lead,getSessionForLead(lead.id))}</b>
         </button>)}
-      </section>:<EmployeeRouteMap route={mapRoute} routeId={smartRouteActive?undefined:(mapContext.routeId||undefined)} onOpenVisit={openService}/>}
-      {routeView==="list"&&nextStop&&<a className="employee-next-directions" href={mapsHref(nextStop.address)} target="_blank" rel="noopener noreferrer"><span>Get directions to next</span><b>⌖</b></a>}
+      </section>:<EmployeeRouteMap route={mapRoute} routeId={smartRouteActive?undefined:(mapContext.routeId||undefined)} originPoint={smartRouteActive&&activeSmartState&&Number.isFinite(activeSmartState.originLatitude)&&Number.isFinite(activeSmartState.originLongitude)?{latitude:Number(activeSmartState.originLatitude),longitude:Number(activeSmartState.originLongitude),label:activeSmartState.originLabel}:null} onOpenVisit={openService}/>}
+      {routeView==="list"&&nextStop&&<div className="employee-route-next-stack">{!routeStarted&&<button type="button" className="employee-start-route" onClick={startRoute}>Start Route <b>▶</b></button>}<a className="employee-next-directions" href={mapsHref(nextStop.address)} target="_blank" rel="noopener noreferrer"><span>Get directions to next</span><b>⌖</b></a></div>}
     </>}
 
 
@@ -305,7 +312,7 @@ export default function MobileEmployeeApp(){
       <div className="employee-smart-origin"><strong>Starting point</strong><div>{[["current","Current location"],["last","Last completed house"],["profile","Profile address"],["manual","Manual address"]].map(([value,label])=><button key={value} className={smartOrigin===value?"active":""} onClick={()=>{setSmartOrigin(value as typeof smartOrigin);setManualOriginPoint(null);clearSmartPreview()}}>{label}</button>)}</div>{smartOrigin==="manual"&&<AddressAutocomplete value={manualOrigin} onChange={value=>{setManualOrigin(value);setManualOriginPoint(null);clearSmartPreview()}} onSelect={suggestion=>{setManualOrigin(suggestion.label);setManualOriginPoint({latitude:suggestion.latitude,longitude:suggestion.longitude,label:suggestion.label});clearSmartPreview()}} placeholder="Start typing the route address" ariaLabel="Manual route start"/>}{smartOrigin==="profile"&&<p>{profileDraft.defaultAddress||"Add a default route address in your profile."}</p>}{smartOrigin==="last"&&<p>{lastCompleted?.address||"No completed house is available yet."}</p>}{smartOrigin==="current"&&<p>Uses the employee phone GPS after permission is granted.</p>}</div>
       <div className="employee-smart-head"><span>{smartSelected.length} selected · {smartCandidates.length} pending</span><button onClick={()=>{setSmartSelected(smartSelected.length===smartCandidates.length?[]:smartCandidates.map(lead=>lead.id));setSmartPreview([])}}>{smartSelected.length===smartCandidates.length?"Clear":"Select all pending"}</button></div>
       <div className="employee-smart-list">{route.map((lead,index)=>{const completed=lead.status==="completed";const skippedState=getSessionForLead(lead.id)?.status==="skipped";const disabled=completed||skippedState;const selectedStop=smartSelected.includes(lead.id);return <button key={lead.id} disabled={disabled} className={`${selectedStop?"selected":""} ${disabled?"locked":""}`} onClick={()=>toggleSmartStop(lead.id)}><b>{disabled?"✓":selectedStop?"✓":index+1}</b><div><strong>{lead.address}</strong><span>{lead.name} · {lead.service}</span><small>{completed?"Completed — locked":skippedState?"Skipped — excluded":"Pending and available"}</small></div><i>{disabled?"Locked":selectedStop?"Included":"Add"}</i></button>})}</div>
-      {!smartPreview.length?<button className="employee-smart-build" disabled={!smartSelected.length||smartPreparing} onClick={()=>void prepareSmartRoute(0)}>{smartPreparing?"Preparing preview…":"Preview Smart Route"}<span>↗</span></button>:<section className="employee-smart-preview"><header><div><small>ROUTE PREVIEW</small><strong>{smartPreview.length} pending stops</strong><span>Start: {smartOriginPoint?.label}</span></div><button onClick={clearSmartPreview}>Edit</button></header><div className="employee-smart-map-wrap"><EmployeeRouteMap route={smartPreview} originPoint={smartOriginPoint} onOpenVisit={()=>{}} actionLabel="Preview stop"/><button type="button" className="employee-smart-alternate" disabled={smartPreparing} onClick={tryAnotherSmartRoute} aria-label="Try another route" title="Try another route">{smartPreparing?"…":"↻"}</button></div><div className="employee-smart-preview-actions"><button onClick={clearSmartPreview}>Cancel</button><button onClick={applySmartPreview}>Apply Smart Route</button></div></section>}
+      {!smartPreview.length?<button className="employee-smart-build" disabled={!smartSelected.length||smartPreparing} onClick={()=>void prepareSmartRoute(0)}>{smartPreparing?"Preparing preview…":"Preview Smart Route"}<span>↗</span></button>:<section className="employee-smart-preview"><header><div><small>ROUTE PREVIEW</small><strong>{smartPreview.length} pending stops</strong><span>Start: {smartOriginPoint?.label}</span></div><div className="employee-smart-preview-tools">{smartMetrics&&<button type="button" className="employee-smart-info" aria-label="Route estimate" title={`Approx. ${smartMetrics.distance.toFixed(1)} km · ${smartMetrics.time} min driving`}>!</button>}<button onClick={clearSmartPreview}>Edit</button></div></header><div className="employee-smart-map-wrap"><EmployeeRouteMap route={smartPreview} originPoint={smartOriginPoint} onOpenVisit={()=>{}} actionLabel="Preview stop"/><button type="button" className="employee-smart-alternate" disabled={smartPreparing} onClick={tryAnotherSmartRoute} aria-label="Try another route" title="Try another route">{smartPreparing?"…":"↻"}</button></div><div className="employee-smart-preview-actions"><button onClick={clearSmartPreview}>Cancel</button><button onClick={applySmartPreview}>Apply Smart Route</button></div></section>}
       {message&&<p className="mobile-message">{message}</p>}
     </section>}
 

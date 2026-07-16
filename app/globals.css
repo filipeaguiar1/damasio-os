@@ -740,3 +740,15 @@ html[data-season="winter"] .mobile-splash{background:linear-gradient(180deg,#f7f
 
 /* V52.7.1 — manual-origin reset and alternate Smart Route preview. */
 .employee-smart-map-wrap{position:relative}.employee-smart-map-wrap>.employee-map-panel{margin:0}.employee-smart-alternate{position:absolute;right:14px;bottom:16px;z-index:30;width:48px;height:48px;border:3px solid #fff;border-radius:50%;background:#2563eb;color:#fff;font:inherit;font-size:25px;font-weight:950;box-shadow:0 8px 22px rgba(37,99,235,.34)}.employee-smart-alternate:disabled{opacity:.65}.employee-smart-preview>header button{min-width:50px}
+
+/* V52.8 — synchronized Smart Route, compact route controls and fixed mobile headers. */
+.employee-mobile-topbar,.role-mobile-topbar{position:sticky;top:0;z-index:80}
+.employee-home-switch{margin-top:20px!important}
+.employee-smart-route{padding-top:8px!important}
+.employee-route-next-stack{display:grid;gap:8px;margin-top:12px}
+.employee-route-next-stack .employee-next-directions{margin-top:0}
+.employee-start-route{min-height:48px;border:0;border-radius:14px;background:#173f73;color:#fff;font:inherit;font-size:12px;font-weight:950;display:flex;align-items:center;justify-content:space-between;padding:0 15px;box-shadow:0 8px 20px rgba(23,63,115,.22)}
+.employee-start-route b{width:27px;height:27px;display:grid;place-items:center;border-radius:50%;background:rgba(255,255,255,.16);font-size:11px}
+.employee-smart-preview-tools{display:flex;align-items:center;gap:6px}
+.employee-smart-preview-tools .employee-smart-info{min-width:28px!important;width:28px;height:28px;padding:0!important;border:1px solid #8eb5ed!important;border-radius:50%!important;background:#fff!important;color:#2563eb!important;font-size:12px!important;font-weight:950!important}
+@media(max-width:480px){.employee-home-switch{margin-top:24px!important}}
