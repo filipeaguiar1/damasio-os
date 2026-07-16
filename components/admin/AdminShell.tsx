@@ -57,7 +57,9 @@ export function AdminShell({children,active}:{children:React.ReactNode;active:st
     </aside>
     <main className="pro-main">
       <header className="pro-topbar">
+        <Link href="/mobile/admin" className="mobile-subpage-back" aria-label="Back to admin home">‹</Link>
         <button type="button" className="hamburger mobile-menu-toggle" onClick={()=>setMobileMenuOpen(true)} aria-label="Open menu">☰</button>
+        <span className="mobile-subpage-title"><strong>{active}</strong><small>Admin workspace</small></span>
         <Link href="/admin/leads" className="topbar-pill">🌿 Damasio OS V51.3</Link>
         <div className="topbar-spacer"></div>
         <Link href="/admin/customers" className="top-icon" aria-label="Search customers">⌕</Link>
@@ -67,6 +69,13 @@ export function AdminShell({children,active}:{children:React.ReactNode;active:st
         <button type="button" className="top-signout" onClick={()=>void signOutAccount()} aria-label="Sign out">Sign out</button>
       </header>
       <div className="pro-content">{children}</div>
+      <nav className="mobile-shell-bottom" aria-label="Admin subpage navigation">
+        <Link href="/mobile/admin"><i>⌂</i><span>Home</span></Link>
+        <Link className={active==="Dispatch"||active==="Calendar"?"active":""} href="/admin/schedule"><i>□</i><span>Schedule</span></Link>
+        <Link className={active==="Routes"||active==="Map"?"active":""} href="/admin/routes"><i>↗</i><span>Routes</span></Link>
+        <Link className={active==="Tasks"?"active":""} href="/admin/tasks/open"><i>!</i><span>Tasks</span></Link>
+        <button type="button" onClick={()=>setMobileMenuOpen(true)}><i>•••</i><span>More</span></button>
+      </nav>
     </main>
   </div>
 }

@@ -691,3 +691,18 @@ html[data-season="winter"] .mobile-splash{background:linear-gradient(180deg,#f7f
 /* Mobile safe-area correction for gesture and three-button navigation bars. */
 .role-mobile-shell{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))!important}
 .role-mobile-bottom{padding-bottom:max(9px,env(safe-area-inset-bottom,0px));height:calc(72px + env(safe-area-inset-bottom,0px))}
+
+/* V52.1.2 — shared mobile subpage navigation; desktop and Employee remain unchanged. */
+.mobile-subpage-back,.mobile-subpage-title,.mobile-shell-bottom{display:none}
+@media(max-width:800px){
+  .admin-pro-shell:not(.employee-portal-shell) .pro-main{padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+  .admin-pro-shell:not(.employee-portal-shell) .pro-topbar{position:sticky;top:0;z-index:40;display:grid;grid-template-columns:42px minmax(0,1fr) 42px;gap:9px;min-height:65px;padding:10px 12px;background:rgba(248,251,249,.96);border-bottom:1px solid #e0e9e3;overflow:visible;backdrop-filter:blur(18px)}
+  .admin-pro-shell:not(.employee-portal-shell) .mobile-subpage-back{display:grid;width:40px;height:40px;border:1px solid #dbe7df;border-radius:13px;place-items:center;background:#fff;color:#0a633d;text-decoration:none;font-size:31px;line-height:1;box-shadow:0 6px 16px rgba(13,68,44,.06)}
+  .admin-pro-shell:not(.employee-portal-shell) .mobile-subpage-title{display:block;min-width:0;text-align:center}.mobile-subpage-title strong,.mobile-subpage-title small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mobile-subpage-title strong{font-size:16px;color:#183528}.mobile-subpage-title small{margin-top:2px;color:#728278;font-size:10px}
+  .admin-pro-shell:not(.employee-portal-shell) .pro-topbar>.mobile-menu-toggle{display:grid!important;grid-column:3;width:40px;height:40px;margin:0;border:1px solid #dbe7df;border-radius:13px;place-items:center;background:#fff;color:#0a633d;font-size:20px}
+  .admin-pro-shell:not(.employee-portal-shell) .pro-topbar>.topbar-pill,.admin-pro-shell:not(.employee-portal-shell) .pro-topbar>.topbar-spacer,.admin-pro-shell:not(.employee-portal-shell) .pro-topbar>.top-icon,.admin-pro-shell:not(.employee-portal-shell) .pro-topbar>.mini-user,.admin-pro-shell:not(.employee-portal-shell) .pro-topbar>.top-signout{display:none!important}
+  .admin-pro-shell:not(.employee-portal-shell) .pro-content{padding:14px 12px 24px}.admin-pro-shell:not(.employee-portal-shell) .app-top{gap:10px;margin-bottom:15px}.admin-pro-shell:not(.employee-portal-shell) .app-top h1{font-size:28px;line-height:1.05}.admin-pro-shell:not(.employee-portal-shell) .section-intro{font-size:12px;line-height:1.45}
+  .mobile-shell-bottom{position:fixed;left:0;right:0;bottom:0;z-index:42;display:grid;grid-template-columns:repeat(5,1fr);min-height:70px;padding:7px 8px max(8px,env(safe-area-inset-bottom,0px));background:rgba(255,255,255,.97);border-top:1px solid #dfe8e2;box-shadow:0 -9px 25px rgba(16,54,37,.08);backdrop-filter:blur(18px)}
+  .mobile-shell-bottom a,.mobile-shell-bottom button{min-width:0;border:0;background:transparent;color:#84928a;display:grid;place-items:center;align-content:center;gap:3px;text-decoration:none;font:inherit;cursor:pointer}.mobile-shell-bottom i{font-style:normal;font-size:18px;font-weight:900;line-height:1}.mobile-shell-bottom span{font-size:9px;font-weight:850}.mobile-shell-bottom .active{color:#0a633d}
+  .customer-portal-shell .grid-3,.customer-portal-shell .stats,.customer-portal-shell .detail-grid{grid-template-columns:1fr!important}.customer-portal-shell .portal-card,.customer-portal-shell .profile-card,.customer-portal-shell .table-card,.customer-portal-shell .estimate-preview{border-radius:17px!important}.customer-portal-shell .table-wrap{border-radius:13px;overflow-x:auto}
+}

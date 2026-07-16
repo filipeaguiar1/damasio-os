@@ -13,7 +13,7 @@ export function PortalShell({children,active,type}:{children:React.ReactNode;act
   const[unread,setUnread]=useState(type==="Customer"?1:3);
   const[mobileMenuOpen,setMobileMenuOpen]=useState(false);
   const clearNotifications=()=>setUnread(0);
-  return <div className="admin-pro-shell portal-pro-shell">
+  return <div className={`admin-pro-shell portal-pro-shell ${type==="Employee"?"employee-portal-shell":"customer-portal-shell"}`}>
     <aside className={`pro-sidebar ${mobileMenuOpen?"mobile-menu-open":""}`}>
       <button type="button" className="mobile-menu-close" onClick={()=>setMobileMenuOpen(false)} aria-label="Close menu">×</button>
       <Link href={base} className="season-logo" aria-label="Damasio Seasons portal">
@@ -35,7 +35,9 @@ export function PortalShell({children,active,type}:{children:React.ReactNode;act
     </aside>
     <main className="pro-main">
       <header className="pro-topbar">
+        {type==="Customer"&&<Link href="/mobile/customer" className="mobile-subpage-back" aria-label="Back to customer home">‹</Link>}
         <button type="button" className="hamburger mobile-menu-toggle" onClick={()=>setMobileMenuOpen(true)} aria-label="Open menu">☰</button>
+        {type==="Customer"&&<span className="mobile-subpage-title"><strong>{active}</strong><small>Customer portal</small></span>}
         <Link href={type==="Customer"?"/customer/services":"/employee/route"} className="topbar-pill">🌿 {type==="Customer"?"Service Portal":"Today’s Route"}</Link>
         <div className="topbar-spacer"></div>
         <Link href={type==="Customer"?"/customer/services":"/employee/route"} className="top-icon">⌕</Link>
@@ -45,6 +47,13 @@ export function PortalShell({children,active,type}:{children:React.ReactNode;act
         <button type="button" className="top-signout" onClick={()=>void signOutAccount()} aria-label="Sign out">Sign out</button>
       </header>
       <div className="pro-content">{children}</div>
+      {type==="Customer"&&<nav className="mobile-shell-bottom" aria-label="Customer subpage navigation">
+        <Link href="/mobile/customer"><i>⌂</i><span>Home</span></Link>
+        <Link className={active==="Services"?"active":""} href="/customer/services"><i>✦</i><span>Services</span></Link>
+        <Link className={active==="Requests"?"active":""} href="/customer/requests"><i>＋</i><span>Request</span></Link>
+        <Link className={active==="Payments"||active==="Invoices"||active==="Estimates"?"active":""} href="/customer/payments"><i>$</i><span>Billing</span></Link>
+        <button type="button" onClick={()=>setMobileMenuOpen(true)}><i>•••</i><span>More</span></button>
+      </nav>}
     </main>
   </div>
 }
