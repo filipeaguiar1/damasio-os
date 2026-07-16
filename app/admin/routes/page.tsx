@@ -43,7 +43,7 @@ export default function RoutesPage(){
 
   async function refresh(){try{const board=await loadSchedulingDispatchBoard({force:true});setLeads(schedulingBoardToLeads(board));setDatabaseCrews(board.crews)}catch(error){setMessage(error instanceof Error?error.message:"Database routes could not be loaded.")}}
   useEffect(()=>{void refresh();const t=setInterval(()=>void refresh(),10000);return()=>clearInterval(t)},[]);
-  useEffect(()=>{const params=new URLSearchParams(window.location.search);const q=params.get("day");const c=params.get("crew");if(q&&DAMASIO_WEEK_DAYS.includes(q)){setDay(q);setTargetDay(q);setDraft([])}if(c&&DAMASIO_CREWS.includes(c)){setCrew(c);setTargetCrew(c);setDraft([])}},[]);
+  useEffect(()=>{const params=new URLSearchParams(window.location.search);const q=params.get("day");const c=params.get("crew");const requestedFilter=params.get("filter");if(q&&DAMASIO_WEEK_DAYS.includes(q)){setDay(q);setTargetDay(q);setDraft([])}if(c&&DAMASIO_CREWS.includes(c)){setCrew(c);setTargetCrew(c);setDraft([])}if(requestedFilter&&["all","open","done","pending","overdue"].includes(requestedFilter))setFilter(requestedFilter)},[]);
   useEffect(()=>{setStartAddress(localStorage.getItem(`damasio_os_route_start_${crew}_${day}`)||"")},[crew,day]);
 
   const selectedRouteDate=routeDateForWeekday(day);

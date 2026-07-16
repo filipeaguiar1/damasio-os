@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DAMASIO_SYNC_EVENT, getEmployeeTasks, getLeads, getNotifications, seedDemoLeads } from "@/lib/storage";
 import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
 import {signOutAccount} from "@/lib/auth/signOut";
@@ -45,6 +45,8 @@ function readAdminData(): MobileAdminData {
 
 export default function MobileAdminApp() {
   const [refreshKey, setRefreshKey] = useState(0);
+  const [actionPage,setActionPage]=useState(0);
+  const actionScroller=useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     try {
@@ -77,7 +79,21 @@ export default function MobileAdminApp() {
     {href:"/admin/customers",icon:"◎",label:"Customers",detail:"Homes & contacts"},
     {href:"/admin/tasks",icon:"✓",label:"Tasks",detail:"Return visits"},
     {href:"/admin/notifications",icon:"!",label:"Alerts",detail:`${data.alerts} unread`},
+    {href:"/admin/estimates",icon:"▤",label:"Estimates",detail:"Quotes & approvals"},
+    {href:"/admin/invoices",icon:"$",label:"Invoices",detail:"Billing status"},
+    {href:"/admin/requests",icon:"＋",label:"Requests",detail:"Customer needs"},
+    {href:"/admin/employees",icon:"♧",label:"Employees",detail:"Team & crews"},
+    {href:"/admin/finance",icon:"◈",label:"Finance",detail:"Revenue & costs"},
+    {href:"/admin/performance",icon:"▥",label:"Reports",detail:"Business results"},
   ];
+  const actionPages=[actions.slice(0,6),actions.slice(6,12)];
+
+  function goToActionPage(index:number){
+    const scroller=actionScroller.current;
+    if(!scroller)return;
+    scroller.scrollTo({left:scroller.clientWidth*index,behavior:"smooth"});
+    setActionPage(index);
+  }
 
   return (
     <MobileRoleGuard allowed={["admin","manager"]}><main className="mobile-app-shell role-mobile-shell role-admin-mobile">
@@ -95,15 +111,18 @@ export default function MobileAdminApp() {
       </section>
 
       <section className="mobile-stats-card">
-        <div><span>Open</span><strong>{data.open}</strong><small>homes</small></div>
-        <div><span>Done</span><strong>{data.done}</strong><small>completed</small></div>
-        <div><span>Tasks</span><strong>{data.returnVisits}</strong><small>follow-up</small></div>
-        <div><span>Alerts</span><strong>{data.alerts}</strong><small>unread</small></div>
+        <Link href="/admin/routes?filter=open"><span>Open</span><strong>{data.open}</strong><small>homes</small></Link>
+        <Link href="/admin/routes?filter=done"><span>Done</span><strong>{data.done}</strong><small>completed</small></Link>
+        <Link href="/admin/tasks/open"><span>Tasks</span><strong>{data.returnVisits}</strong><small>follow-up</small></Link>
+        <Link href="/admin/alerts"><span>Alerts</span><strong>{data.alerts}</strong><small>unread</small></Link>
       </section>
 
       <section className="role-mobile-section">
-        <div className="role-mobile-section-head"><div><span>QUICK ACCESS</span><h2>Run the business</h2></div><Link href="/admin">View all</Link></div>
-        <div className="role-mobile-action-grid">{actions.map(action=><Link href={action.href} key={action.href}><i>{action.icon}</i><strong>{action.label}</strong><small>{action.detail}</small></Link>)}</div>
+        <div className="role-mobile-section-head"><div><span>QUICK ACCESS</span><h2>Run the business</h2></div><small>{actionPage+1} / {actionPages.length}</small></div>
+        <div className="role-mobile-action-pages" ref={actionScroller} onScroll={event=>{const width=event.currentTarget.clientWidth;if(width)setActionPage(Math.round(event.currentTarget.scrollLeft/width))}}>
+          {actionPages.map((page,index)=><div className="role-mobile-action-grid" key={index}>{page.map(action=><Link href={action.href} key={action.href}><i>{action.icon}</i><strong>{action.label}</strong><small>{action.detail}</small></Link>)}</div>)}
+        </div>
+        <div className="role-mobile-dots" aria-label="Quick access pages">{actionPages.map((_,index)=><button type="button" key={index} className={actionPage===index?"active":""} onClick={()=>goToActionPage(index)} aria-label={`Open quick access page ${index+1}`}/>)}</div>
       </section>
 
       <section className="role-mobile-section role-attention-section">
