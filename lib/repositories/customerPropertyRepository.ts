@@ -39,6 +39,9 @@ export type CreateCustomerPropertyInput = {
   irrigation?: boolean;
   accessNotes?: string;
   propertyNotes?: string;
+  serviceName?: string;
+  frequency?: "weekly"|"biweekly"|"monthly"|"adaptive"|"one_time";
+  subtotal?: number;
 };
 
 type RpcRecord = {
@@ -115,4 +118,11 @@ export async function createCustomerProperty(input: CreateCustomerPropertyInput)
   const first = Array.isArray(data) ? data[0] : data;
   if (!first) throw new Error("Customer was not created.");
   return mapRecord(first as RpcRecord);
+}
+
+export async function deleteCustomerRecords(customerIds:string[]):Promise<number>{
+  const supabase=getSupabaseBrowserClient();
+  const{data,error}=await supabase.rpc("archive_company_customers" as never,{p_customer_ids:customerIds} as never);
+  if(error)throw new Error(error.message);
+  return Number(data||0);
 }

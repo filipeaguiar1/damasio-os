@@ -1,8 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DAMASIO_SYNC_EVENT, getEmployeeTasks, getLeads, getNotifications, seedDemoLeads } from "@/lib/storage";
+import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
+import {signOutAccount} from "@/lib/auth/signOut";
+import {MobileBackButton} from "@/components/mobile/MobileBackButton";
+import {MobileAdminNav} from "@/components/mobile/MobileAdminNav";
 
 type MobileAdminData = {
   open: number;
@@ -42,6 +46,8 @@ function readAdminData(): MobileAdminData {
 
 export default function MobileAdminApp() {
   const [refreshKey, setRefreshKey] = useState(0);
+  const [actionPage,setActionPage]=useState(0);
+  const actionScroller=useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     try {
@@ -67,54 +73,68 @@ export default function MobileAdminApp() {
     return readAdminData();
   }, [refreshKey]);
 
+  const actions=[
+    {href:"/mobile/admin/command",icon:"⌁",label:"Command",detail:"Live operation"},
+    {href:"/mobile/admin/routes",icon:"↗",label:"Routes",detail:"Dispatch crews"},
+    {href:"/mobile/admin/routes",icon:"□",label:"Schedule",detail:"Plan the day"},
+    {href:"/mobile/admin/customers",icon:"◎",label:"Customers",detail:"Homes & contacts"},
+    {href:"/mobile/admin/tasks",icon:"✓",label:"Tasks",detail:"Return visits"},
+    {href:"/mobile/admin/alerts",icon:"!",label:"Alerts",detail:`${data.alerts} unread`},
+    {href:"/mobile/admin/estimates",icon:"▤",label:"Estimates",detail:"Quotes & approvals"},
+    {href:"/mobile/admin/invoices",icon:"$",label:"Invoices",detail:"Billing status"},
+    {href:"/mobile/admin/requests",icon:"＋",label:"Requests",detail:"Customer needs"},
+    {href:"/mobile/admin/employees",icon:"♧",label:"Employees",detail:"Team & crews"},
+    {href:"/mobile/admin/finance",icon:"◈",label:"Finance",detail:"Revenue & costs"},
+    {href:"/mobile/admin/reports",icon:"▥",label:"Reports",detail:"Business results"},
+  ];
+  const actionPages=[actions.slice(0,6),actions.slice(6,12)];
+
+  function goToActionPage(index:number){
+    const scroller=actionScroller.current;
+    if(!scroller)return;
+    scroller.scrollTo({left:scroller.clientWidth*index,behavior:"smooth"});
+    setActionPage(index);
+  }
+
   return (
-    <main className="mobile-app-shell mobile-admin-shell">
-      <header className="mobile-topbar">
-        <Link href="/mobile" className="mobile-back" aria-label="Back to mobile home">‹</Link>
-        <div>
-          <strong>Admin Mobile</strong>
-          <span>Command snapshot</span>
-        </div>
-        <div className="mobile-avatar">A</div>
+    <MobileRoleGuard allowed={["admin","manager"]}><main className="mobile-app-shell role-mobile-shell role-admin-mobile">
+      <header className="role-mobile-topbar">
+        <MobileBackButton/>
+        <div><strong>Operations</strong><span>Admin workspace</span></div>
+        <button type="button" className="role-mobile-avatar" onClick={()=>void signOutAccount("/mobile/login")} aria-label="Sign out">A</button>
       </header>
 
       <section className="mobile-hero-card compact">
-        <div className="mobile-brand-row">
-          <div className="mobile-brand-mark">D</div>
-          <div>
-            <strong>Today</strong>
-            <span>Live operations</span>
-          </div>
-        </div>
-        <h1>{data.open} open homes</h1>
-        <p>Fast mobile access for Admin. Full editing still opens the existing Admin screens.</p>
+        <span className="role-mobile-eyebrow">TODAY · LIVE OPERATIONS</span>
+        <h1>Everything under control.</h1>
+        <p><strong>{data.open} homes</strong> are open and {data.returnVisits} tasks need follow-up.</p>
+        <Link className="role-mobile-hero-link" href="/mobile/admin/command">Open Command Center <span>→</span></Link>
       </section>
 
       <section className="mobile-stats-card">
-        <div><span>Open</span><strong>{data.open}</strong><small>homes</small></div>
-        <div><span>Done</span><strong>{data.done}</strong><small>today</small></div>
-        <div><span>Tasks</span><strong>{data.returnVisits}</strong><small>return</small></div>
+        <Link href="/mobile/admin/routes"><span>Open</span><strong>{data.open}</strong><small>homes</small></Link>
+        <Link href="/mobile/admin/routes"><span>Done</span><strong>{data.done}</strong><small>completed</small></Link>
+        <Link href="/mobile/admin/tasks"><span>Tasks</span><strong>{data.returnVisits}</strong><small>follow-up</small></Link>
+        <Link href="/mobile/admin/alerts"><span>Alerts</span><strong>{data.alerts}</strong><small>unread</small></Link>
       </section>
 
-      <section className="mobile-card-list">
-        <Link className="mobile-admin-action" href="/admin/command"><strong>Command Center</strong><p>Open full operations dashboard.</p><span>›</span></Link>
-        <Link className="mobile-admin-action" href="/admin/routes"><strong>Dispatch / Routes</strong><p>Manage assignments and route order.</p><span>›</span></Link>
-        <Link className="mobile-admin-action" href="/admin/tasks"><strong>Return Visits</strong><p>Assign, unassign and resolve tasks.</p><span>›</span></Link>
-        <Link className="mobile-admin-action" href="/admin/customers"><strong>Customers</strong><p>Search customer and property data.</p><span>›</span></Link>
+      <section className="role-mobile-section">
+        <div className="role-mobile-section-head"><div><span>QUICK ACCESS</span><h2>Run the business</h2></div><small>{actionPage+1} / {actionPages.length}</small></div>
+        <div className="role-mobile-action-pages" ref={actionScroller} onScroll={event=>{const width=event.currentTarget.clientWidth;if(width)setActionPage(Math.round(event.currentTarget.scrollLeft/width))}}>
+          {actionPages.map((page,index)=><div className="role-mobile-action-grid" key={index}>{page.map(action=><Link href={action.href} key={action.href}><i>{action.icon}</i><strong>{action.label}</strong><small>{action.detail}</small></Link>)}</div>)}
+        </div>
+        <div className="role-mobile-dots" aria-label="Quick access pages">{actionPages.map((_,index)=><button type="button" key={index} className={actionPage===index?"active":""} onClick={()=>goToActionPage(index)} aria-label={`Open quick access page ${index+1}`}/>)}</div>
       </section>
 
-      <section className="mobile-card-list">
-        <h2 className="mobile-section-title">Needs attention</h2>
+      <section className="role-mobile-section role-attention-section">
+        <div className="role-mobile-section-head"><div><span>PRIORITIES</span><h2>Needs attention</h2></div><Link href="/mobile/admin/tasks">All tasks</Link></div>
         {data.tasks.length ? data.tasks.map((task) => (
-          <article className="mobile-issue-card" key={task.id}>
-            <strong>{task.title}</strong>
-            <p>{task.customer}<br />{task.address}</p>
-            <small>Status: {task.status}</small>
-          </article>
+          <Link className="role-mobile-priority" href="/mobile/admin/tasks" key={task.id}><i>!</i><span><strong>{task.title}</strong><small>{task.customer} · {task.address}</small></span><b>›</b></Link>
         )) : (
-          <div className="mobile-empty"><strong>No return visits open.</strong><p>Admin mobile is working and ready for live data.</p></div>
+          <div className="role-mobile-clear"><i>✓</i><span><strong>No return visits open</strong><small>Your priority list is clear.</small></span></div>
         )}
       </section>
-    </main>
+      <MobileAdminNav active="home"/>
+    </main></MobileRoleGuard>
   );
 }

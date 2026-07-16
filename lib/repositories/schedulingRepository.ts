@@ -17,6 +17,10 @@ export type DispatchJob = {
   propertyId: string | null;
   customerId: string | null;
   quoteId: string | null;
+  crewId?: string | null;
+  crewName?: string | null;
+  recurrenceAnchorDate?: string | null;
+  defaultRouteOrder?: number | null;
   createdAt: string;
 };
 
@@ -38,6 +42,7 @@ export type DispatchVisit = {
   routeOrder: number | null;
   startedAt: string | null;
   finishedAt: string | null;
+  durationSeconds?: number | null;
   createdAt: string;
 };
 
@@ -65,6 +70,7 @@ export type DispatchActivity = {
 export type SchedulingDispatchBoard = {
   crews: DispatchCrew[];
   unscheduledJobs: DispatchJob[];
+  assignedJobs: DispatchJob[];
   visits: DispatchVisit[];
   tasks: DispatchTask[];
   activity: DispatchActivity[];
@@ -73,6 +79,7 @@ export type SchedulingDispatchBoard = {
 const emptyBoard: SchedulingDispatchBoard = {
   crews: [],
   unscheduledJobs: [],
+  assignedJobs: [],
   visits: [],
   tasks: [],
   activity: [],
@@ -83,6 +90,7 @@ function normalizeBoard(data: unknown): SchedulingDispatchBoard {
   return {
     crews: Array.isArray(board.crews) ? board.crews : [],
     unscheduledJobs: Array.isArray(board.unscheduledJobs) ? board.unscheduledJobs : [],
+    assignedJobs: Array.isArray(board.assignedJobs) ? board.assignedJobs : [],
     visits: Array.isArray(board.visits) ? board.visits : [],
     tasks: Array.isArray(board.tasks) ? board.tasks : [],
     activity: Array.isArray(board.activity) ? board.activity : [],
@@ -96,8 +104,24 @@ async function rpcBoard(name: string, args?: Record<string, unknown>) {
   return normalizeBoard(data || emptyBoard);
 }
 
-export function getSchedulingDispatchBoard() {
-  return rpcBoard("get_scheduling_dispatch_board");
+export async function getSchedulingDispatchBoard() {
+  const board=await rpcBoard("get_scheduling_dispatch_board");
+  try{
+    const supabase=getSupabaseBrowserClient();
+    const {data,error}=await supabase.rpc("get_company_dispatch_jobs" as never);
+    if(error)throw error;
+    const jobs=Array.isArray(data)?data as DispatchJob[]:[];
+    return {...board,unscheduledJobs:jobs.filter(job=>!job.crewId),assignedJobs:jobs.filter(job=>Boolean(job.crewId))};
+  }catch{return board}
+}
+
+export async function assignJobCrew(jobId:string,crewId:string|null){
+  const supabase=getSupabaseBrowserClient();const {data,error}=await supabase.rpc("assign_job_to_crew" as never,{p_job_id:jobId,p_crew_id:crewId} as never);
+  if(error)throw new Error(error.message);return Array.isArray(data)?data as DispatchJob[]:[];
+}
+
+export function saveJobRoutePattern(input:{jobId:string;crewId:string;routeDate:string;routeOrder?:number}){
+  return rpcBoard("save_job_route_pattern",{p_job_id:input.jobId,p_crew_id:input.crewId,p_route_date:input.routeDate,p_route_order:input.routeOrder||null});
 }
 
 export function scheduleJobOnRoute(input: { jobId: string; crewId: string; routeDate: string; routeOrder?: number }) {

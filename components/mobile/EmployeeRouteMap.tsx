@@ -16,6 +16,7 @@ type Props = {
   onOpenVisit: (lead: Lead) => void;
   routeId?: string;
   desktop?: boolean;
+  actionLabel?: string;
 };
 
 const HAMILTON: [number, number] = [43.2557, -79.8711];
@@ -30,7 +31,7 @@ function visualState(lead: Lead, isNext: boolean) {
   return { color: "#64748b", label: "Pending" };
 }
 
-export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false }: Props) {
+export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false, actionLabel = "Open Visit" }: Props) {
   const mapNode = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const markerLayerRef = useRef<any>(null);
@@ -50,7 +51,8 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false 
     async function locateAndRoute() {
       const alreadyLocated = route.filter(lead => Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude));
       setResolvedRoute(alreadyLocated);
-      setMapStatus(alreadyLocated.length === route.length ? "Map ready" : "Locating new properties...");
+      setMapStatus(routeId ? "Loading saved driving route..." : alreadyLocated.length === route.length ? "Map ready" : "Locating new properties...");
+      if (routeId) return;
       const located = await Promise.all(route.map(async lead => {
         if (Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude)) return lead;
         try {
@@ -83,15 +85,20 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false 
     }
     locateAndRoute();
     return () => { cancelled = true; };
-  }, [routeKey]); // Re-geocode only when the assigned stops or their addresses change.
+  }, [routeKey, routeId]); // Re-geocode only when the assigned stops or their addresses change.
 
   useEffect(() => {
     let cancelled = false;
     setGeometry(null);
     if (!routeId) return () => { cancelled = true; };
     loadCachedRouteGeometry(routeId)
-      .then(cache => { if (!cancelled) setGeometry(cache?.status === "ready" ? cache.geometry : null); })
-      .catch(() => { if (!cancelled) setGeometry(null); });
+      .then(cache => {
+        if (cancelled) return;
+        if (cache?.status === "ready") { setGeometry(cache.geometry); setMapStatus(cache.geometry ? "Driving route" : "Map ready"); }
+        else if (cache?.status === "pending") { setGeometry(null); setMapStatus("Route update pending"); }
+        else { setGeometry(null); setMapStatus("Properties mapped - saved route unavailable"); }
+      })
+      .catch(() => { if (!cancelled) { setGeometry(null); setMapStatus("Properties mapped - saved route unavailable"); } });
     return () => { cancelled = true; };
   }, [routeId]);
 
@@ -195,7 +202,7 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false 
         <div><strong>{selected.address}</strong><span>{selected.name} · {selected.service}</span></div>
         <b style={{ color: selected.color }}>{selected.label}</b>
       </div>
-      <div className="employee-map-sheet-actions"><button type="button" onClick={() => onOpenVisit(selected)}>Open Visit</button><a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selected.address)}&travelmode=driving`} target="_blank" rel="noreferrer">Directions</a></div>
+      <div className="employee-map-sheet-actions"><button type="button" onClick={() => onOpenVisit(selected)}>{actionLabel}</button><a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selected.address)}&travelmode=driving`} target="_blank" rel="noreferrer">Directions</a></div>
     </article>}
   </section>;
 }

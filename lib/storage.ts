@@ -1,5 +1,6 @@
 import { createId } from "@/lib/id";
 import { createWorkflowEvent, getWorkflowSnapshot, stageFromOperationalState, type WorkflowEvent, type WorkflowStage } from "@/lib/workflow/workflowEngine";
+function allowDemoSeed(){if(typeof window==="undefined")return false;try{const session=JSON.parse(localStorage.getItem("damasio_os_session")||"null") as {email?:string}|null;return Boolean(session?.email?.endsWith("@damasioos.demo"))}catch{return false}}
 export type LeadStatus = "new" | "quoted" | "booked" | "lost" | "completed";
 export type PaymentMethod = "credit_card" | "etransfer" | "cash_visit" | "cheque_visit" | "other";
 export type PaymentStatus = "not_selected" | "pending" | "processing" | "paid" | "manual" | "failed" | "refunded";
@@ -58,6 +59,12 @@ export type Estimate = {
   approvedAt?: string;
   requestId?: string;
 };
+export type CustomerPaymentProfile = {
+  primaryMethod:"stripe"|"account_balance";
+  balance:number;
+  automaticPayments:boolean;
+  updatedAt:string;
+};
 export type Feedback = {
   rating: number;
   comment: string;
@@ -100,6 +107,11 @@ export type Lead = {
   latitude?: number;
   longitude?: number;
   routeOrder?: number;
+  canonicalVisitId?: string;
+  canonicalJobId?: string;
+  visitStartedAt?: string;
+  visitFinishedAt?: string;
+  visitDurationSeconds?: number;
 };
 export type Expense = {
   id: string;
@@ -200,7 +212,10 @@ export type EmployeeTask = {
 export type EmployeeProfile = {
   name: string;
   email: string;
+  phone?: string;
+  defaultAddress?: string;
   photoLabel: string;
+  photoUrl?: string;
   crew?: string;
 };
 export type EmployeePermissions = {
@@ -264,6 +279,7 @@ const K = {
   logs: "damasio_os_activity_log",
   workflow: "damasio_os_workflow_events",
   req: "damasio_os_service_requests",
+  customerPayment: "damasio_os_customer_payment_profile",
 };
 function ensureStorageVersion() {
   if (typeof window === "undefined") return;
@@ -341,6 +357,7 @@ export function updateServiceRequest(
   );
 }
 export function seedDemoRequests() {
+  if(!allowDemoSeed())return;
   if (getServiceRequests().length > 0) return;
   write(K.req, [
     {
@@ -581,6 +598,19 @@ export function updateEstimateStatus(id: string, status: EstimateStatus) {
   }
 }
 
+export function reviseEstimateTotal(id:string,total:number){
+  const estimate=getEstimates().find(item=>item.id===id);if(!estimate)return null;
+  const safeTotal=Math.max(0,Math.round(total*100)/100);const subtotal=money(safeTotal/1.13);const tax=money(safeTotal-subtotal);
+  const items:EstimateItem[]=[{id:estimate.items[0]?.id||createId(),type:"service",description:estimate.items[0]?.description||estimate.title,quantity:1,unit:"service",unitPrice:subtotal}];
+  const next={...estimate,items,subtotal,tax,total:safeTotal};write(K.est,getEstimates().map(item=>item.id===id?next:item));
+  addActivityLog("Master","Revised quote",estimate.number,`Quote total changed to $${safeTotal.toFixed(2)}.`);return next;
+}
+
+export function findEstimateByNumber(number:string){const normalized=number.trim().toUpperCase();return getEstimates().find(item=>item.number.toUpperCase()===normalized)||null}
+
+export function getCustomerPaymentProfile():CustomerPaymentProfile{return read<CustomerPaymentProfile>(K.customerPayment,{primaryMethod:"stripe",balance:0,automaticPayments:false,updatedAt:new Date(0).toISOString()})}
+export function saveCustomerPaymentProfile(patch:Partial<CustomerPaymentProfile>){const next={...getCustomerPaymentProfile(),...patch,updatedAt:new Date().toISOString()};write(K.customerPayment,next);return next}
+
 export function canFinalizeEstimate(id: string, nextStatus: "approved" | "declined") {
   const e = getEstimates().find((x) => x.id === id);
   if (!e) return { ok: false, reason: "Estimate not found." };
@@ -707,6 +737,7 @@ export function deleteEstimate(id: string) {
   );
 }
 export function seedDemoEstimates() {
+  if(!allowDemoSeed())return;
   if (getEstimates().length > 0) return;
   saveEstimate({
     validUntil: "2026-07-30",
@@ -1216,6 +1247,7 @@ export function updateEmployeeTaskStatus(
   }
 }
 export function seedEmployeeTasks() {
+  if(!allowDemoSeed())return;
   if (getEmployeeTasks().length > 0) return;
   const leads = getLeads();
   const a = leads[0],
@@ -1251,7 +1283,10 @@ export function getEmployeeProfile(): EmployeeProfile {
   return read<EmployeeProfile>(K.profile, {
     name: "Filipe",
     email: "filipe@damasioseasons.ca",
+    phone: "",
+    defaultAddress: "",
     photoLabel: "F",
+    photoUrl: "",
     crew: "Crew A",
   });
 }
@@ -1810,6 +1845,7 @@ export function getTodaysAssignedJobs(crew?: string) {
 }
 
 export function seedDemoLeads(force = false) {
+  if(!allowDemoSeed())return;
   if (force && typeof window !== "undefined") {
     write(K.leads, []);
     write(K.tasks, []);
@@ -2028,6 +2064,7 @@ export function seedDemoLeads(force = false) {
   addActivityLog("System", force ? "Demo reset" : "Demo loaded", "Demo Data", "Fake customers, route houses and test jobs were created.");
 }
 export function seedDemoExpenses() {
+  if(!allowDemoSeed())return;
   if (getExpenses().length > 0) return;
   write(K.expenses, [
     {
@@ -2042,6 +2079,7 @@ export function seedDemoExpenses() {
   ]);
 }
 export function seedDemoRecurrences() {
+  if(!allowDemoSeed())return;
   if (getRecurrences().length > 0) return;
   write(K.rec, [
     {

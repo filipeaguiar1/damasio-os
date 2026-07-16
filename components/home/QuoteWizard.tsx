@@ -2,7 +2,7 @@
 import { createId } from "@/lib/id";
 import {useMemo,useState} from "react";
 import {calculateQuote,serviceLabels,ServiceKey} from "@/lib/pricing";
-import {saveLead,updateLeadPayment,PaymentMethod,GrassHandling,LawnSize,GrassHeight} from "@/lib/storage";
+import {saveLead,saveEstimate,GrassHandling,LawnSize,GrassHeight} from "@/lib/storage";
 import {AddressAutocomplete} from "@/components/home/AddressAutocomplete";
 
 const services:{key:ServiceKey;note?:string}[]=[
@@ -25,6 +25,7 @@ export function QuoteWizard(){
   const[backyard,setBackyard]=useState(true);
   const[gated,setGated]=useState(false);
   const[leadId,setLeadId]=useState<string|null>(null);
+  const[quoteNumber,setQuoteNumber]=useState("");
   const[lead,setLead]=useState({name:"",phone:"",email:"",address:"",notes:""});
   const[msg,setMsg]=useState("");
   const isExtra=service==="extra_service";
@@ -48,14 +49,9 @@ export function QuoteWizard(){
       photos:[],
       propertyDetails:{lawnSize:size,grassHeight,grassHandling,backyard,gated,adminNotes:"",propertyAlerts:"",accessNotes:""}
     });
+    const estimate=saveEstimate({validUntil:new Date(Date.now()+14*86400000).toISOString().slice(0,10),customer:lead.name,phone:lead.phone,email:lead.email,address:lead.address,title:serviceLabels[service],description:lead.notes||`${serviceLabels[service]} requested from the public website.`,status:"draft",items:[{id:createId(),type:"service",description:serviceLabels[service],quantity:1,unit:"service",unitPrice:isExtra?0:quote.subtotal}]});
+    setQuoteNumber(estimate.number);
     setStep(4);
-  }
-
-  function pay(method:PaymentMethod){
-    if(!leadId)return;
-    const note=method==="etransfer"?"Waiting for Interac e-Transfer":method==="cash_visit"?"Customer will pay cash at visit":"Customer will pay cheque at visit";
-    updateLeadPayment(leadId,method,method==="etransfer"?"pending":"manual",note);
-    setMsg(note);
   }
 
   return <div className="card quote-card">
@@ -89,10 +85,10 @@ export function QuoteWizard(){
     </div>}
 
     {step===4&&<div className="stack">
-      {isExtra?<div className="quote-result"><small>Request received</small><div className="quote-price">Saved</div><p>We will review your request and send a custom quote.</p></div>:<div className="quote-result"><small>Your estimated quote</small><div className="quote-price">${quote.total.toFixed(2)}</div><p>Subtotal ${quote.subtotal.toFixed(2)} + HST ${quote.tax.toFixed(2)}</p></div>}
+      <div className="quote-result"><small>Request received</small><div className="quote-price">{quoteNumber||"Saved"}</div><p>The Master team will review the amount and send the final quote to {lead.email}. Payment is available only after your approval.</p></div>
       {!isExtra&&<div className="notice">Saved to customer profile: {size} lawn • {grassHeight} grass • {grassHandling.replaceAll("_"," ")}</div>}
       {isSeasonal&&<div className="notice">You can see the estimated price now. Our admin will schedule the exact service date and contact you.</div>}
-      {!isExtra&&<div className="payment-grid"><button className="payment-option" onClick={()=>pay("etransfer")}><strong>Interac e-Transfer</strong><small>Send manually after booking.</small></button><button className="payment-option" onClick={()=>pay("cash_visit")}><strong>Cash at Visit</strong><small>Pay when the team arrives.</small></button><button className="payment-option" onClick={()=>pay("cheque_visit")}><strong>Cheque at Visit</strong><small>Pay by cheque during service.</small></button></div>}
+      <div className="notice">Keep this quote number. The invitation email will use it to connect your future account.</div>
       {msg&&<div className="payment-message">{msg}</div>}
     </div>}
   </div>

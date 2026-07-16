@@ -1,0 +1,32 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "ca.damasio.employee"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "ca.damasio.employee.test"
+        minSdk 24
+        targetSdk 35
+        versionCode 8
+        versionName "52.1.1-test"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation "androidx.core:core:1.15.0"
+}

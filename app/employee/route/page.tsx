@@ -5,6 +5,8 @@ import Link from "next/link";
 import { CompactFilter } from "@/components/admin/CompactFilter";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
+import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, routeDateForWeekday, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
+import {changeVisitStatus} from "@/lib/services/schedulingService";
 import {
   finishServiceSession,
   formatClock,
@@ -28,6 +30,10 @@ import {
   returnEmployeeTaskToAdmin,
   updateEmployeeTaskStatus
 } from "@/lib/storage";
+
+function localDateKey(date:Date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`}
+function mondayKey(date:Date){const monday=new Date(date);monday.setDate(monday.getDate()-(monday.getDay()+6)%7);return localDateKey(monday)}
+function shiftDate(value:string,days:number){const date=new Date(`${value}T12:00:00`);date.setDate(date.getDate()+days);return localDateKey(date)}
 
 
 function hasValidAddress(address?: string){
@@ -57,6 +63,8 @@ export default function EmployeeRoutePage(){
   const [selectedId,setSelectedId]=useState<string>("");
   const [crew,setCrew]=useState("");
   const [day,setDay]=useState("");
+  const [selectedDate,setSelectedDate]=useState(()=>localDateKey(new Date()));
+  const [weekStart,setWeekStart]=useState(()=>mondayKey(new Date()));
   const [view,setView]=useState<"route"|"map"|"details"|"tasks"|"summary">("route");
   const [tick,setTick]=useState(0);
   const [photoCount,setPhotoCount]=useState(0);
@@ -70,6 +78,7 @@ export default function EmployeeRoutePage(){
   const [serviceComment,setServiceComment]=useState("");
   const [doneMessage,setDoneMessage]=useState("");
   const [routeFilter,setRouteFilter]=useState("all");
+  const [mapContext,setMapContext]=useState<EmployeeRouteMapContext>({routeId:null,stops:[]});
   const photoInputRef=useRef<HTMLInputElement|null>(null);
 
   function refresh(){
@@ -87,7 +96,7 @@ export default function EmployeeRoutePage(){
     const qView=params.get("view");
     void loadEmployeeOperationalIdentity().then(identity=>setCrew(identity.crew));
     const today=DAMASIO_WEEK_DAYS[(new Date().getDay()+6)%7];
-    if(qDay&&DAMASIO_WEEK_DAYS.includes(qDay))setDay(qDay);
+    if(qDay&&DAMASIO_WEEK_DAYS.includes(qDay)){setDay(qDay);setSelectedDate(routeDateForWeekday(qDay));}
     else setDay(today);
     refresh();
     if(qProperty){setSelectedId(qProperty);setView("details");}
@@ -103,8 +112,11 @@ export default function EmployeeRoutePage(){
     return()=>clearInterval(interval);
   },[]);
 
-  const allRouteLeads=useMemo(()=>leads.filter(l=>l.assignedCrew===crew && (!day || l.serviceDay===day)).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,day]);
+  const localRouteLeads=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&(l.scheduledDate===selectedDate||l.nextVisitDate===selectedDate||l.serviceDay===day)).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,day,selectedDate]);
+  useEffect(()=>{let cancelled=false;if(!selectedDate||!crew)return;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[selectedDate,crew]);
+  const allRouteLeads=useMemo(()=>applyEmployeeRouteMapContext(localRouteLeads,mapContext),[localRouteLeads,mapContext]);
   const routeLeads=useMemo(()=>allRouteLeads.filter(l=>routeFilter==="all"?true:routeFilter==="open"?l.status!=="completed":routeFilter==="done"?l.status==="completed":true),[allRouteLeads,routeFilter]);
+  const mapRouteLeads=routeLeads;
   const selected=useMemo(()=>allRouteLeads.find(l=>l.id===selectedId)||allRouteLeads[0]||null,[allRouteLeads,selectedId]);
   const session=selected?getSessionForLead(selected.id):null;
   const openTasks=tasks.filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===profile.name||t.assignedTo===crew));
@@ -162,7 +174,7 @@ export default function EmployeeRoutePage(){
     refresh();
   }
 
-  function start(){ if(!selected)return; startServiceSession(selected.id,profile.name,crew); setCommentOpen(false); setServiceComment(""); setDoneMessage(""); refresh(); }
+  async function start(){if(!selected)return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"in_progress");else startServiceSession(selected.id,profile.name,crew);setCommentOpen(false);setServiceComment("");setDoneMessage("");setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh()}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be started.")}}
   function saveComment(){
     if(!selected)return;
     if(!serviceComment.trim()){setMenuMessage("Type a comment before saving.");return;}
@@ -171,8 +183,8 @@ export default function EmployeeRoutePage(){
     setCommentOpen(false);
     refresh();
   }
-  function finish(){ if(!selected)return; if(!window.confirm("Complete this house and mark it as Done?")) return; finishServiceSession(selected.id,serviceComment); setDoneMessage("Done"); setServiceComment(""); setCommentOpen(false); refresh(); window.setTimeout(()=>{setDoneMessage("");setView("route")},850); }
-  function reset(){ if(!selected)return; if(!window.confirm("Reset only this house? Status returns to Open across Admin, Dispatch and Employee Route."))return; resetServiceSession(selected.id); setDoneMessage("Reset to Open"); refresh(); }
+  async function finish(){if(!selected)return;if(!window.confirm("Complete this house and mark it as Done?"))return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"completed");else finishServiceSession(selected.id,serviceComment);setDoneMessage("Done");setServiceComment("");setCommentOpen(false);setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh();window.setTimeout(()=>{setDoneMessage("");setView("route")},850)}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be completed.")}}
+  async function reset(){if(!selected)return;if(!window.confirm("Reset only this house? Status returns to Open across Admin, Dispatch and Employee Route."))return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"scheduled");else resetServiceSession(selected.id);setDoneMessage("Reset to Open");setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh()}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be reset.")}}
 
   function addPhoto(){
     photoInputRef.current?.click();
@@ -213,8 +225,12 @@ export default function EmployeeRoutePage(){
   }
 
   const completed=allRouteLeads.filter(l=>l.status==="completed").length;
-  function dateForDay(dayName:string){const current=(new Date().getDay()+6)%7;const target=DAMASIO_WEEK_DAYS.indexOf(dayName);const d=new Date();if(target>=0)d.setDate(d.getDate()+target-current);return d.toLocaleDateString([], {weekday:"long", month:"long", day:"numeric", year:"numeric"});}
-  const selectedDateLabel=dateForDay(day);
+  const selectedDateLabel=new Date(`${selectedDate}T12:00:00`).toLocaleDateString([],{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+  const todayKey=localDateKey(new Date());
+  const dayOptions=useMemo(()=>Array.from({length:7},(_,index)=>{const date=new Date(`${weekStart}T12:00:00`);date.setDate(date.getDate()+index);return{key:localDateKey(date),weekday:date.toLocaleDateString("en-CA",{weekday:"short"}),day:date.getDate(),name:DAMASIO_WEEK_DAYS[index]}}),[weekStart]);
+  const weekLabel=`${new Date(`${weekStart}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"})} – ${new Date(`${shiftDate(weekStart,6)}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"})}`;
+  function selectRouteDate(value:string,name:string){setSelectedDate(value);setDay(name);setSelectedId("");setView("route")}
+  function moveWeek(days:-7|7){const next=shiftDate(weekStart,days);setWeekStart(next);selectRouteDate(next,"Monday")}
   const details=selected?.propertyDetails;
   const workflow=selected?getLeadWorkflowSnapshot(selected):null;
   const unreadIssues=notificationsSeen?0:openTasks.length;
@@ -247,12 +263,16 @@ export default function EmployeeRoutePage(){
       <button className={view==="summary"?"field-nav-tab active":"field-nav-tab"} onClick={()=>setView("summary")}>Day Summary</button>
     </div>
 
+    <section className="employee-route-week employee-week-picker">
+      <div><button type="button" aria-label="Previous week" onClick={()=>moveWeek(-7)}>‹</button><strong>{weekLabel}</strong><button type="button" aria-label="Next week" onClick={()=>moveWeek(7)}>›</button></div>
+      <nav className="employee-day-strip" aria-label="Route days">{dayOptions.map(item=><button type="button" key={item.key} className={selectedDate===item.key?"active":item.key<todayKey?"past":""} onClick={()=>selectRouteDate(item.key,item.name)}><span>{item.weekday}</span><strong>{item.day}</strong>{item.key===todayKey&&<i>Today</i>}</button>)}</nav>
+    </section>
+
     <div className="employee-route-filter">
       <div><strong>{crew}</strong><span>{selectedDateLabel} · {day} route</span></div>
       <span className="privacy-pill">Private route</span>
       <CompactFilter label="Route filter"><label><input type="radio" checked={routeFilter==="all"} onChange={()=>setRouteFilter("all")}/> All</label><label><input type="radio" checked={routeFilter==="open"} onChange={()=>setRouteFilter("open")}/> Open</label><label><input type="radio" checked={routeFilter==="done"} onChange={()=>setRouteFilter("done")}/> Done</label></CompactFilter>
       <div className="employee-assigned-crew"><small>Assigned crew</small><strong>{crew||"Loading…"}</strong></div>
-      <select value={day} onChange={e=>{setDay(e.target.value);setSelectedId("")}}>{DAMASIO_WEEK_DAYS.map(d=><option key={d}>{d}</option>)}</select>
     </div>
 
     {view==="tasks"&&<main className="field-container">
@@ -307,21 +327,21 @@ export default function EmployeeRoutePage(){
 
     {view==="map"&&<main className="employee-web-map-shell">
       <aside className="employee-web-map-sidebar">
-        <div className="employee-web-map-sidebar-head"><span className="eyebrow">Today&apos;s route</span><strong>{routeLeads.length} visits</strong><small>{completed} completed</small></div>
+        <div className="employee-web-map-sidebar-head"><span className="eyebrow">Today&apos;s route</span><strong>{mapRouteLeads.length} visits</strong><small>{completed} completed</small></div>
         <div className="employee-web-map-route-list">
-          {routeLeads.map((lead,index)=>{
+          {mapRouteLeads.map((lead,index)=>{
             const leadSession=getSessionForLead(lead.id);
             const attention=tasks.some(task=>task.leadId===lead.id&&task.status!=="resolved");
-            const nextId=routeLeads.find(item=>item.status!=="completed"&&getSessionForLead(item.id)?.status!=="skipped")?.id;
+            const nextId=mapRouteLeads.find(item=>item.status!=="completed"&&getSessionForLead(item.id)?.status!=="skipped")?.id;
             const state=attention?"attention":leadSession?.status==="skipped"?"skipped":lead.status==="completed"?"completed":lead.id===nextId?"next":"pending";
             return <button type="button" key={lead.id} className={`employee-web-map-route-item ${state}`} onClick={()=>openLead(lead)}>
               <span>{index+1}</span><div><strong>{lead.address||"Not mapped"}</strong><small>{lead.service}</small></div><em>{state==="attention"?"Needs attention":state==="next"?"Next visit":state}</em>
             </button>;
           })}
-          {routeLeads.length===0&&<div className="employee-web-map-empty">No visits assigned to this route.</div>}
+          {mapRouteLeads.length===0&&<div className="employee-web-map-empty">No visits assigned to this route.</div>}
         </div>
       </aside>
-      <EmployeeRouteMap route={routeLeads} onOpenVisit={openLead} desktop />
+      <EmployeeRouteMap route={mapRouteLeads} routeId={mapContext.routeId||undefined} onOpenVisit={openLead} desktop />
     </main>}
 
     {view==="summary"&&<main className="field-container">

@@ -1,0 +1,42 @@
+"use client";
+
+import {useEffect,useMemo,useState} from "react";
+import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
+import {MobileBackButton} from "@/components/mobile/MobileBackButton";
+import {MobileAdminNav} from "@/components/mobile/MobileAdminNav";
+import {DAMASIO_SYNC_EVENT,EmployeeTask,Lead,assignEmployeeTask,createAdminTask,getAssignableWorkers,getEmployeeTasks,getLeads,resolveEmployeeTask,unassignEmployeeTask} from "@/lib/storage";
+
+type Filter="open"|"assigned"|"urgent"|"completed"|"history";
+const today=()=>new Date().toISOString().slice(0,10);
+function assigned(task:EmployeeTask){return Boolean(task.assignedTo&&!["Admin","Unassigned"].includes(task.assignedTo))}
+function dateLabel(value?:string){return value?new Date(`${value}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"}):"No return date"}
+
+export default function MobileReturnVisits(){
+  const[tasks,setTasks]=useState<EmployeeTask[]>([]);const[leads,setLeads]=useState<Lead[]>([]);const[filter,setFilter]=useState<Filter>("open");
+  const[expanded,setExpanded]=useState("");const[createOpen,setCreateOpen]=useState(false);const[message,setMessage]=useState("");
+  const[worker,setWorker]=useState("");const[date,setDate]=useState(today());const[leadId,setLeadId]=useState("");const[title,setTitle]=useState("Return Visit");const[description,setDescription]=useState("");const[priority,setPriority]=useState<EmployeeTask["priority"]>("normal");
+  function refresh(){setTasks(getEmployeeTasks());setLeads(getLeads())}
+  useEffect(()=>{refresh();const update=()=>refresh();window.addEventListener(DAMASIO_SYNC_EVENT,update as EventListener);window.addEventListener("storage",update);return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,update as EventListener);window.removeEventListener("storage",update)}},[]);
+  const workers=useMemo(()=>getAssignableWorkers(),[tasks,leads]);
+  const counts={open:tasks.filter(t=>t.status!=="resolved").length,assigned:tasks.filter(t=>t.status!=="resolved"&&assigned(t)).length,urgent:tasks.filter(t=>t.status!=="resolved"&&t.priority==="urgent").length,completed:tasks.filter(t=>t.status==="completed").length,history:tasks.filter(t=>t.status==="resolved").length};
+  const visible=tasks.filter(task=>filter==="history"?task.status==="resolved":filter==="assigned"?task.status!=="resolved"&&assigned(task):filter==="urgent"?task.status!=="resolved"&&task.priority==="urgent":filter==="completed"?task.status==="completed":task.status!=="resolved");
+  function openAssign(task:EmployeeTask){setExpanded(expanded===task.id?"":task.id);setWorker(assigned(task)?task.assignedTo:workers[0]||"");setDate(task.scheduledDate||today());setMessage("")}
+  function saveAssignment(task:EmployeeTask){if(!worker){setMessage("Choose an Employee or Crew.");return}if(assignEmployeeTask(task.id,worker,date)){setMessage(`Return visit sent to ${worker}.`);setExpanded("");refresh()}else setMessage("Unassign this return visit before choosing another Employee.")}
+  function removeAssignment(task:EmployeeTask){if(!window.confirm("Return this visit to the Admin queue?"))return;unassignEmployeeTask(task.id,"Admin removed the mobile assignment.");setExpanded("");refresh()}
+  function resolve(task:EmployeeTask){if(task.status!=="completed"){setMessage("The Employee must complete the return visit before Admin resolves it.");return}if(!window.confirm("Resolve and move this return visit to History?"))return;resolveEmployeeTask(task.id,"Resolved from Mobile Admin.","Admin");refresh()}
+  function create(){if(!leadId){setMessage("Choose a property.");return}const task=createAdminTask({leadId,title:title.trim()||"Return Visit",description:description.trim()||"Return visit required.",priority,assignedTo:"Admin",scheduledDate:undefined});if(!task){setMessage("The return visit could not be created.");return}setCreateOpen(false);setDescription("");setFilter("open");setMessage("Return visit created in the Admin queue.");refresh()}
+  const filters:[[Filter,string,number],...Array<[Filter,string,number]>]=[["open","Open",counts.open],["assigned","Assigned",counts.assigned],["urgent","Urgent",counts.urgent],["completed","Done",counts.completed],["history","History",counts.history]];
+  return <MobileRoleGuard allowed={["admin","manager"]}><main className="mobile-app-shell role-mobile-shell mobile-native-subpage">
+    <header className="role-mobile-topbar"><MobileBackButton fallback="/mobile/admin"/><div><strong>Return Visits</strong><span>Mobile task center</span></div><button className="mobile-native-add" onClick={()=>setCreateOpen(true)} aria-label="Create return visit">＋</button></header>
+    <section className="mobile-native-hero"><span>FIELD FOLLOW-UP</span><h1>Return visits, without the clutter.</h1><p>{counts.open} open · {counts.assigned} sent · {counts.urgent} urgent</p></section>
+    <nav className="mobile-filter-strip" aria-label="Return visit filters">{filters.map(([id,label,count])=><button key={id} className={filter===id?"active":""} onClick={()=>{setFilter(id);setExpanded("")}}><span>{label}</span><b>{count}</b></button>)}</nav>
+    {message&&<div className="mobile-native-message">{message}<button onClick={()=>setMessage("")}>×</button></div>}
+    <section className="mobile-return-list">{visible.map(task=><article className={`mobile-return-card ${task.priority} ${expanded===task.id?"expanded":""}`} key={task.id}>
+      <button className="mobile-return-summary" onClick={()=>openAssign(task)}><span className="mobile-return-icon">↺</span><span><small>{task.priority} · {task.status.replace("_"," ")}</small><strong>{task.title}</strong><em>{task.customer}</em><i>{task.address}</i></span><b>›</b></button>
+      <div className="mobile-return-meta"><span>{assigned(task)?task.assignedTo:"Admin queue"}</span><span>{dateLabel(task.scheduledDate)}</span></div>
+      {expanded===task.id&&<div className="mobile-return-details"><p>{task.description||"No additional instructions."}</p>{task.status!=="resolved"&&<><label>Employee / Crew<select value={worker} disabled={assigned(task)} onChange={e=>setWorker(e.target.value)}><option value="">Choose Employee</option>{workers.map(name=><option key={name}>{name}</option>)}</select></label><label>Return date<input type="date" value={date} disabled={assigned(task)} onChange={e=>setDate(e.target.value)}/></label><div className="mobile-return-actions">{!assigned(task)&&<button className="primary" onClick={()=>saveAssignment(task)}>Send to Employee</button>}{assigned(task)&&<button onClick={()=>removeAssignment(task)}>Unassign</button>}<button disabled={task.status!=="completed"} onClick={()=>resolve(task)}>Resolve</button></div></>}</div>}
+    </article>)}{visible.length===0&&<div className="mobile-native-empty"><i>✓</i><strong>Nothing here</strong><p>This list is clear for now.</p></div>}</section>
+    {createOpen&&<div className="mobile-native-modal" role="dialog" aria-modal="true"><button className="mobile-native-scrim" onClick={()=>setCreateOpen(false)} aria-label="Close"/><section><header><div><span>NEW FOLLOW-UP</span><h2>Create Return Visit</h2></div><button onClick={()=>setCreateOpen(false)}>×</button></header><label>Property<select value={leadId} onChange={e=>setLeadId(e.target.value)}><option value="">Choose property</option>{leads.map(lead=><option key={lead.id} value={lead.id}>{lead.name} — {lead.address}</option>)}</select></label><label>Title<input value={title} onChange={e=>setTitle(e.target.value)}/></label><label>Instructions<textarea value={description} onChange={e=>setDescription(e.target.value)} placeholder="What needs to be corrected?"/></label><label>Priority<select value={priority} onChange={e=>setPriority(e.target.value as EmployeeTask["priority"])}><option value="low">Low</option><option value="normal">Normal</option><option value="urgent">Urgent</option></select></label><button className="mobile-native-submit" onClick={create}>Create in Admin Queue</button></section></div>}
+    <MobileAdminNav active="tasks"/>
+  </main></MobileRoleGuard>
+}

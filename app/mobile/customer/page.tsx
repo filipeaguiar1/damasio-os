@@ -4,6 +4,10 @@ import { useMobileRealtime } from "@/lib/mobile/useMobileRealtime";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { DAMASIO_SYNC_EVENT, createCustomerTaskFromService, getLeads, saveFeedback, seedDemoLeads } from "@/lib/storage";
+import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
+import {signOutAccount} from "@/lib/auth/signOut";
+import {MobileBackButton} from "@/components/mobile/MobileBackButton";
+import {MobileCustomerNav} from "@/components/mobile/MobileCustomerNav";
 
 type Sentiment = "like" | "dislike" | null;
 
@@ -91,13 +95,20 @@ export default function MobileCustomerApp(){
     }
   }
 
-  return <main className="mobile-app-shell">
-    <header className="mobile-topbar"><Link href="/mobile" className="mobile-back" aria-label="Back to mobile home">‹</Link><div><strong>Customer Mobile</strong><span>Service status</span></div><div className="mobile-avatar">C</div></header>
+  const modules=[
+    {href:"/mobile/customer/services",icon:"✦",label:"Services"},{href:"/mobile/customer/history",icon:"↶",label:"History"},
+    {href:"/mobile/customer/requests",icon:"＋",label:"Request"},{href:"/mobile/customer/estimates",icon:"▤",label:"Estimates"},
+    {href:"/mobile/customer/invoices",icon:"≡",label:"Invoices"},{href:"/mobile/customer/payments",icon:"$",label:"Payments"},
+    {href:"/mobile/customer/feedback",icon:"★",label:"Feedback"},{href:"/mobile/customer/profile",icon:"○",label:"Profile"},
+  ];
+
+  return <MobileRoleGuard allowed={["customer"]}><main className="mobile-app-shell role-mobile-shell role-customer-mobile">
+    <header className="role-mobile-topbar"><MobileBackButton/><div><strong>My home</strong><span>Customer portal</span></div><button type="button" className="role-mobile-avatar" onClick={()=>void signOutAccount("/mobile/login")} aria-label="Sign out">C</button></header>
     {error&&<p className="mobile-message mobile-error" role="alert">{error}</p>}
-    {!lead?<section className="mobile-empty"><strong>No property found.</strong><p>Customer information will appear here as soon as the account is connected.</p><Link className="mobile-outline" href="/customer">Open Customer Portal</Link></section>:<>
-      <section className="mobile-hero-card compact"><div className="mobile-brand-row"><div className="mobile-brand-mark">D</div><div><strong>{lead.name}</strong><span>{lead.service}</span></div></div><h1>{lead.status==="completed"?"Service completed":"Service scheduled"}</h1><p>{lead.address}</p></section>
-      <section className="mobile-card-list">
-        <article className="mobile-issue-card"><strong>Next visit</strong><p>{lead.nextVisitDate||lead.scheduledDate||"To be confirmed"}</p><small>Status: {lead.status}</small></article>
+    {!lead?<section className="mobile-empty"><strong>No property found.</strong><p>Customer information will appear here as soon as the account is connected.</p><Link className="mobile-outline" href="/mobile/customer/profile">Check Profile</Link></section>:<>
+      <section className="mobile-hero-card compact role-customer-hero"><span className="role-mobile-eyebrow">YOUR PROPERTY</span><div className="role-customer-status"><i>✓</i><span><strong>{lead.status==="completed"?"Service completed":"Service scheduled"}</strong><small>{lead.service}</small></span></div><p>{lead.address}</p><div className="role-next-visit"><span>Next visit</span><strong>{lead.nextVisitDate||lead.scheduledDate||"To be confirmed"}</strong><small>Status · {lead.status}</small></div></section>
+      <section className="role-mobile-section"><div className="role-mobile-section-head"><div><span>MY ACCOUNT</span><h2>What do you need?</h2></div></div><div className="role-customer-modules">{modules.map(module=><Link href={module.href} key={module.href}><i>{module.icon}</i><span>{module.label}</span></Link>)}</div></section>
+      <section className="mobile-card-list role-feedback-section">
 
         {!feedbackClosed&&lead.status==="completed"&&<article className="mobile-issue-card mobile-feedback-card">
           <strong>How did we do today?</strong>
@@ -130,7 +141,6 @@ export default function MobileCustomerApp(){
           {sentiment&&<button className={createTask?"mobile-task-submit":"mobile-primary"} disabled={busy} onClick={prepareSubmit}>Send feedback</button>}
         </article>}
 
-        <Link className="mobile-admin-action" href="/customer" prefetch={false}><strong>Open Customer Portal</strong><p>Full portal with history and service requests.</p><span>›</span></Link>
       </section>
       {message&&<p className="mobile-message" role="status">{message}</p>}
 
@@ -143,6 +153,7 @@ export default function MobileCustomerApp(){
           <div className="mobile-action-grid"><button className="mobile-outline" disabled={busy} onClick={()=>setConfirming(false)}>Cancel</button><button className={createTask?"mobile-task-submit":"mobile-primary"} disabled={busy} onClick={submitFeedback}>{busy?"Sending...":"Confirm and send"}</button></div>
         </section>
       </div>}
+      <MobileCustomerNav active="home"/>
     </>}
-  </main>
+  </main></MobileRoleGuard>
 }
