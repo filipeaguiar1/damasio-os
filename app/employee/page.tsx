@@ -9,6 +9,7 @@ import {loadEmployeeOperationalIdentity} from "@/lib/services/employeeIdentitySe
 import {applyEmployeeRouteMapContext,loadEmployeeRouteMapContext,routeDateForWeekday,type EmployeeRouteMapContext} from "@/lib/services/routeMapService";
 import {readDemoSession} from "@/lib/auth/demoAuth";
 import {isSupabaseConfigured} from "@/lib/supabase/client";
+import {changeVisitStatus} from "@/lib/services/schedulingService";
 function dateKey(date:Date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`}
 function mondayKey(date:Date){const value=new Date(date);value.setDate(value.getDate()-(value.getDay()+6)%7);return dateKey(value)}
 function shift(value:string,days:number){const date=new Date(`${value}T12:00:00`);date.setDate(date.getDate()+days);return dateKey(date)}
@@ -22,7 +23,8 @@ export default function Employee(){
   const localJobs=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&(l.scheduledDate===selectedDate||l.nextVisitDate===selectedDate||l.serviceDay===selectedDay)).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,selectedDate,selectedDay]);
   useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(selectedDate||routeDateForWeekday(selectedDay),crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,selectedDate,selectedDay]);
   const jobs=useMemo(()=>applyEmployeeRouteMapContext(localJobs,mapContext),[localJobs,mapContext]);
-  const tasks=getEmployeeTasks().filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===employeeName||t.assignedTo===crew));
+  const demoMode=Boolean(readDemoSession())||!isSupabaseConfigured();
+  const tasks=demoMode?getEmployeeTasks().filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===employeeName||t.assignedTo===crew)):[];
   const pending=jobs.filter(j=>j.status!=="completed");
   const completed=jobs.filter(j=>j.status==="completed");
   const visible=filter==="pending"?pending:filter==="completed"?completed:jobs;
