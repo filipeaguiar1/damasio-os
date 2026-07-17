@@ -1,9 +1,9 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
-export type AppRole = "admin" | "employee" | "customer";
+export type AppRole = "master" | "admin" | "manager" | "employee" | "customer";
 export type ServiceFrequency = "weekly" | "biweekly" | "monthly" | "adaptive" | "one_time";
 export type TaskStatus = "open" | "assigned" | "in_progress" | "returned_to_admin" | "resolved" | "cancelled";
-export type VisitStatus = "scheduled" | "on_the_way" | "in_progress" | "completed" | "cancelled";
+export type VisitStatus = "scheduled" | "on_the_way" | "in_progress" | "completed" | "missed" | "cancelled";
 
 export type Database = {
   public: {
@@ -52,6 +52,7 @@ export type Database = {
 export type Profile = {
   id: string;
   organization_id: string | null;
+  company_id: string | null;
   role: AppRole;
   full_name: string;
   email: string;
@@ -64,6 +65,7 @@ export type Profile = {
 export type Customer = {
   id: string;
   organization_id: string;
+  company_id: string;
   profile_id: string | null;
   full_name: string;
   email: string | null;
@@ -72,12 +74,13 @@ export type Customer = {
   created_at: string;
 };
 
-export type Crew = { id: string; organization_id: string; name: string; active: boolean; created_at: string };
-export type Employee = { id: string; organization_id: string; profile_id: string | null; crew_id: string | null; full_name: string; email: string | null; phone: string | null; active: boolean; created_at: string };
+export type Crew = { id: string; organization_id: string; company_id: string; name: string; active: boolean; created_at: string };
+export type Employee = { id: string; organization_id: string; company_id: string; profile_id: string | null; crew_id: string | null; full_name: string; email: string | null; phone: string | null; active: boolean; created_at: string };
 
 export type Property = {
   id: string;
   organization_id: string;
+  company_id: string;
   customer_id: string;
   official_photo_url: string | null;
   address_line1: string;
@@ -106,11 +109,12 @@ export type RouteMapRebuildQueueRow = { route_id: string; company_id: string; re
 export type ServiceRequest = { id: string; organization_id: string; customer_id: string | null; property_id: string | null; service_name: string; message: string | null; status: string; created_at: string };
 export type Job = { id: string; organization_id: string; customer_id: string | null; property_id: string | null; quote_id: string | null; invoice_id: string | null; service_name: string; frequency: ServiceFrequency; active: boolean; next_visit_date: string | null; created_at: string };
 export type Route = { id: string; organization_id: string; crew_id: string | null; route_date: string; status: string; created_at: string };
-export type Visit = { id: string; organization_id: string; job_id: string | null; route_id: string | null; customer_id: string | null; property_id: string | null; crew_id: string | null; assigned_employee_id: string | null; scheduled_date: string; status: VisitStatus; started_at: string | null; finished_at: string | null; duration_seconds: number | null; employee_notes: string | null; customer_visible_summary: string | null; created_at: string };
+export type Visit = { id: string; organization_id: string; company_id: string; job_id: string | null; route_id: string | null; customer_id: string | null; property_id: string | null; crew_id: string | null; assigned_employee_id: string | null; scheduled_date: string; status: VisitStatus; started_at: string | null; finished_at: string | null; duration_seconds: number | null; employee_notes: string | null; customer_visible_summary: string | null; created_at: string };
 
 export type Task = {
   id: string;
   organization_id: string;
+  company_id: string;
   customer_id: string | null;
   property_id: string | null;
   source_visit_id: string | null;
@@ -129,7 +133,7 @@ export type Task = {
   created_at: string;
 };
 
-export type Photo = { id: string; organization_id: string; property_id: string | null; visit_id: string | null; task_id: string | null; uploaded_by: string | null; storage_path: string; public_url: string | null; photo_type: string | null; created_at: string };
+export type Photo = { id: string; organization_id: string; company_id: string; property_id: string | null; visit_id: string | null; task_id: string | null; uploaded_by: string | null; storage_path: string; public_url: string | null; photo_type: string | null; created_at: string };
 export type Quote = { id: string; organization_id: string; request_id: string | null; customer_id: string | null; property_id: string | null; quote_number: string; status: string; subtotal: number; tax: number; total: number; notes: string | null; created_at: string };
 export type Invoice = { id: string; organization_id: string; quote_id: string | null; customer_id: string | null; property_id: string | null; invoice_number: string; status: string; subtotal: number; tax: number; total: number; created_at: string };
 export type Payment = { id: string; organization_id: string; invoice_id: string | null; customer_id: string | null; method: string; status: string; amount: number; reference: string | null; notes: string | null; paid_at: string | null; created_at: string };
