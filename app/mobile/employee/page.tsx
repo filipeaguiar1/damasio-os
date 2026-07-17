@@ -37,6 +37,7 @@ import { changeVisitStatus } from "@/lib/services/schedulingService";
 import {signOutAccount} from "@/lib/auth/signOut";
 import {readDemoSession} from "@/lib/auth/demoAuth";
 import {isSupabaseConfigured} from "@/lib/supabase/client";
+import {saveEmployeeVisitNote,uploadEmployeeVisitPhoto} from "@/lib/services/employeeVisitService";
 
 function mapsHref(address:string){return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`}
 function statusLabel(lead:Lead, session?:ReturnType<typeof getSessionForLead>){return lead.status==="completed"?"Done":session?.status==="skipped"?"Skipped":"Open"}
@@ -253,18 +254,23 @@ export default function MobileEmployeeApp(){
     catch{setError("House could not be skipped.")}
     finally{setBusy(false)}
   }
-  function saveNote(){
+  async function saveNote(){
     if(!selected||!comment.trim()||busy)return;
     setBusy(true); setError("");
-    try{saveServiceComment(selected.id,comment); refresh(); setMessage("Comment saved.")}
-    catch{setError("Comment could not be saved.")}
+    try{if(selected.canonicalVisitId)await saveEmployeeVisitNote(selected.canonicalVisitId,comment);else if(demoMode)saveServiceComment(selected.id,comment);else throw new Error("This service is not linked to a Visit."); refresh(); setMessage("Comment saved.")}
+    catch(cause){setError(cause instanceof Error?cause.message:"Comment could not be saved.")}
     finally{setBusy(false)}
   }
-  function upload(e:ChangeEvent<HTMLInputElement>){
+  async function upload(e:ChangeEvent<HTMLInputElement>){
     if(!selected)return;
     const files=Array.from(e.target.files||[]).slice(0,5);
     setBusy(true); setError("");
-    Promise.all(files.map(f=>new Promise<string>((resolve,reject)=>{const reader=new FileReader(); reader.onload=()=>resolve(String(reader.result||"")); reader.onerror=()=>reject(new Error("read failed")); reader.readAsDataURL(f)}))).then(images=>{saveServicePhotos(selected.id,[...(selected.photos||[]),...images].slice(0,5)); refresh(); setMessage("Photo saved.")}).catch(()=>setError("Photo could not be saved.")).finally(()=>setBusy(false));
+    try{
+      if(selected.canonicalVisitId)await Promise.all(files.map(file=>uploadEmployeeVisitPhoto(selected.canonicalVisitId!,file,"completion")));
+      else if(demoMode){const images=await Promise.all(files.map(f=>new Promise<string>((resolve,reject)=>{const reader=new FileReader(); reader.onload=()=>resolve(String(reader.result||"")); reader.onerror=()=>reject(new Error("read failed")); reader.readAsDataURL(f)})));saveServicePhotos(selected.id,[...(selected.photos||[]),...images].slice(0,5));}
+      else throw new Error("This service is not linked to a Visit.");
+      refresh();setMessage("Photo saved.");
+    }catch(cause){setError(cause instanceof Error?cause.message:"Photo could not be saved.")}finally{setBusy(false)}
     e.target.value="";
   }
 
