@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { enforceMapRateLimit, isCanadianCoordinate } from "@/lib/maps/mapApiGuard";
 
 export const dynamic = "force-dynamic";
 type Coordinate = [number, number];
@@ -84,14 +85,16 @@ function exactOpenRoute(matrix: number[][]) {
 }
 
 export async function POST(request: NextRequest) {
+  const limited = enforceMapRateLimit(request, "optimize", 20);
+  if (limited) return limited;
   try {
     const body = await request.json() as { coordinates?: Coordinate[]; start?: Coordinate };
     const coordinates = body.coordinates;
     if (!Array.isArray(coordinates) || coordinates.length < 2 || coordinates.length > 50) return NextResponse.json({ error: "Provide between 2 and 50 properties." }, { status: 400 });
-    if (coordinates.some(([longitude, latitude]) => !Number.isFinite(longitude) || !Number.isFinite(latitude) || longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90)) return NextResponse.json({ error: "Invalid coordinates." }, { status: 400 });
+    if (coordinates.some(([longitude, latitude]) => !Number.isFinite(longitude) || !Number.isFinite(latitude) || !isCanadianCoordinate(longitude, latitude))) return NextResponse.json({ error: "Invalid Canadian coordinates." }, { status: 400 });
 
     const start = body.start;
-    if (start && (!Number.isFinite(start[0]) || !Number.isFinite(start[1]))) return NextResponse.json({ error: "Invalid starting point." }, { status: 400 });
+    if (start && (!Number.isFinite(start[0]) || !Number.isFinite(start[1]) || !isCanadianCoordinate(start[0], start[1]))) return NextResponse.json({ error: "Invalid Canadian starting point." }, { status: 400 });
     const routePoints = start ? [start, ...coordinates] : coordinates;
     let matrix = routePoints.map(a => routePoints.map(b => distance(a, b)));
     let provider = "distance";
