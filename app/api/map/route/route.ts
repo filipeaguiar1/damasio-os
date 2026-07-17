@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { enforceMapRateLimit, isCanadianCoordinate } from "@/lib/maps/mapApiGuard";
 
 export const dynamic = "force-dynamic";
 
 type Coordinate = [number, number];
 
 export async function POST(request: NextRequest) {
+  const limited = enforceMapRateLimit(request, "route", 30);
+  if (limited) return limited;
   try {
     const body = (await request.json()) as { coordinates?: Coordinate[] };
     const coordinates = body.coordinates;
@@ -15,13 +18,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid route coordinate format." }, { status: 400 });
     }
     const clean = coordinates.map(([longitude, latitude]) => [Number(longitude), Number(latitude)] as Coordinate);
-    if (clean.some(([longitude, latitude]) => !Number.isFinite(longitude) || !Number.isFinite(latitude) || longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90)) {
+    if (clean.some(([longitude, latitude]) => !Number.isFinite(longitude) || !Number.isFinite(latitude) || !isCanadianCoordinate(longitude, latitude))) {
       return NextResponse.json({ error: "Invalid route coordinates." }, { status: 400 });
     }
 
     const encoded = clean.map(([longitude, latitude]) => `${longitude},${latitude}`).join(";");
     const url = `https://router.project-osrm.org/route/v1/driving/${encoded}?overview=full&geometries=geojson&steps=false`;
-    const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+    const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(12_000) });
     if (!response.ok) throw new Error(`Routing service returned ${response.status}`);
     const data = await response.json() as {
       code?: string;
