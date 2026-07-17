@@ -9,7 +9,7 @@ import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, routeDateFor
 import {changeVisitStatus} from "@/lib/services/schedulingService";
 import {readDemoSession} from "@/lib/auth/demoAuth";
 import {isSupabaseConfigured} from "@/lib/supabase/client";
-import {saveEmployeeVisitNote,uploadEmployeeVisitPhoto} from "@/lib/services/employeeVisitService";
+import {loadAssignedEmployeeTasks,saveEmployeeVisitNote,updateAssignedEmployeeTask,uploadEmployeeVisitPhoto} from "@/lib/services/employeeVisitService";
 import {
   finishServiceSession,
   formatClock,
@@ -89,7 +89,7 @@ export default function EmployeeRoutePage(){
     const demo=Boolean(readDemoSession())||!isSupabaseConfigured();
     const rows=demo?getLeads():[];
     setLeads(rows);
-    setTasks(demo?getEmployeeTasks():[]);
+    if(demo)setTasks(getEmployeeTasks());else void loadAssignedEmployeeTasks().then(setTasks).catch(error=>setMenuMessage(error instanceof Error?error.message:"Tasks could not be loaded."));
     setProfile(getEmployeeProfile());
     if(!selectedId && rows[0]) setSelectedId(rows[0].id);
   }
@@ -165,11 +165,11 @@ export default function EmployeeRoutePage(){
       || null;
   }
 
-  function openTask(taskId:string){
+  async function openTask(taskId:string){
     const task=tasks.find(t=>t.id===taskId);
     if(!task)return;
     const lead=findLeadForTask(taskId);
-    updateEmployeeTaskStatus(taskId,"in_progress");
+    if(demoMode)updateEmployeeTaskStatus(taskId,"in_progress");else await updateAssignedEmployeeTask(taskId,"in_progress");
     if(lead){
       setSelectedId(lead.id);
       setPhotoCount(lead.photos?.length||0);
@@ -179,6 +179,16 @@ export default function EmployeeRoutePage(){
       setView("tasks");
     }
     refresh();
+  }
+
+  async function returnTask(taskId:string){
+    try{if(demoMode)returnEmployeeTaskToAdmin(taskId);else await updateAssignedEmployeeTask(taskId,"returned_to_admin");refresh()}
+    catch(error){setMenuMessage(error instanceof Error?error.message:"Task could not be returned.")}
+  }
+
+  async function completeTask(taskId:string,note:string){
+    try{if(demoMode)updateEmployeeTaskStatus(taskId,"completed",note,"Employee");else await updateAssignedEmployeeTask(taskId,"resolved",note);refresh()}
+    catch(error){setMenuMessage(error instanceof Error?error.message:"Task could not be completed.")}
   }
 
   async function start(){if(!selected)return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"in_progress");else if(demoMode)startServiceSession(selected.id,profile.name,crew);else throw new Error("This service is not linked to a Visit.");setCommentOpen(false);setServiceComment("");setDoneMessage("");setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh()}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be started.")}}
@@ -297,7 +307,7 @@ export default function EmployeeRoutePage(){
             <p>{task.description}</p>
             <div className="row">
               <button className="btn btn-primary" onClick={()=>openTask(task.id)}>Open Service Screen</button>
-              <button className="btn btn-outline" onClick={()=>{if(window.confirm("Return this task to Admin so it can be reassigned?")){returnEmployeeTaskToAdmin(task.id);refresh()}}}>Return for Admin</button><button className="btn btn-outline" onClick={()=>{if(window.confirm("Are you sure this return task is completed? It will be removed from your list and sent to Admin for final Resolve.")){const note=window.prompt("What did you complete at this property?", "Return visit completed and customer issue fixed."); if(note!==null){updateEmployeeTaskStatus(task.id,"completed",note,"Employee");refresh()}}}}>Mark Completed</button>
+              <button className="btn btn-outline" onClick={()=>{if(window.confirm("Return this task to Admin so it can be reassigned?"))void returnTask(task.id)}}>Return for Admin</button><button className="btn btn-outline" onClick={()=>{if(window.confirm("Are you sure this return task is completed? It will be removed from your list and sent to Admin for final Resolve.")){const note=window.prompt("What did you complete at this property?", "Return visit completed and customer issue fixed.");if(note!==null)void completeTask(task.id,note)}}}>Mark Completed</button>
             </div>
           </div>)}
         </div>
