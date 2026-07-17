@@ -9,6 +9,7 @@ import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, routeDateFor
 import {changeVisitStatus} from "@/lib/services/schedulingService";
 import {readDemoSession} from "@/lib/auth/demoAuth";
 import {isSupabaseConfigured} from "@/lib/supabase/client";
+import {saveEmployeeVisitNote,uploadEmployeeVisitPhoto} from "@/lib/services/employeeVisitService";
 import {
   finishServiceSession,
   formatClock,
@@ -181,10 +182,10 @@ export default function EmployeeRoutePage(){
   }
 
   async function start(){if(!selected)return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"in_progress");else if(demoMode)startServiceSession(selected.id,profile.name,crew);else throw new Error("This service is not linked to a Visit.");setCommentOpen(false);setServiceComment("");setDoneMessage("");setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh()}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be started.")}}
-  function saveComment(){
+  async function saveComment(){
     if(!selected)return;
     if(!serviceComment.trim()){setMenuMessage("Type a comment before saving.");return;}
-    saveServiceComment(selected.id, serviceComment);
+    try{if(selected.canonicalVisitId)await saveEmployeeVisitNote(selected.canonicalVisitId,serviceComment);else if(demoMode)saveServiceComment(selected.id, serviceComment);else throw new Error("This service is not linked to a Visit.")}catch(error){setMenuMessage(error instanceof Error?error.message:"Comment could not be saved.");return}
     setMenuMessage("Comment saved.");
     setCommentOpen(false);
     refresh();
@@ -196,7 +197,7 @@ export default function EmployeeRoutePage(){
     photoInputRef.current?.click();
   }
 
-  function handlePhotoUpload(e: ChangeEvent<HTMLInputElement>){
+  async function handlePhotoUpload(e: ChangeEvent<HTMLInputElement>){
     if(!selected)return;
     const files=Array.from(e.target.files||[]);
     if(files.length===0)return;
@@ -204,17 +205,12 @@ export default function EmployeeRoutePage(){
     const slots=5-existing.length;
     if(slots<=0){setMenuMessage("Maximum 5 photos per service.");return;}
     const accepted=files.slice(0,slots);
-    Promise.all(accepted.map(file=>new Promise<string>((resolve)=>{
-      const reader=new FileReader();
-      reader.onload=()=>resolve(String(reader.result||file.name));
-      reader.readAsDataURL(file);
-    }))).then(images=>{
-      const next=[...existing,...images].slice(0,5);
-      saveServicePhotos(selected.id,next);
-      setPhotoCount(next.length);
-      setMenuMessage(`${images.length} photo(s) saved. Maximum 5 photos per service.`);
-      refresh();
-    });
+    try{
+      if(selected.canonicalVisitId){await Promise.all(accepted.map(file=>uploadEmployeeVisitPhoto(selected.canonicalVisitId!,file,"completion")));setPhotoCount(value=>value+accepted.length)}
+      else if(demoMode){const images=await Promise.all(accepted.map(file=>new Promise<string>((resolve)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||file.name));reader.readAsDataURL(file)})));const next=[...existing,...images].slice(0,5);saveServicePhotos(selected.id,next);setPhotoCount(next.length)}
+      else throw new Error("This service is not linked to a Visit.");
+      setMenuMessage(`${accepted.length} photo(s) saved. Maximum 5 photos per service.`);refresh();
+    }catch(error){setMenuMessage(error instanceof Error?error.message:"Photo could not be saved.")}
     e.target.value="";
   }
 
