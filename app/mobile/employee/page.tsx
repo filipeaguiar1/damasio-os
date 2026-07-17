@@ -37,7 +37,7 @@ import { changeVisitStatus } from "@/lib/services/schedulingService";
 import {signOutAccount} from "@/lib/auth/signOut";
 import {readDemoSession} from "@/lib/auth/demoAuth";
 import {isSupabaseConfigured} from "@/lib/supabase/client";
-import {saveEmployeeVisitNote,uploadEmployeeVisitPhoto} from "@/lib/services/employeeVisitService";
+import {loadAssignedEmployeeTasks,saveEmployeeVisitNote,updateAssignedEmployeeTask,uploadEmployeeVisitPhoto} from "@/lib/services/employeeVisitService";
 
 function mapsHref(address:string){return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`}
 function statusLabel(lead:Lead, session?:ReturnType<typeof getSessionForLead>){return lead.status==="completed"?"Done":session?.status==="skipped"?"Skipped":"Open"}
@@ -85,6 +85,7 @@ export default function MobileEmployeeApp(){
   const [identityError,setIdentityError]=useState("");
   const profilePhotoInput=useRef<HTMLInputElement|null>(null);
   const [mapContext,setMapContext]=useState<EmployeeRouteMapContext>({routeId:null,stops:[]});
+  const [databaseTasks,setDatabaseTasks]=useState<ReturnType<typeof getEmployeeTasks>>([]);
 
   function refresh(){
     try{
@@ -130,10 +131,11 @@ export default function MobileEmployeeApp(){
     if(session.status==="running"&&session.startedAt)return Math.max(0,Math.round((Date.now()-new Date(session.startedAt).getTime())/1000));
     return session.durationSeconds||0;
   },[session,tick,selected?.visitDurationSeconds,selected?.visitStartedAt,selected?.visitFinishedAt]);
+  useEffect(()=>{if(demoMode){setDatabaseTasks([]);return}let cancelled=false;void loadAssignedEmployeeTasks().then(rows=>{if(!cancelled)setDatabaseTasks(rows)}).catch(cause=>{if(!cancelled)setError(cause instanceof Error?cause.message:"Tasks could not be loaded.")});return()=>{cancelled=true}},[demoMode,routeReload]);
   const tasks=useMemo(()=>{
-    try{return demoMode?getEmployeeTasks().filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===profile.name||t.assignedTo===crew)):[]}
+    try{return demoMode?getEmployeeTasks().filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===profile.name||t.assignedTo===crew)):databaseTasks}
     catch{return []}
-  },[demoMode,leads,profile.name,crew,tick]);
+  },[demoMode,databaseTasks,leads,profile.name,crew,tick]);
   const selectedTask=useMemo(()=>tasks.find(task=>task.id===selectedTaskId)||null,[tasks,selectedTaskId]);
   const taskProperty=useMemo(()=>selectedTask?leads.find(lead=>lead.id===selectedTask.leadId)||null:null,[selectedTask,leads]);
   const done=route.filter(l=>l.status==="completed").length;
@@ -213,6 +215,11 @@ export default function MobileEmployeeApp(){
 
   function openService(lead:Lead){setSelectedId(lead.id); setComment(localSessionFor(lead.id)?.completionComment||""); setContractOpen(true); setTab("service"); setMessage("")}
   function openTask(taskId:string){setSelectedTaskId(taskId);setTab("task");setMessage("")}
+  async function changeTask(taskId:string,status:"in_progress"|"resolved"){
+    setBusy(true);setError("");
+    try{if(demoMode)updateEmployeeTaskStatus(taskId,status==="resolved"?"completed":"in_progress","Return Task completed from Employee mobile app",profile.name);else await updateAssignedEmployeeTask(taskId,status,"Return Task completed from Employee mobile app");setRouteReload(value=>value+1);if(status==="resolved")setTab("issues");setMessage(status==="resolved"?"Task completed and synchronized.":"Task started.")}
+    catch(cause){setError(cause instanceof Error?cause.message:"Task could not be updated.")}finally{setBusy(false)}
+  }
   function saveProfile(){const next={...profileDraft,photoLabel:(profileDraft.name||"E").slice(0,1).toUpperCase()};saveEmployeeProfile(next);setProfileDraft(next);setMessage("Profile saved.")}
   function uploadProfilePhoto(e:ChangeEvent<HTMLInputElement>){const file=e.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>setProfileDraft(current=>({...current,photoUrl:String(reader.result||"")}));reader.readAsDataURL(file);e.target.value=""}
   async function start(){
@@ -396,7 +403,7 @@ export default function MobileEmployeeApp(){
       <a className="employee-task-directions" href={mapsHref(selectedTask.address)} target="_blank" rel="noopener noreferrer"><span>Directions to property</span><b>⌖</b></a>
       {taskProperty&&<div className="employee-contact-actions">{taskProperty.phone&&<a href={`tel:${taskProperty.phone}`}>Call client</a>}{taskProperty.email&&<a href={`mailto:${taskProperty.email}`}>Email client</a>}</div>}
       <section className="employee-image-section"><strong>Property and customer images</strong><div>{[taskProperty?.propertyPhoto,...(taskProperty?.photos||[])].filter(Boolean).map((photo,index)=><img key={index} src={photo} alt={`Task reference ${index+1}`}/>)}{!taskProperty?.propertyPhoto&&!(taskProperty?.photos?.length)&&<span className="mobile-property-no-images">No customer images attached</span>}</div></section>
-      <div className="mobile-action-grid employee-task-actions"><button className="mobile-primary" disabled={busy||selectedTask.status==="in_progress"} onClick={()=>{updateEmployeeTaskStatus(selectedTask.id,"in_progress");setMessage("Task started.");refresh()}}>Start Task</button><button className="mobile-finish" disabled={busy||selectedTask.status!=="in_progress"} onClick={()=>{if(window.confirm("Mark this return Task as completed and send it to Admin review?")){updateEmployeeTaskStatus(selectedTask.id,"completed","Return Task completed from Employee mobile app",profile.name);setTab("issues");refresh()}}}>Complete Task</button></div>
+      <div className="mobile-action-grid employee-task-actions"><button className="mobile-primary" disabled={busy||selectedTask.status==="in_progress"} onClick={()=>void changeTask(selectedTask.id,"in_progress")}>Start Task</button><button className="mobile-finish" disabled={busy||selectedTask.status!=="in_progress"} onClick={()=>{if(window.confirm("Mark this return Task as completed and send it to Admin review?"))void changeTask(selectedTask.id,"resolved")}}>Complete Task</button></div>
       {message&&<p className="mobile-message">{message}</p>}
     </section>}
 
