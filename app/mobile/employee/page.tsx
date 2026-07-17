@@ -217,7 +217,7 @@ export default function MobileEmployeeApp(){
   async function start(){
     if(!selected||busy)return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"in_progress");else startServiceSession(selected.id,profile.name,crew); setRouteReload(value=>value+1); refresh(); setMessage("Service started and synchronized.")}
+    try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"in_progress");else if(demoMode)startServiceSession(selected.id,profile.name,crew);else throw new Error("This service is not linked to a Visit."); setRouteReload(value=>value+1); refresh(); setMessage("Service started and synchronized.")}
     catch{setError("Service could not be started. Please try again.")}
     finally{setBusy(false)}
   }
@@ -225,7 +225,7 @@ export default function MobileEmployeeApp(){
     if(!selected||busy)return;
     if(!window.confirm("Finish this service and mark this house as Done?"))return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"completed");else finishServiceSession(selected.id,comment); setRouteReload(value=>value+1); refresh(); setMessage("Done. Every device was updated.")}
+    try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"completed");else if(demoMode)finishServiceSession(selected.id,comment);else throw new Error("This service is not linked to a Visit."); setRouteReload(value=>value+1); refresh(); setMessage("Done. Every device was updated.")}
     catch{setError("Service could not be completed. Please try again.")}
     finally{setBusy(false)}
   }
@@ -233,7 +233,7 @@ export default function MobileEmployeeApp(){
     if(!selected||busy)return;
     if(!window.confirm("Reset this house? The timer will be cleared and the visit will return to Open."))return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"scheduled");else resetServiceSession(selected.id); setComment(""); setRouteReload(value=>value+1); refresh(); setMessage("House reset to Open on every device.")}
+    try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"scheduled");else if(demoMode)resetServiceSession(selected.id);else throw new Error("This service is not linked to a Visit."); setComment(""); setRouteReload(value=>value+1); refresh(); setMessage("House reset to Open on every device.")}
     catch{setError("House could not be reset.")}
     finally{setBusy(false)}
   }
@@ -246,10 +246,10 @@ export default function MobileEmployeeApp(){
     Promise.all(files.map(f=>new Promise<string>((resolve,reject)=>{const reader=new FileReader(); reader.onload=()=>resolve(String(reader.result||"")); reader.onerror=()=>reject(new Error("read failed")); reader.readAsDataURL(f)}))).then(images=>setSkipPhotos(current=>[...current,...images].slice(0,5))).catch(()=>setError("Skip photo could not be added."));
     e.target.value="";
   }
-  function confirmSkip(){
+  async function confirmSkip(){
     if(!selected||busy)return;
     setBusy(true); setError("");
-    try{skipServiceSession(selected.id,skipComment,skipPhotos,profile.name,crew); setSkipOpen(false); refresh(); setMessage("House skipped. Admin and Dispatch were notified."); setTab("route")}
+    try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"missed");else if(demoMode)skipServiceSession(selected.id,skipComment,skipPhotos,profile.name,crew);else throw new Error("This service is not linked to a Visit."); setSkipOpen(false); setRouteReload(value=>value+1); refresh(); setMessage("House skipped. Admin and Dispatch were notified."); setTab("route")}
     catch{setError("House could not be skipped.")}
     finally{setBusy(false)}
   }
