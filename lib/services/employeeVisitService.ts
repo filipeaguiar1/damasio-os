@@ -1,6 +1,53 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import type { EmployeeTask } from "@/lib/storage";
 
 const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
+
+export async function loadAssignedEmployeeTasks(): Promise<EmployeeTask[]> {
+  const supabase = getSupabaseBrowserClient() as any;
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("id,created_at,property_id,title,customer_issue,status,priority,scheduled_date,assigned_at,resolved_at,completion_summary,properties(address_line1,customers(full_name)),employees(full_name),crews(name)")
+    .in("status", ["assigned", "in_progress", "returned_to_admin"])
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data || []).map((row: any) => {
+    const property = Array.isArray(row.properties) ? row.properties[0] : row.properties;
+    const customerRecord = Array.isArray(property?.customers) ? property.customers[0] : property?.customers;
+    const employee = Array.isArray(row.employees) ? row.employees[0] : row.employees;
+    const crew = Array.isArray(row.crews) ? row.crews[0] : row.crews;
+    return {
+      id: row.id,
+      createdAt: row.created_at,
+      leadId: row.property_id || "",
+      customer: customerRecord?.full_name || "Customer",
+      address: property?.address_line1 || "",
+      title: row.title,
+      description: row.customer_issue,
+      status: row.status === "returned_to_admin" ? "open" : row.status,
+      priority: row.priority,
+      assignedTo: employee?.full_name || crew?.name || "Employee",
+      scheduledDate: row.scheduled_date || undefined,
+      assignedAt: row.assigned_at || undefined,
+      resolvedAt: row.resolved_at || undefined,
+      completionSummary: row.completion_summary || undefined,
+      source: "customer" as const,
+    } as EmployeeTask;
+  });
+}
+
+export async function updateAssignedEmployeeTask(taskId: string, status: "in_progress" | "returned_to_admin" | "resolved", completionSummary?: string) {
+  const supabase = getSupabaseBrowserClient() as any;
+  const patch: Record<string, unknown> = { status };
+  if (status === "in_progress") patch.assigned_at = new Date().toISOString();
+  if (status === "returned_to_admin") patch.returned_at = new Date().toISOString();
+  if (status === "resolved") {
+    patch.resolved_at = new Date().toISOString();
+    patch.completion_summary = completionSummary?.trim() || null;
+  }
+  const { error } = await supabase.from("tasks").update(patch).eq("id", taskId);
+  if (error) throw new Error(error.message);
+}
 
 export async function saveEmployeeVisitNote(visitId: string, note: string) {
   const value = note.trim();
