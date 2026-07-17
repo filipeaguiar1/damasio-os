@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { enforceMapRateLimit, isCanadianCoordinate } from "@/lib/maps/mapApiGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,8 @@ function labelFor(feature: PhotonFeature) {
 }
 
 export async function GET(request: NextRequest) {
+  const limited = enforceMapRateLimit(request, "suggest", 45);
+  if (limited) return limited;
   const query = request.nextUrl.searchParams.get("q")?.trim() || "";
   if (query.length < 3) return NextResponse.json({ suggestions: [] });
   if (query.length > 160) return NextResponse.json({ error: "Search is too long." }, { status: 400 });
@@ -49,7 +52,7 @@ export async function GET(request: NextRequest) {
       const coordinates = feature.geometry?.coordinates;
       const label = labelFor(feature);
       const countryCode = feature.properties?.countrycode?.toLowerCase();
-      if (!coordinates || !label || (countryCode && countryCode !== "ca")) return [];
+      if (!coordinates || !label || (countryCode && countryCode !== "ca") || !isCanadianCoordinate(coordinates[0], coordinates[1])) return [];
       return [{ id: String(feature.properties?.osm_id || `${coordinates[0]}:${coordinates[1]}`), label, longitude: coordinates[0], latitude: coordinates[1] }];
     });
     return NextResponse.json({ suggestions });
