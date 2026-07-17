@@ -7,6 +7,8 @@ import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
 import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, routeDateForWeekday, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
 import {changeVisitStatus} from "@/lib/services/schedulingService";
+import {readDemoSession} from "@/lib/auth/demoAuth";
+import {isSupabaseConfigured} from "@/lib/supabase/client";
 import {
   finishServiceSession,
   formatClock,
@@ -62,6 +64,7 @@ export default function EmployeeRoutePage(){
   const [leads,setLeads]=useState<Lead[]>([]);
   const [selectedId,setSelectedId]=useState<string>("");
   const [crew,setCrew]=useState("");
+  const [identityError,setIdentityError]=useState("");
   const [day,setDay]=useState("");
   const [selectedDate,setSelectedDate]=useState(()=>localDateKey(new Date()));
   const [weekStart,setWeekStart]=useState(()=>mondayKey(new Date()));
@@ -82,9 +85,10 @@ export default function EmployeeRoutePage(){
   const photoInputRef=useRef<HTMLInputElement|null>(null);
 
   function refresh(){
-    const rows=getLeads();
+    const demo=Boolean(readDemoSession())||!isSupabaseConfigured();
+    const rows=demo?getLeads():[];
     setLeads(rows);
-    setTasks(getEmployeeTasks());
+    setTasks(demo?getEmployeeTasks():[]);
     setProfile(getEmployeeProfile());
     if(!selectedId && rows[0]) setSelectedId(rows[0].id);
   }
@@ -94,7 +98,7 @@ export default function EmployeeRoutePage(){
     const qDay=params.get("day");
     const qProperty=params.get("property");
     const qView=params.get("view");
-    void loadEmployeeOperationalIdentity().then(identity=>setCrew(identity.crew));
+    void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setIdentityError("")}).catch(cause=>{setCrew("");setMapContext({routeId:null,stops:[]});setIdentityError(cause instanceof Error?cause.message:"Employee identity could not be loaded.")});
     const today=DAMASIO_WEEK_DAYS[(new Date().getDay()+6)%7];
     if(qDay&&DAMASIO_WEEK_DAYS.includes(qDay)){setDay(qDay);setSelectedDate(routeDateForWeekday(qDay));}
     else setDay(today);
@@ -104,8 +108,8 @@ export default function EmployeeRoutePage(){
     const on=()=>refresh();
     window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener);
     window.addEventListener("storage",on);
-    const timer=setInterval(()=>{if(document.visibilityState==="visible")refresh()},15000);
-    return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);clearInterval(timer)}
+    const timer=(Boolean(readDemoSession())||!isSupabaseConfigured())?setInterval(()=>{if(document.visibilityState==="visible")refresh()},15000):undefined;
+    return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);if(timer)clearInterval(timer)}
   },[]);
   useEffect(()=>{
     const interval=setInterval(()=>setTick(v=>v+1),1000);
@@ -118,7 +122,8 @@ export default function EmployeeRoutePage(){
   const routeLeads=useMemo(()=>allRouteLeads.filter(l=>routeFilter==="all"?true:routeFilter==="open"?l.status!=="completed":routeFilter==="done"?l.status==="completed":true),[allRouteLeads,routeFilter]);
   const mapRouteLeads=routeLeads;
   const selected=useMemo(()=>allRouteLeads.find(l=>l.id===selectedId)||allRouteLeads[0]||null,[allRouteLeads,selectedId]);
-  const session=selected?getSessionForLead(selected.id):null;
+  const demoMode=Boolean(readDemoSession())||!isSupabaseConfigured();
+  const session=selected&&demoMode?getSessionForLead(selected.id):null;
   const openTasks=tasks.filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===profile.name||t.assignedTo===crew));
 
   const runningSeconds=useMemo(()=>{
@@ -131,6 +136,7 @@ export default function EmployeeRoutePage(){
   },[session,tick]);
 
   function loadDemo(){
+    if(!demoMode){setMenuMessage("Demo data is disabled in production.");return}
     seedDemoLeads(true);
     seedEmployeeTasks();
     const rows=getLeads();
@@ -237,6 +243,7 @@ export default function EmployeeRoutePage(){
   
 
   return <div className="field-shell">
+    {identityError&&<div className="payment-message" style={{margin:12}}><strong>Employee access blocked.</strong> {identityError}</div>}
     <div className="field-topbar">
       <div className="field-brand-mini"><div className="field-brand-mark">D</div><div>Damasio Field</div></div>
       <div className="topbar-actions">
