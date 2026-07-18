@@ -1,11 +1,11 @@
 {
-  "name": "Damasio OS Field App",
-  "short_name": "Damasio Field",
-  "description": "Simple mobile app for Damasio OS Admin, Employee and Customer operations.",
+  "name": "4Ever Seasons",
+  "short_name": "4Ever Seasons",
+  "description": "Four-season property care and field operations.",
   "start_url": "/mobile",
   "display": "standalone",
-  "background_color": "#f6f8f3",
-  "theme_color": "#0f5132",
+  "background_color": "#063b62",
+  "theme_color": "#063b62",
   "orientation": "portrait-primary",
   "icons": [],
   "scope": "/"
