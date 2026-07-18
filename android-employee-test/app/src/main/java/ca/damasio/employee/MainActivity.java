@@ -1,6 +1,7 @@
 package ca.damasio.employee;
 
 import android.Manifest;
+import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
@@ -8,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.animation.LinearInterpolator;
 import android.provider.MediaStore;
 import android.view.View;
 import android.webkit.GeolocationPermissions;
@@ -34,8 +36,8 @@ import java.io.File;
 import java.io.IOException;
 
 public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5213";
-    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5213";
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5214";
+    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5214";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
     private static final String MOBILE_PATH = "/mobile";
     private static final int FILE_CHOOSER_REQUEST = 4101;
@@ -45,6 +47,8 @@ public class MainActivity extends Activity {
     private ProgressBar progressBar;
     private View startupOverlay;
     private VideoView startupVideo;
+    private ProgressBar startupProgress;
+    private ObjectAnimator startupProgressAnimator;
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraOutputUri;
     private long lastBackPressedAt = 0L;
@@ -58,6 +62,7 @@ public class MainActivity extends Activity {
         progressBar = findViewById(R.id.pageProgress);
         startupOverlay = findViewById(R.id.startupOverlay);
         startupVideo = findViewById(R.id.startupVideo);
+        startupProgress = findViewById(R.id.startupProgress);
         applySystemBarInsets();
         configureWebView();
 
@@ -72,19 +77,32 @@ public class MainActivity extends Activity {
     }
 
     private void startStartupVideo() {
-        startupVideo.setVideoURI(Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.four_ever_seasons_opening));
         startupVideo.setOnPreparedListener(player -> {
             player.setVolume(0f, 0f);
             startupVideo.start();
+            startupVideo.postDelayed(this::startStartupProgress, 70L);
         });
         startupVideo.setOnCompletionListener(player -> finishStartup());
         startupVideo.setOnErrorListener((player, what, extra) -> {
             finishStartup();
             return true;
         });
+        startupVideo.setVideoURI(Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.four_ever_seasons_opening));
+    }
+
+    private void startStartupProgress() {
+        if (!startupVideo.isPlaying() || startupOverlay.getVisibility() != View.VISIBLE) return;
+        startupProgress.setProgress(0);
+        startupProgress.setVisibility(View.VISIBLE);
+        startupProgressAnimator = ObjectAnimator.ofInt(startupProgress, "progress", 0, 1000);
+        startupProgressAnimator.setDuration(2360L);
+        startupProgressAnimator.setInterpolator(new LinearInterpolator());
+        startupProgressAnimator.start();
     }
 
     private void finishStartup() {
+        if (startupProgressAnimator != null) startupProgressAnimator.cancel();
+        startupProgress.setProgress(1000);
         startupOverlay.setVisibility(View.GONE);
         startupVideo.stopPlayback();
         requestOptionalPermissions();
@@ -101,7 +119,7 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.1.3");
+        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.1.4");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -264,7 +282,7 @@ public class MainActivity extends Activity {
     }
 
     private void showOfflinePage() {
-        String html = "<!doctype html><html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='margin:0;background:#f4f7f5;font-family:sans-serif;color:#173b2a;display:grid;min-height:100vh;place-items:center'><main style='text-align:center;padding:28px'><div style='width:76px;height:76px;border-radius:24px;background:#0f6b43;color:white;display:grid;place-items:center;margin:auto;font-size:34px;font-weight:900'>D</div><h2>Connection unavailable</h2><p>Check your internet connection and try again.</p><button onclick=\"location.href='" + APP_URL + "'\" style='border:0;border-radius:14px;background:#0f6b43;color:white;padding:14px 24px;font-weight:800'>Try again</button></main></body></html>";
+        String html = "<!doctype html><html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='margin:0;background:#f4f7f5;font-family:sans-serif;color:#173b2a;display:grid;min-height:100vh;place-items:center'><main style='text-align:center;padding:28px'><div style='width:76px;height:76px;border-radius:24px;background:#0f6b43;color:white;display:grid;place-items:center;margin:auto;font-size:30px;font-weight:900'>4S</div><h2>Connection unavailable</h2><p>Check your internet connection and try again.</p><button onclick=\"location.href='" + APP_URL + "'\" style='border:0;border-radius:14px;background:#0f6b43;color:white;padding:14px 24px;font-weight:800'>Try again</button></main></body></html>";
         webView.loadDataWithBaseURL(APP_URL, html, "text/html", "UTF-8", null);
     }
 

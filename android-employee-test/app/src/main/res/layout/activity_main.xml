@@ -28,8 +28,7 @@
         <VideoView
             android:id="@+id/startupVideo"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="#043D2E" />
+            android:layout_height="match_parent" />
 
         <ProgressBar
             android:id="@+id/startupProgress"
@@ -37,7 +36,10 @@
             android:layout_width="match_parent"
             android:layout_height="5dp"
             android:layout_gravity="bottom"
-            android:indeterminate="true"
-            android:indeterminateTint="#65E88D" />
+            android:max="1000"
+            android:progress="0"
+            android:progressBackgroundTint="#135743"
+            android:progressTint="#65E88D"
+            android:visibility="invisible" />
     </FrameLayout>
 </FrameLayout>
