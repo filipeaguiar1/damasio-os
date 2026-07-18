@@ -5,6 +5,7 @@ import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.Uri;
@@ -33,11 +34,21 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5214";
-    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5214";
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5215";
+    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5215";
+    private static final String STARTUP_CONFIG_URL = "https://damasio-os-h1mc.vercel.app/brand/mobile-startup.json";
+    private static final String STARTUP_PREFS = "four_ever_startup";
+    private static final String STARTUP_VERSION_KEY = "cached_video_version";
+    private static final String STARTUP_VIDEO_FILE = "four-ever-startup.mp4";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
     private static final String MOBILE_PATH = "/mobile";
     private static final int FILE_CHOOSER_REQUEST = 4101;
@@ -49,6 +60,8 @@ public class MainActivity extends Activity {
     private VideoView startupVideo;
     private ProgressBar startupProgress;
     private ObjectAnimator startupProgressAnimator;
+    private long startupDurationMs = 3000L;
+    private boolean playingCachedStartupVideo = false;
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraOutputUri;
     private long lastBackPressedAt = 0L;
@@ -79,15 +92,29 @@ public class MainActivity extends Activity {
     private void startStartupVideo() {
         startupVideo.setOnPreparedListener(player -> {
             player.setVolume(0f, 0f);
+            if (player.getDuration() > 0) startupDurationMs = player.getDuration();
             startupVideo.start();
             startupVideo.postDelayed(this::startStartupProgress, 70L);
         });
         startupVideo.setOnCompletionListener(player -> finishStartup());
         startupVideo.setOnErrorListener((player, what, extra) -> {
+            if (playingCachedStartupVideo) {
+                playingCachedStartupVideo = false;
+                File cached = new File(getFilesDir(), STARTUP_VIDEO_FILE);
+                if (cached.exists()) cached.delete();
+                getSharedPreferences(STARTUP_PREFS, MODE_PRIVATE).edit().remove(STARTUP_VERSION_KEY).apply();
+                startupDurationMs = 3000L;
+                startupVideo.post(() -> startupVideo.setVideoURI(Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.four_ever_seasons_opening)));
+                return true;
+            }
             finishStartup();
             return true;
         });
-        startupVideo.setVideoURI(Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.four_ever_seasons_opening));
+        File cachedVideo = new File(getFilesDir(), STARTUP_VIDEO_FILE);
+        playingCachedStartupVideo = cachedVideo.isFile() && cachedVideo.length() > 100_000L;
+        if (playingCachedStartupVideo) startupVideo.setVideoPath(cachedVideo.getAbsolutePath());
+        else startupVideo.setVideoURI(Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.four_ever_seasons_opening));
+        refreshRemoteStartupVideo();
     }
 
     private void startStartupProgress() {
@@ -95,9 +122,65 @@ public class MainActivity extends Activity {
         startupProgress.setProgress(0);
         startupProgress.setVisibility(View.VISIBLE);
         startupProgressAnimator = ObjectAnimator.ofInt(startupProgress, "progress", 0, 1000);
-        startupProgressAnimator.setDuration(2360L);
+        startupProgressAnimator.setDuration(Math.max(1L, startupDurationMs - 140L));
         startupProgressAnimator.setInterpolator(new LinearInterpolator());
         startupProgressAnimator.start();
+    }
+
+    private void refreshRemoteStartupVideo() {
+        new Thread(() -> {
+            HttpURLConnection configConnection = null;
+            HttpURLConnection videoConnection = null;
+            File temporary = new File(getFilesDir(), STARTUP_VIDEO_FILE + ".download");
+            try {
+                configConnection = openConnection(STARTUP_CONFIG_URL + "?t=" + System.currentTimeMillis());
+                JSONObject config = new JSONObject(readText(configConnection.getInputStream()));
+                String version = config.optString("version", "").trim();
+                String videoUrl = config.optString("videoUrl", "").trim();
+                if (version.isEmpty() || !videoUrl.startsWith("https://")) return;
+                SharedPreferences preferences = getSharedPreferences(STARTUP_PREFS, MODE_PRIVATE);
+                File cached = new File(getFilesDir(), STARTUP_VIDEO_FILE);
+                if (version.equals(preferences.getString(STARTUP_VERSION_KEY, "")) && cached.length() > 100_000L) return;
+
+                videoConnection = openConnection(videoUrl + (videoUrl.contains("?") ? "&" : "?") + "v=" + Uri.encode(version));
+                try (InputStream input = videoConnection.getInputStream(); FileOutputStream output = new FileOutputStream(temporary)) {
+                    byte[] buffer = new byte[16_384];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                    output.getFD().sync();
+                }
+                if (temporary.length() < 100_000L) return;
+                if (cached.exists() && !cached.delete()) return;
+                if (temporary.renameTo(cached)) preferences.edit().putString(STARTUP_VERSION_KEY, version).apply();
+            } catch (Exception ignored) {
+                // The bundled video remains the offline-safe fallback.
+            } finally {
+                if (configConnection != null) configConnection.disconnect();
+                if (videoConnection != null) videoConnection.disconnect();
+                if (temporary.exists()) temporary.delete();
+            }
+        }, "startup-video-refresh").start();
+    }
+
+    private HttpURLConnection openConnection(String address) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+        connection.setConnectTimeout(5000);
+        connection.setReadTimeout(15000);
+        connection.setUseCaches(false);
+        connection.setRequestProperty("Accept", "application/json,video/mp4,*/*");
+        connection.connect();
+        if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) throw new IOException("HTTP " + connection.getResponseCode());
+        return connection;
+    }
+
+    private String readText(InputStream input) throws IOException {
+        try (InputStream stream = input) {
+            byte[] buffer = new byte[4096];
+            StringBuilder text = new StringBuilder();
+            int count;
+            while ((count = stream.read(buffer)) != -1) text.append(new String(buffer, 0, count, java.nio.charset.StandardCharsets.UTF_8));
+            return text.toString();
+        }
     }
 
     private void finishStartup() {
@@ -119,7 +202,7 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.1.4");
+        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.1.5");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
