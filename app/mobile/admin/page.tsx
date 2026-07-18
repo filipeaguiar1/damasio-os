@@ -76,7 +76,7 @@ export default function MobileAdminApp() {
   const actions=[
     {href:"/mobile/admin/command",icon:"⌁",label:"Command",detail:"Live operation"},
     {href:"/mobile/admin/routes",icon:"↗",label:"Routes",detail:"Dispatch crews"},
-    {href:"/mobile/admin/routes",icon:"□",label:"Schedule",detail:"Plan the day"},
+    {href:"/mobile/admin/schedule",icon:"□",label:"Schedule",detail:"Plan the day"},
     {href:"/mobile/admin/customers",icon:"◎",label:"Customers",detail:"Homes & contacts"},
     {href:"/mobile/admin/tasks",icon:"✓",label:"Tasks",detail:"Return visits"},
     {href:"/mobile/admin/alerts",icon:"!",label:"Alerts",detail:`${data.alerts} unread`},
@@ -112,8 +112,8 @@ export default function MobileAdminApp() {
       </section>
 
       <section className="mobile-stats-card">
-        <Link href="/mobile/admin/routes"><span>Open</span><strong>{data.open}</strong><small>homes</small></Link>
-        <Link href="/mobile/admin/routes"><span>Done</span><strong>{data.done}</strong><small>completed</small></Link>
+        <Link href="/mobile/admin/status/open"><span>Open</span><strong>{data.open}</strong><small>homes</small></Link>
+        <Link href="/mobile/admin/status/done"><span>Done</span><strong>{data.done}</strong><small>completed</small></Link>
         <Link href="/mobile/admin/tasks"><span>Tasks</span><strong>{data.returnVisits}</strong><small>follow-up</small></Link>
         <Link href="/mobile/admin/alerts"><span>Alerts</span><strong>{data.alerts}</strong><small>unread</small></Link>
       </section>

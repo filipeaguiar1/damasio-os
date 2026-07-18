@@ -2,7 +2,7 @@
 import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
 import {AdminShell} from "@/components/admin/AdminShell";
-import {DAMASIO_CREWS,DAMASIO_SYNC_EVENT,Lead,calculateVisitStatus,getActivityLogs,getEmployeeTasks,getExpenses,getInvoices,getLeads,getNotifications,getOperationsIntelligence,getPendingReviewCount,getSessions,seedDemoExpenses,seedDemoLeads,seedEmployeeTasks} from "@/lib/storage";
+import {DAMASIO_CREWS,DAMASIO_SYNC_EVENT,Lead,ActivityLog,calculateVisitStatus,getActivityLogs,getEmployeeTasks,getExpenses,getInvoices,getLeads,getNotifications,getOperationsIntelligence,getPendingReviewCount,getSessions,getWorkflowEvents,seedDemoExpenses,seedDemoLeads,seedEmployeeTasks} from "@/lib/storage";
 
 function money(n:number){return `$${n.toLocaleString(undefined,{maximumFractionDigits:0})}`}
 function todayKey(){return new Date().toISOString().slice(0,10)}
@@ -11,6 +11,7 @@ function serviceHref(id:string){return `/employee/property/${id}?admin=1`}
 export default function Command(){
   const[leads,setLeads]=useState<Lead[]>([]);
   const[tick,setTick]=useState(0);
+  const[selectedLog,setSelectedLog]=useState<ActivityLog|null>(null);
   function refresh(){setLeads(getLeads());setTick(v=>v+1)}
   useEffect(()=>{seedDemoLeads();refresh();const on=()=>refresh();window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.addEventListener("storage",on);const t=setInterval(refresh,5000);return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);clearInterval(t)}},[]);
   function seed(){seedDemoLeads(true);seedEmployeeTasks();seedDemoExpenses();refresh()}
@@ -33,6 +34,8 @@ export default function Command(){
     const health=leads.map(l=>{const taskCount=tasks.filter(t=>t.leadId===l.id&&t.status!=="resolved").length;const visitStatus=calculateVisitStatus(l);let score=100;if(taskCount)score-=35;if(visitStatus==="overdue")score-=30;if(l.feedback&&l.feedback.rating<4)score-=25;if(l.paymentStatus==="pending")score-=10;return{lead:l,score,status:score>=75?"Healthy":score>=45?"Watch":"Risk"}}).sort((a,b)=>a.score-b.score).slice(0,6);
     return{todayJobs,done,running,overdue,openTasks,adminReviewTasks,pendingFeedback,pendingPayments,crewRows,health,expenses,notifications:getNotifications().filter(n=>!n.read),intelligence:getOperationsIntelligence()};
   },[leads,tick]);
+  const selectedLead=selectedLog?leads.find(lead=>selectedLog.target===lead.id||selectedLog.target===lead.name||selectedLog.details.includes(lead.name)||selectedLog.details.includes(lead.address)):undefined;
+  const selectedWorkflow=selectedLog?getWorkflowEvents().filter(event=>(selectedLead&&event.entityId===selectedLead.id)||event.entityId===selectedLog.target).sort((a,b)=>Math.abs(new Date(a.createdAt).getTime()-new Date(selectedLog.createdAt).getTime())-Math.abs(new Date(b.createdAt).getTime()-new Date(selectedLog.createdAt).getTime()))[0]:undefined;
 
   return <AdminShell active="Command">
     <div className="business-hero">
@@ -73,8 +76,9 @@ export default function Command(){
       </section>
       <section className="card ops-panel">
         <div className="table-head"><div><h2>Activity Timeline</h2><p className="section-intro">Recent operational changes.</p></div><Link href="/admin/logs" className="btn btn-outline dark-safe">Logs</Link></div>
-        {getActivityLogs().slice(0,6).map(l=><div className="visit-row" key={l.id}><span className="dot booked"></span><div><strong>{l.action}</strong><p>{new Date(l.createdAt).toLocaleString()} · {l.details}</p></div></div>)}
+        {getActivityLogs().slice(0,6).map(l=><button type="button" className="visit-row command-log-row" key={l.id} onClick={()=>setSelectedLog(l)}><span className="dot booked"></span><div><strong>{l.action}</strong><p>{new Date(l.createdAt).toLocaleString()} · {l.details}</p></div><span className="pill">Details</span></button>)}
       </section>
     </div>
+    {selectedLog&&<div className="master-modal-backdrop" onMouseDown={()=>setSelectedLog(null)}><section className="master-modal" role="dialog" aria-modal="true" onMouseDown={event=>event.stopPropagation()}><header><h3>Change details</h3><button onClick={()=>setSelectedLog(null)}>×</button></header><div className="master-company-detail"><div className="master-detail-summary"><span className="active">{selectedLog.action}</span><strong>{selectedLog.actor}</strong><small>{new Date(selectedLog.createdAt).toLocaleString()}</small></div><section><h4>Affected record</h4><div className="master-person"><div><strong>{selectedLead?.name||selectedLog.target}</strong><small>{selectedLead?.address||"No property address linked"}</small></div></div></section><section><h4>Recorded change</h4><p className="master-muted">{selectedLog.details}</p></section>{selectedWorkflow&&<section><h4>Workflow transition</h4><div className="command-change-grid"><div><small>Before</small><strong>{selectedWorkflow.fromStage||"Not recorded"}</strong></div><b>→</b><div><small>After</small><strong>{selectedWorkflow.toStage}</strong></div></div><p className="master-muted">{selectedWorkflow.note}</p></section>}<div className="master-detail-actions">{selectedLead&&<Link className="secondary command-modal-link" href={`/admin/customers/${selectedLead.id}?tab=history`}>Open property history</Link>}<button onClick={()=>setSelectedLog(null)}>Close</button></div></div></section></div>}
   </AdminShell>
 }
