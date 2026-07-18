@@ -7,6 +7,7 @@ import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
 import {MobileBackButton} from "@/components/mobile/MobileBackButton";
 import {MobileAdminNav} from "@/components/mobile/MobileAdminNav";
 import {DAMASIO_SYNC_EVENT,EmployeeTask,Lead,assignEmployeeTask,createAdminTask,getAssignableWorkers,getEmployeeTasks,getLeads,resolveEmployeeTask,unassignEmployeeTask} from "@/lib/storage";
+import {loadUnifiedTasks,resolveLiveTask,usesLiveTaskBackend} from "@/lib/services/liveTaskService";
 
 type Filter="open"|"assigned"|"urgent"|"completed"|"history";
 const today=()=>new Date().toISOString().slice(0,10);
@@ -17,7 +18,7 @@ export default function MobileReturnVisits(){
   const[tasks,setTasks]=useState<EmployeeTask[]>([]);const[leads,setLeads]=useState<Lead[]>([]);const[filter,setFilter]=useState<Filter>("open");
   const[expanded,setExpanded]=useState("");const[createOpen,setCreateOpen]=useState(false);const[message,setMessage]=useState("");
   const[worker,setWorker]=useState("");const[date,setDate]=useState(today());const[leadId,setLeadId]=useState("");const[title,setTitle]=useState("Return Visit");const[description,setDescription]=useState("");const[priority,setPriority]=useState<EmployeeTask["priority"]>("normal");
-  function refresh(){setTasks(getEmployeeTasks());setLeads(getLeads())}
+  function refresh(){setLeads(getLeads());if(usesLiveTaskBackend())void loadUnifiedTasks().then(setTasks).catch(error=>setMessage(error instanceof Error?error.message:"Task history is temporarily unavailable."));else setTasks(getEmployeeTasks())}
   useEffect(()=>{refresh();const update=()=>refresh();window.addEventListener(DAMASIO_SYNC_EVENT,update as EventListener);window.addEventListener("storage",update);return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,update as EventListener);window.removeEventListener("storage",update)}},[]);
   const workers=useMemo(()=>getAssignableWorkers(),[tasks,leads]);
   const counts={open:tasks.filter(t=>t.status!=="resolved").length,assigned:tasks.filter(t=>t.status!=="resolved"&&assigned(t)).length,urgent:tasks.filter(t=>t.status!=="resolved"&&t.priority==="urgent").length,completed:tasks.filter(t=>t.status==="completed").length,history:tasks.filter(t=>t.status==="resolved").length};
@@ -25,7 +26,7 @@ export default function MobileReturnVisits(){
   function openAssign(task:EmployeeTask){setExpanded(expanded===task.id?"":task.id);setWorker(assigned(task)?task.assignedTo:workers[0]||"");setDate(task.scheduledDate||today());setMessage("")}
   function saveAssignment(task:EmployeeTask){if(!worker){setMessage("Choose an Employee or Crew.");return}if(assignEmployeeTask(task.id,worker,date)){setMessage(`Return visit sent to ${worker}.`);setExpanded("");refresh()}else setMessage("Unassign this return visit before choosing another Employee.")}
   function removeAssignment(task:EmployeeTask){if(!window.confirm("Return this visit to the Admin queue?"))return;unassignEmployeeTask(task.id,"Admin removed the mobile assignment.");setExpanded("");refresh()}
-  function resolve(task:EmployeeTask){if(task.status!=="completed"){setMessage("The Employee must complete the return visit before Admin resolves it.");return}if(!window.confirm("Resolve and move this return visit to History?"))return;resolveEmployeeTask(task.id,"Resolved from Mobile Admin.","Admin");refresh()}
+  async function resolve(task:EmployeeTask){if(task.status!=="completed"){setMessage("The Employee must complete the return visit before Admin resolves it.");return}if(!window.confirm("Resolve and move this return visit to History?"))return;try{if(usesLiveTaskBackend())await resolveLiveTask(task.id,"Resolved from Mobile Admin.");else resolveEmployeeTask(task.id,"Resolved from Mobile Admin.","Admin");refresh()}catch(error){setMessage(error instanceof Error?error.message:"Task could not be resolved.")}}
   function create(){if(!leadId){setMessage("Choose a property.");return}const task=createAdminTask({leadId,title:title.trim()||"Return Visit",description:description.trim()||"Return visit required.",priority,assignedTo:"Admin",scheduledDate:undefined});if(!task){setMessage("The return visit could not be created.");return}setCreateOpen(false);setDescription("");setFilter("open");setMessage("Return visit created in the Admin queue.");refresh()}
   const filters:[[Filter,string,number],...Array<[Filter,string,number]>]=[["open","Open",counts.open],["assigned","Assigned",counts.assigned],["urgent","Urgent",counts.urgent],["completed","Done",counts.completed],["history","History",counts.history]];
   return <MobileRoleGuard allowed={["admin","manager"]}><main className="mobile-app-shell role-mobile-shell mobile-native-subpage">

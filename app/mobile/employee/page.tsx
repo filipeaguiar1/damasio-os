@@ -38,6 +38,7 @@ import {
 } from "@/lib/storage";
 import { changeVisitStatus } from "@/lib/services/schedulingService";
 import {signOutAccount} from "@/lib/auth/signOut";
+import {completeLiveTask,loadUnifiedTasks,startLiveTask,uploadLiveTaskPhotos,usesLiveTaskBackend} from "@/lib/services/liveTaskService";
 
 function mapsHref(address:string){return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`}
 function statusLabel(lead:Lead, session?:ReturnType<typeof getSessionForLead>){return lead.status==="completed"?"Done":session?.status==="skipped"?"Skipped":"Open"}
@@ -85,6 +86,11 @@ export default function MobileEmployeeApp(){
   const [crew,setCrew]=useState(profile.crew||"Crew A");
   const profilePhotoInput=useRef<HTMLInputElement|null>(null);
   const [mapContext,setMapContext]=useState<EmployeeRouteMapContext>({routeId:null,stops:[]});
+  const [liveTasks,setLiveTasks]=useState<import("@/lib/storage").EmployeeTask[]>([]);
+
+  async function refreshTasks(){
+    try{setLiveTasks(await loadUnifiedTasks())}catch(error){setError(error instanceof Error?error.message:"Task history is temporarily unavailable.")}
+  }
 
   function refresh(){
     try{
@@ -94,6 +100,7 @@ export default function MobileEmployeeApp(){
       setError("");
       setSelectedId(current=>current&&rows.some(row=>row.id===current)?current:(rows[0]?.id||""));
       setRouteReload(value=>value+1);
+      void refreshTasks();
     }catch{
       setError("Route data is temporarily unavailable.");
       setLeads([]);
@@ -128,9 +135,9 @@ export default function MobileEmployeeApp(){
     return session.durationSeconds||0;
   },[session,tick,selected?.visitDurationSeconds,selected?.visitStartedAt,selected?.visitFinishedAt]);
   const tasks=useMemo(()=>{
-    try{return getEmployeeTasks().filter(t=>["assigned","in_progress","completed","resolved"].includes(t.status)&&(t.assignedTo===profile.name||t.assignedTo===crew))}
+    try{const source=usesLiveTaskBackend()?liveTasks:getEmployeeTasks();return source.filter(t=>["assigned","in_progress","completed","resolved"].includes(t.status)&&(usesLiveTaskBackend()||t.assignedTo===profile.name||t.assignedTo===crew))}
     catch{return []}
-  },[leads,profile.name,crew,tick]);
+  },[leads,liveTasks,profile.name,crew,tick]);
   const selectedTask=useMemo(()=>tasks.find(task=>task.id===selectedTaskId)||null,[tasks,selectedTaskId]);
   const taskProperty=useMemo(()=>selectedTask?leads.find(lead=>lead.id===selectedTask.leadId)||null:null,[selectedTask,leads]);
   const done=route.filter(l=>l.status==="completed").length;
@@ -264,7 +271,7 @@ export default function MobileEmployeeApp(){
     setBusy(true); setError("");
     try{const images=isSupabaseConfigured()&&selected.canonicalVisitId?await uploadVisitServicePhotos(selected.canonicalVisitId,files):await Promise.all(files.map(f=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||""));reader.onerror=()=>reject(new Error("read failed"));reader.readAsDataURL(f)})));saveServicePhotos(selected.id,[...(selected.photos||[]),...images].slice(0,5));refresh();setMessage("Service photos saved in this visit history.")}catch{setError("Photo could not be saved.")}finally{setBusy(false);e.target.value=""}
   }
-  async function uploadTaskEvidence(e:ChangeEvent<HTMLInputElement>){if(!selectedTask)return;const files=Array.from(e.target.files||[]).slice(0,Math.max(0,5-(selectedTask.completionPhotos?.length||0)));setBusy(true);setError("");try{const images=await Promise.all(files.map(file=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||""));reader.onerror=()=>reject(new Error("read failed"));reader.readAsDataURL(file)})));saveEmployeeTaskPhotos(selectedTask.id,images);refresh();setMessage("Task evidence saved.")}catch{setError("Task photos could not be saved.")}finally{setBusy(false);e.target.value=""}}
+  async function uploadTaskEvidence(e:ChangeEvent<HTMLInputElement>){if(!selectedTask)return;const files=Array.from(e.target.files||[]).slice(0,Math.max(0,5-(selectedTask.completionPhotos?.length||0)));setBusy(true);setError("");try{if(usesLiveTaskBackend())await uploadLiveTaskPhotos(selectedTask.id,files,"completion");else{const images=await Promise.all(files.map(file=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||""));reader.onerror=()=>reject(new Error("read failed"));reader.readAsDataURL(file)})));saveEmployeeTaskPhotos(selectedTask.id,images)}await refreshTasks();refresh();setMessage("Task evidence saved.")}catch(error){setError(error instanceof Error?error.message:"Task photos could not be saved.")}finally{setBusy(false);e.target.value=""}}
 
   return <MobileRoleGuard allowed={["employee"]}><main className="mobile-app-shell">
     <header className="mobile-topbar employee-mobile-topbar">
@@ -389,7 +396,7 @@ export default function MobileEmployeeApp(){
       <section className="employee-image-section"><strong>Property and customer images</strong><div>{[taskProperty?.propertyPhoto,...(taskProperty?.photos||[])].filter(Boolean).map((photo,index)=><img key={index} src={photo} alt={`Task reference ${index+1}`}/>)}{!taskProperty?.propertyPhoto&&!(taskProperty?.photos?.length)&&<span className="mobile-property-no-images">No customer images attached</span>}</div></section>
       {selectedTask.requestPhotos?.length?<section className="employee-image-section"><strong>Customer complaint evidence</strong><div>{selectedTask.requestPhotos.map((photo,index)=><img key={index} src={photo} alt={`Customer evidence ${index+1}`}/>)}</div></section>:null}
       <section className="employee-image-section"><strong>Task completion photos</strong><div>{selectedTask.completionPhotos?.map((photo,index)=><img key={index} src={photo} alt={`Task completion ${index+1}`}/>)}{!selectedTask.completionPhotos?.length&&<span className="mobile-property-no-images">Add photos showing the completed correction.</span>}</div><input ref={taskPhotoInput} type="file" accept="image/*" capture="environment" multiple hidden onChange={uploadTaskEvidence}/><button className="mobile-outline" disabled={busy||(selectedTask.completionPhotos?.length||0)>=5} onClick={()=>taskPhotoInput.current?.click()}>Take / Upload Task Photo ({selectedTask.completionPhotos?.length||0}/5)</button></section>
-      <div className="mobile-action-grid employee-task-actions"><button className="mobile-primary" disabled={busy||selectedTask.status==="in_progress"} onClick={()=>{updateEmployeeTaskStatus(selectedTask.id,"in_progress");setMessage("Task started.");refresh()}}>Start Task</button><button className="mobile-finish" disabled={busy||selectedTask.status!=="in_progress"} onClick={()=>{if(window.confirm("Mark this return Task as completed and send it to Admin review?")){updateEmployeeTaskStatus(selectedTask.id,"completed","Return Task completed from Employee mobile app",profile.name);setTab("issues");refresh()}}}>Complete Task</button></div>
+      <div className="mobile-action-grid employee-task-actions"><button className="mobile-primary" disabled={busy||selectedTask.status==="in_progress"} onClick={async()=>{setBusy(true);setError("");try{if(usesLiveTaskBackend())await startLiveTask(selectedTask.id);else updateEmployeeTaskStatus(selectedTask.id,"in_progress");await refreshTasks();setMessage("Task started.");refresh()}catch(error){setError(error instanceof Error?error.message:"Task could not be started.")}finally{setBusy(false)}}}>Start Task</button><button className="mobile-finish" disabled={busy||selectedTask.status!=="in_progress"} onClick={async()=>{if(!window.confirm("Mark this return Task as completed and send it to Admin review?"))return;setBusy(true);setError("");try{if(usesLiveTaskBackend())await completeLiveTask(selectedTask.id,"Return Task completed from Employee mobile app");else updateEmployeeTaskStatus(selectedTask.id,"completed","Return Task completed from Employee mobile app",profile.name);await refreshTasks();setTab("issues");refresh()}catch(error){setError(error instanceof Error?error.message:"Task could not be completed.")}finally{setBusy(false)}}}>Complete Task</button></div>
       {message&&<p className="mobile-message">{message}</p>}
     </section>}
 
