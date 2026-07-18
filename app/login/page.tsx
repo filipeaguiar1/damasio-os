@@ -53,8 +53,8 @@ export default function LoginPage(){
 
   return <main className="auth-page">
     <section className="auth-card">
-      <div className="season-title auth-logo"><span>DAMASIO</span><strong>OS</strong></div>
-      <span className="eyebrow">Damasio OS</span>
+      <div className="season-title auth-logo"><span>4EVER</span><strong>SEASONS</strong></div>
+      <span className="eyebrow">4Ever Seasons</span>
       <h1>Sign in</h1>
       <p>The company signup/onboarding screen was removed for now. We will keep the system simple, connect the database first, then add real onboarding later.</p>
       <label>Email<input value={email} onChange={e=>setEmail(e.target.value)} placeholder="admin@company.com" /></label>

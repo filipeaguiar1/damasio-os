@@ -5,10 +5,10 @@ export function Header() {
     <header className="header">
       <div className="container header-inner">
         <Link className="brand" href="/">
-  <img src="/logo.png" alt="Damasio Seasons" className="brand-logo" />
+  <img src="/logo.png" alt="4Ever Seasons" className="brand-logo" />
 
   <div className="brand-text">
-    <div className="brand-title">Damasio Seasons</div>
+    <div className="brand-title">4Ever Seasons</div>
     <div className="brand-sub">Property Maintenance</div>
   </div>
 </Link>

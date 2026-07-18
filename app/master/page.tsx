@@ -16,7 +16,7 @@ type Audit = { id:string; action:string; company_id?:string; details?:Record<str
 type Profile = { id:string; role:string; full_name?:string; email?:string };
 
 const DEMO_COMPANIES:Company[]=[
-  {id:"demo-company",name:"Damasio Seasons",slug:"damasio-seasons",active:true,plan_name:"Professional",contact_email:"admin@damasioos.demo"},
+  {id:"demo-company",name:"4Ever Seasons",slug:"damasio-seasons",active:true,plan_name:"Professional",contact_email:"admin@damasioos.demo"},
   {id:"demo-company-2",name:"Green North Landscaping",slug:"green-north",active:true,plan_name:"Standard",contact_email:"owner@greennorth.demo"},
 ];
 const DEMO_MEMBERS:CompanyMember[]=[
@@ -150,9 +150,9 @@ export default function MasterPage(){
   }
   async function signOut(){if(isDemo)clearDemoSession();else{const supabase=getSupabaseBrowserClient() as any;await supabase.auth.signOut()}router.replace("/login")}
 
-  if(loading)return <main className="master-gate"><div className="master-gate-card"><strong>Damasio OS</strong><p>{message}</p></div></main>;
+  if(loading)return <main className="master-gate"><div className="master-gate-card"><strong>4Ever Seasons</strong><p>{message}</p></div></main>;
   return <main className="master-shell">
-    <aside className="master-sidebar"><div><span className="master-kicker">CONTROL PLANE</span><h1>Damasio <b>Master</b></h1></div><nav>
+    <aside className="master-sidebar"><div><span className="master-kicker">CONTROL PLANE</span><h1>4Ever Seasons <b>Master</b></h1></div><nav>
       <button className={tab==="companies"?"active":""} onClick={()=>setTab("companies")}>Companies <span>{activeCompanies.length}</span></button>
       <button className={tab==="trash"?"active":""} onClick={()=>setTab("trash")}>Trash <span>{trashedCompanies.length}</span></button>
       <button className={tab==="leads"?"active":""} onClick={()=>setTab("leads")}>Lead Center <span>{leads.length}</span></button>

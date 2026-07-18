@@ -238,7 +238,7 @@ export default function EmployeeRoutePage(){
 
   return <div className="field-shell">
     <div className="field-topbar">
-      <div className="field-brand-mini"><div className="field-brand-mark">D</div><div>Damasio Field</div></div>
+      <div className="field-brand-mini"><div className="field-brand-mark">4</div><div>4Ever Seasons Field</div></div>
       <div className="topbar-actions">
         <div className="notification-wrap"><button className="notification-button" onClick={()=>{setNotificationsSeen(true);setNotificationOpen(!notificationOpen)}}>🔔{unreadIssues>0&&<span className="notification-badge">{unreadIssues}</span>}</button>{notificationOpen&&<div className="notification-popover field"><strong>Notifications</strong>{openTasks.length===0?<p>No notifications right now.</p>:openTasks.map(t=><Link key={t.id} href={`/employee/property/${t.leadId}`}>• {t.title}<br/><small>{t.customer}</small></Link>)}</div>}</div>
         <div className="profile-menu-wrap">

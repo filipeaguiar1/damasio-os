@@ -2,10 +2,10 @@ export type DemoRole = "master" | "admin" | "employee" | "customer";
 export type DemoSession = { role: DemoRole; name: string; email: string; companyId: string; companyName: string };
 
 export const DEMO_SESSIONS: Record<DemoRole, DemoSession> = {
-  master: { role: "master", name: "Filipe Damasio", email: "master@damasioos.demo", companyId: "master-control-plane", companyName: "Damasio OS" },
-  admin: { role: "admin", name: "Filipe Damasio", email: "admin@damasioos.demo", companyId: "demo-company", companyName: "Damasio Seasons" },
-  employee: { role: "employee", name: "Field Employee", email: "employee@damasioos.demo", companyId: "demo-company", companyName: "Damasio Seasons" },
-  customer: { role: "customer", name: "Customer Demo", email: "customer@damasioos.demo", companyId: "demo-company", companyName: "Damasio Seasons" },
+  master: { role: "master", name: "Filipe Damasio", email: "master@damasioos.demo", companyId: "master-control-plane", companyName: "4Ever Seasons" },
+  admin: { role: "admin", name: "Filipe Damasio", email: "admin@damasioos.demo", companyId: "demo-company", companyName: "4Ever Seasons" },
+  employee: { role: "employee", name: "Field Employee", email: "employee@damasioos.demo", companyId: "demo-company", companyName: "4Ever Seasons" },
+  customer: { role: "customer", name: "Customer Demo", email: "customer@damasioos.demo", companyId: "demo-company", companyName: "4Ever Seasons" },
 };
 
 export function getRoleHome(role: DemoRole){

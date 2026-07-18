@@ -39,7 +39,7 @@ export default function Command(){
 
   return <AdminShell active="Command">
     <div className="business-hero">
-      <div><span className="eyebrow">Damasio OS V44</span><h1>Smart Operations Command Center</h1><p>One screen for today’s houses, live crews, overdue work, return visits, feedback and money.</p></div>
+      <div><span className="eyebrow">4Ever Seasons V44</span><h1>Smart Operations Command Center</h1><p>One screen for today’s houses, live crews, overdue work, return visits, feedback and money.</p></div>
       <div className="hero-actions"><button className="btn btn-white" onClick={seed}>Load Demo</button><Link className="btn btn-primary" href="/admin/schedule">Create Route</Link></div>
     </div>
 

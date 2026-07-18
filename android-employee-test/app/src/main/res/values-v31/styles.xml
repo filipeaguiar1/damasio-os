@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:navigationBarColor">#071F18</item>
+        <item name="android:statusBarColor">#043D2E</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">#043D2E</item>
+        <item name="android:windowSplashScreenBackground">#043D2E</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/transparent_splash_icon</item>
+    </style>
+</resources>

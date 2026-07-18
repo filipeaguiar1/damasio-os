@@ -4,8 +4,8 @@
   "description": "Four-season property care and field operations.",
   "start_url": "/mobile",
   "display": "standalone",
-  "background_color": "#063b62",
-  "theme_color": "#063b62",
+  "background_color": "#043d2e",
+  "theme_color": "#043d2e",
   "orientation": "portrait-primary",
   "icons": [],
   "scope": "/"

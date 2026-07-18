@@ -16,8 +16,8 @@ export function PortalShell({children,active,type}:{children:React.ReactNode;act
   return <div className={`admin-pro-shell portal-pro-shell ${type==="Employee"?"employee-portal-shell":"customer-portal-shell"}`}>
     <aside className={`pro-sidebar ${mobileMenuOpen?"mobile-menu-open":""}`}>
       <button type="button" className="mobile-menu-close" onClick={()=>setMobileMenuOpen(false)} aria-label="Close menu">×</button>
-      <Link href={base} className="season-logo" aria-label="Damasio Seasons portal">
-        <div className="season-title"><span>DAMASIO</span><strong>SEASONS</strong></div>
+      <Link href={base} className="season-logo" aria-label="4Ever Seasons portal">
+        <div className="season-title"><span>4EVER</span><strong>SEASONS</strong></div>
         <div className="grass-mask" aria-hidden="true"><span></span><span></span><span></span></div>
         <div className="mower-man" aria-hidden="true"><i className="head"></i><i className="body"></i><i className="leg one"></i><i className="leg two"></i><i className="arm"></i><i className="mower"></i></div>
       </Link>

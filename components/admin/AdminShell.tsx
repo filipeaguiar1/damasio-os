@@ -27,8 +27,8 @@ export function AdminShell({children,active}:{children:React.ReactNode;active:st
   return <div className="admin-pro-shell">
     <aside className={`pro-sidebar ${mobileMenuOpen?"mobile-menu-open":""}`}>
       <button type="button" className="mobile-menu-close" onClick={()=>setMobileMenuOpen(false)} aria-label="Close menu">×</button>
-      <Link href="/admin" className="season-logo" aria-label="Damasio Seasons dashboard">
-        <div className="season-title"><span>DAMASIO</span><strong>SEASONS</strong></div>
+      <Link href="/admin" className="season-logo" aria-label="4Ever Seasons dashboard">
+        <div className="season-title"><span>4EVER</span><strong>SEASONS</strong></div>
         <div className="grass-mask" aria-hidden="true"><span></span><span></span><span></span></div>
         <div className="mower-man" aria-hidden="true"><i className="head"></i><i className="body"></i><i className="leg one"></i><i className="leg two"></i><i className="arm"></i><i className="mower"></i></div>
       </Link>
@@ -60,7 +60,7 @@ export function AdminShell({children,active}:{children:React.ReactNode;active:st
         <Link href="/mobile/admin" className="mobile-subpage-back" aria-label="Back to admin home">‹</Link>
         <button type="button" className="hamburger mobile-menu-toggle" onClick={()=>setMobileMenuOpen(true)} aria-label="Open menu">☰</button>
         <span className="mobile-subpage-title"><strong>{active}</strong><small>Admin workspace</small></span>
-        <Link href="/admin/leads" className="topbar-pill">🌿 Damasio OS V51.3</Link>
+        <Link href="/admin/leads" className="topbar-pill">🌿 4Ever Seasons V51.3</Link>
         <div className="topbar-spacer"></div>
         <Link href="/admin/customers" className="top-icon" aria-label="Search customers">⌕</Link>
         <Link href="/admin/alerts" onClick={openNotifications} className="top-icon notify" aria-label="Open notifications">♢{unread>0&&<b>{unread}</b>}</Link>

@@ -24,10 +24,10 @@ export function generateInsights(leads: Lead[], expenses: Expense[], recurrences
 }
 
 export function generateFollowUpMessage(customerName: string, service: string) {
-  return `Hi ${customerName}, this is Damasio Seasons. Thanks for requesting a quote for ${service}. I wanted to follow up and see if you would like us to schedule the service. We can also answer any questions about pricing, timing, or payment options.`;
+  return `Hi ${customerName}, this is 4Ever Seasons. Thanks for requesting a quote for ${service}. I wanted to follow up and see if you would like us to schedule the service. We can also answer any questions about pricing, timing, or payment options.`;
 }
 
 export function generateSeasonalCampaign(season: "spring" | "fall") {
-  if (season === "spring") return "Hi, this is Damasio Seasons. Spring Cleanup season is starting soon. We can help clean up leaves, garden beds, edges, and prepare your property for the season. Reply YES if you would like a quote.";
-  return "Hi, this is Damasio Seasons. Fall Cleanup season is coming up. We can help remove leaves, clean garden beds, and prepare your property before winter. Reply YES if you would like a quote.";
+  if (season === "spring") return "Hi, this is 4Ever Seasons. Spring Cleanup season is starting soon. We can help clean up leaves, garden beds, edges, and prepare your property for the season. Reply YES if you would like a quote.";
+  return "Hi, this is 4Ever Seasons. Fall Cleanup season is coming up. We can help remove leaves, clean garden beds, and prepare your property before winter. Reply YES if you would like a quote.";
 }

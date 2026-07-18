@@ -137,7 +137,7 @@ export default function MobileCustomerApp(){
 
           {sentiment==="like"&&<div className="mobile-tip-box">
             <strong>Tip (optional)</strong>
-            <p>Payment by saved card or balance will be enabled with Damasio Pay in the future.</p>
+            <p>Payment by saved card or balance will be enabled with 4Ever Seasons Pay in the future.</p>
             <div className="mobile-tip-grid">
               {[5,10,20].map(value=><button type="button" key={value} className={tip===value?"active":""} onClick={()=>{setTip(value);setCustomTip("")}}>${value}</button>)}
               <button type="button" className={tip===0&&customTip!==""?"active":""} onClick={()=>setTip(0)}>Custom</button>
@@ -156,7 +156,7 @@ export default function MobileCustomerApp(){
           <span className={sentiment==="like"?"confirm-icon like":"confirm-icon dislike"}>{sentiment==="like"?"👍":"👎"}</span>
           <h2 id="confirm-title">Confirm feedback</h2>
           <p>{sentiment==="like"?"You are approving today's service.":createTask?"Your feedback will be sent and a Task will be created for Admin.":"Your feedback will be sent to Admin without creating a Task."}</p>
-          {finalTip>0&&<div className="mobile-confirm-amount"><span>Tip selected</span><strong>${finalTip.toFixed(2)}</strong><small>No charge is processed until Damasio Pay is activated.</small></div>}
+          {finalTip>0&&<div className="mobile-confirm-amount"><span>Tip selected</span><strong>${finalTip.toFixed(2)}</strong><small>No charge is processed until 4Ever Seasons Pay is activated.</small></div>}
           <div className="mobile-action-grid"><button className="mobile-outline" disabled={busy} onClick={()=>setConfirming(false)}>Cancel</button><button className={createTask?"mobile-task-submit":"mobile-primary"} disabled={busy} onClick={submitFeedback}>{busy?"Sending...":"Confirm and send"}</button></div>
         </section>
       </div>}

@@ -91,7 +91,7 @@ public class MainActivity extends Activity {
                 if (isEmployeeUrl(uri)) return false;
                 if ("https".equals(uri.getScheme()) && APP_HOST.equals(uri.getHost())) {
                     view.loadUrl(APP_URL);
-                    Toast.makeText(MainActivity.this, "This link is not available inside Damasio OS.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, "This link is not available inside 4Ever Seasons.", Toast.LENGTH_SHORT).show();
                     return true;
                 }
                 openExternal(uri);

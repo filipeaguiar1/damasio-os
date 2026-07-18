@@ -15,7 +15,7 @@ export default function ProductionReadinessPage() {
       <div className="business-hero">
         <div>
           <span className="eyebrow">V49 Production Readiness</span>
-          <h1>Go-live checklist for turning Damasio OS into a commercial SaaS.</h1>
+          <h1>Go-live checklist for turning 4Ever Seasons into a commercial SaaS.</h1>
           <p>Focus: stability, integration, tenant safety, payments, mobile field testing and operational confidence.</p>
         </div>
         <div className="hero-actions">
