@@ -7,6 +7,7 @@ import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
 import {signOutAccount} from "@/lib/auth/signOut";
 import {MobileBackButton} from "@/components/mobile/MobileBackButton";
 import {MobileAdminNav} from "@/components/mobile/MobileAdminNav";
+import {loadDailyOperations,usesLiveDailyOperations,type DailyOperations} from "@/lib/services/dailyOperationsService";
 
 type MobileAdminData = {
   open: number;
@@ -46,6 +47,7 @@ function readAdminData(): MobileAdminData {
 
 export default function MobileAdminApp() {
   const [refreshKey, setRefreshKey] = useState(0);
+  const [liveOperations,setLiveOperations]=useState<DailyOperations|null>(null);
   const [actionPage,setActionPage]=useState(0);
   const actionScroller=useRef<HTMLDivElement>(null);
 
@@ -56,7 +58,8 @@ export default function MobileAdminApp() {
       // Mobile Admin must always open, even if local demo data is unavailable.
     }
 
-    const refresh = () => setRefreshKey((value) => value + 1);
+    const refresh = () => {setRefreshKey((value) => value + 1);if(usesLiveDailyOperations())void loadDailyOperations().then(setLiveOperations)};
+    refresh();
     window.addEventListener(DAMASIO_SYNC_EVENT, refresh as EventListener);
     window.addEventListener("storage", refresh);
     const timer = window.setInterval(refresh, 5000);
@@ -70,8 +73,9 @@ export default function MobileAdminApp() {
 
   const data = useMemo(() => {
     refreshKey;
+    if(liveOperations){const notes=getNotifications();return{open:liveOperations.summary.homesOpen,done:liveOperations.summary.homesDone,returnVisits:liveOperations.summary.tasksOpen,alerts:notes.filter(note=>!note.read).length,tasks:liveOperations.tasks.filter(task=>!["completed","resolved"].includes(task.status)).slice(0,5).map(task=>({id:task.id,title:task.title,customer:task.customerName,address:task.address,status:task.status}))}}
     return readAdminData();
-  }, [refreshKey]);
+  }, [refreshKey,liveOperations]);
 
   const actions=[
     {href:"/mobile/admin/command",icon:"⌁",label:"Command",detail:"Live operation"},
