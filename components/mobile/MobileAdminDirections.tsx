@@ -2,4 +2,12 @@
 import {useEffect,useState} from "react";
 import {usePathname} from "next/navigation";
 import {getCustomerPropertyDirectory} from "@/lib/services/customerPropertyService";
-export function MobileAdminDirections(){const pathname=usePathname();const[address,setAddress]=useState("");const id=pathname.match(/^\/mobile\/admin\/customers\/([^/]+)$/)?.[1];useEffect(()=>{let active=true;if(!id){setAddress("");return}void getCustomerPropertyDirectory().then(records=>{const record=records.find(item=>item.propertyId===id||item.customerId===id);if(active)setAddress(record?[record.addressLine1,record.city,record.province,record.postalCode].filter(Boolean).join(", "):"")}).catch(()=>active&&setAddress(""));return()=>{active=false}},[id]);if(!id||!address)return null;return <a className="mobile-admin-directions-fab" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`} target="_blank" rel="noreferrer"><span>↗</span>Get directions</a>}
+
+export function MobileAdminDirections(){
+  const pathname=usePathname();
+  const[address,setAddress]=useState("");
+  const id=pathname.match(/^\/mobile\/admin\/customers\/([^/]+)$/)?.[1];
+  useEffect(()=>{let active=true;if(!id){setAddress("");return}void getCustomerPropertyDirectory().then(records=>{const record=records.find(item=>item.propertyId===id||item.customerId===id);if(active)setAddress(record?[record.addressLine1,record.city,record.province,record.postalCode].filter(Boolean).join(", "):"")}).catch(()=>active&&setAddress(""));return()=>{active=false}},[id]);
+  if(!id||!address)return null;
+  return <a className="mobile-admin-directions-fab" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`} target="_blank" rel="noreferrer" aria-label="Get directions to this property"><span>↗</span>Get directions</a>
+}
