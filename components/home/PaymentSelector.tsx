@@ -40,14 +40,9 @@ const methodCopy: Record<PaymentMethod, { title: string; text: string; note: str
 };
 
 export function PaymentSelector({
-  leadId,
-  amount,
-  customerEmail,
-  customerName,
   onSelected
 }: Props) {
   const [selected, setSelected] = useState<PaymentMethod | null>(null);
-  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
   async function choose(method: PaymentMethod) {
@@ -60,38 +55,9 @@ export function PaymentSelector({
       return;
     }
 
-    setLoading(true);
-
-    try {
-      const response = await fetch("/api/stripe/checkout", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          leadId,
-          amount,
-          customerEmail,
-          customerName
-        })
-      });
-
-      const data = await response.json();
-
-      if (data.url) {
-        window.location.href = data.url;
-        return;
-      }
-
-      setMessage(
-        data.message ??
-          "Stripe is not configured yet. Add STRIPE_SECRET_KEY and NEXT_PUBLIC_SITE_URL."
-      );
-    } catch {
-      setMessage("Could not start card checkout. Check Stripe configuration.");
-    } finally {
-      setLoading(false);
-    }
+    // Quotes must first become a server-priced invoice. The checkout endpoint
+    // deliberately rejects browser-provided amounts to prevent price tampering.
+    setMessage("Card payment will be available from your signed-in invoice after the quote is approved.");
   }
 
   return (
@@ -102,7 +68,6 @@ export function PaymentSelector({
             key={method}
             className={selected === method ? "payment-option active" : "payment-option"}
             onClick={() => choose(method)}
-            disabled={loading}
           >
             <strong>{methodCopy[method].title}</strong>
             <small>{methodCopy[method].text}</small>
