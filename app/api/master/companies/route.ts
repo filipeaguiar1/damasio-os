@@ -32,12 +32,13 @@ async function requireMaster(request:NextRequest){
 function slugify(value:string){return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")}
 function failure(error:unknown,status=400){return NextResponse.json({error:error instanceof Error?error.message:"Company creation failed."},{status})}
 function inviteFailureMessage(message?:string){return message?.toLowerCase().includes("rate limit")?"Company saved, but Supabase reached its email sending limit. Wait for the limit to reset or configure custom SMTP, then resend the Admin invitation.":`Company saved, but the Admin invitation was not sent${message?`: ${message}`:"."}`}
+const companyColumns="id,name,slug,active,plan_name,contact_email,referral_code,created_at,deleted_at,purge_after,deletion_reason";
 
 export async function GET(request:NextRequest){
   try{
     const{client}=await requireMaster(request);
     const[companies,leads,requests,audit,admins,employees,customers]=await Promise.all([
-      client.from("organizations").select("id,name,slug,active,plan_name,contact_email,created_at").order("created_at",{ascending:false}),
+      client.from("organizations").select(companyColumns).order("created_at",{ascending:false}),
       client.from("lead_center").select("*").order("created_at",{ascending:false}),
       client.from("master_company_access_requests").select("*").order("created_at",{ascending:false}),
       client.from("master_audit_log").select("*").order("created_at",{ascending:false}).limit(100),
@@ -45,14 +46,14 @@ export async function GET(request:NextRequest){
       client.from("employees").select("id,company_id,organization_id,full_name,email,active"),
       client.from("customers").select("id,company_id,organization_id,full_name,email"),
     ]);
-    const failed=[companies,leads,requests,audit,admins,employees,customers].find(result=>result.error);
-    if(failed?.error)throw new Error(failed.error.message);
+    if(companies.error)throw new Error(companies.error.message);
+    const warnings=[leads.error,requests.error,audit.error,admins.error,employees.error,customers.error].filter(Boolean).map(error=>error!.message);
     const members=[
       ...(admins.data||[]).map((row:any)=>({id:row.id,company_id:row.company_id||row.organization_id,kind:"admin",name:row.full_name,email:row.email,active:row.active})),
       ...(employees.data||[]).map((row:any)=>({id:row.id,company_id:row.company_id||row.organization_id,kind:"employee",name:row.full_name,email:row.email,active:row.active})),
       ...(customers.data||[]).map((row:any)=>({id:row.id,company_id:row.company_id||row.organization_id,kind:"customer",name:row.full_name,email:row.email,active:true})),
     ];
-    return NextResponse.json({companies:companies.data||[],leads:leads.data||[],requests:requests.data||[],audit:audit.data||[],members});
+    return NextResponse.json({companies:companies.data||[],leads:leads.data||[],requests:requests.data||[],audit:audit.data||[],members,warnings});
   }catch(error){
     return failure(error,401);
   }
@@ -61,15 +62,32 @@ export async function GET(request:NextRequest){
 export async function PATCH(request:NextRequest){
   try{
     const{client,masterId}=await requireMaster(request);
-    const body=await request.json() as{id?:string;active?:boolean};
-    if(!body.id||typeof body.active!=="boolean")throw new Error("Company and status are required.");
-    const{data,error}=await client.from("organizations").update({active:body.active,updated_at:new Date().toISOString()}).eq("id",body.id).select("id,name,slug,active,plan_name,contact_email,created_at").single();
+    const body=await request.json() as{id?:string;active?:boolean;action?:"restore"};
+    if(!body.id)throw new Error("Company is required.");
+    if(body.action==="restore"){
+      const{data,error}=await client.rpc("master_restore_company",{p_company_id:body.id,p_master_profile_id:masterId});
+      if(error||!data)throw new Error(error?.message||"Company could not be restored.");
+      return NextResponse.json({company:data,message:"Company restored. Files, accounts and tools were queued for synchronization."});
+    }
+    if(typeof body.active!=="boolean")throw new Error("Company status is required.");
+    const{data,error}=await client.from("organizations").update({active:body.active,updated_at:new Date().toISOString()}).eq("id",body.id).is("deleted_at",null).select(companyColumns).single();
     if(error||!data)throw new Error(error?.message||"Company could not be updated.");
     await client.from("master_audit_log").insert({master_profile_id:masterId,company_id:data.id,action:body.active?"company.activated":"company.deactivated",entity_type:"organization",entity_id:data.id});
     return NextResponse.json({company:data});
   }catch(error){
     return failure(error);
   }
+}
+
+export async function DELETE(request:NextRequest){
+  try{
+    const{client,masterId}=await requireMaster(request);
+    const body=await request.json() as{id?:string;reason?:string};
+    if(!body.id)throw new Error("Choose a company.");
+    const{data,error}=await client.rpc("master_trash_company",{p_company_id:body.id,p_master_profile_id:masterId,p_reason:body.reason||null});
+    if(error||!data)throw new Error(error?.message||"Company could not be moved to trash.");
+    return NextResponse.json({company:data,message:"Company moved to Trash for 60 days. Files, accounts and tools were queued for synchronization."});
+  }catch(error){return failure(error)}
 }
 
 export async function PUT(request:NextRequest){

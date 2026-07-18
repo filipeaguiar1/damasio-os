@@ -97,9 +97,9 @@ export default function Schedule(){
 
   async function resetJob(id:string,name:string){if(!window.confirm(`Remove ${name} from this crew? The customer remains active and returns to Unassigned.`))return;setBusy(true);try{await assignJobToCrew(id,null);setMessage(`${name} returned to Unassigned.`);await refresh()}catch(error){setMessage(error instanceof Error?error.message:"Assignment could not be reset.")}finally{setBusy(false)}}
 
-  return <AdminShell active="Dispatch"><div className="mobile-admin-workspace route-builder-page">
+  return <AdminShell active="Dispatch & Routes"><div className="mobile-admin-workspace route-builder-page">
     <div className="app-top">
-      <div><span className="eyebrow">Customer → Dispatch → Routes</span><h1>Dispatch</h1><p className="section-intro">Assign each active customer to an Employee / Crew. Dates and route order are managed only in Routes.</p></div>
+      <div><span className="eyebrow">Customer → Dispatch → Route</span><h1>Dispatch & Routes</h1><p className="section-intro">Assign houses, choose the Employee and date, optimize the route and publish from one screen.</p></div>
       <div className="toolbar-inline"><CompactFilter label="Find jobs fast"><label><input type="radio" checked={filter==="all"} onChange={()=>setFilter("all")}/> All jobs</label><label><input type="radio" checked={filter==="ready"} onChange={()=>setFilter("ready")}/> Unassigned</label><label><input type="radio" checked={filter==="assigned"} onChange={()=>setFilter("assigned")}/> Assigned</label><label><input type="radio" checked={filter==="crew"} onChange={()=>setFilter("crew")}/> Current crew</label><hr/><label>City<select className="input" value={city} onChange={e=>setCity(e.target.value)}><option value="all">All cities</option>{cities.map(c=><option key={c}>{c}</option>)}</select></label></CompactFilter><button className="btn btn-outline" onClick={()=>void refresh()}>Refresh Database</button><Link className="btn btn-primary" href={`/admin/routes?crew=${encodeURIComponent(crew)}`}>Manage Routes</Link></div>
     </div>
 

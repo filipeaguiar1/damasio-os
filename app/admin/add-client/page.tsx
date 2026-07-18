@@ -5,6 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { GrassHandling, LawnSize, GrassHeight } from "@/lib/storage";
 import { addCustomerWithProperty } from "@/lib/services/customerPropertyService";
 import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
+import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 export default function AddClientPage(){
   const [form,setForm]=useState({
@@ -24,6 +25,7 @@ export default function AddClientPage(){
     accessNotes:""
   });
   const [message,setMessage]=useState("");
+  const [sendInvite,setSendInvite]=useState(true);
 
   function updatePrice(subtotalValue:string){
     const subtotal=Number(subtotalValue||0);
@@ -50,7 +52,13 @@ export default function AddClientPage(){
         frequency:form.service.includes("Biweekly")?"biweekly":form.service.includes("Weekly")?"weekly":form.service.includes("Monthly")?"monthly":"one_time",
         subtotal:Number(form.subtotal||0),
       });
-      setMessage("Client, property and active job saved. It is now available in Dispatch.");
+      if(sendInvite&&form.email&&isSupabaseConfigured()){
+        const supabase=getSupabaseBrowserClient() as any;const{data:session}=await supabase.auth.getSession();const token=session.session?.access_token;
+        if(!token)throw new Error("Client was saved, but your session expired before the invitation was sent.");
+        const response=await fetch("/api/admin/users",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},body:JSON.stringify({fullName:form.name,email:form.email,phone:form.phone,role:"customer"})});
+        const result=await response.json();if(!response.ok)throw new Error(`Client, property and service were saved, but the invitation failed: ${result.error||"unknown error"}`);
+        setMessage(`Client, property, service and price saved across the platform. Invitation sent to ${form.email}.`);
+      }else setMessage("Client, property, service and price saved across Customers, Dispatch, Visits and Payments.");
     } catch (error) {
       setMessage(error instanceof Error ? `Action needed: ${error.message}` : "Could not save client.");
     }
@@ -90,6 +98,8 @@ export default function AddClientPage(){
         <div className="field"><label>Property Alerts</label><textarea className="input" value={form.propertyAlerts} onChange={e=>setForm({...form,propertyAlerts:e.target.value})}/></div>
         <div className="field"><label>Admin Notes</label><textarea className="input" value={form.adminNotes} onChange={e=>setForm({...form,adminNotes:e.target.value})}/></div>
         <div className="field"><label>Customer Notes</label><textarea className="input" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></div>
+
+        <label className="permission-row"><span><strong>Invite customer account</strong><small>Send an activation link and connect this customer to the Customer Portal.</small></span><input type="checkbox" checked={sendInvite} onChange={e=>setSendInvite(e.target.checked)}/></label>
 
         <button className="btn btn-primary" onClick={submit}>Add Client</button>
         {message&&<div className="payment-message">{message}</div>}

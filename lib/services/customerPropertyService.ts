@@ -1,6 +1,6 @@
 import { createCustomerProperty, deleteCustomerRecords, listCustomerProperties, type CreateCustomerPropertyInput, type CustomerPropertyRecord } from "@/lib/repositories/customerPropertyRepository";
 import { createManualCustomer, getLeads, Lead, seedDemoLeads, setLeads } from "@/lib/storage";
-import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { createOperationQuote, updateOperationQuoteStatus } from "@/lib/repositories/operationsRepository";
 import { readDemoSession } from "@/lib/auth/demoAuth";
 
@@ -99,15 +99,13 @@ export async function addCustomerWithProperty(input: CreateCustomerPropertyInput
 
   const record=await createCustomerProperty(input);
   if(input.serviceName){
-    const supabase=getSupabaseBrowserClient();
-    const {error}=await supabase.rpc("create_job_for_customer_property" as never,{
-      p_customer_id:record.customerId,p_property_id:record.propertyId,p_service_name:input.serviceName,p_frequency:input.frequency||"one_time"
-    } as never);
-    if(error){
-      const board=await createOperationQuote({customerId:record.customerId,propertyId:record.propertyId,serviceName:input.serviceName,subtotal:input.subtotal||0,notes:input.serviceName});
-      const quote=board.quotes.find(item=>item.propertyId===record.propertyId&&item.status==="draft");
-      if(quote)await updateOperationQuoteStatus(quote.id,"approved");
-    }
+    // The approved quote is the financial source of truth. Its workflow creates
+    // the active job so Customers, Visits, Payments and Employee Dispatch share
+    // the same customer/property/service/value identifiers.
+    const board=await createOperationQuote({customerId:record.customerId,propertyId:record.propertyId,serviceName:input.serviceName,subtotal:input.subtotal||0,notes:`Admin-created customer · ${input.frequency||"one_time"}`});
+    const quote=board.quotes.find(item=>item.propertyId===record.propertyId&&item.status==="draft");
+    if(!quote)throw new Error("Customer and property were saved, but the service quote could not be created.");
+    await updateOperationQuoteStatus(quote.id,"approved");
   }
   return record;
 }

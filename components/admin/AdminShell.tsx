@@ -8,7 +8,7 @@ type NavLink=[label:string,href:string,icon:string];
 const navGroups:{id:string;label:string;icon:string;links:NavLink[]}[]=[
   {id:"overview",label:"Overview",icon:"▦",links:[["Command","/admin/command","⌂"],["Dashboard","/admin","▦"]]},
   {id:"clients",label:"Clients & Sales",icon:"♙",links:[["CRM","/admin/leads","☲"],["Estimates","/admin/estimates","☷"],["Requests","/admin/requests","＋"],["Referrals","/admin/referrals","↗"],["Customers","/admin/customers","♙"]]},
-  {id:"field",label:"Field Operations",icon:"⇄",links:[["Operations","/admin/operations","◎"],["Workflow","/admin/workflow","↻"],["Dispatch","/admin/schedule","⇄"],["Routes","/admin/routes","⌘"],["Map","/admin/map","⌖"],["Calendar","/admin/calendar","▣"],["Crews","/admin/employees","♧"]]},
+  {id:"field",label:"Field Operations",icon:"⇄",links:[["Operations","/admin/operations","◎"],["Workflow","/admin/workflow","↻"],["Dispatch & Routes","/admin/schedule","⇄"],["Map","/admin/map","⌖"],["Calendar","/admin/calendar","▣"],["Employees","/admin/employees","♧"]]},
   {id:"business",label:"Business",icon:"$",links:[["Finance","/admin/finance","$"],["Invoices","/admin/invoices","▤"],["Reports","/admin/performance","▥"],["SaaS","/admin/saas","◈"],["AI","/admin/ai","✦"]]},
   {id:"management",label:"Management",icon:"⚙",links:[["Alerts","/admin/alerts","♢"],["Tasks","/admin/tasks","!"],["Mobile","/admin/mobile","▣"],["Settings","/admin/settings","⚙"],["Users","/admin/users","♙"],["Database","/admin/database","▣"]]},
 ];
@@ -72,7 +72,7 @@ export function AdminShell({children,active}:{children:React.ReactNode;active:st
       <nav className="mobile-shell-bottom" aria-label="Admin subpage navigation">
         <Link href="/mobile/admin"><i>⌂</i><span>Home</span></Link>
         <Link className={active==="Dispatch"||active==="Calendar"?"active":""} href="/admin/schedule"><i>□</i><span>Schedule</span></Link>
-        <Link className={active==="Routes"||active==="Map"?"active":""} href="/admin/routes"><i>↗</i><span>Routes</span></Link>
+        <Link className={active==="Dispatch & Routes"||active==="Map"?"active":""} href="/admin/schedule"><i>↗</i><span>Routes</span></Link>
         <Link className={active==="Tasks"?"active":""} href="/admin/tasks/open"><i>!</i><span>Tasks</span></Link>
         <button type="button" onClick={()=>setMobileMenuOpen(true)}><i>•••</i><span>More</span></button>
       </nav>

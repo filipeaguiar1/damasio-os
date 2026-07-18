@@ -31,8 +31,9 @@ export async function GET(request:NextRequest){
     const{client,companyId}=await companyAdmin(request);
     const{data,error}=await client.from("profiles").select("id,full_name,email,phone,role,active,created_at,manager_permissions").or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).order("created_at",{ascending:false});
     if(error)throw new Error(error.message);
-    const{data:crews}=await client.from("crews").select("id,name").eq("company_id",companyId).eq("active",true).order("name");
-    return NextResponse.json({users:data||[],crews:crews||[]});
+    const[{data:crews},{data:employeeRows}]=await Promise.all([client.from("crews").select("id,name").eq("company_id",companyId).eq("active",true).order("name"),client.from("employees").select("id,profile_id,crew_id").eq("company_id",companyId)]);
+    const employeesByProfile=new Map((employeeRows||[]).map(row=>[row.profile_id,row]));
+    return NextResponse.json({users:(data||[]).map(user=>({...user,employee_id:employeesByProfile.get(user.id)?.id||null,crew_id:employeesByProfile.get(user.id)?.crew_id||null})),crews:crews||[]});
   }catch(error){return failure(error,401)}
 }
 
@@ -80,18 +81,37 @@ export async function POST(request:NextRequest){
 export async function PATCH(request:NextRequest){
   try{
     const{client,companyId,adminId}=await companyAdmin(request);
-    const body=await request.json() as {id?:string;active?:boolean;managerPermissions?:Record<string,string>};
+    const body=await request.json() as {id?:string;active?:boolean;fullName?:string;email?:string;phone?:string;crewId?:string;managerPermissions?:Record<string,string>};
     const id=String(body.id||"");
     if(!id)throw new Error("Choose a user.");
     if(id===adminId&&body.active===false)throw new Error("The active Admin cannot deactivate their own account.");
     const updates:Record<string,unknown>={};
     if(typeof body.active==="boolean")updates.active=body.active;
     if(body.managerPermissions)updates.manager_permissions=body.managerPermissions;
+    if(body.fullName!==undefined){const name=String(body.fullName).trim();if(name.length<2)throw new Error("Enter the employee's full name.");updates.full_name=name;}
+    if(body.email!==undefined){const email=String(body.email).trim().toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new Error("Enter a valid email.");updates.email=email;}
+    if(body.phone!==undefined)updates.phone=String(body.phone).trim()||null;
     const{data,error}=await client.from("profiles").update(updates).eq("id",id).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).select("id,full_name,email,phone,role,active,created_at,manager_permissions").single();
     if(error||!data)throw new Error(error?.message||"User not found in this company.");
     if(typeof body.active==="boolean"){
       await client.from("employees").update({active:body.active}).eq("profile_id",id).eq("company_id",companyId);
     }
+    if(data.role==="employee"&&(body.fullName!==undefined||body.email!==undefined||body.phone!==undefined||body.crewId!==undefined)){
+      if(body.crewId&&!(await client.from("crews").select("id").eq("id",body.crewId).eq("company_id",companyId).eq("active",true).maybeSingle()).data)throw new Error("Choose an active company crew.");
+      const employeeUpdates:Record<string,unknown>={};if(body.fullName!==undefined)employeeUpdates.full_name=data.full_name;if(body.email!==undefined)employeeUpdates.email=data.email;if(body.phone!==undefined)employeeUpdates.phone=data.phone;if(body.crewId!==undefined)employeeUpdates.crew_id=body.crewId||null;
+      const{error:employeeError}=await client.from("employees").update(employeeUpdates).eq("profile_id",id).eq("company_id",companyId);if(employeeError)throw new Error(employeeError.message);
+      if(body.email!==undefined){const{error:authUpdateError}=await client.auth.admin.updateUserById(id,{email:data.email});if(authUpdateError)throw new Error(authUpdateError.message);}
+    }
     return NextResponse.json({user:data});
+  }catch(error){return failure(error)}
+}
+
+export async function DELETE(request:NextRequest){
+  try{
+    const{client,companyId,adminId}=await companyAdmin(request);const body=await request.json() as{id?:string};const id=String(body.id||"");if(!id)throw new Error("Choose an employee.");if(id===adminId)throw new Error("The active Admin cannot delete their own account.");
+    const{data:profile,error}=await client.from("profiles").select("id,role,full_name").eq("id",id).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).single();if(error||!profile||profile.role!=="employee")throw new Error("Employee not found in this company.");
+    const{error:employeeError}=await client.from("employees").update({active:false,profile_id:null}).eq("profile_id",id).eq("company_id",companyId);if(employeeError)throw new Error(employeeError.message);
+    const{error:authError}=await client.auth.admin.deleteUser(id);if(authError&&!authError.message.toLowerCase().includes("not found"))throw new Error(authError.message);
+    return NextResponse.json({id,message:`${profile.full_name} was removed. Historical visits and records were preserved.`});
   }catch(error){return failure(error)}
 }

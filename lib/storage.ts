@@ -162,6 +162,9 @@ export type Notification = {
     | "system"
     | "estimate";
   read: boolean;
+  leadId?: string;
+  customer?: string;
+  address?: string;
 };
 export type Recurrence = {
   id: string;
@@ -1623,6 +1626,9 @@ export function markNotificationsRead() {
     K.noti,
     getNotifications().map((n) => ({ ...n, read: true })),
   );
+}
+export function markNotificationRead(id:string){
+  write(K.noti,getNotifications().map(notification=>notification.id===id?{...notification,read:true}:notification));
 }
 export function getRecurrences(): Recurrence[] {
   return read<Recurrence[]>(K.rec, []);

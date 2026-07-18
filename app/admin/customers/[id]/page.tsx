@@ -1,13 +1,12 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { getCustomerPropertyDirectory } from "@/lib/services/customerPropertyService";
 import { loadSchedulingDispatchBoard } from "@/lib/services/schedulingService";
 import {
-  finishServiceSession,
   formatDuration,
   getActivityLogs,
   getEmployeeTasks,
@@ -17,9 +16,6 @@ import {
   LawnSize,
   GrassHandling,
   GrassHeight,
-  resetServiceSession,
-  setPropertyPhoto,
-  startServiceSession,
   updateLead,
   updatePropertyDetails,
   calculateVisitStatus,
@@ -34,7 +30,6 @@ const grassOptions: { value: GrassHandling; label: string }[] = [
 ];
 function tabKey(label: string) { return label.toLowerCase(); }
 function visitLabel(lead: Lead) { return lead.status === "completed" ? "Done" : "Open"; }
-function fileToDataUrl(file: File) { return new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); }); }
 function clock(value?:string){return value?new Date(value).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"—"}
 function handlingLabel(value:GrassHandling){return grassOptions.find(option=>option.value===value)?.label||"No preference"}
 function lotLabel(value:LawnSize){return({xs:"XS lot",small:"Small lot",legacy:"Legacy lot",oversize:"Oversized lot"} as Record<string,string>)[value]||value}
@@ -45,7 +40,6 @@ export default function CustomerProfilePage({ params }: { params: { id: string }
   const [tab, setTab] = useState(searchParams.get("tab") || "customer");
   const [message, setMessage] = useState("");
   const [tick, setTick] = useState(0);
-  const [comment, setComment] = useState("");
   const [detailsOpen,setDetailsOpen]=useState(true);
   const [editOpen,setEditOpen]=useState(false);
 
@@ -71,10 +65,6 @@ export default function CustomerProfilePage({ params }: { params: { id: string }
 
   function saveAll() { if (!lead) return; updateLead(lead.id, { name: lead.name, phone: lead.phone, email: lead.email, address: lead.address, service: lead.service, notes: lead.notes }); updatePropertyDetails(lead.id, details); setMessage("Saved. Customer, property and operations now use this same record."); void refresh(); }
   function updateDetails(patch: Partial<typeof details>) { if (!lead) return; setLead({ ...lead, propertyDetails: { ...details, ...patch } }); }
-  function start() { if (!lead) return; startServiceSession(lead.id, "Admin", lead.assignedCrew || "Admin"); setMessage("Timer started manually."); refresh(); }
-  function finish() { if (!lead) return; const done = finishServiceSession(lead.id, comment); setMessage(done ? "Service finished. Status is Done across the system." : "Finish blocked: no active timer was running."); refresh(); }
-  function reset() { if (!lead) return; resetServiceSession(lead.id); setComment(""); setMessage("Only this house was reset. Status is Open across the system."); refresh(); }
-  async function uploadPropertyPhoto(e: ChangeEvent<HTMLInputElement>) { if (!lead) return; const file = e.target.files?.[0]; if (!file) return; const data = await fileToDataUrl(file); setPropertyPhoto(lead.id, data); setMessage("Official property photo updated."); refresh(); }
 
   return <AdminShell active="Customers">
     <div className="app-top"><div><span className="eyebrow">V43 · Property Service Screen</span><h1>{lead.address || lead.name}</h1><p className="section-intro">{lead.name} · {lead.phone || "No phone"} · {lead.email || "No email"}</p></div><div className="row"><span className={`visit-badge ${calculateVisitStatus(lead)}`}><i></i>{visitLabel(lead)}</span><button className="btn btn-primary" onClick={saveAll}>Save</button></div></div>
@@ -92,11 +82,11 @@ export default function CustomerProfilePage({ params }: { params: { id: string }
       <div className="property-visit-title">{lead.scheduledDate?new Date(`${lead.scheduledDate}T12:00:00`).toLocaleDateString([],{month:"short",day:"numeric"}):"Latest visit"}</div>
       <div className="property-time-cards"><div><span>Started</span><strong>{clock(session?.startedAt||lead.visitStartedAt)}</strong></div><div><span>Duration</span><strong>{formatDuration(session?.durationSeconds||lead.visitDurationSeconds||runningSeconds)}</strong></div><div><span>Finished</span><strong>{clock(session?.finishedAt||lead.visitFinishedAt)}</strong></div></div>
       <section className="property-images"><h3>Images</h3><div>{[lead.propertyPhoto,...(lead.photos||[])].filter(Boolean).map((photo,index)=><img key={index} src={photo} alt={`Property ${index+1}`}/>)}{!lead.propertyPhoto&&!(lead.photos||[]).length&&<div className="property-no-images">No images yet</div>}</div></section>
-      <div className="property-edit-toggle"><button className="btn btn-outline" onClick={()=>setEditOpen(value=>!value)}>{editOpen?"Close editing":"Edit property"}</button><label className="btn btn-outline">Upload image<input type="file" accept="image/*" hidden onChange={uploadPropertyPhoto}/></label></div>
+      <div className="property-edit-toggle"><button className="btn btn-outline" onClick={()=>setEditOpen(value=>!value)}>{editOpen?"Close editing":"Edit customer and property data"}</button><span className="pill">Operational controls are Employee-only</span></div>
       {editOpen&&<section className="card profile-card property-edit-panel"><div className="form-grid"><div className="field"><label>Address</label><input className="input" value={lead.address} onChange={(e) => setLead({ ...lead, address: e.target.value })} /></div><div className="field"><label>Lot Size</label><select className="input" value={details.lawnSize} onChange={(e) => updateDetails({ lawnSize: e.target.value as LawnSize })}><option value="xs">XS</option><option value="small">Small</option><option value="legacy">Legacy</option><option value="oversize">Oversize</option></select></div><div className="field"><label>Grass Height</label><select className="input" value={details.grassHeight} onChange={(e) => updateDetails({ grassHeight: e.target.value as GrassHeight })}><option value="2in">2&quot;</option><option value="3in">3&quot;</option><option value="4in">4&quot;</option><option value="5in">5&quot;</option></select></div><div className="field"><label>Grass Handling</label><select className="input" value={details.grassHandling} onChange={(e) => updateDetails({ grassHandling: e.target.value as GrassHandling })}>{grassOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div><div className="field"><label>Backyard</label><select className="input" value={details.backyard ? "yes" : "no"} onChange={(e) => updateDetails({ backyard: e.target.value === "yes" })}><option value="yes">Yes</option><option value="no">No</option></select></div><div className="field"><label>Gate</label><select className="input" value={details.gated ? "yes" : "no"} onChange={(e) => updateDetails({ gated: e.target.value === "yes" })}><option value="yes">Yes</option><option value="no">No</option></select></div></div><div className="field"><label>Access Notes</label><textarea className="input field-note" value={details.accessNotes || ""} onChange={(e) => updateDetails({ accessNotes: e.target.value })} /></div><div className="field"><label>Property Alerts</label><textarea className="input field-note" value={details.propertyAlerts || ""} onChange={(e) => updateDetails({ propertyAlerts: e.target.value })} /></div></section>}
     </section>}
 
-    {tab === "service" && <section className="card profile-card"><div className="table-head"><div><h2>Service</h2><p className="section-intro">Start, Finish and Reset are controlled here. Done never happens automatically.</p></div><span className={`visit-badge ${calculateVisitStatus(lead)}`}><i></i>{visitLabel(lead)}</span></div><div className="detail-grid" style={{ marginBottom: 16 }}><div className="detail-box"><div className="detail-label">Timer</div><div className="detail-value">{formatDuration(runningSeconds)}</div><small>{session?.status || "no timer"}</small></div><div className="detail-box"><div className="detail-label">Open Return Visits</div><div className="detail-value">{openTasks.length}</div><small>{openTasks[0]?.description || "No return visit"}</small></div></div><div className="form-grid"><div className="field"><label>Service</label><input className="input" value={lead.service} onChange={(e) => setLead({ ...lead, service: e.target.value })} /></div><div className="field"><label>Assigned Crew</label><input className="input" value={lead.assignedCrew || ""} onChange={(e) => setLead({ ...lead, assignedCrew: e.target.value })} /></div><div className="field"><label>Service Day</label><input className="input" value={lead.serviceDay || ""} onChange={(e) => setLead({ ...lead, serviceDay: e.target.value })} /></div><div className="field"><label>Next Cut</label><input className="input" type="date" value={lead.nextVisitDate || lead.scheduledDate || ""} onChange={(e) => setLead({ ...lead, nextVisitDate: e.target.value, scheduledDate: e.target.value })} /></div></div><div className="field" style={{ marginTop: 16 }}><label>Completion comment</label><textarea className="input field-note" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Optional comment before Finish" /></div><div className="row wrap" style={{ marginTop: 18 }}><button className="btn btn-primary" onClick={start} disabled={session?.status === "running" || session?.status === "finished"}>Start</button><button className="btn btn-outline" onClick={finish} disabled={session?.status !== "running"}>Finish</button><button className="btn btn-outline" onClick={reset}>Reset this house</button><Link className="btn btn-outline" href={`/employee/route?property=${lead.id}`}>Employee View</Link></div></section>}
+    {tab === "service" && <section className="card profile-card"><div className="table-head"><div><h2>Service Overview</h2><p className="section-intro">Read-only operational view. Only the assigned Employee can start, finish, reset or upload completion photos.</p></div><span className={`visit-badge ${calculateVisitStatus(lead)}`}><i></i>{visitLabel(lead)}</span></div><div className="detail-grid"><div className="detail-box"><div className="detail-label">Service</div><div className="detail-value">{lead.service}</div><small>{lead.serviceFrequency||"one time"}</small></div><div className="detail-box"><div className="detail-label">Value</div><div className="detail-value">${Number(lead.total||lead.subtotal||0).toFixed(2)}</div><small>Customer contract</small></div><div className="detail-box"><div className="detail-label">Status</div><div className="detail-value">{visitLabel(lead)}</div><small>{lead.nextVisitDate||lead.scheduledDate||"Not scheduled"}</small></div><div className="detail-box"><div className="detail-label">Crew</div><div className="detail-value">{lead.assignedCrew||"Unassigned"}</div><small>Synced assignment</small></div><div className="detail-box"><div className="detail-label">Started</div><div className="detail-value">{clock(session?.startedAt||lead.visitStartedAt)}</div><small>Employee record</small></div><div className="detail-box"><div className="detail-label">Finished</div><div className="detail-value">{clock(session?.finishedAt||lead.visitFinishedAt)}</div><small>{formatDuration(session?.durationSeconds||lead.visitDurationSeconds||runningSeconds)}</small></div><div className="detail-box"><div className="detail-label">Open tasks</div><div className="detail-value">{openTasks.length}</div><small>{openTasks[0]?.description||"No return visit"}</small></div><div className="detail-box"><div className="detail-label">Completion</div><div className="detail-value">{session?.completionComment||"Pending"}</div><small>Read only</small></div></div></section>}
 
     {tab === "history" && <section className="card profile-card"><h2>History</h2><div className="history-list">{logs.length ? logs.map((a) => <div className="history-day" key={a.id}><button><span>{new Date(a.createdAt).toLocaleString()}</span><strong>{a.action}</strong><em>{a.actor}</em></button><div className="history-detail"><p>{a.details}</p></div></div>) : <div className="empty-state"><strong>No history yet.</strong><p>Start, Finish, feedback, tasks and edits will appear here.</p></div>}</div></section>}
 

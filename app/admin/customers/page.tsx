@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { CompactFilter } from "@/components/admin/CompactFilter";
 import { useCustomerProperties } from "@/lib/hooks/useCustomerProperties";
 import { deleteCustomers } from "@/lib/services/customerPropertyService";
+import { loadSchedulingDispatchBoard } from "@/lib/services/schedulingService";
 
 const lawnOrder:Record<string,number>={xs:1,small:2,legacy:3,oversize:4};
 
@@ -18,6 +19,8 @@ export default function Customers(){
   const [selected,setSelected]=useState<string[]>([]);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
+  const [today,setToday]=useState({homes:0,completed:0,tasks:0,tasksCompleted:0});
+  useEffect(()=>{let alive=true;async function sync(){try{const board=await loadSchedulingDispatchBoard({force:true});const date=new Date();const key=`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;const visits=board.visits.filter(v=>v.scheduledDate===key&&!['cancelled','missed'].includes(v.status));const tasks=board.tasks.filter(t=>t.scheduledDate===key);if(alive)setToday({homes:visits.length,completed:visits.filter(v=>v.status==='completed').length,tasks:tasks.length,tasksCompleted:tasks.filter(t=>['completed','resolved'].includes(t.status)).length});}catch{}}void sync();const timer=setInterval(sync,20000);const onSync=()=>void sync();window.addEventListener('damasio:operations-changed',onSync);return()=>{alive=false;clearInterval(timer);window.removeEventListener('damasio:operations-changed',onSync)}},[]);
   const cities=useMemo(()=>[...new Set(records.map(r=>r.city).filter(Boolean))].sort(),[records]);
   const visible=useMemo(()=>records.filter(r=>{
     const hay=`${r.fullName} ${r.addressLine1} ${r.city} ${r.phone||""} ${r.email||""} ${r.lotSize||""} ${r.grassHeight||""}`.toLowerCase();
@@ -60,6 +63,8 @@ export default function Customers(){
     </div>
 
     <div className="stats v19-stats">
+      <div className="card dash-card"><div className="mini-label">Today's homes</div><div className="mini-value">{today.completed}/{today.homes}</div><small>{Math.max(0,today.homes-today.completed)} remaining</small></div>
+      <div className="card dash-card"><div className="mini-label">Today's tasks</div><div className="mini-value">{today.tasksCompleted}/{today.tasks}</div><small>{Math.max(0,today.tasks-today.tasksCompleted)} remaining</small></div>
       <div className="card dash-card"><div className="mini-label">Visible</div><div className="mini-value">{visible.length}</div></div>
       <div className="card dash-card"><div className="mini-label">Cities</div><div className="mini-value">{Object.keys(grouped).length}</div></div>
       <div className="card dash-card"><div className="mini-label">Total Synced</div><div className="mini-value">{records.length}</div></div>

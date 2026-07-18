@@ -26,13 +26,15 @@ export function QuoteWizard(){
   const[gated,setGated]=useState(false);
   const[leadId,setLeadId]=useState<string|null>(null);
   const[quoteNumber,setQuoteNumber]=useState("");
+  const[referralCode,setReferralCode]=useState("");
   const[lead,setLead]=useState({name:"",phone:"",email:"",address:"",notes:""});
   const[msg,setMsg]=useState("");
   const isExtra=service==="extra_service";
   const isSeasonal=service==="spring_cleanup"||service==="fall_cleanup";
   const quote=useMemo(()=>calculateQuote({service,size,annual,backyard,gated}),[service,size,annual,backyard,gated]);
 
-  function submit(){
+  async function submit(){
+    setMsg("Saving your quote request...");
     const id=createId();
     setLeadId(id);
     saveLead({
@@ -50,7 +52,10 @@ export function QuoteWizard(){
       propertyDetails:{lawnSize:size,grassHeight,grassHandling,backyard,gated,adminNotes:"",propertyAlerts:"",accessNotes:""}
     });
     const estimate=saveEstimate({validUntil:new Date(Date.now()+14*86400000).toISOString().slice(0,10),customer:lead.name,phone:lead.phone,email:lead.email,address:lead.address,title:serviceLabels[service],description:lead.notes||`${serviceLabels[service]} requested from the public website.`,status:"draft",items:[{id:createId(),type:"service",description:serviceLabels[service],quantity:1,unit:"service",unitPrice:isExtra?0:quote.subtotal}]});
+    const response=await fetch("/api/public/quote-referral",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({...lead,service:serviceLabels[service],referralCode})});
+    const result=await response.json();if(!response.ok){setMsg(result.error||"Company code could not be validated.");return;}
     setQuoteNumber(estimate.number);
+    setMsg(result.companyName?`Request routed directly to ${result.companyName}.`:"Request sent to the Master team for review.");
     setStep(4);
   }
 
@@ -81,7 +86,10 @@ export function QuoteWizard(){
       <input className="input" placeholder="Full name" value={lead.name} onChange={e=>setLead({...lead,name:e.target.value})}/>
       <input className="input" placeholder="Phone" value={lead.phone} onChange={e=>setLead({...lead,phone:e.target.value})}/>
       <input className="input" placeholder="Email" value={lead.email} onChange={e=>setLead({...lead,email:e.target.value})}/>
-      <div className="row"><button className="btn btn-outline" onClick={()=>setStep(2)}>Back</button><button className="btn btn-primary" onClick={submit}>Show Quote</button></div>
+      <input className="input" placeholder="Company code (optional)" value={referralCode} maxLength={12} onChange={e=>setReferralCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,""))}/>
+      <small>If a platform company referred you, enter its 4–12 character code to send this request directly to that company.</small>
+      {msg&&<div className="payment-message">{msg}</div>}
+      <div className="row"><button className="btn btn-outline" onClick={()=>setStep(2)}>Back</button><button className="btn btn-primary" onClick={()=>void submit()}>Show Quote</button></div>
     </div>}
 
     {step===4&&<div className="stack">
