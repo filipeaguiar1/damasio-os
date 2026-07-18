@@ -208,6 +208,7 @@ export type EmployeeTask = {
   workStartedAt?: string;
   workFinishedAt?: string;
   durationSeconds?: number;
+  requestPhotos?: string[];
   completionPhotos?: string[];
   completionSummary?: string;
   source?: "customer" | "admin" | "employee";
@@ -1060,7 +1061,7 @@ export function setPropertyPhoto(leadId: string, photo: string) {
   );
   addActivityLog("Property", "Updated property photo", leadId, "Official property photo changed.");
 }
-export function createCustomerTaskFromService(leadId: string, description: string) {
+export function createCustomerTaskFromService(leadId: string, description: string, requestPhotos: string[] = []) {
   const lead = getLead(leadId);
   if (!lead) return null;
   const task = saveEmployeeTask({
@@ -1073,6 +1074,7 @@ export function createCustomerTaskFromService(leadId: string, description: strin
     priority: "urgent",
     assignedTo: "Admin",
     source: "customer",
+    requestPhotos: requestPhotos.slice(0, 5),
   });
   addNotification("review", "Customer reported a task", `${lead.name} reported a problem for ${lead.service}.`);
   addActivityLog("Customer", "Reported task", lead.name, description);
@@ -1081,19 +1083,16 @@ export function createCustomerTaskFromService(leadId: string, description: strin
   return task;
 }
 function taskCompletionSnapshot(task: EmployeeTask | undefined, workDone: string, completedBy: string) {
-  const lead = task ? getLead(task.leadId) : null;
-  const session = task ? getSessionForLead(task.leadId) : null;
   // V42.8: resolving a return task must NEVER finish the house timer.
   // Done is only allowed through the Employee Finish button.
   const now = new Date().toISOString();
-  const photos = lead?.photos?.slice(0, 5) || [];
-  const durationSeconds = session?.durationSeconds || (session?.startedAt ? Math.max(0, Math.round((new Date(now).getTime() - new Date(session.startedAt).getTime()) / 1000)) : undefined);
+  const photos = task?.completionPhotos?.slice(0, 5) || [];
+  const durationSeconds = task?.durationSeconds || (task?.workStartedAt ? Math.max(0, Math.round((new Date(now).getTime() - new Date(task.workStartedAt).getTime()) / 1000)) : undefined);
   return {
-    resolvedAt: now,
     workDone,
     completedBy,
-    workStartedAt: session?.startedAt,
-    workFinishedAt: session?.finishedAt,
+    workStartedAt: task?.workStartedAt,
+    workFinishedAt: now,
     durationSeconds,
     completionPhotos: photos,
     completionSummary: `${completedBy} completed the return visit${durationSeconds ? ` in ${Math.round(durationSeconds / 60)} min` : ""}. ${photos.length} photo(s) attached.`,
@@ -1107,7 +1106,7 @@ export function resolveEmployeeTask(id: string, workDone = "Return visit complet
     K.tasks,
     getEmployeeTasks().map((t) =>
       t.id === id
-        ? { ...t, status: "resolved", ...snapshot }
+        ? { ...t, status: "resolved", resolvedAt: new Date().toISOString(), ...snapshot }
         : t,
     ),
   );
@@ -1122,6 +1121,8 @@ export function resolveEmployeeTask(id: string, workDone = "Return visit complet
 export function getTaskHistory() {
   return getEmployeeTasks().filter((t) => t.status === "resolved");
 }
+
+export function saveEmployeeTaskPhotos(id:string,photos:string[]){const task=getEmployeeTasks().find(item=>item.id===id);if(!task)return false;write(K.tasks,getEmployeeTasks().map(item=>item.id===id?{...item,completionPhotos:[...(item.completionPhotos||[]),...photos].slice(0,5)}:item));addActivityLog("Employee","Uploaded task evidence",task.customer,`${Math.min(5,(task.completionPhotos?.length||0)+photos.length)} task photo(s)`);broadcastOperationsChange(`Task evidence updated for ${task.customer}.`);return true}
 
 export function getEmployeeTasks(): EmployeeTask[] {
   const tasks = read<EmployeeTask[]>(K.tasks, []);

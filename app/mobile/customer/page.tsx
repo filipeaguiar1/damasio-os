@@ -1,7 +1,9 @@
 "use client";
 
+import "./task-evidence.css";
+
 import { useMobileRealtime } from "@/lib/mobile/useMobileRealtime";
-import { useEffect, useMemo, useState } from "react";
+import { ChangeEvent,useEffect, useMemo, useRef,useState } from "react";
 import Link from "next/link";
 import { DAMASIO_SYNC_EVENT, createCustomerTaskFromService, getLeads, saveFeedback, seedDemoLeads } from "@/lib/storage";
 import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
@@ -23,6 +25,8 @@ export default function MobileCustomerApp(){
   const [customTip,setCustomTip]=useState("");
   const [confirming,setConfirming]=useState(false);
   const [closedVisitId,setClosedVisitId]=useState("");
+  const [evidencePhotos,setEvidencePhotos]=useState<string[]>([]);
+  const evidenceInput=useRef<HTMLInputElement|null>(null);
 
   const refresh=()=>setRefreshKey(v=>v+1);
   useMobileRealtime(refresh);
@@ -58,7 +62,9 @@ export default function MobileCustomerApp(){
     setTip(0);
     setCustomTip("");
     setConfirming(false);
+    setEvidencePhotos([]);
   }
+  async function addEvidence(e:ChangeEvent<HTMLInputElement>){const files=Array.from(e.target.files||[]).slice(0,Math.max(0,3-evidencePhotos.length));const images=await Promise.all(files.map(file=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||""));reader.onerror=reject;reader.readAsDataURL(file)})));setEvidencePhotos(current=>[...current,...images].slice(0,3));e.target.value=""}
 
   function prepareSubmit(){
     setError("");
@@ -82,7 +88,7 @@ export default function MobileCustomerApp(){
         createdAt:new Date().toISOString()
       });
       if(sentiment==="dislike"&&createTask){
-        createCustomerTaskFromService(lead.id,comment.trim());
+        createCustomerTaskFromService(lead.id,comment.trim(),evidencePhotos);
       }
       setClosedVisitId(lead.id);
       setMessage(createTask?"Feedback sent and Task created for the company Admin.":"Feedback sent. Thank you.");
@@ -127,6 +133,7 @@ export default function MobileCustomerApp(){
             <button type="button" className={!createTask?"active":""} onClick={()=>setCreateTask(false)}><span>Feedback only</span><small>Notify Admin without opening a Task.</small></button>
             <button type="button" className={createTask?"task active":"task"} onClick={()=>setCreateTask(true)}><span>Create Task</span><small>Send a red-priority Task directly to Admin.</small></button>
           </div>}
+          {sentiment==="dislike"&&createTask&&<div className="mobile-task-evidence"><strong>Photo evidence</strong><p>Add a photo showing what was missed. This helps Admin approve the return without unnecessary charges.</p><input ref={evidenceInput} type="file" accept="image/*" capture="environment" multiple hidden onChange={addEvidence}/><button type="button" className="mobile-outline" onClick={()=>evidenceInput.current?.click()} disabled={evidencePhotos.length>=3}>Add photo ({evidencePhotos.length}/3)</button>{evidencePhotos.length>0&&<div>{evidencePhotos.map((photo,index)=><img src={photo} alt={`Issue evidence ${index+1}`} key={index}/>)}</div>}</div>}
 
           {sentiment==="like"&&<div className="mobile-tip-box">
             <strong>Tip (optional)</strong>
