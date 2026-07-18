@@ -6,6 +6,7 @@ import { GrassHandling, LawnSize, GrassHeight } from "@/lib/storage";
 import { addCustomerWithProperty } from "@/lib/services/customerPropertyService";
 import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import {uploadPropertyProfilePhoto} from "@/lib/services/propertyPhotoService";
 
 export default function AddClientPage(){
   const [form,setForm]=useState({
@@ -26,6 +27,8 @@ export default function AddClientPage(){
   });
   const [message,setMessage]=useState("");
   const [sendInvite,setSendInvite]=useState(true);
+  const [propertyPhoto,setPropertyPhotoFile]=useState<File|null>(null);
+  const [propertyPhotoPreview,setPropertyPhotoPreview]=useState("");
 
   function updatePrice(subtotalValue:string){
     const subtotal=Number(subtotalValue||0);
@@ -37,7 +40,7 @@ export default function AddClientPage(){
   async function submit(){
     setMessage("Saving to Supabase...");
     try {
-      await addCustomerWithProperty({
+      const record=await addCustomerWithProperty({
         fullName: form.name,
         phone: form.phone,
         email: form.email,
@@ -52,6 +55,7 @@ export default function AddClientPage(){
         frequency:form.service.includes("Biweekly")?"biweekly":form.service.includes("Weekly")?"weekly":form.service.includes("Monthly")?"monthly":"one_time",
         subtotal:Number(form.subtotal||0),
       });
+      if(propertyPhoto)await uploadPropertyProfilePhoto(record.propertyId,propertyPhoto);
       if(sendInvite&&form.email&&isSupabaseConfigured()){
         const supabase=getSupabaseBrowserClient() as any;const{data:session}=await supabase.auth.getSession();const token=session.session?.access_token;
         if(!token)throw new Error("Client was saved, but your session expired before the invitation was sent.");
@@ -65,7 +69,7 @@ export default function AddClientPage(){
   }
 
   return <AdminShell active="Add Client">
-    <div className="app-top"><div><span className="eyebrow">V42.1 Real Database</span><h1>Add Client Manually</h1><p className="section-intro">This form now saves Customers and Properties to Supabase.</p></div></div>
+    <div className="app-top"><div><span className="eyebrow">CUSTOMER & PROPERTY</span><h1>Add Customer</h1><p className="section-intro">One synchronized record for the customer, property, service, price and official house photo.</p></div></div>
     <div className="card profile-card">
       <div className="add-form">
         <h2>Customer</h2>
@@ -75,6 +79,9 @@ export default function AddClientPage(){
           <div className="field"><label>Email</label><input className="input" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></div>
           <div className="field"><label>Address</label><AddressAutocomplete value={form.address} onChange={address=>setForm({...form,address})} ariaLabel="Customer address"/></div>
         </div>
+
+        <h2>Property Profile Photo</h2>
+        <div className="property-profile-uploader"><div>{propertyPhotoPreview?<img src={propertyPhotoPreview} alt="Property profile preview"/>:<span>⌂</span>}</div><label><strong>Choose the official house photo</strong><small>This is the only image used as the property profile. Service photos stay in visit history.</small><input type="file" accept="image/jpeg,image/png,image/webp" onChange={event=>{const file=event.target.files?.[0]||null;setPropertyPhotoFile(file);setPropertyPhotoPreview(file?URL.createObjectURL(file):"")}}/></label></div>
 
         <h2>Property Preferences</h2>
         <div className="form-grid">
@@ -101,7 +108,7 @@ export default function AddClientPage(){
 
         <label className="permission-row"><span><strong>Invite customer account</strong><small>Send an activation link and connect this customer to the Customer Portal.</small></span><input type="checkbox" checked={sendInvite} onChange={e=>setSendInvite(e.target.checked)}/></label>
 
-        <button className="btn btn-primary" onClick={submit}>Add Client</button>
+        <button className="btn btn-primary" onClick={submit}>Add Customer</button>
         {message&&<div className="payment-message">{message}</div>}
       </div>
     </div>

@@ -56,7 +56,7 @@ export default function Customers(){
       <div className="toolbar-inline">
         <input className="input" placeholder="Search customer, city, lawn..." value={query} onChange={e=>setQuery(e.target.value)} />
         <CompactFilter label="Useful filters"><label><input type="radio" checked={filter==="all"} onChange={()=>setFilter("all")}/> All</label><label><input type="radio" checked={filter==="big-lawn"} onChange={()=>setFilter("big-lawn")}/> Big lawns</label><label><input type="radio" checked={filter==="high-grass"} onChange={()=>setFilter("high-grass")}/> High grass</label><label><input type="radio" checked={filter==="access"} onChange={()=>setFilter("access")}/> Gate / dog / access</label><label><input type="radio" checked={filter==="missing-phone"} onChange={()=>setFilter("missing-phone")}/> Missing phone</label><label><input type="radio" checked={filter==="missing-email"} onChange={()=>setFilter("missing-email")}/> Missing email</label><label><input type="radio" checked={filter==="with-notes"} onChange={()=>setFilter("with-notes")}/> Has notes</label><hr/><label>City<select className="input" value={city} onChange={e=>setCity(e.target.value)}><option value="all">All cities</option>{cities.map(c=><option key={c} value={c}>{c}</option>)}</select></label><label>Order<select className="input" value={sort} onChange={e=>setSort(e.target.value)}><option value="city">City / address</option><option value="lawn">Lawn size</option><option value="grass">Grass height</option></select></label></CompactFilter>
-        <Link className="btn btn-outline" href="/admin/add-client">Add Client</Link>
+        <Link className="btn btn-primary" href="/admin/add-client">＋ Add Customer</Link>
         <button className="btn btn-danger" disabled={busy||selected.length===0} onClick={()=>void remove(selected,`${selected.length} selected customer(s)`)}>Delete Selected ({selected.length})</button>
         <button className="btn btn-primary" onClick={refresh}>Refresh</button>
       </div>
@@ -85,7 +85,7 @@ export default function Customers(){
               <tr key={group}><td colSpan={7}><strong>{group}</strong> · {rows.length} customer(s)</td></tr>
               {rows.map(r=><tr key={r.propertyId}>
                 <td><input type="checkbox" checked={selected.includes(r.customerId)} onChange={()=>toggle(r.customerId)} aria-label={`Select ${r.fullName}`}/></td>
-                <td><strong>{r.fullName}</strong><br/><small>{r.customerNotes || "No customer notes"}</small></td>
+                <td><div className="customer-directory-person"><div>{r.officialPhotoUrl?<img src={r.officialPhotoUrl} alt={r.fullName}/>:<span>⌂</span>}</div><p><strong>{r.fullName}</strong><small>{r.customerNotes || "No customer notes"}</small></p></div></td>
                 <td>{r.addressLine1}, {r.city}<br/><small>{r.province} {r.postalCode || ""}</small></td>
                 <td>{r.phone || "—"}<br/><small>{r.email || "—"}</small></td>
                 <td>{r.lotSize || "—"}<br/><small>{r.grassHeight || "—"}</small></td>

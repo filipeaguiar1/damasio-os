@@ -7,6 +7,8 @@ import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
 import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
+import {uploadVisitServicePhotos} from "@/lib/services/propertyPhotoService";
+import {isSupabaseConfigured} from "@/lib/supabase/client";
 import {
   DAMASIO_SYNC_EVENT,
   DAMASIO_WEEK_DAYS,
@@ -254,12 +256,11 @@ export default function MobileEmployeeApp(){
     catch{setError("Comment could not be saved.")}
     finally{setBusy(false)}
   }
-  function upload(e:ChangeEvent<HTMLInputElement>){
+  async function upload(e:ChangeEvent<HTMLInputElement>){
     if(!selected)return;
     const files=Array.from(e.target.files||[]).slice(0,5);
     setBusy(true); setError("");
-    Promise.all(files.map(f=>new Promise<string>((resolve,reject)=>{const reader=new FileReader(); reader.onload=()=>resolve(String(reader.result||"")); reader.onerror=()=>reject(new Error("read failed")); reader.readAsDataURL(f)}))).then(images=>{saveServicePhotos(selected.id,[...(selected.photos||[]),...images].slice(0,5)); refresh(); setMessage("Photo saved.")}).catch(()=>setError("Photo could not be saved.")).finally(()=>setBusy(false));
-    e.target.value="";
+    try{const images=isSupabaseConfigured()&&selected.canonicalVisitId?await uploadVisitServicePhotos(selected.canonicalVisitId,files):await Promise.all(files.map(f=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||""));reader.onerror=()=>reject(new Error("read failed"));reader.readAsDataURL(f)})));saveServicePhotos(selected.id,[...(selected.photos||[]),...images].slice(0,5));refresh();setMessage("Service photos saved in this visit history.")}catch{setError("Photo could not be saved.")}finally{setBusy(false);e.target.value=""}
   }
 
   return <MobileRoleGuard allowed={["employee"]}><main className="mobile-app-shell">

@@ -20,6 +20,7 @@ export type CustomerPropertyRecord = {
   irrigation: boolean;
   accessNotes: string | null;
   propertyNotes: string | null;
+  officialPhotoUrl: string | null;
   createdAt: string;
 };
 
@@ -62,6 +63,7 @@ type RpcRecord = {
   irrigation: boolean;
   access_notes: string | null;
   property_notes: string | null;
+  official_photo_url: string | null;
   created_at: string;
 };
 
@@ -84,6 +86,7 @@ function mapRecord(row: RpcRecord): CustomerPropertyRecord {
     irrigation: row.irrigation,
     accessNotes: row.access_notes,
     propertyNotes: row.property_notes,
+    officialPhotoUrl: row.official_photo_url,
     createdAt: row.created_at,
   };
 }

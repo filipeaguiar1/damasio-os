@@ -35,6 +35,7 @@ function leadToCustomerPropertyRecord(lead: Lead): CustomerPropertyRecord {
     irrigation: false,
     accessNotes: lead.propertyDetails?.accessNotes || null,
     propertyNotes: [lead.propertyDetails?.adminNotes, lead.propertyDetails?.propertyAlerts].filter(Boolean).join(" | ") || null,
+    officialPhotoUrl: lead.propertyPhoto || null,
     createdAt: lead.createdAt,
   };
 }
