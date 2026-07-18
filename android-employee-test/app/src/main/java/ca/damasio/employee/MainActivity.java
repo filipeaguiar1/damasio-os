@@ -33,8 +33,8 @@ import java.io.File;
 import java.io.IOException;
 
 public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5211";
-    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5211";
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5212";
+    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5212";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
     private static final String MOBILE_PATH = "/mobile";
     private static final int FILE_CHOOSER_REQUEST = 4101;
@@ -72,7 +72,7 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " DamasioOSAndroid/52.1.1");
+        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.1.2");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override

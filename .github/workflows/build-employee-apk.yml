@@ -1,4 +1,4 @@
-name: Build Employee Test APK
+name: Build 4Ever Seasons APK
 
 on:
   workflow_dispatch:
@@ -31,11 +31,11 @@ jobs:
         run: gradle -p android-employee-test :app:assembleDebug --no-daemon
 
       - name: Prepare APK
-        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk damasio-os-mobile-v52.1.1.apk
+        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk 4ever-seasons-mobile-v52.1.2.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: damasio-os-mobile-v52.1.1
-          path: damasio-os-mobile-v52.1.1.apk
+          name: 4ever-seasons-mobile-v52.1.2
+          path: 4ever-seasons-mobile-v52.1.2.apk
           if-no-files-found: error
           retention-days: 30
