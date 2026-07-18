@@ -21,6 +21,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
 import android.widget.Toast;
+import android.widget.VideoView;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -33,8 +34,8 @@ import java.io.File;
 import java.io.IOException;
 
 public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5212";
-    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5212";
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5213";
+    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5213";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
     private static final String MOBILE_PATH = "/mobile";
     private static final int FILE_CHOOSER_REQUEST = 4101;
@@ -42,6 +43,8 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private ProgressBar progressBar;
+    private View startupOverlay;
+    private VideoView startupVideo;
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraOutputUri;
     private long lastBackPressedAt = 0L;
@@ -53,12 +56,38 @@ public class MainActivity extends Activity {
 
         webView = findViewById(R.id.employeeWebView);
         progressBar = findViewById(R.id.pageProgress);
+        startupOverlay = findViewById(R.id.startupOverlay);
+        startupVideo = findViewById(R.id.startupVideo);
         applySystemBarInsets();
         configureWebView();
-        requestOptionalPermissions();
 
-        if (savedInstanceState == null) webView.loadUrl(APP_URL);
-        else webView.restoreState(savedInstanceState);
+        if (savedInstanceState == null) {
+            webView.loadUrl(APP_URL);
+            startStartupVideo();
+        } else {
+            startupOverlay.setVisibility(View.GONE);
+            webView.restoreState(savedInstanceState);
+            requestOptionalPermissions();
+        }
+    }
+
+    private void startStartupVideo() {
+        startupVideo.setVideoURI(Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.four_ever_seasons_opening));
+        startupVideo.setOnPreparedListener(player -> {
+            player.setVolume(0f, 0f);
+            startupVideo.start();
+        });
+        startupVideo.setOnCompletionListener(player -> finishStartup());
+        startupVideo.setOnErrorListener((player, what, extra) -> {
+            finishStartup();
+            return true;
+        });
+    }
+
+    private void finishStartup() {
+        startupOverlay.setVisibility(View.GONE);
+        startupVideo.stopPlayback();
+        requestOptionalPermissions();
     }
 
     private void configureWebView() {
@@ -72,7 +101,7 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.1.2");
+        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.1.3");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override

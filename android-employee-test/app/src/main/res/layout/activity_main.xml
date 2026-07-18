@@ -18,4 +18,26 @@
         android:layout_gravity="top"
         android:max="100"
         android:progressTint="#65BB70" />
+
+    <FrameLayout
+        android:id="@+id/startupOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#043D2E">
+
+        <VideoView
+            android:id="@+id/startupVideo"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#043D2E" />
+
+        <ProgressBar
+            android:id="@+id/startupProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="5dp"
+            android:layout_gravity="bottom"
+            android:indeterminate="true"
+            android:indeterminateTint="#65E88D" />
+    </FrameLayout>
 </FrameLayout>
