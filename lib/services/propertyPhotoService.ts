@@ -1,7 +1,7 @@
 import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
 import {getLead,setPropertyPhoto} from "@/lib/storage";
 
-export type PropertyPhotoHistory={profilePhotoUrl:string|null;visits:Array<{id:string;scheduled_date:string;status:string;started_at:string|null;finished_at:string|null;duration_seconds:number|null;employee_notes:string|null;customer_visible_summary:string|null;service_name:string;photos:Array<{id:string;url:string;type:string;caption:string|null;sortOrder:number;createdAt:string}>}>};
+export type PropertyPhotoHistory={profilePhotoUrl:string|null;visits:Array<{id:string;scheduled_date:string;status:string;started_at:string|null;finished_at:string|null;duration_seconds:number|null;employee_notes:string|null;customer_visible_summary:string|null;service_name:string;crew_name?:string;photos:Array<{id:string;url:string;type:string;caption:string|null;sortOrder:number;createdAt:string}>}>};
 
 function extension(file:File){const value=file.name.split(".").pop()?.toLowerCase();return value&&/^[a-z0-9]+$/.test(value)?value:"jpg"}
 export async function uploadPropertyProfilePhoto(propertyId:string,file:File){
