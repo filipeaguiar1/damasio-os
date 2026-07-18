@@ -7,6 +7,9 @@ import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
 import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, routeDateForWeekday, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
 import {changeVisitStatus} from "@/lib/services/schedulingService";
+import {readDemoSession} from "@/lib/auth/demoAuth";
+import {isSupabaseConfigured} from "@/lib/supabase/client";
+import {loadAssignedEmployeeTasks,saveEmployeeVisitNote,updateAssignedEmployeeTask,uploadEmployeeVisitPhoto} from "@/lib/services/employeeVisitService";
 import {
   finishServiceSession,
   formatClock,
@@ -62,6 +65,7 @@ export default function EmployeeRoutePage(){
   const [leads,setLeads]=useState<Lead[]>([]);
   const [selectedId,setSelectedId]=useState<string>("");
   const [crew,setCrew]=useState("");
+  const [identityError,setIdentityError]=useState("");
   const [day,setDay]=useState("");
   const [selectedDate,setSelectedDate]=useState(()=>localDateKey(new Date()));
   const [weekStart,setWeekStart]=useState(()=>mondayKey(new Date()));
@@ -82,9 +86,10 @@ export default function EmployeeRoutePage(){
   const photoInputRef=useRef<HTMLInputElement|null>(null);
 
   function refresh(){
-    const rows=getLeads();
+    const demo=Boolean(readDemoSession())||!isSupabaseConfigured();
+    const rows=demo?getLeads():[];
     setLeads(rows);
-    setTasks(getEmployeeTasks());
+    if(demo)setTasks(getEmployeeTasks());else void loadAssignedEmployeeTasks().then(setTasks).catch(error=>setMenuMessage(error instanceof Error?error.message:"Tasks could not be loaded."));
     setProfile(getEmployeeProfile());
     if(!selectedId && rows[0]) setSelectedId(rows[0].id);
   }
@@ -94,7 +99,7 @@ export default function EmployeeRoutePage(){
     const qDay=params.get("day");
     const qProperty=params.get("property");
     const qView=params.get("view");
-    void loadEmployeeOperationalIdentity().then(identity=>setCrew(identity.crew));
+    void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setIdentityError("")}).catch(cause=>{setCrew("");setMapContext({routeId:null,stops:[]});setIdentityError(cause instanceof Error?cause.message:"Employee identity could not be loaded.")});
     const today=DAMASIO_WEEK_DAYS[(new Date().getDay()+6)%7];
     if(qDay&&DAMASIO_WEEK_DAYS.includes(qDay)){setDay(qDay);setSelectedDate(routeDateForWeekday(qDay));}
     else setDay(today);
@@ -104,8 +109,8 @@ export default function EmployeeRoutePage(){
     const on=()=>refresh();
     window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener);
     window.addEventListener("storage",on);
-    const timer=setInterval(()=>{if(document.visibilityState==="visible")refresh()},15000);
-    return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);clearInterval(timer)}
+    const timer=(Boolean(readDemoSession())||!isSupabaseConfigured())?setInterval(()=>{if(document.visibilityState==="visible")refresh()},15000):undefined;
+    return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);if(timer)clearInterval(timer)}
   },[]);
   useEffect(()=>{
     const interval=setInterval(()=>setTick(v=>v+1),1000);
@@ -118,7 +123,8 @@ export default function EmployeeRoutePage(){
   const routeLeads=useMemo(()=>allRouteLeads.filter(l=>routeFilter==="all"?true:routeFilter==="open"?l.status!=="completed":routeFilter==="done"?l.status==="completed":true),[allRouteLeads,routeFilter]);
   const mapRouteLeads=routeLeads;
   const selected=useMemo(()=>allRouteLeads.find(l=>l.id===selectedId)||allRouteLeads[0]||null,[allRouteLeads,selectedId]);
-  const session=selected?getSessionForLead(selected.id):null;
+  const demoMode=Boolean(readDemoSession())||!isSupabaseConfigured();
+  const session=selected&&demoMode?getSessionForLead(selected.id):null;
   const openTasks=tasks.filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===profile.name||t.assignedTo===crew));
 
   const runningSeconds=useMemo(()=>{
@@ -131,6 +137,7 @@ export default function EmployeeRoutePage(){
   },[session,tick]);
 
   function loadDemo(){
+    if(!demoMode){setMenuMessage("Demo data is disabled in production.");return}
     seedDemoLeads(true);
     seedEmployeeTasks();
     const rows=getLeads();
@@ -158,11 +165,11 @@ export default function EmployeeRoutePage(){
       || null;
   }
 
-  function openTask(taskId:string){
+  async function openTask(taskId:string){
     const task=tasks.find(t=>t.id===taskId);
     if(!task)return;
     const lead=findLeadForTask(taskId);
-    updateEmployeeTaskStatus(taskId,"in_progress");
+    if(demoMode)updateEmployeeTaskStatus(taskId,"in_progress");else await updateAssignedEmployeeTask(taskId,"in_progress");
     if(lead){
       setSelectedId(lead.id);
       setPhotoCount(lead.photos?.length||0);
@@ -174,23 +181,33 @@ export default function EmployeeRoutePage(){
     refresh();
   }
 
-  async function start(){if(!selected)return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"in_progress");else startServiceSession(selected.id,profile.name,crew);setCommentOpen(false);setServiceComment("");setDoneMessage("");setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh()}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be started.")}}
-  function saveComment(){
+  async function returnTask(taskId:string){
+    try{if(demoMode)returnEmployeeTaskToAdmin(taskId);else await updateAssignedEmployeeTask(taskId,"returned_to_admin");refresh()}
+    catch(error){setMenuMessage(error instanceof Error?error.message:"Task could not be returned.")}
+  }
+
+  async function completeTask(taskId:string,note:string){
+    try{if(demoMode)updateEmployeeTaskStatus(taskId,"completed",note,"Employee");else await updateAssignedEmployeeTask(taskId,"resolved",note);refresh()}
+    catch(error){setMenuMessage(error instanceof Error?error.message:"Task could not be completed.")}
+  }
+
+  async function start(){if(!selected)return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"in_progress");else if(demoMode)startServiceSession(selected.id,profile.name,crew);else throw new Error("This service is not linked to a Visit.");setCommentOpen(false);setServiceComment("");setDoneMessage("");setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh()}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be started.")}}
+  async function saveComment(){
     if(!selected)return;
     if(!serviceComment.trim()){setMenuMessage("Type a comment before saving.");return;}
-    saveServiceComment(selected.id, serviceComment);
+    try{if(selected.canonicalVisitId)await saveEmployeeVisitNote(selected.canonicalVisitId,serviceComment);else if(demoMode)saveServiceComment(selected.id, serviceComment);else throw new Error("This service is not linked to a Visit.")}catch(error){setMenuMessage(error instanceof Error?error.message:"Comment could not be saved.");return}
     setMenuMessage("Comment saved.");
     setCommentOpen(false);
     refresh();
   }
-  async function finish(){if(!selected)return;if(!window.confirm("Complete this house and mark it as Done?"))return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"completed");else finishServiceSession(selected.id,serviceComment);setDoneMessage("Done");setServiceComment("");setCommentOpen(false);setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh();window.setTimeout(()=>{setDoneMessage("");setView("route")},850)}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be completed.")}}
-  async function reset(){if(!selected)return;if(!window.confirm("Reset only this house? Status returns to Open across Admin, Dispatch and Employee Route."))return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"scheduled");else resetServiceSession(selected.id);setDoneMessage("Reset to Open");setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh()}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be reset.")}}
+  async function finish(){if(!selected)return;if(!window.confirm("Complete this house and mark it as Done?"))return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"completed");else if(demoMode)finishServiceSession(selected.id,serviceComment);else throw new Error("This service is not linked to a Visit.");setDoneMessage("Done");setServiceComment("");setCommentOpen(false);setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh();window.setTimeout(()=>{setDoneMessage("");setView("route")},850)}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be completed.")}}
+  async function reset(){if(!selected)return;if(!window.confirm("Reset only this house? Status returns to Open across Admin, Dispatch and Employee Route."))return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"scheduled");else if(demoMode)resetServiceSession(selected.id);else throw new Error("This service is not linked to a Visit.");setDoneMessage("Reset to Open");setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh()}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be reset.")}}
 
   function addPhoto(){
     photoInputRef.current?.click();
   }
 
-  function handlePhotoUpload(e: ChangeEvent<HTMLInputElement>){
+  async function handlePhotoUpload(e: ChangeEvent<HTMLInputElement>){
     if(!selected)return;
     const files=Array.from(e.target.files||[]);
     if(files.length===0)return;
@@ -198,17 +215,12 @@ export default function EmployeeRoutePage(){
     const slots=5-existing.length;
     if(slots<=0){setMenuMessage("Maximum 5 photos per service.");return;}
     const accepted=files.slice(0,slots);
-    Promise.all(accepted.map(file=>new Promise<string>((resolve)=>{
-      const reader=new FileReader();
-      reader.onload=()=>resolve(String(reader.result||file.name));
-      reader.readAsDataURL(file);
-    }))).then(images=>{
-      const next=[...existing,...images].slice(0,5);
-      saveServicePhotos(selected.id,next);
-      setPhotoCount(next.length);
-      setMenuMessage(`${images.length} photo(s) saved. Maximum 5 photos per service.`);
-      refresh();
-    });
+    try{
+      if(selected.canonicalVisitId){await Promise.all(accepted.map(file=>uploadEmployeeVisitPhoto(selected.canonicalVisitId!,file,"completion")));setPhotoCount(value=>value+accepted.length)}
+      else if(demoMode){const images=await Promise.all(accepted.map(file=>new Promise<string>((resolve)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||file.name));reader.readAsDataURL(file)})));const next=[...existing,...images].slice(0,5);saveServicePhotos(selected.id,next);setPhotoCount(next.length)}
+      else throw new Error("This service is not linked to a Visit.");
+      setMenuMessage(`${accepted.length} photo(s) saved. Maximum 5 photos per service.`);refresh();
+    }catch(error){setMenuMessage(error instanceof Error?error.message:"Photo could not be saved.")}
     e.target.value="";
   }
 
@@ -237,6 +249,7 @@ export default function EmployeeRoutePage(){
   
 
   return <div className="field-shell">
+    {identityError&&<div className="payment-message" style={{margin:12}}><strong>Employee access blocked.</strong> {identityError}</div>}
     <div className="field-topbar">
       <div className="field-brand-mini"><div className="field-brand-mark">D</div><div>Damasio Field</div></div>
       <div className="topbar-actions">
@@ -294,7 +307,7 @@ export default function EmployeeRoutePage(){
             <p>{task.description}</p>
             <div className="row">
               <button className="btn btn-primary" onClick={()=>openTask(task.id)}>Open Service Screen</button>
-              <button className="btn btn-outline" onClick={()=>{if(window.confirm("Return this task to Admin so it can be reassigned?")){returnEmployeeTaskToAdmin(task.id);refresh()}}}>Return for Admin</button><button className="btn btn-outline" onClick={()=>{if(window.confirm("Are you sure this return task is completed? It will be removed from your list and sent to Admin for final Resolve.")){const note=window.prompt("What did you complete at this property?", "Return visit completed and customer issue fixed."); if(note!==null){updateEmployeeTaskStatus(task.id,"completed",note,"Employee");refresh()}}}}>Mark Completed</button>
+              <button className="btn btn-outline" onClick={()=>{if(window.confirm("Return this task to Admin so it can be reassigned?"))void returnTask(task.id)}}>Return for Admin</button><button className="btn btn-outline" onClick={()=>{if(window.confirm("Are you sure this return task is completed? It will be removed from your list and sent to Admin for final Resolve.")){const note=window.prompt("What did you complete at this property?", "Return visit completed and customer issue fixed.");if(note!==null)void completeTask(task.id,note)}}}>Mark Completed</button>
             </div>
           </div>)}
         </div>

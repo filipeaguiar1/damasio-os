@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { enforceMapRateLimit, isCanadianCoordinate } from "@/lib/maps/mapApiGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,8 @@ function searchCandidates(value: string) {
 }
 
 export async function GET(request: NextRequest) {
+  const limited = enforceMapRateLimit(request, "geocode", 30);
+  if (limited) return limited;
   const address = request.nextUrl.searchParams.get("address")?.trim();
   if (!address) return NextResponse.json({ error: "Address is required." }, { status: 400 });
   if (address.length > 240) return NextResponse.json({ error: "Address is too long." }, { status: 400 });
@@ -63,9 +66,14 @@ export async function GET(request: NextRequest) {
       if (response.ok) match = ((await response.json()) as Array<{ lat: string; lon: string; display_name?: string }>)[0];
     }
     if (!match) return NextResponse.json({ error: "Address not found." }, { status: 404 });
+    const latitude = Number(match.lat);
+    const longitude = Number(match.lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || !isCanadianCoordinate(longitude, latitude)) {
+      return NextResponse.json({ error: "Address provider returned an invalid location." }, { status: 502 });
+    }
     return NextResponse.json({
-      latitude: Number(match.lat),
-      longitude: Number(match.lon),
+      latitude,
+      longitude,
       displayName: match.display_name || address
     });
   } catch (error) {
