@@ -302,7 +302,16 @@ function read<T>(k: string, f: T): T {
 function write<T>(k: string, v: T) {
   if (typeof window === "undefined") return;
   ensureStorageVersion();
-  window.localStorage.setItem(k, JSON.stringify(v));
+  try {
+    window.localStorage.setItem(k, JSON.stringify(v));
+  } catch (error) {
+    const quotaExceeded=error instanceof DOMException&&(error.name==="QuotaExceededError"||error.name==="NS_ERROR_DOM_QUOTA_REACHED");
+    if(!quotaExceeded)throw error;
+    // Old demo builds stored full Base64 photos inside localStorage. Preserve
+    // all operational records and discard only those oversized image payloads.
+    const compact=JSON.stringify(v,(_key,value)=>typeof value==="string"&&value.startsWith("data:image/")?undefined:value);
+    window.localStorage.setItem(k,compact);
+  }
 }
 function money(v: number) {
   return Math.round(v * 100) / 100;

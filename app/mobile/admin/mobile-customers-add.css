@@ -1,0 +1,20 @@
+.mobile-customers-add {
+  position: fixed;
+  right: max(18px, calc((100vw - 484px) / 2));
+  bottom: 84px;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 15px;
+  padding: 10px 14px 10px 10px;
+  background: #0a633d;
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(10, 99, 61, .3);
+  text-align: left;
+}
+.mobile-customers-add > span { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; background: rgba(255,255,255,.16); font-size: 22px; }
+.mobile-customers-add strong, .mobile-customers-add small { display: block; }
+.mobile-customers-add strong { font-size: 12px; }
+.mobile-customers-add small { margin-top: 2px; color: #cde8d8; font-size: 8px; }
