@@ -28,6 +28,8 @@ Run these in Supabase SQL Editor, in order:
 - `CRON_SECRET` (required for Vercel Cron authorization)
 - `STRIPE_PLATFORM_FEE_PERCENT` optional
 
+After adding or changing any of these values, redeploy the Preview branch before QA.
+
 ## Stripe Webhook Endpoint
 
 Configure Stripe webhook URL:
