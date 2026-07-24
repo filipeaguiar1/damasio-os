@@ -1,16 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { PortalShell } from "@/components/admin/PortalShell";
 import { useCustomerBilling } from "@/lib/hooks/useCustomerBilling";
 import { useCustomerWallet } from "@/lib/hooks/useCustomerWallet";
 
+const creditOptions = [5, 10, 20, 50, 100];
+
 function money(value: number) {
-  return new Intl.NumberFormat("en-CA", {
-    style: "currency",
-    currency: "CAD",
-  }).format(value);
+  return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(value);
 }
 
 function statusLabel(status: string) {
@@ -18,27 +17,31 @@ function statusLabel(status: string) {
 }
 
 export default function CustomerPayments() {
-  const [customCredits, setCustomCredits] = useState("10");
+  const [selectedCredits, setSelectedCredits] = useState<number[]>([]);
+  const [customCredits, setCustomCredits] = useState("");
   const [editingCredits, setEditingCredits] = useState(false);
-  const {
-    invoices,
-    source,
-    loading,
-    message,
-    payingId,
-    summary,
-    checkout,
-    reload,
-  } = useCustomerBilling();
+  const billing = useCustomerBilling();
   const wallet = useCustomerWallet();
 
-  const submitCustomCredits = () => {
-    const credits = Number(customCredits);
-    if (!Number.isInteger(credits) || credits < 10 || credits > 1000) return;
-    void wallet.topUp(credits);
-  };
+  const customAmount = Number(customCredits);
+  const validCustom = Number.isInteger(customAmount) && customAmount >= 5 && customAmount <= 1000;
+  const selectedTotal = useMemo(
+    () => selectedCredits.reduce((sum, credits) => sum + credits, 0) + (editingCredits && validCustom ? customAmount : 0),
+    [selectedCredits, editingCredits, validCustom, customAmount]
+  );
 
-  const visibleMessage = message || wallet.message;
+  function toggleCredits(credits: number) {
+    setSelectedCredits((current) => current.includes(credits)
+      ? current.filter((value) => value !== credits)
+      : [...current, credits]);
+  }
+
+  function addCredits() {
+    if (!Number.isInteger(selectedTotal) || selectedTotal < 5 || selectedTotal > 1000) return;
+    void wallet.topUp(selectedTotal);
+  }
+
+  const visibleMessage = billing.message || wallet.message;
 
   return (
     <PortalShell type="Customer" active="Payments">
@@ -48,86 +51,58 @@ export default function CustomerPayments() {
           <h1>Payments</h1>
           <p>Review invoices, add wallet credits, and pay through Stripe&apos;s encrypted checkout.</p>
         </div>
-        <div className="billing-secure-badge">
-          <i>✓</i>
-          <span><strong>Protected checkout</strong><small>Card information stays with Stripe</small></span>
-        </div>
+        <div className="billing-secure-badge"><i>✓</i><span><strong>Protected checkout</strong><small>Card information stays with Stripe</small></span></div>
       </div>
 
       <section className="billing-summary" aria-label="Billing summary">
-        <article className="due">
-          <span>Wallet credits</span>
-          <strong>{wallet.loading ? "…" : wallet.balanceCredits.toFixed(0)}</strong>
-          <small>1 credit = $1 CAD</small>
-        </article>
-        <article>
-          <span>Amount due</span>
-          <strong>{money(summary.due)}</strong>
-          <small>{summary.openCount} open invoice{summary.openCount === 1 ? "" : "s"}</small>
-        </article>
-        <article>
-          <span>Payment method</span>
-          <strong>Stripe</strong>
-          <small>Cards and available bank options</small>
-        </article>
+        <article className="due"><span>Wallet credits</span><strong>{wallet.loading ? "…" : wallet.balanceCredits.toFixed(0)}</strong><small>1 credit = $1 CAD</small></article>
+        <article><span>Amount due</span><strong>{money(billing.summary.due)}</strong><small>{billing.summary.openCount} open invoice{billing.summary.openCount === 1 ? "" : "s"}</small></article>
+        <article><span>Payment method</span><strong>Stripe</strong><small>Cards and available bank options</small></article>
       </section>
 
       {visibleMessage && <div className="billing-message">{visibleMessage}</div>}
 
       <section className="billing-panel">
         <header>
-          <div>
-            <span className="billing-kicker">Wallet</span>
-            <h2>Add credits</h2>
-            <p>Credits remain available for future services and tips.</p>
-          </div>
-          <button className="billing-refresh" type="button" onClick={() => void wallet.reload()} disabled={wallet.loading}>
-            {wallet.loading ? "Loading..." : "Refresh balance"}
-          </button>
+          <div><span className="billing-kicker">Wallet</span><h2>Add credits</h2><p>Select one or more amounts. Click a selected amount again to remove it.</p></div>
+          <button className="billing-refresh" type="button" onClick={() => void wallet.reload()} disabled={wallet.loading}>{wallet.loading ? "Loading..." : "Refresh balance"}</button>
         </header>
 
         <div className="billing-invoice-list">
           <article>
             <div className="billing-invoice-icon">$</div>
-            <div className="billing-invoice-copy">
-              <span>Choose an amount</span>
-              <strong>1 credit equals $1 CAD</strong>
-              <small>Minimum 10 credits. Maximum 1,000 credits.</small>
-            </div>
-            <div className="billing-invoice-total" style={{ alignItems: "stretch", gap: 8 }}>
+            <div className="billing-invoice-copy"><span>Choose amounts</span><strong>1 credit equals $1 CAD</strong><small>Total must be between 5 and 1,000 credits.</small></div>
+            <div className="billing-invoice-total" style={{ alignItems: "stretch", gap: 12, minWidth: 420 }}>
               <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 }}>
-                {[10, 20, 50, 100, 200].map((credits) => (
-                  <button
-                    key={credits}
-                    className="btn btn-outline"
-                    type="button"
-                    disabled={wallet.openingCredits > 0}
-                    onClick={() => void wallet.topUp(credits)}
-                  >
-                    {wallet.openingCredits === credits ? "Opening..." : `${credits} credits`}
-                  </button>
-                ))}
-                <button className="btn btn-outline" type="button" onClick={() => setEditingCredits((value) => !value)}>
-                  Edit
-                </button>
+                {creditOptions.map((credits) => {
+                  const selected = selectedCredits.includes(credits);
+                  return (
+                    <button
+                      key={credits}
+                      className={selected ? "btn btn-primary" : "btn btn-outline"}
+                      type="button"
+                      aria-pressed={selected}
+                      disabled={wallet.openingCredits > 0}
+                      onClick={() => toggleCredits(credits)}
+                    >
+                      {selected ? `✓ ${credits}` : `${credits}`} credits
+                    </button>
+                  );
+                })}
+                <button className={editingCredits ? "btn btn-primary" : "btn btn-outline"} type="button" aria-pressed={editingCredits} disabled={wallet.openingCredits > 0} onClick={() => setEditingCredits((value) => !value)}>Edit</button>
               </div>
+
               {editingCredits && (
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                  <input
-                    aria-label="Custom credit amount"
-                    type="number"
-                    min={10}
-                    max={1000}
-                    step={1}
-                    value={customCredits}
-                    onChange={(event) => setCustomCredits(event.target.value)}
-                    style={{ width: 120 }}
-                  />
-                  <button className="btn btn-primary" type="button" disabled={wallet.openingCredits > 0} onClick={submitCustomCredits}>
-                    Add credits
-                  </button>
+                <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
+                  <input aria-label="Custom credit amount" type="number" min={5} max={1000} step={1} placeholder="Custom" value={customCredits} onChange={(event) => setCustomCredits(event.target.value)} style={{ width: 130 }} />
+                  <small>{customCredits && !validCustom ? "Enter 5–1,000" : "Custom amount"}</small>
                 </div>
               )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 16 }}>
+                <div style={{ textAlign: "right" }}><span style={{ display: "block" }}>Selected total</span><strong style={{ fontSize: 24 }}>{selectedTotal} credits · {money(selectedTotal)}</strong></div>
+                <button className="btn btn-primary" type="button" disabled={wallet.openingCredits > 0 || selectedTotal < 5 || selectedTotal > 1000} onClick={addCredits}>{wallet.openingCredits > 0 ? "Opening Stripe..." : "Add credits"}</button>
+              </div>
             </div>
           </article>
         </div>
@@ -135,47 +110,23 @@ export default function CustomerPayments() {
 
       <section className="billing-panel">
         <header>
-          <div>
-            <span className="billing-kicker">Invoices</span>
-            <h2>Ready for payment</h2>
-            <p>Only invoices connected to your customer account appear here.</p>
-          </div>
-          <button className="billing-refresh" type="button" onClick={() => void reload()} disabled={loading}>
-            {loading ? "Loading..." : "Refresh"}
-          </button>
+          <div><span className="billing-kicker">Invoices</span><h2>Ready for payment</h2><p>Only invoices connected to your customer account appear here.</p></div>
+          <button className="billing-refresh" type="button" onClick={() => void billing.reload()} disabled={billing.loading}>{billing.loading ? "Loading..." : "Refresh"}</button>
         </header>
 
-        {loading ? (
+        {billing.loading ? (
           <div className="billing-empty"><i>…</i><strong>Loading billing</strong><p>Checking your connected invoices.</p></div>
-        ) : invoices.length === 0 ? (
+        ) : billing.invoices.length === 0 ? (
           <div className="billing-empty"><i>✓</i><strong>No invoices due</strong><p>New approved work will appear here automatically.</p></div>
         ) : (
           <div className="billing-invoice-list">
-            {invoices.map((invoice) => {
+            {billing.invoices.map((invoice) => {
               const paid = invoice.status === "paid";
               return (
                 <article key={invoice.id} className={paid ? "paid" : ""}>
                   <div className="billing-invoice-icon">{paid ? "✓" : "$"}</div>
-                  <div className="billing-invoice-copy">
-                    <span>{invoice.number}</span>
-                    <strong>{invoice.service}</strong>
-                    <small>{new Date(invoice.createdAt).toLocaleDateString("en-CA")} · {statusLabel(invoice.status)}</small>
-                  </div>
-                  <div className="billing-invoice-total">
-                    <strong>{money(invoice.total)}</strong>
-                    {paid ? (
-                      <span>Paid</span>
-                    ) : (
-                      <button
-                        className="btn btn-primary"
-                        type="button"
-                        disabled={payingId === invoice.id || source !== "live"}
-                        onClick={() => void checkout(invoice.id)}
-                      >
-                        {payingId === invoice.id ? "Opening..." : "Pay securely"}
-                      </button>
-                    )}
-                  </div>
+                  <div className="billing-invoice-copy"><span>{invoice.number}</span><strong>{invoice.service}</strong><small>{new Date(invoice.createdAt).toLocaleDateString("en-CA")} · {statusLabel(invoice.status)}</small></div>
+                  <div className="billing-invoice-total"><strong>{money(invoice.total)}</strong>{paid ? <span>Paid</span> : <button className="btn btn-primary" type="button" disabled={billing.payingId === invoice.id || billing.source !== "live"} onClick={() => void billing.checkout(invoice.id)}>{billing.payingId === invoice.id ? "Opening..." : "Pay securely"}</button>}</div>
                 </article>
               );
             })}
@@ -183,10 +134,7 @@ export default function CustomerPayments() {
         )}
       </section>
 
-      <section className="billing-help-strip">
-        <div><i>i</i><span><strong>Need another payment arrangement?</strong><small>Contact the company before the invoice due date.</small></span></div>
-        <Link className="btn btn-outline" href="/customer/requests">Request help</Link>
-      </section>
+      <section className="billing-help-strip"><div><i>i</i><span><strong>Need another payment arrangement?</strong><small>Contact the company before the invoice due date.</small></span></div><Link className="btn btn-outline" href="/customer/requests">Request help</Link></section>
     </PortalShell>
   );
 }
