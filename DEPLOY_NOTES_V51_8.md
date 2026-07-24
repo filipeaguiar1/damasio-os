@@ -1,11 +1,9 @@
 # Deploy Notes V51.8
 
-## Local Commits Ready
+## Branch Status
 
-- `cbd3dd2` - Complete lead customer invoice linking
-- `94d75a7` - Add company Stripe Connect onboarding
-
-These commits are local and have not been pushed after the safety block. Push only after explicit approval.
+The Stripe safety work is published in draft PR #6 on branch `fix/stripe-production-safety`.
+Keep the pull request in draft and do not merge or promote it to Production without explicit approval.
 
 ## Supabase SQL Order
 
@@ -27,7 +25,7 @@ Run these in Supabase SQL Editor, in order:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `CRON_SECRET` recommended
+- `CRON_SECRET` (required for Vercel Cron authorization)
 - `STRIPE_PLATFORM_FEE_PERCENT` optional
 
 ## Stripe Webhook Endpoint
