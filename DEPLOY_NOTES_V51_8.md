@@ -1,11 +1,9 @@
 # Deploy Notes V51.8
 
-## Local Commits Ready
+## Branch Status
 
-- `cbd3dd2` - Complete lead customer invoice linking
-- `94d75a7` - Add company Stripe Connect onboarding
-
-These commits are local and have not been pushed after the safety block. Push only after explicit approval.
+The Stripe safety work is published in draft PR #6 on branch `fix/stripe-production-safety`.
+Keep the pull request in draft and do not merge or promote it to Production without explicit approval.
 
 ## Supabase SQL Order
 
@@ -16,17 +14,21 @@ Run these in Supabase SQL Editor, in order:
 3. `supabase/migrations/202607240003_lead_customer_quote_linking.sql`
 4. `supabase/migrations/202607240004_payout_batch_item_link.sql`
 5. `supabase/migrations/202607240005_payout_feedback_task_triggers.sql`
+6. `supabase/migrations/202607240006_stripe_production_safety.sql`
 
 ## Required Vercel Environment Variables
 
 - `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_WEBHOOK_SECRET` (Your account destination)
+- `STRIPE_CONNECT_WEBHOOK_SECRET` (Connected accounts destination)
 - `NEXT_PUBLIC_SITE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `CRON_SECRET` recommended
+- `CRON_SECRET` (required for Vercel Cron authorization)
 - `STRIPE_PLATFORM_FEE_PERCENT` optional
+
+After adding or changing any of these values, redeploy the Preview branch before QA.
 
 ## Stripe Webhook Endpoint
 
@@ -34,12 +36,19 @@ Configure Stripe webhook URL:
 
 `https://damasio-os-h1mc.vercel.app/api/stripe/webhook`
 
-Minimum events:
+Create two Sandbox webhook destinations pointing to the same URL.
+
+Your account destination (`STRIPE_WEBHOOK_SECRET`):
 
 - `payment_intent.succeeded`
 - `payment_intent.payment_failed`
 - `charge.refunded`
 - `charge.dispute.created`
+- `checkout.session.expired`
+
+Connected accounts destination (`STRIPE_CONNECT_WEBHOOK_SECRET`):
+
+- `account.updated`
 
 ## Flow Now Covered Locally
 
@@ -53,5 +62,6 @@ Minimum events:
 8. Stripe Checkout collects payment.
 9. Stripe webhook creates payout item.
 10. Feedback/task rules hold or release payout item.
-11. Master generates weekly batch.
-12. Friday cron transfers approved batch to the company Connect account.
+11. Master prepares the weekly draft and reviews its amount.
+12. Master explicitly approves the reviewed batch.
+13. Friday cron transfers the approved batch to the company Connect account.

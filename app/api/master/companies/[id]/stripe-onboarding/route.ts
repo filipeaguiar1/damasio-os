@@ -18,6 +18,17 @@ function fail(error: unknown, status = 400) {
   return NextResponse.json({ error: error instanceof Error ? error.message : "Stripe onboarding failed." }, { status });
 }
 
+function connectStatus(account: Stripe.Account) {
+  const enabled = Boolean(
+    account.details_submitted &&
+    account.payouts_enabled &&
+    account.capabilities?.transfers === "active"
+  );
+  if (enabled) return "enabled";
+  if (account.requirements?.disabled_reason) return "restricted";
+  return "onboarding";
+}
+
 async function requireMaster(request: NextRequest) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) throw new Error("Sign in as Master.");
@@ -54,7 +65,6 @@ export async function POST(request: NextRequest, context: { params: { id: string
       const account = await stripe.accounts.create({
         country: "CA",
         email: company.contact_email || undefined,
-        business_type: "company",
         business_profile: {
           name: company.name,
           product_description: "Property maintenance services paid through Damasio OS.",
@@ -69,10 +79,29 @@ export async function POST(request: NextRequest, context: { params: { id: string
         metadata: { companyId: company.id },
       } as Stripe.AccountCreateParams);
       accountId = account.id;
-      await service.from("organizations").update({
+      const accountSaved = await service.from("organizations").update({
         stripe_connected_account_id: accountId,
         stripe_connect_status: "onboarding",
       }).eq("id", company.id);
+      if (accountSaved.error) throw new Error(accountSaved.error.message);
+    }
+
+    const account = await stripe.accounts.retrieve(accountId);
+    const status = connectStatus(account);
+    const now = new Date().toISOString();
+    const statusSaved = await service.from("organizations").update({
+      stripe_connect_status: status,
+      stripe_connect_onboarded_at: account.details_submitted ? now : null,
+      stripe_payouts_enabled_at: status === "enabled" ? now : null,
+    }).eq("id", company.id);
+    if (statusSaved.error) throw new Error(statusSaved.error.message);
+
+    if (status === "enabled") {
+      return NextResponse.json({
+        url: `${siteUrl}/master?stripe=enabled&company=${company.id}`,
+        accountId,
+        status
+      });
     }
 
     const accountLink = await stripe.accountLinks.create({
@@ -82,12 +111,13 @@ export async function POST(request: NextRequest, context: { params: { id: string
       type: "account_onboarding",
     });
 
-    await service.from("organizations").update({
+    const onboardingSaved = await service.from("organizations").update({
       stripe_connect_onboarding_url: accountLink.url,
-      stripe_connect_status: company.stripe_connect_status === "enabled" ? "enabled" : "onboarding",
+      stripe_connect_status: status,
     }).eq("id", company.id);
+    if (onboardingSaved.error) throw new Error(onboardingSaved.error.message);
 
-    return NextResponse.json({ url: accountLink.url, accountId });
+    return NextResponse.json({ url: accountLink.url, accountId, status });
   } catch (error) {
     return fail(error);
   }

@@ -75,19 +75,37 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { authClient } = await requireMaster(request);
-    const body = await request.json() as { companyId?: string; referenceDate?: string };
+    const body = await request.json() as {
+      action?: "prepare" | "approve";
+      companyId?: string;
+      batchId?: string;
+      referenceDate?: string;
+    };
+    if (body.action === "approve") {
+      const batchId = String(body.batchId || "").trim();
+      if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(batchId)) throw new Error("Choose a valid payout batch.");
+      const approved = await authClient.rpc("approve_company_weekly_payout_batch", {
+        p_batch_id: batchId
+      });
+      if (approved.error?.message?.includes("approve_company_weekly_payout_batch")) {
+        throw new Error("Stripe safety migration is not applied yet. Run migration 202607240006 first.");
+      }
+      if (approved.error) throw new Error(approved.error.message);
+      return NextResponse.json({ batchId: approved.data, message: "Weekly payout batch approved for Friday transfer." });
+    }
+
     const companyId = String(body.companyId || "").trim();
     if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(companyId)) throw new Error("Choose a valid company.");
     const referenceDate = body.referenceDate && /^\d{4}-\d{2}-\d{2}$/.test(body.referenceDate) ? body.referenceDate : new Date().toISOString().slice(0, 10);
-    const { data, error } = await authClient.rpc("generate_company_weekly_payout_batch", {
+    const { data, error } = await authClient.rpc("prepare_company_weekly_payout_batch", {
       p_company_id: companyId,
       p_reference_date: referenceDate
     });
-    if (error?.message?.includes("generate_company_weekly_payout_batch")) {
-      throw new Error("Payout database migration is not applied yet. Run supabase/migrations/202607240001_stripe_connect_weekly_payouts.sql in Supabase SQL Editor first.");
+    if (error?.message?.includes("prepare_company_weekly_payout_batch")) {
+      throw new Error("Stripe safety migration is not applied yet. Run migration 202607240006 first.");
     }
     if (error) throw new Error(error.message);
-    return NextResponse.json({ batchId: data, message: "Weekly payout batch generated." });
+    return NextResponse.json({ batchId: data, message: "Weekly payout draft prepared. Review and approve it separately." });
   } catch (error) {
     return failure(error, 400);
   }
