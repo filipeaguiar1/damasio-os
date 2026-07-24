@@ -8,7 +8,10 @@ export default function CompanySetupPage() {
   const router = useRouter();
   const [companyName, setCompanyName] = useState("");
   const [adminName, setAdminName] = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
   const [contactEmail, setContactEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [recoveryEmail, setRecoveryEmail] = useState("");
   const [message, setMessage] = useState("Loading your company profile…");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -33,8 +36,11 @@ export default function CompanySetupPage() {
         if (!response.ok) throw new Error(result.error || "Company profile could not be loaded.");
         setCompanyName(result.company?.name || "");
         setAdminName(result.profile?.full_name || "");
-        setContactEmail(result.company?.contact_email || result.profile?.email || "");
-        setMessage("Confirm the details below to finish setting up your workspace.");
+        setLoginEmail(result.loginEmail || result.profile?.email || "");
+        setContactEmail(result.company?.contact_email || result.loginEmail || "");
+        setPhone(result.profile?.phone || "");
+        setRecoveryEmail(result.profile?.recovery_email || "");
+        setMessage("Confirm your contact details to finish setting up the workspace.");
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Company profile could not be loaded.");
       } finally {
@@ -55,7 +61,7 @@ export default function CompanySetupPage() {
           "content-type": "application/json",
           authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ companyName, adminName, contactEmail }),
+        body: JSON.stringify({ companyName, adminName, contactEmail, phone, recoveryEmail }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Company profile could not be saved.");
@@ -84,9 +90,26 @@ export default function CompanySetupPage() {
         </label>
 
         <label className="field">
+          Login email
+          <input className="input" type="email" value={loginEmail} readOnly disabled />
+        </label>
+
+        <label className="field">
           Company contact email
           <input className="input" type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} required disabled={loading || saving} />
         </label>
+
+        <label className="field">
+          Phone number
+          <input className="input" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} required placeholder="+1 416 555 0123" disabled={loading || saving} />
+        </label>
+
+        <label className="field">
+          Alternative recovery contact email
+          <input className="input" type="email" value={recoveryEmail} onChange={(event) => setRecoveryEmail(event.target.value)} placeholder="owner@company.com" disabled={loading || saving} />
+        </label>
+
+        <p className="auth-message">Password reset links are sent securely to the login email above. The alternative email is stored as a company recovery contact.</p>
 
         <button className="btn btn-primary" type="submit" disabled={loading || saving}>
           {saving ? "Saving…" : "Save and open dashboard"}
