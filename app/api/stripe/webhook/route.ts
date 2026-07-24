@@ -291,20 +291,33 @@ async function expireCheckout(db: any, session: Stripe.Checkout.Session) {
 
 export async function POST(request: NextRequest) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const webhookSecrets = Array.from(new Set([
+    process.env.STRIPE_WEBHOOK_SECRET,
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET
+  ].filter((secret): secret is string => Boolean(secret))));
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!stripeKey || !webhookSecret || !url || !serviceKey) return bad("Stripe webhook is not configured.", 503);
+  if (!stripeKey || !webhookSecrets.length || !url || !serviceKey) {
+    return bad("Stripe webhook is not configured.", 503);
+  }
 
   const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
   const signature = request.headers.get("stripe-signature");
   if (!signature) return bad("Missing Stripe signature.");
 
-  let event: Stripe.Event;
-  try {
-    event = stripe.webhooks.constructEvent(await request.text(), signature, webhookSecret);
-  } catch (error) {
-    console.error("Invalid Stripe webhook signature", error);
+  const payload = await request.text();
+  let event: Stripe.Event | null = null;
+  let signatureError: unknown;
+  for (const secret of webhookSecrets) {
+    try {
+      event = stripe.webhooks.constructEvent(payload, signature, secret);
+      break;
+    } catch (error) {
+      signatureError = error;
+    }
+  }
+  if (!event) {
+    console.error("Invalid Stripe webhook signature", signatureError);
     return bad("Invalid Stripe signature.");
   }
 
