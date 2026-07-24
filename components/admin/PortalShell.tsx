@@ -8,7 +8,21 @@ import { signOutAccount } from "@/lib/auth/signOut";
 function mobilePortalPath(type: "Customer" | "Employee", pathname: string) {
   if (type === "Employee") return "/mobile/employee";
   const section = pathname.split("/").filter(Boolean)[1] || "";
-  return section ? `/mobile/customer/${section}` : "/mobile/customer";
+  const customerRoutes: Record<string, string> = {
+    "": "/mobile/customer",
+    "next-visit": "/mobile/customer/services",
+    services: "/mobile/customer/services",
+    tasks: "/mobile/customer/issues",
+    history: "/mobile/customer/history",
+    estimates: "/mobile/customer/estimates",
+    notifications: "/mobile/customer/more",
+    invoices: "/mobile/customer/invoices",
+    payments: "/mobile/customer/payments",
+    requests: "/mobile/customer/requests",
+    feedback: "/mobile/customer/feedback",
+    profile: "/mobile/customer/profile",
+  };
+  return customerRoutes[section] || "/mobile/customer/more";
 }
 
 export function PortalShell({ children, active, type }: { children: React.ReactNode; active: string; type: "Customer" | "Employee" }) {
