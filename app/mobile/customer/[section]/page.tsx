@@ -15,7 +15,7 @@ const config:Record<string,{title:string;subtitle:string;eyebrow:string;icon:str
 export default function MobileCustomerSection(){
  const section=String(useParams().section||"more");const page=config[section]||config.more;const router=useRouter();const[board,setBoard]=useState<CustomerPortalBoard>(empty);const[photoHistory,setPhotoHistory]=useState<PropertyPhotoHistory|null>(null);const[estimates,setEstimates]=useState<Estimate[]>([]);const[open,setOpen]=useState("");const[message,setMessage]=useState("");
  const{invoices,source:billingSource,loading:billingLoading,message:billingMessage,payingId,summary:billingSummary,checkout,clearMessage:clearBillingMessage}=useCustomerBilling();
- const{balanceCredits,transactions:walletTransactions,loading:walletLoading,openingCredits,walletMessage,topUp,clearMessage:clearWalletMessage}=(()=>{const wallet=useCustomerWallet();return{...wallet,walletMessage:wallet.message}})();
+ const wallet=useCustomerWallet();const{balanceCredits,transactions:walletTransactions,loading:walletLoading,openingCredits,message:walletMessage,topUp,clearMessage:clearWalletMessage}=wallet;
  function refresh(){void loadCustomerPortal().then(setBoard).catch(()=>setMessage("Your customer information is temporarily unavailable. Please try again shortly."));setEstimates(getEstimates().filter(item=>item.status!=="draft"))}
  useEffect(()=>refresh(),[]);
  useEffect(()=>{if(board.property?.propertyId)void getPropertyPhotoHistory(board.property.propertyId).then(setPhotoHistory).catch(()=>setPhotoHistory(null))},[board.property?.propertyId]);
