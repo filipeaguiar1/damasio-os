@@ -11,11 +11,14 @@ export default function ResetPasswordPage() {
   const [message, setMessage] = useState("Checking your recovery session…");
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [companyOnboarding, setCompanyOnboarding] = useState(false);
 
   useEffect(() => {
     void (async () => {
+      const params = new URLSearchParams(window.location.search);
+      setCompanyOnboarding(params.get("onboarding") === "company");
       const supabase = getSupabaseBrowserClient() as any;
-      const code = new URLSearchParams(window.location.search).get("code");
+      const code = params.get("code");
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) {
@@ -25,11 +28,11 @@ export default function ResetPasswordPage() {
       }
       const { data } = await supabase.auth.getSession();
       if (!data.session) {
-        setMessage("This recovery link is invalid or expired. Request a new one.");
+        setMessage("This recovery link is invalid or expired. Request a new one from the Master panel.");
         return;
       }
       setReady(true);
-      setMessage("Choose a new password for your account.");
+      setMessage(params.get("onboarding") === "company" ? "Create your password to activate company access." : "Choose a new password for your account.");
     })();
   }, []);
 
@@ -48,6 +51,11 @@ export default function ResetPasswordPage() {
       const supabase = getSupabaseBrowserClient();
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
+      if (companyOnboarding) {
+        setMessage("Password created. Opening company setup…");
+        router.replace("/company/setup");
+        return;
+      }
       setMessage("Password updated successfully. Redirecting to sign in…");
       await supabase.auth.signOut();
       router.replace("/login");
@@ -60,13 +68,13 @@ export default function ResetPasswordPage() {
   return (
     <main className="auth-page">
       <form className="auth-card" onSubmit={submit}>
-        <span className="eyebrow">Secure recovery</span>
-        <h1>Create a new password</h1>
+        <span className="eyebrow">{companyOnboarding ? "Company activation" : "Secure recovery"}</span>
+        <h1>{companyOnboarding ? "Create your password" : "Create a new password"}</h1>
         <p>{message}</p>
         {ready && <>
           <label className="field">New password<input className="input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} autoComplete="new-password" /></label>
           <label className="field">Confirm password<input className="input" type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} required minLength={8} autoComplete="new-password" /></label>
-          <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? "Updating…" : "Update password"}</button>
+          <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? "Updating…" : companyOnboarding ? "Create password and continue" : "Update password"}</button>
         </>}
       </form>
     </main>
