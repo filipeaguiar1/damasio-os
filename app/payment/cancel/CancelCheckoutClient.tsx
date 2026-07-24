@@ -33,15 +33,21 @@ export function CancelCheckoutClient({ invoiceId }: { invoiceId: string }) {
   }, [invoiceId]);
 
   return (
-    <main className="section section-white">
-      <div className="container">
-        <div className="card profile-card">
-          <span className="eyebrow">Payment</span>
-          <h1>Payment cancelled</h1>
-          <p className="section-intro">{message}</p>
-          <Link className="btn btn-primary" href="/customer/payments">Back to payments</Link>
+    <main className="payment-result-shell cancelled">
+      <section className="payment-result-card">
+        <div className="payment-result-mark">×</div>
+        <span className="payment-result-kicker">Checkout closed safely</span>
+        <h1>Payment cancelled</h1>
+        <p>{message}</p>
+        <div className="payment-result-note">
+          <strong>Your card was not charged here</strong>
+          <span>The invoice remains available so you can review it and try again when ready.</span>
         </div>
-      </div>
+        <div className="payment-result-actions">
+          <Link className="btn btn-primary" href="/customer/payments">Return to payments</Link>
+          <Link className="btn btn-outline" href="/customer/invoices">Review invoices</Link>
+        </div>
+      </section>
     </main>
   );
 }

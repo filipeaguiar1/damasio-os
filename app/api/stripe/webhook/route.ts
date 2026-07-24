@@ -310,6 +310,13 @@ export async function POST(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!stripeKey || !webhookSecrets.length || !url || !serviceKey) {
+    const missing = [
+      !stripeKey && "STRIPE_SECRET_KEY",
+      !webhookSecrets.length && "STRIPE_WEBHOOK_SECRET or STRIPE_CONNECT_WEBHOOK_SECRET",
+      !url && "NEXT_PUBLIC_SUPABASE_URL",
+      !serviceKey && "SUPABASE_SERVICE_ROLE_KEY",
+    ].filter(Boolean);
+    console.error("Stripe webhook configuration missing", missing);
     return bad("Stripe webhook is not configured.", 503);
   }
 
