@@ -86,13 +86,16 @@ export function useCustomerWallet() {
     setMessage("Opening secure Stripe Checkout...");
     try {
       const accessToken = await token();
+      const returnPath = window.location.pathname.startsWith("/mobile/")
+        ? "/mobile/customer/payments"
+        : "/customer/payments";
       const response = await fetch("/api/stripe/wallet", {
         method: "POST",
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${accessToken}`
         },
-        body: JSON.stringify({ credits })
+        body: JSON.stringify({ credits, returnPath })
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Wallet checkout could not be opened.");
