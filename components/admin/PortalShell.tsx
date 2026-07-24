@@ -1,10 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { signOutAccount } from "@/lib/auth/signOut";
 
+function mobilePortalPath(type: "Customer" | "Employee", pathname: string) {
+  if (type === "Employee") return "/mobile/employee";
+  const section = pathname.split("/").filter(Boolean)[1] || "";
+  return section ? `/mobile/customer/${section}` : "/mobile/customer";
+}
+
 export function PortalShell({ children, active, type }: { children: React.ReactNode; active: string; type: "Customer" | "Employee" }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const base = type === "Customer" ? "/customer" : "/employee";
   const links = type === "Customer"
     ? [["Dashboard",base,"H"],["Services",`${base}/services`,"S"],["Service Issues",`${base}/tasks`,"!"],["History",`${base}/history`,"R"],["Estimates",`${base}/estimates`,"E"],["Notifications",`${base}/notifications`,"N"],["Invoices",`${base}/invoices`,"I"],["Payments",`${base}/payments`,"$"],["Requests",`${base}/requests`,"+"],["Feedback",`${base}/feedback`,"*"],["Profile",`${base}/profile`,"P"]]
@@ -13,6 +22,12 @@ export function PortalShell({ children, active, type }: { children: React.ReactN
   const subtitle = type === "Customer" ? "Customer Portal" : "Field App";
   const [unread, setUnread] = useState(type === "Customer" ? 1 : 3);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      router.replace(mobilePortalPath(type, pathname));
+    }
+  }, [pathname, router, type]);
 
   return <div className={`admin-pro-shell portal-pro-shell ${type === "Employee" ? "employee-portal-shell" : "customer-portal-shell"}`}>
     {mobileMenuOpen && <button className="portal-mobile-backdrop" aria-label="Close menu" onClick={()=>setMobileMenuOpen(false)}/>} 
