@@ -17,7 +17,7 @@ export default function Customer() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    loadCustomerPortal().then(setBoard).catch((event) => setError(event.message));
+    loadCustomerPortal().then(setBoard).catch(() => setError("Your live property information is temporarily unavailable. Please try again shortly."));
   }, []);
 
   const next = useMemo(
@@ -33,9 +33,9 @@ export default function Customer() {
     <PortalShell type="Customer" active="Dashboard">
       <div className="neo-hero customer-hero">
         <div>
-          <span className="eyebrow">Customer Portal - Supabase</span>
-          <h1>{board.property?.customerName || "Customer Portal"}</h1>
-          <p>{board.property ? `${board.property.address}, ${board.property.city}` : "Only the customer property is shown here."}</p>
+          <span className="eyebrow">Customer Portal</span>
+          <h1>{board.property?.customerName || "My Property"}</h1>
+          <p>{board.property ? `${board.property.address}, ${board.property.city}` : "Services, visits, requests and billing in one place."}</p>
         </div>
         <Link className="btn btn-primary" href="/customer/requests">Request Service</Link>
       </div>
@@ -49,22 +49,13 @@ export default function Customer() {
       </section>
       <section className="card calendar-work-card">
         <div className="calendar-work-head">
-          <div><h2>Next Scheduled Service</h2><span>{next ? "Live from Supabase" : "Waiting for Admin to schedule"}</span></div>
+          <div><h2>Next Scheduled Service</h2><span>{next ? "Live schedule" : "Waiting for Admin to schedule"}</span></div>
           <Link className="btn btn-outline" href="/customer/next-visit">Open Next Visit</Link>
         </div>
         {!next ? (
           <div className="empty-state"><strong>Pending Scheduling</strong><p>Your next visit will appear here after Admin books the day and crew.</p></div>
         ) : (
-          <div className="pro-route-list">
-            <div className="pro-route-row">
-              <span className="route-number">1</span>
-              <div className="home-thumb"><div></div></div>
-              <div className="home-info"><strong>{next.serviceName}</strong><p>{next.address}</p><span className="freq">scheduled</span></div>
-              <div className="crew-cell"><div className="crew-faces"><i></i><i></i></div><strong>{next.crewName || "Crew pending"}</strong><p>Route order only</p></div>
-              <div className="booking-cell"><span className="dot booked"></span><strong>{next.status}</strong><p>Next: {niceDate(next.scheduledDate)}</p></div>
-              <Link className="open-btn" href="/customer/next-visit">Open</Link>
-            </div>
-          </div>
+          <div className="pro-route-list"><div className="pro-route-row"><span className="route-number">1</span><div className="home-thumb"><div></div></div><div className="home-info"><strong>{next.serviceName}</strong><p>{next.address}</p><span className="freq">scheduled</span></div><div className="crew-cell"><div className="crew-faces"><i></i><i></i></div><strong>{next.crewName || "Crew pending"}</strong><p>Route order only</p></div><div className="booking-cell"><span className="dot booked"></span><strong>{next.status}</strong><p>Next: {niceDate(next.scheduledDate)}</p></div><Link className="open-btn" href="/customer/next-visit">Open</Link></div></div>
         )}
       </section>
     </PortalShell>

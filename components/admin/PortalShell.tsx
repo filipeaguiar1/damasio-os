@@ -1,99 +1,77 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { signOutAccount } from "@/lib/auth/signOut";
 
-export function PortalShell({
-  children,
-  active,
-  type,
-}: {
-  children: React.ReactNode;
-  active: string;
-  type: "Customer" | "Employee";
-}) {
+function mobilePortalPath(type: "Customer" | "Employee", pathname: string) {
+  if (type === "Employee") return "/mobile/employee";
+  const section = pathname.split("/").filter(Boolean)[1] || "";
+  const customerRoutes: Record<string, string> = {
+    "": "/mobile/customer",
+    "next-visit": "/mobile/customer/services",
+    services: "/mobile/customer/services",
+    tasks: "/mobile/customer/issues",
+    history: "/mobile/customer/history",
+    estimates: "/mobile/customer/estimates",
+    notifications: "/mobile/customer/more",
+    invoices: "/mobile/customer/invoices",
+    payments: "/mobile/customer/payments",
+    requests: "/mobile/customer/requests",
+    feedback: "/mobile/customer/feedback",
+    profile: "/mobile/customer/profile",
+  };
+  return customerRoutes[section] || "/mobile/customer/more";
+}
+
+export function PortalShell({ children, active, type }: { children: React.ReactNode; active: string; type: "Customer" | "Employee" }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const base = type === "Customer" ? "/customer" : "/employee";
-  const links =
-    type === "Customer"
-      ? [
-          ["Dashboard", base, "H"],
-          ["Services", `${base}/services`, "S"],
-          ["Service Issues", `${base}/tasks`, "!"],
-          ["History", `${base}/history`, "R"],
-          ["Estimates", `${base}/estimates`, "E"],
-          ["Notifications", `${base}/notifications`, "N"],
-          ["Invoices", `${base}/invoices`, "I"],
-          ["Payments", `${base}/payments`, "$"],
-          ["Requests", `${base}/requests`, "+"],
-          ["Feedback", `${base}/feedback`, "*"],
-          ["Profile", `${base}/profile`, "P"],
-        ]
-      : [
-          ["Today", base, "T"],
-          ["Checklist", `${base}/checklist`, "C"],
-          ["Route", `${base}/route`, "R"],
-          ["Photos", `${base}/photos`, "P"],
-          ["Hours", `${base}/hours`, "H"],
-          ["Training", `${base}/training`, "L"],
-        ];
+  const links = type === "Customer"
+    ? [["Dashboard",base,"H"],["Services",`${base}/services`,"S"],["Service Issues",`${base}/tasks`,"!"],["History",`${base}/history`,"R"],["Estimates",`${base}/estimates`,"E"],["Notifications",`${base}/notifications`,"N"],["Invoices",`${base}/invoices`,"I"],["Payments",`${base}/payments`,"$"],["Requests",`${base}/requests`,"+"],["Feedback",`${base}/feedback`,"*"],["Profile",`${base}/profile`,"P"]]
+    : [["Today",base,"T"],["Checklist",`${base}/checklist`,"C"],["Route",`${base}/route`,"R"],["Photos",`${base}/photos`,"P"],["Hours",`${base}/hours`,"H"],["Training",`${base}/training`,"L"]];
   const initials = type === "Customer" ? "CS" : "FD";
   const subtitle = type === "Customer" ? "Customer Portal" : "Field App";
   const [unread, setUnread] = useState(type === "Customer" ? 1 : 3);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const clearNotifications = () => setUnread(0);
 
-  return (
-    <div className={`admin-pro-shell portal-pro-shell ${type === "Employee" ? "employee-portal-shell" : "customer-portal-shell"}`}>
-      <aside className={`pro-sidebar ${mobileMenuOpen ? "mobile-menu-open" : ""}`}>
-        <button type="button" className="mobile-menu-close" onClick={() => setMobileMenuOpen(false)} aria-label="Close menu">x</button>
-        <Link href={base} className="season-logo" aria-label="4Ever Seasons portal">
-          <div className="season-title"><span>4EVER</span><strong>SEASONS</strong></div>
-          <div className="grass-mask" aria-hidden="true"><span></span><span></span><span></span></div>
-          <div className="mower-man" aria-hidden="true"><i className="head"></i><i className="body"></i><i className="leg one"></i><i className="leg two"></i><i className="arm"></i><i className="mower"></i></div>
-        </Link>
-        <Link href={`${base}/profile`} className="admin-profile clickable-profile">
-          <div className="profile-avatar">{initials}</div>
-          <div><strong>{type === "Customer" ? "Customer Demo" : "Filipe Damasio"}</strong><span>{subtitle}</span></div>
-          <b>v</b>
-        </Link>
-        <nav className="pro-nav">
-          {links.map(([label, href, icon]) => (
-            <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} className={active === label ? "active" : ""}>
-              <span>{icon}</span>{label}
-            </Link>
-          ))}
-          {type === "Customer" && <Link href="/" onClick={() => setMobileMenuOpen(false)}><span>W</span>Website</Link>}
-        </nav>
-        <Link href={type === "Customer" ? "/customer/requests" : "/employee/training"} className="help-card">
-          <span>?</span><div><strong>Need Help?</strong><small>Contact Support</small></div>
-        </Link>
-        <button type="button" className="mobile-menu-signout" onClick={() => void signOutAccount("/mobile/login")}>Sign out</button>
-      </aside>
-      <main className="pro-main">
-        <header className="pro-topbar">
-          {type === "Customer" && <Link href="/mobile/customer" className="mobile-subpage-back" aria-label="Back to customer home">Back</Link>}
-          <button type="button" className="hamburger mobile-menu-toggle" onClick={() => setMobileMenuOpen(true)} aria-label="Open menu">Menu</button>
-          {type === "Customer" && <span className="mobile-subpage-title"><strong>{active}</strong><small>Customer portal</small></span>}
-          <Link href={type === "Customer" ? "/customer/services" : "/employee/route"} className="topbar-pill">{type === "Customer" ? "Service Portal" : "Today's Route"}</Link>
-          <div className="topbar-spacer"></div>
-          <Link href={type === "Customer" ? "/customer/services" : "/employee/route"} className="top-icon">S</Link>
-          <Link href={type === "Customer" ? "/customer/notifications" : "/employee/route"} onClick={clearNotifications} className="top-icon notify">N{unread > 0 && <b>{unread}</b>}</Link>
-          <Link href={`${base}/profile`} className="top-icon">P</Link>
-          <Link href={`${base}/profile`} className="mini-user"><span>{initials}</span><i></i></Link>
-          <button type="button" className="top-signout" onClick={() => void signOutAccount()} aria-label="Sign out">Sign out</button>
-        </header>
-        <div className="pro-content">{children}</div>
-        {type === "Customer" && (
-          <nav className="mobile-shell-bottom" aria-label="Customer subpage navigation">
-            <Link href="/mobile/customer"><i>H</i><span>Home</span></Link>
-            <Link className={active === "Services" ? "active" : ""} href="/customer/services"><i>S</i><span>Services</span></Link>
-            <Link className={active === "Requests" ? "active" : ""} href="/customer/requests"><i>+</i><span>Request</span></Link>
-            <Link className={active === "Payments" || active === "Invoices" || active === "Estimates" ? "active" : ""} href="/customer/payments"><i>$</i><span>Billing</span></Link>
-            <button type="button" onClick={() => setMobileMenuOpen(true)}><i>...</i><span>More</span></button>
-          </nav>
-        )}
-      </main>
-    </div>
-  );
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      router.replace(mobilePortalPath(type, pathname));
+    }
+  }, [pathname, router, type]);
+
+  return <div className={`admin-pro-shell portal-pro-shell ${type === "Employee" ? "employee-portal-shell" : "customer-portal-shell"}`}>
+    {mobileMenuOpen && <button className="portal-mobile-backdrop" aria-label="Close menu" onClick={()=>setMobileMenuOpen(false)}/>} 
+    <aside className={`pro-sidebar ${mobileMenuOpen ? "mobile-menu-open" : ""}`}>
+      <button type="button" className="mobile-menu-close" onClick={()=>setMobileMenuOpen(false)} aria-label="Close menu">×</button>
+      <Link href={base} className="season-logo" aria-label="4Ever Seasons portal"><div className="season-title"><span>4EVER</span><strong>SEASONS</strong></div><div className="grass-mask" aria-hidden="true"><span/><span/><span/></div><div className="mower-man" aria-hidden="true"><i className="head"/><i className="body"/><i className="leg one"/><i className="leg two"/><i className="arm"/><i className="mower"/></div></Link>
+      <Link href={`${base}/profile`} className="admin-profile clickable-profile"><div className="profile-avatar">{initials}</div><div><strong>{type === "Customer" ? "Customer Demo" : "Filipe Damasio"}</strong><span>{subtitle}</span></div><b>›</b></Link>
+      <nav className="pro-nav">{links.map(([label,href,icon])=><Link key={href} href={href} onClick={()=>setMobileMenuOpen(false)} className={active===label?"active":""}><span>{icon}</span>{label}</Link>)}{type === "Customer" && <Link href="/" onClick={()=>setMobileMenuOpen(false)}><span>W</span>Website</Link>}</nav>
+      <Link href={type === "Customer" ? "/customer/requests" : "/employee/training"} className="help-card"><span>?</span><div><strong>Need Help?</strong><small>Contact Support</small></div></Link>
+      <button type="button" className="mobile-menu-signout" onClick={()=>void signOutAccount("/mobile/login")}>Sign out</button>
+    </aside>
+    <main className="pro-main">
+      <header className="pro-topbar">
+        <button type="button" className="hamburger mobile-menu-toggle" onClick={()=>setMobileMenuOpen(true)} aria-label="Open menu">☰</button>
+        <Link href={base} className="portal-mobile-title"><strong>{active}</strong><small>{subtitle}</small></Link>
+        <Link href={type === "Customer" ? "/customer/services" : "/employee/route"} className="topbar-pill">{type === "Customer" ? "Service Portal" : "Today's Route"}</Link>
+        <div className="topbar-spacer"/>
+        <Link href={type === "Customer" ? "/customer/services" : "/employee/route"} className="top-icon">S</Link>
+        <Link href={type === "Customer" ? "/customer/notifications" : "/employee/route"} onClick={()=>setUnread(0)} className="top-icon notify">N{unread>0&&<b>{unread}</b>}</Link>
+        <Link href={`${base}/profile`} className="mini-user"><span>{initials}</span><i/></Link>
+        <button type="button" className="top-signout" onClick={()=>void signOutAccount()} aria-label="Sign out">Sign out</button>
+      </header>
+      <div className="pro-content">{children}</div>
+      <nav className="portal-browser-bottom" aria-label={`${type} navigation`}>
+        <Link className={active===(type==="Customer"?"Dashboard":"Today")?"active":""} href={base}><i>H</i><span>Home</span></Link>
+        <Link className={active===(type==="Customer"?"Services":"Route")?"active":""} href={type==="Customer"?"/customer/services":"/employee/route"}><i>{type==="Customer"?"S":"R"}</i><span>{type==="Customer"?"Services":"Route"}</span></Link>
+        <Link className={active===(type==="Customer"?"Requests":"Checklist")?"active":""} href={type==="Customer"?"/customer/requests":"/employee/checklist"}><i>{type==="Customer"?"+":"C"}</i><span>{type==="Customer"?"Request":"Checklist"}</span></Link>
+        <Link className={type==="Customer"&&["Payments","Invoices","Estimates"].includes(active)?"active":""} href={type==="Customer"?"/customer/payments":"/employee/photos"}><i>{type==="Customer"?"$":"P"}</i><span>{type==="Customer"?"Billing":"Photos"}</span></Link>
+        <button type="button" onClick={()=>setMobileMenuOpen(true)}><i>•••</i><span>More</span></button>
+      </nav>
+    </main>
+  </div>;
 }

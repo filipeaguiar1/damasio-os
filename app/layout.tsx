@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./mobile-recovery.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 
 export const metadata: Metadata = {
