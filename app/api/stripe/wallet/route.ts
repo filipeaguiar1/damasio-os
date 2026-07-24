@@ -89,8 +89,8 @@ export async function POST(request: NextRequest) {
 
     const body = (await request.json()) as { credits?: number; returnPath?: string };
     const credits = Number(body.credits);
-    if (!Number.isInteger(credits) || credits < 10 || credits > 1000) {
-      return failure("Choose a whole credit amount between 10 and 1000.", 400);
+    if (!Number.isInteger(credits) || credits < 5 || credits > 1000) {
+      return failure("Choose a whole credit total between 5 and 1000.", 400);
     }
 
     const returnPath = body.returnPath === "/customer/payments"
