@@ -5,6 +5,7 @@
   "outputDirectory": ".next",
   "crons": [
     { "path": "/api/map/rebuild", "schedule": "0 5 * * *" },
-    { "path": "/api/cron/company-lifecycle", "schedule": "15 5 * * *" }
+    { "path": "/api/cron/company-lifecycle", "schedule": "15 5 * * *" },
+    { "path": "/api/cron/weekly-payouts", "schedule": "0 14 * * 5" }
   ]
 }

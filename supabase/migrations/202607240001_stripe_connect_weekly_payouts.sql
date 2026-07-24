@@ -46,6 +46,7 @@ create table if not exists public.company_payout_items(
   hold_reason text,
   feedback_id uuid references public.feedback(id) on delete set null,
   task_id uuid references public.tasks(id) on delete set null,
+  batch_id uuid,
   stripe_transfer_group text,
   stripe_transfer_id text,
   eligible_at timestamptz,
@@ -79,6 +80,8 @@ create unique index if not exists company_payout_items_payment_unique
   on public.company_payout_items(payment_id) where payment_id is not null;
 create index if not exists company_payout_items_company_status_idx
   on public.company_payout_items(company_id,status,created_at desc);
+create index if not exists company_payout_items_batch_idx
+  on public.company_payout_items(batch_id) where batch_id is not null;
 create index if not exists company_payout_items_eligible_idx
   on public.company_payout_items(company_id,eligible_at) where status='eligible';
 create index if not exists company_payout_batches_company_week_idx
@@ -234,7 +237,7 @@ begin
 
   if coalesce(array_length(v_item_ids,1),0)>0 then
     update public.company_payout_items
-      set status='approved', approved_by_master_id=auth.uid(), approved_at=now(), updated_at=now()
+      set status='approved', batch_id=v_batch_id, approved_by_master_id=auth.uid(), approved_at=now(), updated_at=now()
       where id=any(v_item_ids) and status='eligible';
     update public.company_payout_batches
       set status='approved', approved_by_master_id=auth.uid(), approved_at=now(), total_transfer_amount=v_total
@@ -253,5 +256,60 @@ grant execute on function public.weekly_company_payout_week_start(date) to authe
 grant execute on function public.weekly_company_payout_week_end(date) to authenticated;
 grant execute on function public.generate_company_weekly_payout_batch(uuid,date) to authenticated;
 grant execute on function public.generate_company_weekly_payout_batch(uuid,date) to service_role;
+
+create or replace function public.refresh_payout_from_feedback()
+returns trigger language plpgsql security definer set search_path=public as $$
+begin
+  if new.visit_id is not null and coalesce(new.rating,0)>=4 then
+    update public.company_payout_items
+      set feedback_id=new.id, updated_at=now()
+      where company_id=new.company_id and visit_id=new.visit_id and status in('pending_feedback','held_task','eligible');
+    perform public.refresh_payout_release_status(id)
+    from public.company_payout_items
+    where company_id=new.company_id and visit_id=new.visit_id and status in('pending_feedback','held_task','eligible');
+  end if;
+  return new;
+end $$;
+
+create or replace function public.hold_payout_from_open_task()
+returns trigger language plpgsql security definer set search_path=public as $$
+begin
+  if new.status::text not in('resolved','cancelled') then
+    update public.company_payout_items
+      set status='held_task',
+          task_id=new.id,
+          hold_reason='Open customer or Master task is blocking release.',
+          eligible_at=null,
+          updated_at=now()
+      where company_id=new.company_id
+        and status in('pending_feedback','eligible','approved')
+        and (
+          visit_id=new.source_visit_id
+          or (property_id is not null and property_id=new.property_id and created_at<=new.created_at)
+        );
+  else
+    perform public.refresh_payout_release_status(id)
+    from public.company_payout_items
+    where company_id=new.company_id
+      and status='held_task'
+      and (task_id=new.id or visit_id=new.source_visit_id or property_id=new.property_id);
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists feedback_refreshes_payout_release on public.feedback;
+create trigger feedback_refreshes_payout_release
+after insert or update of rating on public.feedback
+for each row execute function public.refresh_payout_from_feedback();
+
+drop trigger if exists task_holds_or_refreshes_payout on public.tasks;
+create trigger task_holds_or_refreshes_payout
+after insert or update of status on public.tasks
+for each row execute function public.hold_payout_from_open_task();
+
+revoke all on function public.refresh_payout_from_feedback() from public,anon,authenticated;
+revoke all on function public.hold_payout_from_open_task() from public,anon,authenticated;
+grant execute on function public.refresh_payout_from_feedback() to service_role;
+grant execute on function public.hold_payout_from_open_task() to service_role;
 
 commit;

@@ -21,6 +21,7 @@ This matches the business rule:
    - Positive customer feedback releases it.
    - Or 3 days after completed visit with no open task releases it.
    - Any open task keeps it held.
+   - Database triggers refresh this automatically when feedback is saved or a task changes status.
 6. The system groups eligible work from Monday through Sunday.
 7. Master Admin reviews the eligible weekly batch.
 8. Approved batches are scheduled for the following Friday.
@@ -28,6 +29,8 @@ This matches the business rule:
 10. The company receives normal Stripe payouts to its bank account.
 
 Example: work completed Monday through Sunday last week is paid on the next Friday, as long as there is no blocking task and the feedback/3-day rule has passed.
+
+The production cron `/api/cron/weekly-payouts` runs on Fridays and creates Stripe Transfers only for batches that are already `approved` and scheduled for that date or earlier.
 
 ## Master-Only Controls
 
@@ -76,10 +79,7 @@ Next:
 
 ## Next Build Steps
 
-1. Apply the payout migration in Supabase.
-2. Add Master payout queue UI.
-3. Add Connect onboarding endpoints and UI for companies.
-4. Add weekly payout batch processor.
-5. Add customer feedback trigger to refresh payout eligibility.
-6. Add task trigger to hold payout items automatically.
-7. QA desktop, mobile browser and mobile app payment states.
+1. Apply the payout and lead-linking migrations in Supabase.
+2. Add Connect onboarding endpoints and UI for companies.
+3. Add manual Master payout hold/cancel/retry buttons.
+4. QA desktop, mobile browser and mobile app payment states.
