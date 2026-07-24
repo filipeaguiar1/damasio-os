@@ -1,0 +1,180 @@
+/* Mobile recovery layer: keeps desktop untouched and normalizes dedicated mobile role screens. */
+@media (max-width: 760px) {
+  html, body { max-width: 100%; overflow-x: hidden; }
+  body { background: #eef3ef; }
+
+  .mobile-app-shell,
+  .role-mobile-shell,
+  .employee-mobile-shell {
+    width: 100%;
+    max-width: 100%;
+    min-height: 100dvh;
+    margin: 0;
+    padding: 0 14px calc(96px + env(safe-area-inset-bottom));
+    overflow-x: clip;
+    background: #eef3ef;
+  }
+
+  .role-mobile-topbar,
+  .employee-mobile-header {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    min-height: 64px;
+    margin: 0 -14px 14px;
+    padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
+    background: rgba(255,255,255,.96);
+    border-bottom: 1px solid #dce5df;
+    backdrop-filter: blur(14px);
+  }
+
+  .role-mobile-topbar > div,
+  .employee-mobile-brand { min-width: 0; }
+  .role-mobile-topbar strong,
+  .employee-mobile-brand strong { font-size: 15px; }
+  .role-mobile-topbar span,
+  .employee-mobile-brand small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .mobile-hero-card,
+  .role-mobile-section,
+  .mobile-stats-card,
+  .employee-week-picker,
+  .employee-mobile-progress,
+  .employee-home-switch,
+  .employee-smart-route,
+  .mobile-service-screen {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 20px;
+    box-shadow: 0 10px 28px rgba(14, 48, 35, .08);
+  }
+
+  .mobile-hero-card.compact { padding: 22px 18px; }
+  .mobile-hero-card h1 { max-width: 15ch; font-size: clamp(30px, 9vw, 40px); line-height: .98; }
+  .mobile-hero-card p { line-height: 1.45; }
+
+  .mobile-stats-card {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    overflow: hidden;
+    background: #dfe8e2;
+  }
+  .mobile-stats-card > a { min-width: 0; padding: 16px 14px; background: #fff; }
+  .mobile-stats-card strong { font-size: 27px; }
+
+  .role-mobile-section { padding: 17px; background: #fff; }
+  .role-mobile-section-head { align-items: flex-end; gap: 10px; }
+  .role-mobile-section-head h2 { font-size: 22px; }
+  .role-mobile-action-pages { display: flex; width: 100%; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
+  .role-mobile-action-pages::-webkit-scrollbar { display: none; }
+  .role-mobile-action-grid {
+    flex: 0 0 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    scroll-snap-align: start;
+  }
+  .role-mobile-action-grid > a { min-width: 0; min-height: 116px; padding: 15px; border-radius: 16px; }
+  .role-mobile-action-grid strong,
+  .role-mobile-action-grid small { overflow-wrap: anywhere; }
+  .role-mobile-priority { grid-template-columns: 38px minmax(0,1fr) auto; }
+  .role-mobile-priority span { min-width: 0; }
+  .role-mobile-priority small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .mobile-shell-bottom,
+  .mobile-admin-nav,
+  .employee-mobile-bottom-nav {
+    position: fixed;
+    z-index: 60;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    min-height: 70px;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    background: rgba(255,255,255,.97);
+    border-top: 1px solid #dce5df;
+    box-shadow: 0 -8px 24px rgba(18, 54, 41, .09);
+    backdrop-filter: blur(16px);
+  }
+
+  .employee-home-switch { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; padding: 8px; background: #fff; }
+  .employee-home-switch button { min-width: 0; padding: 12px 10px; }
+  .employee-home-switch small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .employee-week-picker { padding: 14px 12px; overflow: hidden; background: #fff; }
+  .employee-week-picker > div { display: grid; grid-template-columns: 40px minmax(0,1fr) 40px; align-items: center; }
+  .employee-week-picker > div strong { min-width: 0; text-align: center; font-size: 13px; }
+  .employee-day-strip { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 4px; overflow: hidden; }
+  .employee-day-strip button { min-width: 0; padding: 8px 2px; }
+  .employee-day-strip span { font-size: 9px; }
+  .employee-day-strip strong { font-size: 15px; }
+  .employee-day-strip i { font-size: 7px; }
+
+  .employee-mobile-progress { padding: 16px; background: #fff; }
+  .mobile-tabs-two { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .employee-route-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .employee-route-view-toggle { flex: 1; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .employee-route-view-toggle button { min-width: 0; }
+
+  .mobile-card-list { display: grid; gap: 10px; }
+  .mobile-route-card { width: 100%; grid-template-columns: 34px minmax(0,1fr) auto; gap: 10px; text-align: left; }
+  .mobile-route-card > div { min-width: 0; }
+  .mobile-route-card strong,
+  .mobile-route-card p,
+  .mobile-route-card em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .employee-route-next-stack { position: sticky; bottom: 82px; z-index: 20; }
+  .employee-start-route,
+  .employee-next-directions { min-height: 52px; }
+
+  .employee-smart-route { padding: 16px; overflow: hidden; background: #fff; }
+  .employee-smart-route > header { gap: 10px; }
+  .employee-smart-route h1 { font-size: 28px; }
+  .employee-smart-origin > div { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+  .employee-smart-list button { grid-template-columns: 34px minmax(0,1fr) auto; }
+  .employee-smart-list button > div { min-width: 0; }
+  .employee-smart-list strong,
+  .employee-smart-list span,
+  .employee-smart-list small { overflow-wrap: anywhere; }
+  .employee-smart-preview-tools { flex-wrap: wrap; }
+  .employee-smart-preview-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+
+  .mobile-service-screen { padding: 16px; overflow: hidden; background: #fff; }
+  .mobile-service-head { align-items: flex-start; gap: 10px; }
+  .mobile-service-head > div { min-width: 0; }
+  .mobile-service-head h1 { font-size: 26px; overflow-wrap: anywhere; }
+  .property-contract-summary { grid-template-columns: 56px minmax(0,1fr) auto; }
+  .property-contract-summary > div { min-width: 0; }
+  .property-compact-card dl,
+  .employee-time-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .mobile-action-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+  .mobile-action-grid button { min-width: 0; min-height: 48px; }
+  .employee-image-section > div { overflow-x: auto; }
+  .employee-image-section img { flex: 0 0 112px; width: 112px; height: 90px; object-fit: cover; }
+
+  /* Responsive desktop Admin pages opened from mobile navigation. */
+  .studio-shell { display: block; width: 100%; min-height: 100dvh; overflow-x: hidden; padding-bottom: 82px; }
+  .studio-topnav { position: sticky; top: 0; z-index: 50; width: 100%; min-height: 64px; padding: calc(9px + env(safe-area-inset-top)) 12px 9px; }
+  .studio-brand { min-width: 0; }
+  .studio-brand img { width: 36px; height: 36px; }
+  .studio-brand div { min-width: 0; }
+  .studio-brand span { font-size: 12px; }
+  .studio-brand small { font-size: 9px; }
+  .studio-nav, .studio-user, .studio-signout, .studio-icon { display: none !important; }
+  .studio-menu { display: inline-flex !important; margin-left: auto; }
+  .studio-rail { position: fixed !important; inset: 0 auto 0 0; z-index: 80; width: min(86vw, 330px); height: 100dvh; transform: translateX(-105%); transition: transform .22s ease; overflow-y: auto; }
+  .studio-rail.mobile-menu-open { transform: translateX(0); }
+  .mobile-menu-close { display: grid !important; }
+  .studio-main { width: 100%; min-width: 0; margin: 0; padding: 16px 12px 28px; overflow-x: hidden; }
+  .studio-main > * { max-width: 100%; }
+  .studio-bottom-status { display: none !important; }
+  .studio-shell .mobile-shell-bottom { display: grid !important; grid-template-columns: repeat(5,minmax(0,1fr)); }
+  .studio-shell table { min-width: 680px; }
+  .studio-shell .table-wrap { max-width: 100%; overflow-x: auto; }
+}
+
+@media (min-width: 761px) {
+  .studio-shell .mobile-shell-bottom { display: none; }
+}
