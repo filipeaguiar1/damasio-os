@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { PortalShell } from "@/components/admin/PortalShell";
 import { useCustomerBilling } from "@/lib/hooks/useCustomerBilling";
+import { useCustomerWallet } from "@/lib/hooks/useCustomerWallet";
 
 function money(value: number) {
   return new Intl.NumberFormat("en-CA", {
@@ -16,6 +18,8 @@ function statusLabel(status: string) {
 }
 
 export default function CustomerPayments() {
+  const [customCredits, setCustomCredits] = useState("10");
+  const [editingCredits, setEditingCredits] = useState(false);
   const {
     invoices,
     source,
@@ -26,6 +30,15 @@ export default function CustomerPayments() {
     checkout,
     reload,
   } = useCustomerBilling();
+  const wallet = useCustomerWallet();
+
+  const submitCustomCredits = () => {
+    const credits = Number(customCredits);
+    if (!Number.isInteger(credits) || credits < 10 || credits > 1000) return;
+    void wallet.topUp(credits);
+  };
+
+  const visibleMessage = message || wallet.message;
 
   return (
     <PortalShell type="Customer" active="Payments">
@@ -33,7 +46,7 @@ export default function CustomerPayments() {
         <div>
           <span className="eyebrow">Secure billing</span>
           <h1>Payments</h1>
-          <p>Review every invoice first, then pay through Stripe&apos;s encrypted checkout.</p>
+          <p>Review invoices, add wallet credits, and pay through Stripe&apos;s encrypted checkout.</p>
         </div>
         <div className="billing-secure-badge">
           <i>✓</i>
@@ -43,14 +56,14 @@ export default function CustomerPayments() {
 
       <section className="billing-summary" aria-label="Billing summary">
         <article className="due">
+          <span>Wallet credits</span>
+          <strong>{wallet.loading ? "…" : wallet.balanceCredits.toFixed(0)}</strong>
+          <small>1 credit = $1 CAD</small>
+        </article>
+        <article>
           <span>Amount due</span>
           <strong>{money(summary.due)}</strong>
           <small>{summary.openCount} open invoice{summary.openCount === 1 ? "" : "s"}</small>
-        </article>
-        <article>
-          <span>Paid invoices</span>
-          <strong>{summary.paidCount}</strong>
-          <small>Confirmed by payment records</small>
         </article>
         <article>
           <span>Payment method</span>
@@ -59,7 +72,66 @@ export default function CustomerPayments() {
         </article>
       </section>
 
-      {message && <div className="billing-message">{message}</div>}
+      {visibleMessage && <div className="billing-message">{visibleMessage}</div>}
+
+      <section className="billing-panel">
+        <header>
+          <div>
+            <span className="billing-kicker">Wallet</span>
+            <h2>Add credits</h2>
+            <p>Credits remain available for future services and tips.</p>
+          </div>
+          <button className="billing-refresh" type="button" onClick={() => void wallet.reload()} disabled={wallet.loading}>
+            {wallet.loading ? "Loading..." : "Refresh balance"}
+          </button>
+        </header>
+
+        <div className="billing-invoice-list">
+          <article>
+            <div className="billing-invoice-icon">$</div>
+            <div className="billing-invoice-copy">
+              <span>Choose an amount</span>
+              <strong>1 credit equals $1 CAD</strong>
+              <small>Minimum 10 credits. Maximum 1,000 credits.</small>
+            </div>
+            <div className="billing-invoice-total" style={{ alignItems: "stretch", gap: 8 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 }}>
+                {[10, 20, 50, 100, 200].map((credits) => (
+                  <button
+                    key={credits}
+                    className="btn btn-outline"
+                    type="button"
+                    disabled={wallet.openingCredits > 0}
+                    onClick={() => void wallet.topUp(credits)}
+                  >
+                    {wallet.openingCredits === credits ? "Opening..." : `${credits} credits`}
+                  </button>
+                ))}
+                <button className="btn btn-outline" type="button" onClick={() => setEditingCredits((value) => !value)}>
+                  Edit
+                </button>
+              </div>
+              {editingCredits && (
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <input
+                    aria-label="Custom credit amount"
+                    type="number"
+                    min={10}
+                    max={1000}
+                    step={1}
+                    value={customCredits}
+                    onChange={(event) => setCustomCredits(event.target.value)}
+                    style={{ width: 120 }}
+                  />
+                  <button className="btn btn-primary" type="button" disabled={wallet.openingCredits > 0} onClick={submitCustomCredits}>
+                    Add credits
+                  </button>
+                </div>
+              )}
+            </div>
+          </article>
+        </div>
+      </section>
 
       <section className="billing-panel">
         <header>
