@@ -87,12 +87,15 @@ export async function POST(request: NextRequest) {
     const context = await authenticatedCustomer(request, url, serviceKey);
     if ("error" in context) return context.error;
 
-    const body = (await request.json()) as { credits?: number };
+    const body = (await request.json()) as { credits?: number; returnPath?: string };
     const credits = Number(body.credits);
-    if (!Number.isInteger(credits) || credits < 1 || credits > 1000) {
-      return failure("Choose a whole credit amount between 1 and 1000.", 400);
+    if (!Number.isInteger(credits) || credits < 10 || credits > 1000) {
+      return failure("Choose a whole credit amount between 10 and 1000.", 400);
     }
 
+    const returnPath = body.returnPath === "/customer/payments"
+      ? "/customer/payments"
+      : "/mobile/customer/payments";
     const amountCents = credits * 100;
     const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
     const metadata = {
@@ -113,15 +116,15 @@ export async function POST(request: NextRequest) {
           currency: "cad",
           unit_amount: amountCents,
           product_data: {
-            name: `${credits} Damasio OS credit${credits === 1 ? "" : "s"}`,
-            description: "1 credit equals 1 dollar and can be used for services or tips."
+            name: `${credits} Damasio OS credits`,
+            description: "1 credit equals 1 CAD dollar and can be used for services or tips."
           }
         }
       }],
       metadata,
       payment_intent_data: { metadata },
-      success_url: `${siteUrl}/mobile/customer/payments?wallet_topup=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}/mobile/customer/payments?wallet_topup=cancelled`
+      success_url: `${siteUrl}${returnPath}?wallet_topup=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${siteUrl}${returnPath}?wallet_topup=cancelled`
     }, {
       idempotencyKey: `wallet-topup-${context.auth.id}-${credits}-${Date.now()}`
     });
