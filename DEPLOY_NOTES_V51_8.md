@@ -16,6 +16,7 @@ Run these in Supabase SQL Editor, in order:
 3. `supabase/migrations/202607240003_lead_customer_quote_linking.sql`
 4. `supabase/migrations/202607240004_payout_batch_item_link.sql`
 5. `supabase/migrations/202607240005_payout_feedback_task_triggers.sql`
+6. `supabase/migrations/202607240006_stripe_production_safety.sql`
 
 ## Required Vercel Environment Variables
 
@@ -40,6 +41,8 @@ Minimum events:
 - `payment_intent.payment_failed`
 - `charge.refunded`
 - `charge.dispute.created`
+- `checkout.session.expired`
+- `account.updated` (listen to events on connected accounts)
 
 ## Flow Now Covered Locally
 
@@ -53,5 +56,6 @@ Minimum events:
 8. Stripe Checkout collects payment.
 9. Stripe webhook creates payout item.
 10. Feedback/task rules hold or release payout item.
-11. Master generates weekly batch.
-12. Friday cron transfers approved batch to the company Connect account.
+11. Master prepares the weekly draft and reviews its amount.
+12. Master explicitly approves the reviewed batch.
+13. Friday cron transfers the approved batch to the company Connect account.

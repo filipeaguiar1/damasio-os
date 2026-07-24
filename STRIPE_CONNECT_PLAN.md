@@ -73,6 +73,7 @@ Minimum:
 
 Next:
 - `account.updated`
+- `checkout.session.expired`
 - `transfer.created`
 - `transfer.reversed`
 - `charge.dispute.closed`

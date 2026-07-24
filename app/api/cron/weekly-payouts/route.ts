@@ -14,11 +14,14 @@ function configured() {
 
 function authorized(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
+  if (!secret) return false;
   return request.headers.get("authorization") === `Bearer ${secret}`;
 }
 
 export async function GET(request: NextRequest) {
+  if (!process.env.CRON_SECRET) {
+    return NextResponse.json({ error: "Weekly payout CRON_SECRET is not configured." }, { status: 503 });
+  }
   if (!authorized(request)) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   try {
     const { url, serviceKey, stripeKey } = configured();
@@ -29,7 +32,7 @@ export async function GET(request: NextRequest) {
     const { data: batches, error } = await db
       .from("company_payout_batches")
       .select("id,company_id,week_start,week_end,scheduled_payout_date,total_transfer_amount,status")
-      .eq("status", "approved")
+      .in("status", ["approved", "processing"])
       .lte("scheduled_payout_date", today)
       .limit(20);
     if (error) throw new Error(error.message);
@@ -46,20 +49,23 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      const { data: claimed } = await db
-        .from("company_payout_batches")
-        .update({ status: "processing" })
-        .eq("id", batch.id)
-        .eq("status", "approved")
-        .select("id")
-        .maybeSingle();
-      if (!claimed) continue;
+      if (batch.status === "approved") {
+        const claim = await db
+          .from("company_payout_batches")
+          .update({ status: "processing" })
+          .eq("id", batch.id)
+          .eq("status", "approved")
+          .select("id")
+          .maybeSingle();
+        if (claim.error) throw new Error(claim.error.message);
+        if (!claim.data) continue;
+      }
 
       const { data: items, error: itemsError } = await db
         .from("company_payout_items")
         .select("id,transfer_amount,stripe_transfer_group")
         .eq("batch_id", batch.id)
-        .eq("status", "approved");
+        .in("status", ["approved", "transferred"]);
       if (itemsError) throw new Error(itemsError.message);
 
       const amountCents = Math.round((items || []).reduce((sum: number, item: any) => sum + Number(item.transfer_amount || 0), 0) * 100);
@@ -69,6 +75,7 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
+      let transferId = "";
       try {
         const transfer = await stripe.transfers.create({
           amount: amountCents,
@@ -81,25 +88,39 @@ export async function GET(request: NextRequest) {
             weekEnd: batch.week_end,
           },
         }, { idempotencyKey: `weekly-payout-${batch.id}` });
+        transferId = transfer.id;
 
-        await db.from("company_payout_items").update({
+        const itemUpdate = await db.from("company_payout_items").update({
           status: "transferred",
           stripe_transfer_id: transfer.id,
           transferred_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }).eq("batch_id", batch.id).eq("status", "approved");
+        if (itemUpdate.error) throw new Error(itemUpdate.error.message);
 
-        await db.from("company_payout_batches").update({
+        const batchUpdate = await db.from("company_payout_batches").update({
           status: "paid",
           stripe_transfer_ids: [transfer.id],
           processed_at: new Date().toISOString(),
         }).eq("id", batch.id);
+        if (batchUpdate.error) throw new Error(batchUpdate.error.message);
 
         results.push({ batchId: batch.id, ok: true, message: `Transferred ${transfer.id}.` });
       } catch (transferError) {
         const message = transferError instanceof Error ? transferError.message : "Stripe transfer failed.";
-        await db.from("company_payout_batches").update({ status: "failed", processed_at: new Date().toISOString() }).eq("id", batch.id);
-        results.push({ batchId: batch.id, ok: false, message });
+        if (!transferId) {
+          const failed = await db.from("company_payout_batches")
+            .update({ status: "failed", processed_at: new Date().toISOString() })
+            .eq("id", batch.id);
+          if (failed.error) console.error("Could not mark payout batch failed", failed.error);
+        }
+        results.push({
+          batchId: batch.id,
+          ok: false,
+          message: transferId
+            ? `Stripe transfer ${transferId} exists, but reconciliation failed: ${message}`
+            : message
+        });
       }
     }
 
