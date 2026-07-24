@@ -55,10 +55,7 @@ export function useCustomerWallet() {
       const accessToken = await token();
       const response = await fetch("/api/stripe/wallet/confirm", {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${accessToken}`
-        },
+        headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ sessionId })
       });
       const result = await response.json();
@@ -71,9 +68,7 @@ export function useCustomerWallet() {
     }
   }, [load, token]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
     const sessionId = searchParams.get("session_id");
@@ -82,6 +77,11 @@ export function useCustomerWallet() {
   }, [confirm, searchParams]);
 
   const topUp = useCallback(async (credits: number) => {
+    if (!Number.isInteger(credits) || credits < 5 || credits > 1000) {
+      setMessage("Choose a whole credit total between 5 and 1000.");
+      return;
+    }
+
     setOpeningCredits(credits);
     setMessage("Opening secure Stripe Checkout...");
     try {
@@ -91,10 +91,7 @@ export function useCustomerWallet() {
         : "/customer/payments";
       const response = await fetch("/api/stripe/wallet", {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${accessToken}`
-        },
+        headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ credits, returnPath })
       });
       const result = await response.json();
