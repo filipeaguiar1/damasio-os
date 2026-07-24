@@ -1,4 +1,5 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { reliableRpc } from "@/lib/supabase/reliableRpc";
 
 export type DispatchCrew = {
   id: string;
@@ -99,8 +100,7 @@ function normalizeBoard(data: unknown): SchedulingDispatchBoard {
 
 async function rpcBoard(name: string, args?: Record<string, unknown>) {
   const supabase = getSupabaseBrowserClient();
-  const { data, error } = await supabase.rpc(name as never, (args || {}) as never);
-  if (error) throw new Error(error.message);
+  const data = await reliableRpc(supabase, name, args, { attempts: 2, timeoutMs: 18000 });
   return normalizeBoard(data || emptyBoard);
 }
 
@@ -116,8 +116,8 @@ export async function getSchedulingDispatchBoard() {
 }
 
 export async function assignJobCrew(jobId:string,crewId:string|null){
-  const supabase=getSupabaseBrowserClient();const {data,error}=await supabase.rpc("assign_job_to_crew" as never,{p_job_id:jobId,p_crew_id:crewId} as never);
-  if(error)throw new Error(error.message);return Array.isArray(data)?data as DispatchJob[]:[];
+  const supabase=getSupabaseBrowserClient();const data=await reliableRpc(supabase,"assign_job_to_crew",{p_job_id:jobId,p_crew_id:crewId},{attempts:2,timeoutMs:18000});
+  return Array.isArray(data)?data as DispatchJob[]:[];
 }
 
 export function saveJobRoutePattern(input:{jobId:string;crewId:string;routeDate:string;routeOrder?:number}){

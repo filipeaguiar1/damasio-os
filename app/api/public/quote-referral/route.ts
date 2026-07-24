@@ -12,6 +12,7 @@ const quoteReferral = z.object({
   service: z.string().trim().min(2).max(120),
   notes: z.string().trim().max(1500).optional().default(""),
   referralCode: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{4,12}$/).optional().or(z.literal("")),
+  estimatedTotal: z.number().nonnegative().nullable().optional(),
   website: z.string().max(0).optional() // honeypot: real customers never fill this field
 }).strict();
 
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
       phone: body.phone || null,
       address: body.address,
       service_requested: body.service,
-      notes: [body.notes, body.referralCode ? `Company referral code: ${body.referralCode}` : null].filter(Boolean).join(" | ") || null,
+      notes: [body.notes, typeof body.estimatedTotal === "number" ? `Average estimate shown: $${body.estimatedTotal.toFixed(2)}` : null, body.referralCode ? `Company referral code: ${body.referralCode}` : null].filter(Boolean).join(" | ") || null,
       status: companyId ? "offered" : "new"
     }).select("id").single();
     if (error) throw error;

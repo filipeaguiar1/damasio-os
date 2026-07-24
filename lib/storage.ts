@@ -166,6 +166,22 @@ export type Notification = {
   customer?: string;
   address?: string;
 };
+export type CustomerServiceRecommendation = {
+  id: string;
+  createdAt: string;
+  customerId: string;
+  propertyId?: string;
+  customerName: string;
+  email?: string;
+  phone?: string;
+  address: string;
+  serviceName: string;
+  message: string;
+  amount: number;
+  sendPortal: boolean;
+  sendEmail: boolean;
+  status: "sent" | "viewed" | "accepted" | "declined";
+};
 export type Recurrence = {
   id: string;
   customer: string;
@@ -274,6 +290,7 @@ const K = {
   invoices: "damasio_os_invoices",
   check: "damasio_os_daily_checklists",
   noti: "damasio_os_notifications",
+  recs: "damasio_os_customer_recommendations",
   rec: "damasio_os_recurrences",
   est: "damasio_os_estimates",
   sess: "damasio_os_service_sessions",
@@ -1003,6 +1020,7 @@ export function updateLeadPayment(
     ),
   );
   addActivityLog("Admin", "Recorded payment", id, `${paymentStatus} via ${paymentMethod}. ${paymentNote || ""}`);
+  broadcastOperationsChange(`Payment ${paymentStatus} recorded for ${id}.`);
 }
 export function saveFeedback(id: string, feedback: Feedback) {
   setLeads(
@@ -1567,6 +1585,7 @@ export function updateInvoiceStatus(id: string, status: Invoice["status"], patch
     K.invoices,
     getInvoices().map((i) => (i.id === id ? { ...i, ...patch, status } : i)),
   );
+  broadcastOperationsChange(`Invoice ${id} updated to ${status}.`);
 }
 export function recordInvoicePayment(id: string, paymentMethod: PaymentMethod, status: Invoice["status"], notes?: string, reference?: string) {
   updateInvoiceStatus(id, status, {
@@ -1578,6 +1597,7 @@ export function recordInvoicePayment(id: string, paymentMethod: PaymentMethod, s
   const inv = getInvoices().find((i) => i.id === id);
   if (inv?.leadId) updateLeadPayment(inv.leadId, paymentMethod, status === "paid" ? "paid" : "processing", notes, reference);
   addActivityLog("Admin", "Recorded invoice payment", inv?.number || id, `${status} via ${paymentMethod}. ${notes || ""}`);
+  broadcastOperationsChange(`Invoice payment ${status} recorded for ${inv?.number || id}.`);
 }
 export function isEstimatePaid(estimateId?: string) {
   if (!estimateId) return false;
@@ -1639,6 +1659,28 @@ export function markNotificationsRead() {
 }
 export function markNotificationRead(id:string){
   write(K.noti,getNotifications().map(notification=>notification.id===id?{...notification,read:true}:notification));
+}
+
+export function getCustomerServiceRecommendations(customerId?: string) {
+  const all = read<CustomerServiceRecommendation[]>(K.recs, []);
+  return customerId ? all.filter((item) => item.customerId === customerId || item.propertyId === customerId) : all;
+}
+
+export function sendCustomerServiceRecommendation(input: Omit<CustomerServiceRecommendation, "id" | "createdAt" | "status">) {
+  const recommendation: CustomerServiceRecommendation = {
+    ...input,
+    id: createId(),
+    createdAt: new Date().toISOString(),
+    status: "sent",
+  };
+  write(K.recs, [recommendation, ...getCustomerServiceRecommendations()]);
+  addNotification(
+    "estimate",
+    "Service recommended",
+    `${recommendation.serviceName} recommended for ${recommendation.customerName}: $${recommendation.amount.toFixed(2)}.`,
+  );
+  broadcastOperationsChange(`Service recommendation sent to ${recommendation.customerName}.`);
+  return recommendation;
 }
 export function getRecurrences(): Recurrence[] {
   return read<Recurrence[]>(K.rec, []);

@@ -15,7 +15,8 @@ export const CORE_DATABASE_TABLES = [
   "tasks",
   "photos",
   "feedback",
-  "activity_log"
+  "activity_log",
+  "employee_smart_route_state"
 ] as const;
 
 export const STORAGE_BUCKETS = [

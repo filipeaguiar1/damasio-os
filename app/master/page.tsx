@@ -7,13 +7,15 @@ import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/c
 import {Estimate,getEstimates,reviseEstimateTotal,updateEstimateStatus} from "@/lib/storage";
 import {loadSeasonTheme,saveLocalSeasonTheme,updateSeasonTheme,type Season,type SeasonMode} from "@/lib/seasonTheme";
 
-type Tab = "companies" | "trash" | "leads" | "quotes" | "theme" | "access" | "health" | "audit";
+type Tab = "companies" | "trash" | "leads" | "quotes" | "payouts" | "theme" | "access" | "health" | "audit";
 type Company = { id:string; name:string; slug:string; active:boolean; plan_name:string; contact_email?:string; referral_code?:string; created_at?:string; deleted_at?:string|null; purge_after?:string|null; deletion_reason?:string|null; trash_active_member_ids?:string[] };
 type CompanyMember = { id:string; company_id:string; kind:"admin"|"employee"|"customer"; name:string; email?:string; active:boolean };
 type Lead = { id:string; full_name:string; email?:string; phone?:string; address?:string; service_requested?:string; status:string; assigned_company_id?:string; created_at?:string };
 type AccessRequest = { id:string; company_id:string; access_level:string; delivery_channel:string; request_reason?:string; code_expires_at:string; approved_at?:string; revoked_at?:string; created_at?:string; demo_code?:string };
 type Audit = { id:string; action:string; company_id?:string; details?:Record<string,unknown>; created_at?:string };
 type Profile = { id:string; role:string; full_name?:string; email?:string };
+type PayoutItem = { id:string; company_id:string; amount_total:number; platform_fee:number; transfer_amount:number; status:string; hold_reason?:string|null; eligible_at?:string|null; created_at?:string; approved_at?:string|null; transferred_at?:string|null };
+type PayoutBatch = { id:string; company_id:string; week_start:string; week_end:string; scheduled_payout_date:string; status:string; total_transfer_amount:number; approved_at?:string|null; processed_at?:string|null; created_at?:string };
 
 const DEMO_COMPANIES:Company[]=[
   {id:"demo-company",name:"4Ever Seasons",slug:"damasio-seasons",active:true,plan_name:"Professional",contact_email:"admin@damasioos.demo"},
@@ -32,6 +34,11 @@ const DEMO_MEMBERS:CompanyMember[]=[
 const DEMO_LEADS:Lead[]=[
   {id:"lead-demo-1",full_name:"Sophie Martin",email:"sophie@example.com",phone:"905-555-0144",address:"120 King St W, Hamilton, ON",service_requested:"Weekly Lawn Care",status:"offered",assigned_company_id:"demo-company",created_at:new Date().toISOString()},
 ];
+const DEMO_PAYOUT_ITEMS:PayoutItem[]=[
+  {id:"pay-demo-1",company_id:"demo-company",amount_total:240,platform_fee:12,transfer_amount:228,status:"eligible",created_at:new Date(Date.now()-8*86400000).toISOString(),eligible_at:new Date().toISOString()},
+  {id:"pay-demo-2",company_id:"demo-company",amount_total:180,platform_fee:9,transfer_amount:171,status:"held_task",hold_reason:"Open customer task is blocking release.",created_at:new Date(Date.now()-6*86400000).toISOString()},
+  {id:"pay-demo-3",company_id:"demo-company-2",amount_total:320,platform_fee:16,transfer_amount:304,status:"pending_feedback",hold_reason:"Waiting for feedback or 3 days without open tasks.",created_at:new Date(Date.now()-2*86400000).toISOString()},
+];
 function uid(prefix:string){return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2,8)}`}
 function now(){return new Date().toISOString()}
 function readLocal<T>(key:string,fallback:T):T{try{return JSON.parse(localStorage.getItem(key)||"") as T}catch{return fallback}}
@@ -46,6 +53,9 @@ export default function MasterPage(){
   const[quotes,setQuotes]=useState<Estimate[]>([]);
   const[requests,setRequests]=useState<AccessRequest[]>([]);
   const[audit,setAudit]=useState<Audit[]>([]);
+  const[payoutItems,setPayoutItems]=useState<PayoutItem[]>([]);
+  const[payoutBatches,setPayoutBatches]=useState<PayoutBatch[]>([]);
+  const[payoutCompany,setPayoutCompany]=useState("");
   const[selectedCompany,setSelectedCompany]=useState<Company|null>(null);
   const[loading,setLoading]=useState(true);
   const[message,setMessage]=useState("Checking Master access...");
@@ -61,6 +71,30 @@ export default function MasterPage(){
   const[savingTheme,setSavingTheme]=useState(false);
 
   function refreshQuotes(){const rows=getEstimates();setQuotes(rows);setQuoteAmounts(Object.fromEntries(rows.map(quote=>[quote.id,String(quote.total)])))}
+  async function getAccessToken(){const supabase=getSupabaseBrowserClient() as any;const{data:session}=await supabase.auth.getSession();return session.session?.access_token||""}
+  async function loadPayouts(token?:string){
+    if(isDemo){setPayoutItems(readLocal("damasio_master_payout_items",DEMO_PAYOUT_ITEMS));setPayoutBatches(readLocal("damasio_master_payout_batches",[]));return;}
+    const authToken=token||await getAccessToken();if(!authToken)return;
+    const response=await fetch("/api/master/payouts",{headers:{authorization:`Bearer ${authToken}`},cache:"no-store"});
+    const result=await response.json();if(!response.ok){setMessage(result.error||"Payouts could not be loaded.");return;}
+    setPayoutItems(result.items||[]);setPayoutBatches(result.batches||[]);
+  }
+  function lastWeekPayoutWindow(reference=new Date()){
+    const day=(reference.getDay()+6)%7;const thisMonday=new Date(reference);thisMonday.setDate(reference.getDate()-day);thisMonday.setHours(0,0,0,0);
+    const weekStart=new Date(thisMonday);weekStart.setDate(thisMonday.getDate()-7);
+    const weekEnd=new Date(thisMonday);weekEnd.setDate(thisMonday.getDate()-1);
+    const payoutFriday=new Date(weekStart);payoutFriday.setDate(weekStart.getDate()+11);
+    return{weekStart:weekStart.toISOString().slice(0,10),weekEnd:weekEnd.toISOString().slice(0,10),payoutFriday:payoutFriday.toISOString().slice(0,10)};
+  }
+  async function generatePayoutBatch(){
+    const companyId=payoutCompany||activeCompanies[0]?.id;if(!companyId){setMessage("Choose a company first.");return;}
+    const window=lastWeekPayoutWindow();
+    if(isDemo){const total=payoutItems.filter(item=>item.company_id===companyId&&item.status==="eligible").reduce((sum,item)=>sum+Number(item.transfer_amount||0),0);const batch:PayoutBatch={id:uid("batch"),company_id:companyId,week_start:window.weekStart,week_end:window.weekEnd,scheduled_payout_date:window.payoutFriday,status:total>0?"approved":"draft",total_transfer_amount:total,approved_at:total>0?now():null,created_at:now()};setPayoutBatches(v=>[batch,...v]);setPayoutItems(v=>v.map(item=>item.company_id===companyId&&item.status==="eligible"?{...item,status:"approved",approved_at:now()}:item));setMessage(`Weekly payout batch generated for ${companyName(companyId)}. Scheduled Friday ${window.payoutFriday}.`);return;}
+    const token=await getAccessToken();if(!token){setMessage("Your Master login expired. Sign in again.");return;}
+    const response=await fetch("/api/master/payouts",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},body:JSON.stringify({companyId})});
+    const result=await response.json();if(!response.ok){setMessage(result.error||"Payout batch could not be generated.");return;}
+    setMessage(result.message);await loadPayouts(token);
+  }
   useEffect(()=>{refreshQuotes();const on=()=>refreshQuotes();window.addEventListener("storage",on);return()=>window.removeEventListener("storage",on)},[]);
   useEffect(()=>{void loadSeasonTheme().then(config=>{setSeasonMode(config.mode);setSeason(config.season)})},[]);
   function reviseQuote(quote:Estimate){const next=reviseEstimateTotal(quote.id,Number(quoteAmounts[quote.id]||quote.total));if(next){refreshQuotes();setMessage(`${quote.number} revised to $${next.total.toFixed(2)}.`)}}
@@ -74,7 +108,7 @@ export default function MasterPage(){
       setCompanies(readLocal("damasio_master_companies",DEMO_COMPANIES));
       setMembers(readLocal("damasio_master_members",DEMO_MEMBERS));
       setLeads(readLocal("damasio_master_leads",DEMO_LEADS));
-      setRequests(readLocal("damasio_master_access",[]));setAudit(readLocal("damasio_master_audit",[]));setMessage("");setLoading(false);return;
+      setRequests(readLocal("damasio_master_access",[]));setAudit(readLocal("damasio_master_audit",[]));setPayoutItems(readLocal("damasio_master_payout_items",DEMO_PAYOUT_ITEMS));setPayoutBatches(readLocal("damasio_master_payout_batches",[]));setMessage("");setLoading(false);return;
     }
     if(!isSupabaseConfigured()){router.replace("/login");return;}
     const supabase=getSupabaseBrowserClient() as any;const {data:auth}=await supabase.auth.getUser();const user=auth?.user;
@@ -86,7 +120,7 @@ export default function MasterPage(){
     const companyResponse=await fetch("/api/master/companies",{headers:{authorization:`Bearer ${token}`},cache:"no-store"});
     const companyResult=await companyResponse.json();
     if(!companyResponse.ok){if(!alive)return;setProfile(p);setMessage(companyResult.error||"Companies could not be loaded.");setLoading(false);return;}
-    if(!alive)return;setProfile(p);setCompanies(companyResult.companies||[]);setLeads(companyResult.leads||[]);setRequests(companyResult.requests||[]);setAudit(companyResult.audit||[]);setMembers(companyResult.members||[]);setMessage(companyResult.warnings?.length?`Some Master modules could not be loaded: ${companyResult.warnings.join(" · ")}`:"");setLoading(false);
+    if(!alive)return;setProfile(p);setCompanies(companyResult.companies||[]);setLeads(companyResult.leads||[]);setRequests(companyResult.requests||[]);setAudit(companyResult.audit||[]);setMembers(companyResult.members||[]);setMessage(companyResult.warnings?.length?`Some Master modules could not be loaded: ${companyResult.warnings.join(" · ")}`:"");setLoading(false);void loadPayouts(token);
   })();return()=>{alive=false}},[router]);
 
   useEffect(()=>{if(isDemo)localStorage.setItem("damasio_master_companies",JSON.stringify(companies))},[companies,isDemo]);
@@ -94,6 +128,8 @@ export default function MasterPage(){
   useEffect(()=>{if(isDemo)localStorage.setItem("damasio_master_leads",JSON.stringify(leads))},[leads,isDemo]);
   useEffect(()=>{if(isDemo)localStorage.setItem("damasio_master_access",JSON.stringify(requests))},[requests,isDemo]);
   useEffect(()=>{if(isDemo)localStorage.setItem("damasio_master_audit",JSON.stringify(audit))},[audit,isDemo]);
+  useEffect(()=>{if(isDemo)localStorage.setItem("damasio_master_payout_items",JSON.stringify(payoutItems))},[payoutItems,isDemo]);
+  useEffect(()=>{if(isDemo)localStorage.setItem("damasio_master_payout_batches",JSON.stringify(payoutBatches))},[payoutBatches,isDemo]);
 
   const activeCompanies=useMemo(()=>companies.filter(c=>!c.deleted_at),[companies]);
   const trashedCompanies=useMemo(()=>companies.filter(c=>!!c.deleted_at),[companies]);
@@ -157,6 +193,7 @@ export default function MasterPage(){
       <button className={tab==="trash"?"active":""} onClick={()=>setTab("trash")}>Trash <span>{trashedCompanies.length}</span></button>
       <button className={tab==="leads"?"active":""} onClick={()=>setTab("leads")}>Lead Center <span>{leads.length}</span></button>
       <button className={tab==="quotes"?"active":""} onClick={()=>setTab("quotes")}>Quote Review <span>{quotes.filter(q=>q.status==="draft").length}</span></button>
+      <button className={tab==="payouts"?"active":""} onClick={()=>setTab("payouts")}>Payouts <span>{payoutItems.filter(item=>item.status==="eligible").length}</span></button>
       <button className={tab==="theme"?"active":""} onClick={()=>setTab("theme")}>Season Theme <span>◉</span></button>
       <button className={tab==="access"?"active":""} onClick={()=>setTab("access")}>Access Requests <span>{requests.length}</span></button>
       <button className={tab==="health"?"active":""} onClick={()=>setTab("health")}>Health Check <span>{activeCompanies.length}</span></button>
@@ -170,6 +207,7 @@ export default function MasterPage(){
       {tab==="trash"&&<><header className="master-header"><div><span className="master-kicker">60-DAY RETENTION</span><h2>Trash</h2><p>Deleted companies remain recoverable here while files, accounts and connected tools stay synchronized.</p></div><div className="master-summary"><b>{trashedCompanies.length}</b><span>retained</span></div></header><div className="master-list">{trashedCompanies.map(c=><article key={c.id}><div><strong>{c.name}</strong><small>{c.deletion_reason||"No deletion reason"}</small></div><div><span>Deleted {c.deleted_at?new Date(c.deleted_at).toLocaleDateString():""}</span><span>Purge after {c.purge_after?new Date(c.purge_after).toLocaleDateString():"60 days"}</span><button className="master-inline-button" onClick={()=>void restoreCompany(c)}>Restore company</button></div></article>)}{!trashedCompanies.length&&<div className="master-empty">Trash is empty.</div>}</div></>}
       {tab==="leads"&&<><header className="master-header"><div><span className="master-kicker">LEAD DISTRIBUTION</span><h2>Lead Center</h2><p>Master offers the client. The selected company accepts or declines from its own Referral Inbox.</p></div><button className="master-primary" onClick={()=>setShowLeadForm(true)}>+ New lead</button></header><div className="master-table-wrap"><table className="master-table"><thead><tr><th>Lead</th><th>Service</th><th>Company</th><th>Status</th><th></th></tr></thead><tbody>{leads.map(l=><tr key={l.id}><td><strong>{l.full_name}</strong><small>{l.address||l.email||l.phone}</small></td><td>{l.service_requested||"—"}</td><td>{companyName(l.assigned_company_id)}</td><td><span className="master-status">{l.status}</span></td><td><small>{l.status==="offered"?"Waiting for company":l.status}</small></td></tr>)}</tbody></table>{!leads.length&&<div className="master-empty">No leads yet.</div>}</div></>}
       {tab==="quotes"&&<><header className="master-header"><div><span className="master-kicker">MASTER QUOTE DESK</span><h2>Quote Review</h2><p>Review website requests, change the final amount and send the customer an account invitation.</p></div><div className="master-summary"><b>{quotes.filter(q=>q.status==="draft").length}</b><span>waiting review</span></div></header><div className="master-table-wrap"><table className="master-table"><thead><tr><th>Quote / customer</th><th>Service</th><th>Requested</th><th>Final total</th><th>Status</th><th>Action</th></tr></thead><tbody>{quotes.map(q=><tr key={q.id}><td><strong>{q.number}</strong><small>{q.customer} · {q.email}</small></td><td>{q.title}<small>{q.address}</small></td><td>${q.total.toFixed(2)}</td><td><input className="input" type="number" min="0" step="0.01" value={quoteAmounts[q.id]??q.total} onChange={e=>setQuoteAmounts(v=>({...v,[q.id]:e.target.value}))}/></td><td><span className="master-status">{q.status}</span></td><td><div className="row"><button className="master-inline-button" onClick={()=>reviseQuote(q)}>Save</button><button className="master-inline-button" disabled={q.status==="approved"||q.status==="declined"} onClick={()=>sendQuote(q)}>Send + invite</button></div></td></tr>)}</tbody></table>{!quotes.length&&<div className="master-empty">Website quote requests will appear here.</div>}</div></>}
+      {tab==="payouts"&&<><header className="master-header"><div><span className="master-kicker">WEEKLY CONNECT CONTROL</span><h2>Payouts</h2><p>Monday-Sunday work is paid the following Friday after feedback, task and Master checks.</p></div><div className="master-summary"><b>${payoutItems.filter(item=>["eligible","approved"].includes(item.status)).reduce((sum,item)=>sum+Number(item.transfer_amount||0),0).toFixed(0)}</b><span>ready/approved</span></div></header><section className="master-season-panel"><div className="master-payout-toolbar"><select value={payoutCompany} onChange={e=>setPayoutCompany(e.target.value)}><option value="">All companies</option>{activeCompanies.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><button className="master-primary" onClick={()=>void generatePayoutBatch()}>Generate last week batch</button><button className="master-inline-button" onClick={()=>void loadPayouts()}>Refresh</button></div><div className="master-payout-metrics"><article><span>Eligible</span><strong>{payoutItems.filter(i=>i.status==="eligible").length}</strong></article><article><span>Held by task</span><strong>{payoutItems.filter(i=>i.status==="held_task").length}</strong></article><article><span>Pending feedback</span><strong>{payoutItems.filter(i=>i.status==="pending_feedback").length}</strong></article><article><span>Transferred</span><strong>{payoutItems.filter(i=>i.status==="transferred").length}</strong></article></div></section><div className="master-table-wrap"><table className="master-table"><thead><tr><th>Company</th><th>Amount</th><th>Status</th><th>Reason</th><th>Created</th></tr></thead><tbody>{payoutItems.filter(item=>!payoutCompany||item.company_id===payoutCompany).map(item=><tr key={item.id}><td><strong>{companyName(item.company_id)}</strong><small>{item.id}</small></td><td>${Number(item.transfer_amount||0).toFixed(2)}<small>Gross ${Number(item.amount_total||0).toFixed(2)} · Fee ${Number(item.platform_fee||0).toFixed(2)}</small></td><td><span className="master-status">{item.status.replaceAll("_"," ")}</span></td><td>{item.hold_reason||"Ready for weekly review"}</td><td>{item.created_at?new Date(item.created_at).toLocaleDateString():""}</td></tr>)}</tbody></table>{!payoutItems.length&&<div className="master-empty">Paid services will appear here after Stripe webhook confirmation.</div>}</div><div className="master-table-wrap" style={{marginTop:18}}><table className="master-table"><thead><tr><th>Batch</th><th>Work week</th><th>Friday payout</th><th>Total</th><th>Status</th></tr></thead><tbody>{payoutBatches.filter(batch=>!payoutCompany||batch.company_id===payoutCompany).map(batch=><tr key={batch.id}><td><strong>{companyName(batch.company_id)}</strong><small>{batch.id}</small></td><td>{batch.week_start} to {batch.week_end}</td><td>{batch.scheduled_payout_date}</td><td>${Number(batch.total_transfer_amount||0).toFixed(2)}</td><td><span className="master-status">{batch.status}</span></td></tr>)}</tbody></table>{!payoutBatches.length&&<div className="master-empty">No weekly payout batches generated yet.</div>}</div></>}
       {tab==="theme"&&<><header className="master-header"><div><span className="master-kicker">GLOBAL EXPERIENCE</span><h2>Season Theme</h2><p>Select the experience, then publish it to desktop and the Employee app.</p></div><div className="master-summary"><b>{seasonMode==="auto"?"Auto":season}</b><span>selected mode</span></div></header><section className="master-season-panel"><div className="master-season-mode"><button className={seasonMode==="auto"?"active":""} onClick={()=>setSeasonMode("auto")}>Automatic</button><button className={seasonMode==="manual"?"active":""} onClick={()=>setSeasonMode("manual")}>Manual</button></div><p>{seasonMode==="auto"?"Northern hemisphere schedule: Spring Mar–May, Summer Jun–Aug, Autumn Sep–Nov, Winter Dec–Feb.":"The selected season remains active until Master changes and saves it."}</p><div className="master-season-grid">{([['spring','🌸','Spring','Fresh green with petals on the left'],['summer','🌿','Summer','Lawn mowing and bright greens'],['autumn','🍂','Autumn','Warm colours, leaves and rake'],['winter','❄','Winter','Falling snow and snow shovel']] as [Season,string,string,string][]).map(([key,icon,label,description])=><button key={key} className={season===key?"active":""} onClick={()=>{setSeasonMode("manual");setSeason(key)}}><i>{icon}</i><strong>{label}</strong><small>{description}</small></button>)}</div><div className="master-season-save"><span>Changes are published only after saving.</span><button className="master-primary" disabled={savingTheme} onClick={()=>void saveSeason()}>{savingTheme?"Saving…":"Save for everyone"}</button></div></section></>}
       {tab==="access"&&<><header className="master-header"><div><span className="master-kicker">TEMPORARY AUTHORIZATION</span><h2>Access Requests</h2><p>Codes expire in 30 minutes and approve only the selected company and level.</p></div></header><div className="master-list">{requests.map(r=><article key={r.id}><div><strong>{companyName(r.company_id)}</strong><small>{r.request_reason||"No reason provided"}</small></div><div><span>{r.access_level.replaceAll("_"," ")}</span><span>{r.delivery_channel}</span>{r.approved_at?<span className="approved">Approved</span>:<button className="master-inline-button" onClick={()=>setApproveRequest(r)}>Enter code</button>}</div></article>)}{!requests.length&&<div className="master-empty">No access requests yet.</div>}</div></>}
       {tab==="health"&&<><header className="master-header"><div><span className="master-kicker">MULTI COMPANY INTEGRITY</span><h2>Health Check</h2><p>Operational score and tenant integrity overview for every company.</p></div><div className="master-summary"><b>{Math.round(activeCompanies.reduce((sum,c)=>sum+Math.max(70,100-(companyMembers(c.id,"customer").length===0?12:0)-(companyMembers(c.id,"admin").length===0?18:0)),0)/Math.max(1,activeCompanies.length))}%</b><span>platform score</span></div></header><div className="master-company-grid master-health-grid">{activeCompanies.map(c=>{const admins=companyMembers(c.id,"admin").length;const employees=companyMembers(c.id,"employee").length;const customers=companyMembers(c.id,"customer").length;const openLeads=leads.filter(l=>l.assigned_company_id===c.id&&l.status!=="converted").length;const openAccess=requests.filter(r=>r.company_id===c.id&&!r.revoked_at&&(!r.approved_at||new Date(r.code_expires_at)>new Date())).length;const score=Math.max(70,100-(admins===0?18:0)-(customers===0?12:0)-(c.active?0:10)-Math.min(10,openLeads*2));return <article className="master-company-card" key={c.id}><div className="master-health-score"><strong>{score}%</strong><span className={score>=90?"healthy":score>=80?"warning":"critical"}>{score>=90?"Healthy":score>=80?"Review":"Attention"}</span></div><h3>{c.name}</h3><dl><div><dt>Admins</dt><dd>{admins}</dd></div><div><dt>Employees</dt><dd>{employees}</dd></div><div><dt>Customers</dt><dd>{customers}</dd></div><div><dt>Open leads</dt><dd>{openLeads}</dd></div><div><dt>Access sessions</dt><dd>{openAccess}</dd></div></dl><button onClick={()=>setSelectedCompany(c)}>Open company</button></article>})}</div></>}

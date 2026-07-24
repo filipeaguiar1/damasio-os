@@ -1,81 +1,126 @@
 "use client";
-import {useEffect,useState} from "react";
-import Link from "next/link";
-import {getNotifications,markNotificationsRead,DAMASIO_SYNC_EVENT,getServiceRequests} from "@/lib/storage";
-import {signOutAccount} from "@/lib/auth/signOut";
 
-type NavLink=[label:string,href:string,icon:string];
-const navGroups:{id:string;label:string;icon:string;links:NavLink[]}[]=[
-  {id:"overview",label:"Overview",icon:"▦",links:[["Command","/admin/command","⌂"],["Dashboard","/admin","▦"]]},
-  {id:"clients",label:"Clients & Sales",icon:"♙",links:[["CRM","/admin/leads","☲"],["Estimates","/admin/estimates","☷"],["Requests","/admin/requests","＋"],["Referrals","/admin/referrals","↗"],["Customers","/admin/customers","♙"]]},
-  {id:"field",label:"Field Operations",icon:"⇄",links:[["Operations","/admin/operations","◎"],["Workflow","/admin/workflow","↻"],["Dispatch & Routes","/admin/schedule","⇄"],["Map","/admin/map","⌖"],["Calendar","/admin/calendar","▣"],["Employees","/admin/employees","♧"]]},
-  {id:"business",label:"Business",icon:"$",links:[["Finance","/admin/finance","$"],["Invoices","/admin/invoices","▤"],["Reports","/admin/performance","▥"],["SaaS","/admin/saas","◈"],["AI","/admin/ai","✦"]]},
-  {id:"management",label:"Management",icon:"⚙",links:[["Alerts","/admin/alerts","♢"],["Tasks","/admin/tasks","!"],["Mobile","/admin/mobile","▣"],["Settings","/admin/settings","⚙"],["Users","/admin/users","♙"],["Database","/admin/database","▣"]]},
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { DAMASIO_SYNC_EVENT, getNotifications, getServiceRequests, markNotificationsRead } from "@/lib/storage";
+import { signOutAccount } from "@/lib/auth/signOut";
+
+type NavLink = [label: string, href: string];
+
+const topNav: NavLink[] = [
+  ["Operations Studio", "/admin"],
+  ["Dashboard", "/admin/command"],
+  ["Dispatch & Routes", "/admin/routes"],
+  ["Customers", "/admin/customers"],
+  ["Work Orders", "/admin/tasks"],
+  ["Billing", "/admin/finance"],
+  ["Reports", "/admin/performance"],
+  ["Inventory", "/admin/expenses"],
+  ["Employees", "/admin/employees"],
 ];
 
-export function AdminShell({children,active}:{children:React.ReactNode;active:string}){
-  const[unread,setUnread]=useState(0);
-  const[pendingRequests,setPendingRequests]=useState(0);
-  const[mobileMenuOpen,setMobileMenuOpen]=useState(false);
-  const activeGroup=navGroups.find(group=>group.links.some(([label])=>label===active))?.id??"overview";
-  const[openGroup,setOpenGroup]=useState(activeGroup);
-  function refreshNotifications(){setUnread(getNotifications().filter(n=>!n.read).length);setPendingRequests(getServiceRequests().filter(r=>r.status==="pending").length)}
-  function openNotifications(){markNotificationsRead();setUnread(0)}
-  useEffect(()=>{refreshNotifications();const on=()=>refreshNotifications();window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.addEventListener("storage",on);return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on)}},[]);
-  useEffect(()=>{setOpenGroup(activeGroup)},[activeGroup]);
+const quickActions: NavLink[] = [
+  ["New Work Order", "/admin/tasks/open"],
+  ["Add Customer", "/admin/add-client"],
+  ["Recommend Service", "/admin/recommend-service"],
+  ["Routes", "/admin/routes"],
+  ["Request Approval", "/admin/requests"],
+  ["Message Center", "/admin/notifications"],
+  ["Database Health", "/admin/database"],
+];
 
-  return <div className="admin-pro-shell">
-    <aside className={`pro-sidebar ${mobileMenuOpen?"mobile-menu-open":""}`}>
-      <button type="button" className="mobile-menu-close" onClick={()=>setMobileMenuOpen(false)} aria-label="Close menu">×</button>
-      <Link href="/admin" className="season-logo" aria-label="4Ever Seasons dashboard">
-        <div className="season-title"><span>4EVER</span><strong>SEASONS</strong></div>
-        <div className="grass-mask" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div className="mower-man" aria-hidden="true"><i className="head"></i><i className="body"></i><i className="leg one"></i><i className="leg two"></i><i className="arm"></i><i className="mower"></i></div>
-      </Link>
+export function AdminShell({ children, active }: { children: React.ReactNode; active: string }) {
+  const [unread, setUnread] = useState(0);
+  const [pendingRequests, setPendingRequests] = useState(0);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-      <Link href="/admin/settings" className="admin-profile clickable-profile">
-        <div className="profile-avatar">FD</div><div><strong>Filipe Damasio</strong><span>Administrator</span></div><b>⌄</b>
-      </Link>
+  function refreshNotifications() {
+    setUnread(getNotifications().filter((notification) => !notification.read).length);
+    setPendingRequests(getServiceRequests().filter((request) => request.status === "pending").length);
+  }
 
-      <nav className="pro-nav">
-        {navGroups.map(group=>{
-          const isOpen=openGroup===group.id;
-          const count=group.id==="clients"?pendingRequests:group.id==="management"?unread:0;
-          return <section className={`pro-nav-group ${isOpen?"open":""}`} key={group.id}>
-            <button type="button" className="pro-nav-group-toggle" aria-expanded={isOpen} onClick={()=>setOpenGroup(isOpen?"":group.id)}>
-              <span>{group.icon}</span><strong>{group.label}</strong>{count>0&&<em>{count}</em>}<b>⌄</b>
-            </button>
-            {isOpen&&<div className="pro-nav-group-links">
-              {group.links.map(([label,href,icon])=><Link key={href} href={href} onClick={()=>{if(label==="Alerts")openNotifications();setMobileMenuOpen(false)}} className={active===label?"active":""}><span>{icon}</span>{label}{label==="Alerts"&&unread>0&&<em>{unread}</em>}{label==="Requests"&&pendingRequests>0&&<em>{pendingRequests}</em>}</Link>)}
-            </div>}
-          </section>
-        })}
-      </nav>
+  function openNotifications() {
+    markNotificationsRead();
+    setUnread(0);
+  }
 
-      <Link href="/admin/alerts?tab=support" className="help-card"><span>☏</span><div><strong>Need Help?</strong><small>Contact Support</small></div></Link>
-      <button type="button" className="mobile-menu-signout" onClick={()=>void signOutAccount("/mobile/login")}>Sign out</button>
-    </aside>
-    <main className="pro-main">
-      <header className="pro-topbar">
-        <Link href="/mobile/admin" className="mobile-subpage-back" aria-label="Back to admin home">‹</Link>
-        <button type="button" className="hamburger mobile-menu-toggle" onClick={()=>setMobileMenuOpen(true)} aria-label="Open menu">☰</button>
-        <span className="mobile-subpage-title"><strong>{active}</strong><small>Admin workspace</small></span>
-        <Link href="/admin/leads" className="topbar-pill">🌿 4Ever Seasons V51.3</Link>
-        <div className="topbar-spacer"></div>
-        <Link href="/admin/customers" className="top-icon" aria-label="Search customers">⌕</Link>
-        <Link href="/admin/alerts" onClick={openNotifications} className="top-icon notify" aria-label="Open notifications">♢{unread>0&&<b>{unread}</b>}</Link>
-        <Link href="/admin/settings" className="top-icon" aria-label="Theme settings">☾</Link>
-        <Link href="/admin/settings" className="mini-user" aria-label="Open profile"><span>FD</span><i></i></Link>
-        <button type="button" className="top-signout" onClick={()=>void signOutAccount()} aria-label="Sign out">Sign out</button>
+  useEffect(() => {
+    refreshNotifications();
+    const onSync = () => refreshNotifications();
+    window.addEventListener(DAMASIO_SYNC_EVENT, onSync as EventListener);
+    window.addEventListener("storage", onSync);
+    return () => {
+      window.removeEventListener(DAMASIO_SYNC_EVENT, onSync as EventListener);
+      window.removeEventListener("storage", onSync);
+    };
+  }, []);
+
+  return (
+    <div className="studio-shell">
+      <header className="studio-topnav">
+        <Link href="/admin" className="studio-brand" aria-label="4Ever Seasons admin">
+          <Image src="/brand/4ever-seasons-logo-mark.jpg" alt="" width={40} height={40} priority />
+          <div>
+            <span>4EVER SEASONS</span>
+            <small>Operations Studio</small>
+          </div>
+        </Link>
+        <nav className="studio-nav" aria-label="Admin navigation">
+          {topNav.map(([label, href]) => (
+            <Link key={href} href={href} className={active === label || (label === "Dispatch & Routes" && active === "Routes") || (label === "Operations Studio" && active === "Dashboard") ? "active" : ""}>
+              {label}
+            </Link>
+          ))}
+        </nav>
+        <Link href="/admin/alerts" onClick={openNotifications} className="studio-icon" aria-label="Notifications">
+          N{unread > 0 && <b>{unread}</b>}
+        </Link>
+        <Link href="/admin/settings" className="studio-user"><span>FD</span><div><strong>Mike Admin</strong><small>Administrator</small></div></Link>
+        <button type="button" className="studio-signout" onClick={() => void signOutAccount()}>Sign out</button>
+        <button type="button" className="studio-menu" onClick={() => setMobileMenuOpen(true)}>Menu</button>
       </header>
-      <div className="pro-content">{children}</div>
+      <aside className={`studio-rail ${mobileMenuOpen ? "mobile-menu-open" : ""}`}>
+        <button type="button" className="mobile-menu-close" onClick={() => setMobileMenuOpen(false)} aria-label="Close menu">x</button>
+        <strong>Quick Actions</strong>
+        <nav>
+          {quickActions.map(([label, href], index) => (
+            <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} className={index === 0 ? "primary" : ""}>
+              <span>{index === 0 ? "+" : String(index)}</span>{label}
+            </Link>
+          ))}
+        </nav>
+        <section className="studio-rail-summary">
+          <span>Today</span>
+          <div><small>Pending Requests</small><b>{pendingRequests}</b></div>
+          <div><small>Unread Alerts</small><b>{unread}</b></div>
+        </section>
+        <Link href="/admin/production" className="studio-system-status">
+          <i></i><span>System Status</span><small>Production checklist</small>
+        </Link>
+        <section className="studio-rail-filler" aria-label="Workspace status">
+          <div>
+            <small>Workspace</small>
+            <strong>Company isolated</strong>
+          </div>
+          <p>Admin tools are being wired through company-scoped data so each company stays separated.</p>
+          <Link href="/admin/saas">Tenant readiness</Link>
+        </section>
+      </aside>
+      <main className="studio-main">{children}</main>
+      <footer className="studio-bottom-status">
+        <span><i></i> Live sync active</span>
+        <span>{pendingRequests} approvals waiting</span>
+        <span>{unread} unread alerts</span>
+        <Link href="/admin/finance">Finance queue</Link>
+      </footer>
       <nav className="mobile-shell-bottom" aria-label="Admin subpage navigation">
-        <Link href="/mobile/admin"><i>⌂</i><span>Home</span></Link>
-        <Link className={active==="Dispatch"||active==="Calendar"?"active":""} href="/admin/schedule"><i>□</i><span>Schedule</span></Link>
-        <Link className={active==="Dispatch & Routes"||active==="Map"?"active":""} href="/admin/schedule"><i>↗</i><span>Routes</span></Link>
-        <Link className={active==="Tasks"?"active":""} href="/admin/tasks/open"><i>!</i><span>Tasks</span></Link>
-        <button type="button" onClick={()=>setMobileMenuOpen(true)}><i>•••</i><span>More</span></button>
+        <Link href="/mobile/admin"><i>H</i><span>Home</span></Link>
+        <Link className={active === "Dispatch" || active === "Calendar" ? "active" : ""} href="/admin/schedule"><i>S</i><span>Schedule</span></Link>
+        <Link className={active === "Routes" || active === "Dispatch & Routes" || active === "Map" ? "active" : ""} href="/admin/routes"><i>R</i><span>Routes</span></Link>
+        <Link className={active === "Tasks" ? "active" : ""} href="/admin/tasks/open"><i>!</i><span>Tasks</span></Link>
+        <button type="button" onClick={() => setMobileMenuOpen(true)}><i>...</i><span>More</span></button>
       </nav>
-    </main>
-  </div>
+    </div>
+  );
 }

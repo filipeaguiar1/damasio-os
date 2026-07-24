@@ -1,12 +1,13 @@
 "use client";
 
 import { useMobileRealtime } from "@/lib/mobile/useMobileRealtime";
+import { flushOfflineActionQueue, getOfflineActionCount, runVisitStatusOrQueue } from "@/lib/mobile/offlineActionQueue";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
-import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
+import { applyEmployeeDatabaseSmartRoute, applyEmployeeRouteMapContext, loadEmployeeDatabaseSmartRouteState, loadEmployeeRouteMapContext, restoreEmployeeDatabaseSmartRoute, type EmployeeDatabaseSmartRouteState, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
 import {uploadVisitServicePhotos} from "@/lib/services/propertyPhotoService";
 import {isSupabaseConfigured} from "@/lib/supabase/client";
 import {
@@ -62,7 +63,7 @@ export default function MobileEmployeeApp(){
   const [smartOriginPoint,setSmartOriginPoint]=useState<{latitude:number;longitude:number;label:string}|null>(null);
   const [smartPreparing,setSmartPreparing]=useState(false);
   const [smartRouteActive,setSmartRouteActive]=useState(false);
-  const [activeSmartState,setActiveSmartState]=useState<ReturnType<typeof getEmployeeSmartRouteState>>(null);
+  const [activeSmartState,setActiveSmartState]=useState<(ReturnType<typeof getEmployeeSmartRouteState>|EmployeeDatabaseSmartRouteState)>(null);
   const [routeStarted,setRouteStarted]=useState(false);
   const [selectedTaskId,setSelectedTaskId]=useState("");
   const [routeView,setRouteView]=useState<"list"|"map">("map");
@@ -71,6 +72,7 @@ export default function MobileEmployeeApp(){
   const [message,setMessage]=useState("");
   const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
+  const [offlinePending,setOfflinePending]=useState(0);
   const [skipOpen,setSkipOpen]=useState(false);
   const [contractOpen,setContractOpen]=useState(true);
   const [selectedDate,setSelectedDate]=useState(()=>localDateKey(new Date()));
@@ -107,14 +109,17 @@ export default function MobileEmployeeApp(){
     }
   }
 
+  async function syncOfflineQueue(){
+    try{const result=await flushOfflineActionQueue();setOfflinePending(result.remaining);if(result.synced){refresh();setMessage(`${result.synced} offline action(s) synced.`)}}catch{/* field mode must stay usable even if background sync fails */}
+  }
   useMobileRealtime(refresh);
-  useEffect(()=>{refresh(); void loadEmployeeOperationalIdentity().then(identity=>setCrew(identity.crew)); const on=()=>refresh(); window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener); window.addEventListener("storage",on); const t=window.setInterval(()=>setTick(v=>v+1),1000); return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);window.clearInterval(t)}},[]);
+  useEffect(()=>{refresh();setOfflinePending(getOfflineActionCount());void syncOfflineQueue(); void loadEmployeeOperationalIdentity().then(identity=>setCrew(identity.crew)); const on=()=>refresh(); const queue=()=>setOfflinePending(getOfflineActionCount()); const online=()=>void syncOfflineQueue(); window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener); window.addEventListener("storage",on); window.addEventListener("online",online); window.addEventListener("damasio-offline-queue-change",queue as EventListener); const t=window.setInterval(()=>{setTick(v=>v+1);if(getOfflineActionCount())void syncOfflineQueue()},1000); return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);window.removeEventListener("online",online);window.removeEventListener("damasio-offline-queue-change",queue as EventListener);window.clearInterval(t)}},[]);
 
   const todayKey=localDateKey(new Date());
   const selectedDay=dayNameFromDate(selectedDate);
   const localRoute=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&(l.scheduledDate===selectedDate||(selectedDate===todayKey&&l.serviceDay===selectedDay))).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,selectedDate,selectedDay,todayKey]);
   useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,selectedDate,routeReload]);
-  const route=useMemo(()=>smartRouteActive?localRoute:applyEmployeeRouteMapContext(localRoute,mapContext),[localRoute,mapContext,smartRouteActive]);
+  const route=useMemo(()=>smartRouteActive&&!mapContext.routeId?localRoute:applyEmployeeRouteMapContext(localRoute,mapContext),[localRoute,mapContext,smartRouteActive]);
   const mapRoute=route;
   const dayOptions=useMemo(()=>Array.from({length:7},(_,index)=>{const date=new Date(`${weekStart}T12:00:00`);date.setDate(date.getDate()+index);return{key:localDateKey(date),weekday:date.toLocaleDateString("en-CA",{weekday:"short"}),day:date.getDate()}}),[weekStart]);
   const weekLabel=`${new Date(`${weekStart}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"})} – ${new Date(`${shiftDateKey(weekStart,6)}T12:00:00`).toLocaleDateString("en-CA",{month:"short",day:"numeric"})}`;
@@ -146,7 +151,7 @@ export default function MobileEmployeeApp(){
   const nextStop=route.find(l=>l.status!=="completed"&&getSessionForLead(l.id)?.status!=="skipped")||route[0]||null;
   const smartCandidates=useMemo(()=>route.filter(lead=>lead.status!=="completed"&&getSessionForLead(lead.id)?.status!=="skipped"),[route,tick]);
   const lastCompleted=useMemo(()=>[...route].reverse().find(lead=>lead.status==="completed")||null,[route]);
-  useEffect(()=>{const smartState=getEmployeeSmartRouteState(crew,selectedDate);setSmartSelected(current=>current.filter(id=>smartCandidates.some(lead=>lead.id===id)));setSmartRouteActive(Boolean(smartState?.active));setActiveSmartState(smartState);setRouteStarted(Boolean(getEmployeeRouteRunState(crew,selectedDate)?.active))},[smartCandidates,crew,selectedDate,routeReload]);
+  useEffect(()=>{let cancelled=false;async function syncSmartState(){setSmartSelected(current=>current.filter(id=>smartCandidates.some(lead=>lead.id===id)));try{const databaseState=await loadEmployeeDatabaseSmartRouteState(mapContext.routeId);if(cancelled)return;if(databaseState?.active){setSmartRouteActive(true);setActiveSmartState(databaseState);return}}catch(error){if(!cancelled)setError(error instanceof Error?error.message:"Smart Route state could not be loaded.")}if(cancelled)return;const smartState=getEmployeeSmartRouteState(crew,selectedDate);setSmartRouteActive(Boolean(smartState?.active));setActiveSmartState(smartState);setRouteStarted(Boolean(getEmployeeRouteRunState(crew,selectedDate)?.active))}void syncSmartState();return()=>{cancelled=true}},[smartCandidates,crew,selectedDate,routeReload,mapContext.routeId]);
 
   function clearSmartPreview(){setSmartPreview([]);setSmartOriginPoint(null);setSmartAlternative(0)}
   function toggleSmartStop(id:string){setSmartSelected(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);clearSmartPreview()}
@@ -199,17 +204,33 @@ export default function MobileEmployeeApp(){
     }catch(cause){setError(cause instanceof Error?cause.message:"Smart Route could not be prepared.")}finally{setSmartPreparing(false)}
   }
   function tryAnotherSmartRoute(){void prepareSmartRoute(smartAlternative+1)}
-  function applySmartPreview(){
+  async function applySmartPreview(){
     if(!smartPreview.length||!smartOriginPoint)return;
     const locked=route.filter(lead=>lead.status==="completed"||getSessionForLead(lead.id)?.status==="skipped").map(lead=>lead.id);
     const optimized=smartPreview.map(lead=>lead.id);
     const unselected=route.filter(lead=>!locked.includes(lead.id)&&!optimized.includes(lead.id)).map(lead=>lead.id);
-    const state=applyEmployeeSmartRoute(crew,selectedDate,route.map(lead=>lead.id),[...locked,...optimized,...unselected],smartOriginPoint);
-    setSmartRouteActive(true);setActiveSmartState(state);setSmartPreview([]);refresh();setHomeMode("route");setRouteView("map");setMessage("Smart Route applied. Your map and stop order are synchronized.");
+    setBusy(true);setError("");setMessage("");
+    try{
+      if(mapContext.routeId){
+        const originalOrder=mapContext.stops.map(stop=>stop.visitId);
+        const appliedOrder=[...locked,...optimized,...unselected].map(id=>route.find(lead=>lead.id===id)?.canonicalVisitId||id).filter(id=>originalOrder.includes(id));
+        await applyEmployeeDatabaseSmartRoute({routeId:mapContext.routeId,originalOrder,appliedOrder,origin:smartOriginPoint,expectedVersion:activeSmartState&&"routeVersion" in activeSmartState?activeSmartState.routeVersion:null});
+        const state=await loadEmployeeDatabaseSmartRouteState(mapContext.routeId);
+        setActiveSmartState(state);setSmartRouteActive(Boolean(state?.active));
+      }else{
+        const state=applyEmployeeSmartRoute(crew,selectedDate,route.map(lead=>lead.id),[...locked,...optimized,...unselected],smartOriginPoint);
+        setSmartRouteActive(true);setActiveSmartState(state);
+      }
+      setSmartPreview([]);refresh();setHomeMode("route");setRouteView("map");setMessage("Smart Route applied. Your map and stop order are synchronized.");
+    }catch(error){setError(error instanceof Error?error.message:"Smart Route could not be applied.")}finally{setBusy(false)}
   }
-  function restoreOriginalRoute(){
+  async function restoreOriginalRoute(){
     if(!window.confirm("Restore the original route assigned by Admin? Completed visits will stay completed."))return;
-    if(restoreEmployeeSmartRoute(crew,selectedDate)){setSmartRouteActive(false);setActiveSmartState(null);setSmartPreview([]);refresh();setMessage("Original route restored.")}
+    setBusy(true);setError("");setMessage("");
+    try{
+      const restored=mapContext.routeId?await restoreEmployeeDatabaseSmartRoute(mapContext.routeId,activeSmartState&&"routeVersion" in activeSmartState?activeSmartState.routeVersion:null):restoreEmployeeSmartRoute(crew,selectedDate);
+      if(restored){setSmartRouteActive(false);setActiveSmartState(null);setSmartPreview([]);refresh();setMessage("Original route restored.")}
+    }catch(error){setError(error instanceof Error?error.message:"Original route could not be restored.")}finally{setBusy(false)}
   }
 
   const smartMetrics=useMemo(()=>{if(!smartPreview.length||!smartOriginPoint)return null;const points=[smartOriginPoint,...smartPreview.map(lead=>({latitude:Number(lead.latitude),longitude:Number(lead.longitude)}))];let km=0;for(let index=1;index<points.length;index++){const a=points[index-1],b=points[index];const toRad=(value:number)=>value*Math.PI/180;const dLat=toRad(b.latitude-a.latitude);const dLon=toRad(b.longitude-a.longitude);const x=Math.sin(dLat/2)**2+Math.cos(toRad(a.latitude))*Math.cos(toRad(b.latitude))*Math.sin(dLon/2)**2;km+=6371*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}const roadKm=km*1.22;return{distance:roadKm,time:Math.max(1,Math.round(roadKm/35*60))}},[smartPreview,smartOriginPoint]);
@@ -222,7 +243,7 @@ export default function MobileEmployeeApp(){
   async function start(){
     if(!selected||busy)return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"in_progress");else startServiceSession(selected.id,profile.name,crew); setRouteReload(value=>value+1); refresh(); setMessage("Service started and synchronized.")}
+    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"in_progress");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Service start saved offline. It will sync automatically.":"Service started and synchronized.")}else{startServiceSession(selected.id,profile.name,crew);setMessage("Service started and synchronized.")} setRouteReload(value=>value+1); refresh();}
     catch{setError("Service could not be started. Please try again.")}
     finally{setBusy(false)}
   }
@@ -230,7 +251,7 @@ export default function MobileEmployeeApp(){
     if(!selected||busy)return;
     if(!window.confirm("Finish this service and mark this house as Done?"))return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"completed");else finishServiceSession(selected.id,comment); setRouteReload(value=>value+1); refresh(); setMessage("Done. Every device was updated.")}
+    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"completed");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Completion saved offline. It will sync automatically.":"Done. Every device was updated.")}else{finishServiceSession(selected.id,comment);setMessage("Done. Every device was updated.")} setRouteReload(value=>value+1); refresh();}
     catch{setError("Service could not be completed. Please try again.")}
     finally{setBusy(false)}
   }
@@ -238,7 +259,7 @@ export default function MobileEmployeeApp(){
     if(!selected||busy)return;
     if(!window.confirm("Reset this house? The timer will be cleared and the visit will return to Open."))return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"scheduled");else resetServiceSession(selected.id); setComment(""); setRouteReload(value=>value+1); refresh(); setMessage("House reset to Open on every device.")}
+    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"scheduled");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Reset saved offline. It will sync automatically.":"House reset to Open on every device.")}else{resetServiceSession(selected.id);setMessage("House reset to Open on every device.")} setComment(""); setRouteReload(value=>value+1); refresh();}
     catch{setError("House could not be reset.")}
     finally{setBusy(false)}
   }
@@ -281,6 +302,7 @@ export default function MobileEmployeeApp(){
     </header>
 
     {error&&<p className="mobile-message mobile-error" role="alert">{error}</p>}
+    {offlinePending>0&&<p className="mobile-message" role="status">{offlinePending} field action(s) saved offline. Sync will retry automatically.</p>}
 
     {(tab==="route"||tab==="issues")&&<nav className="employee-home-switch" aria-label="Employee workspace"><button className={homeMode==="route"?"active":""} onClick={()=>{setHomeMode("route");setTab("route")}}><i>⌂</i><span><strong>Routes</strong><small>Today and visits</small></span></button><button className={homeMode==="smart"?"active":""} onClick={()=>{setHomeMode("smart");setTab("route")}}><i>↗</i><span><strong>Smart Route</strong><small>Replan pending stops</small></span></button></nav>}
 

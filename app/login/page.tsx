@@ -26,16 +26,41 @@ export default function LoginPage(){
       clearDemoSession();
       const userId=data.user?.id;
       if(!userId){setMessage("Login worked, but no user was returned.");return;}
-      const {data:profile,error:profileError}=await supabase.from("profiles").select("role, full_name, active").eq("id",userId).single();
-      if(profileError || !profile){
-        setMessage("User exists, but no profile/role was found yet. For now, keep using demo access while database users are connected.");
+
+      let profile: { role?: string; full_name?: string; active?: boolean } | null = null;
+      const {data:existingProfile,error:profileError}=await supabase.from("profiles").select("role, full_name, active").eq("id",userId).maybeSingle();
+
+      if(existingProfile){
+        profile = existingProfile;
+      } else if(!profileError || profileError.code !== "PGRST116") {
+        setMessage("We could not read your profile yet. Please try again in a moment.");
         return;
+      } else {
+        const fallbackRole = email.toLowerCase().includes("master") ? "master" : email.toLowerCase().includes("admin") ? "admin" : "customer";
+        const {data:createdProfile,error:createProfileError}=await supabase.from("profiles").insert({
+          id: userId,
+          role: fallbackRole,
+          full_name: data.user?.email?.split("@")[0] ?? "User",
+          email: data.user?.email,
+          active: true,
+          organization_id: null,
+          company_id: null,
+        }).select("role, full_name, active").single();
+
+        if(createProfileError || !createdProfile){
+          setMessage("Your account was authenticated, but its profile could not be created automatically. Please contact support.");
+          return;
+        }
+
+        profile = createdProfile;
       }
-      if(!profile.active){
+
+      if(!profile?.active){
         await supabase.auth.signOut();
         setMessage("This account is inactive. Contact the company Admin.");
         return;
       }
+
       if(profile.role==="customer"){
         const pendingQuote=window.localStorage.getItem("damasio_pending_quote");
         if(pendingQuote){
@@ -43,6 +68,7 @@ export default function LoginPage(){
           if(!claimError)window.localStorage.removeItem("damasio_pending_quote");
         }
       }
+
       if(profile.role==="master") router.push("/master");
       else if(profile.role==="admin"||profile.role==="manager") router.push("/admin");
       else if(profile.role==="employee") router.push("/employee");

@@ -1,4 +1,5 @@
 import { cachedQuery, invalidateQuery } from "@/lib/performance/queryCache";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   createOperationQuote,
   createOperationTask,
@@ -31,6 +32,24 @@ export async function changeQuoteStatus(quoteId: string, status: OperationQuote[
   const board = await updateOperationQuoteStatus(quoteId, status);
   invalidateQuery("operations:");
   return board;
+}
+
+export async function approveQuoteAndInvite(input: { quoteId: string; finalTotal: number; revisionNote?: string; sendInvite?: boolean }) {
+  if (!input.quoteId) throw new Error("Choose a quote first.");
+  if (!Number.isFinite(input.finalTotal) || input.finalTotal <= 0) throw new Error("Enter a valid final total.");
+  const supabase = getSupabaseBrowserClient();
+  const { data: session } = await supabase.auth.getSession();
+  const token = session.session?.access_token;
+  if (!token) throw new Error("Sign in as Admin before approving a quote.");
+  const response = await fetch(`/api/master/quotes/${input.quoteId}/approve`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ finalTotal: input.finalTotal, revisionNote: input.revisionNote || "", sendInvite: input.sendInvite ?? true }),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Quote approval failed.");
+  invalidateQuery("operations:");
+  return result as { quoteId: string; invoiceId?: string; invoiceNumber?: string; inviteSent: boolean; message: string };
 }
 
 export async function addTaskToProperty(input: {

@@ -38,6 +38,7 @@ export default function RouteMap(){
 
   async function refresh(){try{const board=await loadSchedulingDispatchBoard({force:true});setLeads(schedulingBoardToLeads(board))}catch{setLeads([])}}
   useEffect(()=>{void refresh();const timer=window.setInterval(()=>void refresh(),10000);return()=>window.clearInterval(timer)},[]);
+  useEffect(()=>{const params=new URLSearchParams(window.location.search);const qCrew=params.get("crew");const qDay=params.get("day");if(qCrew){setCrew(qCrew);setSelected("")}if(qDay&&DAMASIO_WEEK_DAYS.includes(qDay)){setDay(qDay);setSelected("")}},[]);
 
   const crews=useMemo(()=>Array.from(new Set(leads.map(l=>l.assignedCrew).filter(Boolean))) as string[],[leads]);
   const crewOptions=crews.length?crews:DAMASIO_CREWS;

@@ -58,6 +58,20 @@ export type EmployeeRouteMapContext = {
   }>;
 };
 
+export type EmployeeDatabaseSmartRouteState = {
+  routeId: string;
+  crewId: string | null;
+  routeDate: string;
+  originalOrder: string[];
+  appliedOrder: string[];
+  originLabel: string;
+  originLatitude?: number;
+  originLongitude?: number;
+  appliedAt: string;
+  active: boolean;
+  routeVersion: number;
+};
+
 const emptyContext: EmployeeRouteMapContext = { routeId: null, stops: [] };
 
 export function routeDateForWeekday(dayName: string) {
@@ -206,4 +220,64 @@ export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRou
 export async function loadCachedRouteGeometry(routeId?: string) {
   if (!routeId) return null;
   return getRouteMapCache(routeId);
+}
+
+function smartRouteStateFrom(row: any): EmployeeDatabaseSmartRouteState {
+  return {
+    routeId: row.route_id,
+    crewId: row.crew_id || null,
+    routeDate: row.route_date,
+    originalOrder: Array.isArray(row.original_order) ? row.original_order : [],
+    appliedOrder: Array.isArray(row.applied_order) ? row.applied_order : [],
+    originLabel: row.origin_label || "",
+    originLatitude: Number.isFinite(row.origin_latitude) ? Number(row.origin_latitude) : undefined,
+    originLongitude: Number.isFinite(row.origin_longitude) ? Number(row.origin_longitude) : undefined,
+    appliedAt: row.applied_at,
+    active: Boolean(row.active),
+    routeVersion: Number(row.route_version || 0)
+  };
+}
+
+export async function loadEmployeeDatabaseSmartRouteState(routeId?: string | null): Promise<EmployeeDatabaseSmartRouteState | null> {
+  if (!routeId || !isSupabaseConfigured()) return null;
+  const supabase = getSupabaseBrowserClient() as any;
+  const { data, error } = await supabase.rpc("get_employee_smart_route_state", { p_route_id: routeId });
+  if (error) throw new Error(error.message);
+  const row = Array.isArray(data) ? data[0] : null;
+  return row ? smartRouteStateFrom(row) : null;
+}
+
+export async function applyEmployeeDatabaseSmartRoute(params: {
+  routeId: string;
+  originalOrder: string[];
+  appliedOrder: string[];
+  origin: { label: string; latitude: number; longitude: number };
+  expectedVersion?: number | null;
+}) {
+  if (!isSupabaseConfigured()) throw new Error("Database route mode is not configured.");
+  const supabase = getSupabaseBrowserClient() as any;
+  const { data, error } = await supabase.rpc("apply_employee_smart_route", {
+    p_route_id: params.routeId,
+    p_original_order: params.originalOrder,
+    p_applied_order: params.appliedOrder,
+    p_origin_label: params.origin.label,
+    p_origin_latitude: params.origin.latitude,
+    p_origin_longitude: params.origin.longitude,
+    p_expected_version: params.expectedVersion ?? null
+  });
+  if (error) throw new Error(error.message);
+  const row = Array.isArray(data) ? data[0] : null;
+  return Number(row?.route_version || 0);
+}
+
+export async function restoreEmployeeDatabaseSmartRoute(routeId: string, expectedVersion?: number | null) {
+  if (!isSupabaseConfigured()) throw new Error("Database route mode is not configured.");
+  const supabase = getSupabaseBrowserClient() as any;
+  const { data, error } = await supabase.rpc("restore_employee_smart_route", {
+    p_route_id: routeId,
+    p_expected_version: expectedVersion ?? null
+  });
+  if (error) throw new Error(error.message);
+  const row = Array.isArray(data) ? data[0] : null;
+  return Boolean(row?.restored);
 }

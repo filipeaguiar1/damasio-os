@@ -3,8 +3,8 @@ import "./globals.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 
 export const metadata: Metadata = {
-  title: "4Ever Seasons",
-  description: "Four-season property care, customer service and field operations.",
+  title: "4Ever Seasons | Premium Property Care",
+  description: "Modern four-season property care with instant quotes, live routes, customer portals and field proof.",
   manifest: "/manifest.json"
 };
 

@@ -55,15 +55,26 @@ export async function POST(request: NextRequest) {
     if (!Number.isSafeInteger(cents) || cents < 50) return failure("This invoice has no valid amount to charge.", 409);
 
     const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
+    const transferGroup = `invoice-${invoice.id}`;
+    const metadata = { invoiceId: invoice.id, companyId, customerId: invoice.customer_id || "" };
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: customer?.email || auth.user.email || undefined,
       line_items: [{ quantity: 1, price_data: { currency: "cad", unit_amount: cents, product_data: { name: `Invoice ${invoice.invoice_number}` } } }],
-      metadata: { invoiceId: invoice.id, companyId, customerId: invoice.customer_id },
-      payment_intent_data: { metadata: { invoiceId: invoice.id, companyId, customerId: invoice.customer_id } },
+      metadata,
+      payment_intent_data: { metadata, transfer_group: transferGroup },
       success_url: `${siteUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl}/payment/cancel?invoiceId=${invoice.id}`
     }, { idempotencyKey: `checkout-${invoice.id}-${cents}` });
+
+    const stripeUpdate = await db.from("invoices").update({
+      stripe_checkout_session_id: session.id,
+      stripe_transfer_group: transferGroup,
+      status: "processing"
+    }).eq("id", invoice.id);
+    if (stripeUpdate.error) {
+      await db.from("invoices").update({ status: "processing" }).eq("id", invoice.id);
+    }
 
     return NextResponse.json({ url: session.url });
   } catch (error) {

@@ -80,7 +80,7 @@ export default function EstimatesPage() {
         <div>
           <span className="eyebrow">V42.3 Real Quotes</span>
           <h1>Quotes Workflow</h1>
-          <p className="section-intro">Create, approve and convert quotes into jobs and tasks using Supabase.</p>
+          <p className="section-intro">Create company quotes and manage quote status. New customer approval is handled by Master.</p>
         </div>
         <div className="row">
           <button className="btn btn-outline" onClick={refresh} disabled={loading}>{loading ? "Loading..." : "Refresh"}</button>
@@ -107,7 +107,7 @@ export default function EstimatesPage() {
       </section>
 
       <section className="card table-card" style={{ marginTop: 20 }}>
-        <div className="table-wrap"><table><thead><tr><th>Quote</th><th>Customer</th><th>Project</th><th>Total</th><th>Status</th><th>Workflow</th></tr></thead><tbody>{board.quotes.length === 0 ? <tr><td colSpan={6}>No quotes yet.</td></tr> : board.quotes.map((quote) => <tr key={quote.id}><td><strong>{quote.quoteNumber}</strong><br/><small>{new Date(quote.createdAt).toLocaleDateString()}</small></td><td>{quote.customerName}<br/><small>{quote.address}</small></td><td>{quote.serviceName}</td><td><strong>${Number(quote.total || 0).toFixed(2)}</strong></td><td><select className="input" value={quote.status} onChange={(event) => setQuoteStatus(quote.id, event.target.value as OperationQuote["status"])}><option value="draft">Draft</option><option value="sent">Sent</option><option value="approved">Approved</option><option value="declined">Declined</option><option value="expired">Expired</option></select></td><td>{quote.status === "approved" ? "Job + tasks created" : "Approve to create job"}</td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table><thead><tr><th>Quote</th><th>Customer</th><th>Project</th><th>Total</th><th>Status</th><th>Workflow</th></tr></thead><tbody>{board.quotes.length === 0 ? <tr><td colSpan={6}>No quotes yet.</td></tr> : board.quotes.map((quote) => <tr key={quote.id}><td><strong>{quote.quoteNumber}</strong><br/><small>{new Date(quote.createdAt).toLocaleDateString()}</small></td><td>{quote.customerName}<br/><small>{quote.address}</small></td><td>{quote.serviceName}</td><td><strong>${Number(quote.total || 0).toFixed(2)}</strong></td><td><select className="input" value={quote.status} onChange={(event) => setQuoteStatus(quote.id, event.target.value as OperationQuote["status"])}><option value="draft">Draft</option><option value="sent">Sent</option><option value="approved">Approved</option><option value="declined">Declined</option><option value="expired">Expired</option></select></td><td>{quote.status === "approved" ? "Approved workflow active" : "Master handles new customer approval"}</td></tr>)}</tbody></table></div>
       </section>
     </AdminShell>
   );

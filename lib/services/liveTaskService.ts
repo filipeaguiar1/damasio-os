@@ -1,4 +1,5 @@
 import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
+import {reliableRpc} from "@/lib/supabase/reliableRpc";
 import {readDemoSession} from "@/lib/auth/demoAuth";
 import {getEmployeeTasks,type EmployeeTask} from "@/lib/storage";
 
@@ -11,12 +12,12 @@ async function sign(bucket:string,path:string){const client=getSupabaseBrowserCl
 
 export async function loadUnifiedTasks():Promise<EmployeeTask[]>{
   if(!usesLiveTaskBackend())return getEmployeeTasks();
-  const client=getSupabaseBrowserClient();const{data,error}=await client.rpc("get_live_task_board" as never);if(error)throw new Error(error.message);
+  const client=getSupabaseBrowserClient();const data=await reliableRpc(client,"get_live_task_board",{}, {attempts:2,timeoutMs:18000});
   const rows=((data||{}) as{tasks?:RawTask[]}).tasks||[];
   return Promise.all(rows.map(async row=>{const photos=await Promise.all((row.photos||[]).map(async photo=>({type:photo.type,url:await sign(photo.bucket,photo.storagePath)})));return{id:row.id,createdAt:row.created_at,leadId:row.property_id,customer:row.customer_name,address:[row.address_line1,row.city,row.province,row.postal_code].filter(Boolean).join(", "),title:row.title,description:row.customer_issue,status:row.status,priority:row.priority,assignedTo:row.employee_name||row.crew_name||"Admin",scheduledDate:row.scheduled_date||undefined,assignedAt:row.assigned_at||undefined,resolvedAt:row.resolved_at||undefined,completedBy:row.employee_name||row.crew_name||undefined,workStartedAt:row.work_started_at||undefined,workFinishedAt:row.work_finished_at||undefined,durationSeconds:row.completion_duration_seconds||undefined,completionSummary:row.completion_summary||undefined,workDone:row.completion_summary||undefined,requestPhotos:photos.filter(p=>p.type==="issue").map(p=>p.url),completionPhotos:photos.filter(p=>p.type==="completion").map(p=>p.url)} as EmployeeTask}))
 }
 
-async function rpc(name:string,args:Record<string,unknown>){const{data,error}=await getSupabaseBrowserClient().rpc(name as never,args as never);if(error)throw new Error(error.message);return data}
+async function rpc(name:string,args:Record<string,unknown>){return reliableRpc(getSupabaseBrowserClient(),name,args,{attempts:2,timeoutMs:18000})}
 export function startLiveTask(taskId:string){return rpc("start_assigned_task",{p_task_id:taskId})}
 export function completeLiveTask(taskId:string,summary:string){return rpc("complete_assigned_task",{p_task_id:taskId,p_summary:summary})}
 export function resolveLiveTask(taskId:string,summary?:string){return rpc("resolve_completed_task",{p_task_id:taskId,p_summary:summary||null})}
