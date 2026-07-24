@@ -32,7 +32,7 @@ async function requireMaster(request:NextRequest){
 function slugify(value:string){return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")}
 function failure(error:unknown,status=400){return NextResponse.json({error:error instanceof Error?error.message:"Company creation failed."},{status})}
 function inviteFailureMessage(message?:string){return message?.toLowerCase().includes("rate limit")?"Company saved, but Supabase reached its email sending limit. Wait for the limit to reset or configure custom SMTP, then resend the Admin invitation.":`Company saved, but the Admin invitation was not sent${message?`: ${message}`:"."}`}
-const companyColumns="id,name,slug,active,plan_name,contact_email,referral_code,created_at,deleted_at,purge_after,deletion_reason";
+const companyColumns="id,name,slug,active,plan_name,contact_email,referral_code,stripe_connect_status,stripe_connected_account_id,created_at,deleted_at,purge_after,deletion_reason";
 
 export async function GET(request:NextRequest){
   try{
