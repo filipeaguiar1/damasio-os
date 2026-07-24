@@ -54,6 +54,15 @@ export async function GET(request: NextRequest) {
       batchQuery,
       service.from("organizations").select("id,name,stripe_connect_status,stripe_connected_account_id").is("deleted_at", null).order("name")
     ]);
+    const schemaMissing = [items.error, batches.error].some(error => error?.message?.includes("company_payout"));
+    if (schemaMissing) {
+      return NextResponse.json({
+        items: [],
+        batches: [],
+        companies: companies.data || [],
+        warning: "Payout database migration is not applied yet. Run supabase/migrations/202607240001_stripe_connect_weekly_payouts.sql in Supabase SQL Editor."
+      });
+    }
     if (items.error) throw new Error(items.error.message);
     if (batches.error) throw new Error(batches.error.message);
     if (companies.error) throw new Error(companies.error.message);
@@ -74,6 +83,9 @@ export async function POST(request: NextRequest) {
       p_company_id: companyId,
       p_reference_date: referenceDate
     });
+    if (error?.message?.includes("generate_company_weekly_payout_batch")) {
+      throw new Error("Payout database migration is not applied yet. Run supabase/migrations/202607240001_stripe_connect_weekly_payouts.sql in Supabase SQL Editor first.");
+    }
     if (error) throw new Error(error.message);
     return NextResponse.json({ batchId: data, message: "Weekly payout batch generated." });
   } catch (error) {
