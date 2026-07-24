@@ -26,7 +26,10 @@ export function Header() {
           <Link href="/admin">Admin</Link>
           <Link href="/login">Login</Link>
         </nav>
-        <Link className="btn btn-primary" href="/login">Open 4Ever Seasons</Link>
+        <Link className="btn btn-primary header-login" href="/login">
+          <span className="header-login-desktop">Open 4Ever Seasons</span>
+          <span className="header-login-mobile">Sign in</span>
+        </Link>
       </div>
     </header>
   );
