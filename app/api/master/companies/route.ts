@@ -32,6 +32,12 @@ async function requireMaster(request:NextRequest){
 function slugify(value:string){return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")}
 function failure(error:unknown,status=400){return NextResponse.json({error:error instanceof Error?error.message:"Company creation failed."},{status})}
 function inviteFailureMessage(message?:string){return message?.toLowerCase().includes("rate limit")?"Company saved, but Supabase reached its email sending limit. Wait for the limit to reset or configure custom SMTP, then resend the Admin invitation.":`Company saved, but the Admin invitation was not sent${message?`: ${message}`:"."}`}
+function invitationOrigin(request:NextRequest){
+  const requestOrigin=request.nextUrl.origin;
+  const configured=String(process.env.NEXT_PUBLIC_SITE_URL||"").replace(/\/$/,"");
+  if(configured&&!/localhost|127\.0\.0\.1/i.test(configured))return configured;
+  return requestOrigin;
+}
 const companyColumns="id,name,slug,active,plan_name,contact_email,referral_code,stripe_connect_status,stripe_connected_account_id,created_at,deleted_at,purge_after,deletion_reason";
 
 export async function GET(request:NextRequest){
@@ -102,7 +108,7 @@ export async function PUT(request:NextRequest){
     const{data:existing}=await client.from("profiles").select("id").eq("role","admin").or(`company_id.eq.${company.id},organization_id.eq.${company.id}`).limit(1).maybeSingle();
     if(existing)throw new Error("This company already has an Admin account.");
     const adminName=String(body.adminName||`${company.name} Admin`).trim();
-    const siteUrl=process.env.NEXT_PUBLIC_SITE_URL||request.nextUrl.origin;
+    const siteUrl=invitationOrigin(request);
     const{data:invite,error:inviteError}=await client.auth.admin.inviteUserByEmail(company.contact_email,{redirectTo:`${siteUrl}/auth/complete`,data:{full_name:adminName,role:"admin",company_id:company.id}});
     if(inviteError||!invite.user)return NextResponse.json({error:inviteFailureMessage(inviteError?.message)},{status:inviteError?.message?.toLowerCase().includes("rate limit")?429:400});
     invitedUserId=invite.user.id;
@@ -133,7 +139,7 @@ export async function POST(request:NextRequest){
     const{data:company,error:companyError}=await client.from("organizations").insert({name,slug,plan_name:plan,contact_email:adminEmail,active:true}).select("id,name,slug,active,plan_name,contact_email,created_at").single();
     if(companyError||!company)throw new Error(companyError?.message||"Company could not be created.");
     companyId=company.id;
-    const siteUrl=process.env.NEXT_PUBLIC_SITE_URL||request.nextUrl.origin;
+    const siteUrl=invitationOrigin(request);
     const{data:invite,error:inviteError}=await client.auth.admin.inviteUserByEmail(adminEmail,{redirectTo:`${siteUrl}/auth/complete`,data:{full_name:adminName,role:"admin",company_id:companyId}});
     if(inviteError||!invite.user){
       await client.from("master_audit_log").insert({master_profile_id:masterId,company_id:companyId,action:"company.created_invite_pending",entity_type:"organization",entity_id:companyId,details:{admin_email:adminEmail,plan,error:inviteError?.message}});
