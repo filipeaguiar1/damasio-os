@@ -93,6 +93,11 @@ create index if not exists organizations_stripe_connected_account_idx
 alter table public.company_payout_items enable row level security;
 alter table public.company_payout_batches enable row level security;
 
+grant select on table public.company_payout_items to authenticated;
+grant select on table public.company_payout_batches to authenticated;
+grant all privileges on table public.company_payout_items to service_role;
+grant all privileges on table public.company_payout_batches to service_role;
+
 drop policy if exists "company payout items readable by company and master" on public.company_payout_items;
 create policy "company payout items readable by company and master" on public.company_payout_items
 for select using (company_id=public.current_company_id() or public.master_has_company_access(company_id,'read_only'));
@@ -159,6 +164,7 @@ begin
 end $$;
 
 revoke all on function public.refresh_payout_release_status(uuid) from public,anon,authenticated;
+grant execute on function public.refresh_payout_release_status(uuid) to service_role;
 
 create or replace function public.weekly_company_payout_date(p_work_date date)
 returns date language sql immutable as $$
@@ -246,5 +252,6 @@ grant execute on function public.weekly_company_payout_date(date) to authenticat
 grant execute on function public.weekly_company_payout_week_start(date) to authenticated;
 grant execute on function public.weekly_company_payout_week_end(date) to authenticated;
 grant execute on function public.generate_company_weekly_payout_batch(uuid,date) to authenticated;
+grant execute on function public.generate_company_weekly_payout_batch(uuid,date) to service_role;
 
 commit;
