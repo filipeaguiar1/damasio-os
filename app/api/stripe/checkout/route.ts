@@ -28,6 +28,13 @@ export async function POST(request: NextRequest) {
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
     if (!url || !serviceKey || !stripeKey || !siteUrl) {
+      const missing = [
+        !url && "NEXT_PUBLIC_SUPABASE_URL",
+        !serviceKey && "SUPABASE_SERVICE_ROLE_KEY",
+        !stripeKey && "STRIPE_SECRET_KEY",
+        !siteUrl && "NEXT_PUBLIC_SITE_URL",
+      ].filter(Boolean);
+      console.error("Stripe Checkout configuration missing", missing);
       return failure("Card payments are not available yet.", 503);
     }
 

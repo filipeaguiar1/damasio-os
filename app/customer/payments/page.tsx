@@ -1,142 +1,120 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
 import { PortalShell } from "@/components/admin/PortalShell";
-import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
-import { CustomerPaymentProfile, getCustomerPaymentProfile, getInvoices, saveCustomerPaymentProfile } from "@/lib/storage";
+import { useCustomerBilling } from "@/lib/hooks/useCustomerBilling";
 
-type CustomerInvoice = {
-  id: string;
-  number: string;
-  status: string;
-  total: number;
-  service: string;
-  createdAt: string;
-};
+function money(value: number) {
+  return new Intl.NumberFormat("en-CA", {
+    style: "currency",
+    currency: "CAD",
+  }).format(value);
+}
+
+function statusLabel(status: string) {
+  return status.replaceAll("_", " ");
+}
 
 export default function CustomerPayments() {
-  const [profile, setProfile] = useState<CustomerPaymentProfile | null>(null);
-  const [message, setMessage] = useState("");
-  const [realInvoices, setRealInvoices] = useState<CustomerInvoice[]>([]);
-  const [payingId, setPayingId] = useState("");
-
-  useEffect(() => {
-    setProfile(getCustomerPaymentProfile());
-    void loadRealInvoices();
-  }, []);
-
-  async function loadRealInvoices() {
-    if (!isSupabaseConfigured()) return;
-    try {
-      const supabase = getSupabaseBrowserClient();
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      if (!token) return;
-      const response = await fetch("/api/customer/invoices", { headers: { authorization: `Bearer ${token}` } });
-      const result = await response.json();
-      if (response.ok) setRealInvoices(result.invoices || []);
-    } catch {
-      setRealInvoices([]);
-    }
-  }
-
-  function save(patch: Partial<CustomerPaymentProfile>) {
-    setProfile(saveCustomerPaymentProfile(patch));
-    setMessage("Payment preference saved.");
-  }
-
-  async function checkout(invoiceId: string) {
-    setPayingId(invoiceId);
-    setMessage("Opening secure Stripe Checkout...");
-    try {
-      const supabase = getSupabaseBrowserClient();
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token;
-      if (!token) throw new Error("Sign in before paying.");
-      const response = await fetch("/api/stripe/checkout", {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-        body: JSON.stringify({ invoiceId }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Checkout could not be opened.");
-      window.location.href = result.url;
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Checkout could not be opened.");
-      setPayingId("");
-    }
-  }
-
-  if (!profile) {
-    return <PortalShell type="Customer" active="Payments"><div className="card profile-card">Loading payments...</div></PortalShell>;
-  }
-
-  const localDue = getInvoices().filter((invoice) => invoice.status !== "paid").reduce((sum, invoice) => sum + invoice.total, 0);
-  const due = realInvoices.length
-    ? realInvoices.filter((invoice) => invoice.status !== "paid").reduce((sum, invoice) => sum + invoice.total, 0)
-    : localDue;
+  const {
+    invoices,
+    source,
+    loading,
+    message,
+    payingId,
+    summary,
+    checkout,
+    reload,
+  } = useCustomerBilling();
 
   return (
     <PortalShell type="Customer" active="Payments">
-      <div className="app-top">
+      <div className="billing-hero">
         <div>
-          <span className="eyebrow">Billing setup</span>
+          <span className="eyebrow">Secure billing</span>
           <h1>Payments</h1>
-          <p className="section-intro">Pay approved invoices through secure Stripe Checkout. Card details stay with Stripe.</p>
+          <p>Review every invoice first, then pay through Stripe&apos;s encrypted checkout.</p>
+        </div>
+        <div className="billing-secure-badge">
+          <i>✓</i>
+          <span><strong>Protected checkout</strong><small>Card information stays with Stripe</small></span>
         </div>
       </div>
 
-      <div className="stats">
-        <div className="card dash-card"><div className="mini-label">Verified balance</div><div className="mini-value">${profile.balance.toFixed(2)}</div></div>
-        <div className="card dash-card"><div className="mini-label">Open invoices</div><div className="mini-value">${due.toFixed(2)}</div></div>
-      </div>
-
-      <section className="card profile-card" style={{ marginTop: 20 }}>
-        <h2>Preferred payment source</h2>
-        <div className="payment-grid">
-          <button className={profile.primaryMethod === "stripe" ? "payment-option active" : "payment-option"} onClick={() => save({ primaryMethod: "stripe" })}>
-            <strong>Stripe card / bank</strong>
-            <small>Secure checkout opens for each approved invoice.</small>
-          </button>
-          <button className={profile.primaryMethod === "account_balance" ? "payment-option active" : "payment-option"} onClick={() => save({ primaryMethod: "account_balance" })}>
-            <strong>Account balance</strong>
-            <small>Use verified deposited funds first.</small>
-          </button>
-        </div>
-        <label className="check-card" style={{ marginTop: 16 }}>
-          <input type="checkbox" checked={profile.automaticPayments} onChange={(event) => save({ automaticPayments: event.target.checked })} />
-          Save automatic-payment preference for future recurring services
-        </label>
+      <section className="billing-summary" aria-label="Billing summary">
+        <article className="due">
+          <span>Amount due</span>
+          <strong>{money(summary.due)}</strong>
+          <small>{summary.openCount} open invoice{summary.openCount === 1 ? "" : "s"}</small>
+        </article>
+        <article>
+          <span>Paid invoices</span>
+          <strong>{summary.paidCount}</strong>
+          <small>Confirmed by payment records</small>
+        </article>
+        <article>
+          <span>Payment method</span>
+          <strong>Stripe</strong>
+          <small>Cards and available bank options</small>
+        </article>
       </section>
 
-      {realInvoices.length > 0 && (
-        <section className="card profile-card" style={{ marginTop: 20 }}>
-          <h2>Pending invoices</h2>
-          <div className="customer-pay-invoices">
-            {realInvoices.map((invoice) => (
-              <article key={invoice.id}>
-                <div>
-                  <strong>{invoice.number}</strong>
-                  <span>{invoice.service}</span>
-                  <small>{new Date(invoice.createdAt).toLocaleDateString()} - {invoice.status.replace("_", " ")}</small>
-                </div>
-                <b>${invoice.total.toFixed(2)}</b>
-                {invoice.status === "paid"
-                  ? <span className="status">Paid</span>
-                  : <button className="btn btn-primary" disabled={payingId === invoice.id} onClick={() => void checkout(invoice.id)}>{payingId === invoice.id ? "Opening..." : "Pay with Stripe"}</button>}
-              </article>
-            ))}
+      {message && <div className="billing-message">{message}</div>}
+
+      <section className="billing-panel">
+        <header>
+          <div>
+            <span className="billing-kicker">Invoices</span>
+            <h2>Ready for payment</h2>
+            <p>Only invoices connected to your customer account appear here.</p>
           </div>
-        </section>
-      )}
+          <button className="billing-refresh" type="button" onClick={() => void reload()} disabled={loading}>
+            {loading ? "Loading..." : "Refresh"}
+          </button>
+        </header>
 
-      <section className="card profile-card" style={{ marginTop: 20 }}>
-        <h2>Account balance deposits</h2>
-        <p className="section-intro">Deposits are unavailable until identity checks and the payment provider are connected. The system will never create a test balance on a real account.</p>
-        <button className="btn btn-outline" disabled>Deposits not yet available</button>
+        {loading ? (
+          <div className="billing-empty"><i>…</i><strong>Loading billing</strong><p>Checking your connected invoices.</p></div>
+        ) : invoices.length === 0 ? (
+          <div className="billing-empty"><i>✓</i><strong>No invoices due</strong><p>New approved work will appear here automatically.</p></div>
+        ) : (
+          <div className="billing-invoice-list">
+            {invoices.map((invoice) => {
+              const paid = invoice.status === "paid";
+              return (
+                <article key={invoice.id} className={paid ? "paid" : ""}>
+                  <div className="billing-invoice-icon">{paid ? "✓" : "$"}</div>
+                  <div className="billing-invoice-copy">
+                    <span>{invoice.number}</span>
+                    <strong>{invoice.service}</strong>
+                    <small>{new Date(invoice.createdAt).toLocaleDateString("en-CA")} · {statusLabel(invoice.status)}</small>
+                  </div>
+                  <div className="billing-invoice-total">
+                    <strong>{money(invoice.total)}</strong>
+                    {paid ? (
+                      <span>Paid</span>
+                    ) : (
+                      <button
+                        className="btn btn-primary"
+                        type="button"
+                        disabled={payingId === invoice.id || source !== "live"}
+                        onClick={() => void checkout(invoice.id)}
+                      >
+                        {payingId === invoice.id ? "Opening..." : "Pay securely"}
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
 
-      {message && <div className="payment-message" style={{ marginTop: 16 }}>{message}</div>}
+      <section className="billing-help-strip">
+        <div><i>i</i><span><strong>Need another payment arrangement?</strong><small>Contact the company before the invoice due date.</small></span></div>
+        <Link className="btn btn-outline" href="/customer/requests">Request help</Link>
+      </section>
     </PortalShell>
   );
 }

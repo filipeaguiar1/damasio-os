@@ -1,12 +1,72 @@
 "use client";
-import {useEffect,useState} from "react";
-import {PortalShell}from"@/components/admin/PortalShell";
-import {Invoice,getInvoices} from "@/lib/storage";
-function money(n:number){return `$${n.toFixed(2)}`}
-export default function Invoices(){
-  const[invoices,setInvoices]=useState<Invoice[]>([]);const[msg,setMsg]=useState("");
-  function refresh(){setInvoices(getInvoices())}
-  useEffect(()=>refresh(),[]);
-  function explainPayment(){setMsg("Online payment is temporarily unavailable while secure Stripe confirmation and webhooks are being finalized. No payment was recorded.")}
-  return <PortalShell type="Customer" active="Invoices"><div className="app-top"><div><span className="eyebrow">Billing</span><h1>Invoices</h1><p className="section-intro">Approved quotes appear here automatically before payment.</p></div></div>{msg&&<div className="notice" style={{marginBottom:18}}>{msg}</div>}<section className="card table-card"><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Service</th><th>Total</th><th>Payment</th><th>Action</th></tr></thead><tbody>{invoices.length===0?<tr><td colSpan={5}>No invoices yet.</td></tr>:invoices.map(inv=><tr key={inv.id}><td><strong>{inv.number}</strong><br/><small>{new Date(inv.createdAt).toLocaleDateString()}</small></td><td>{inv.service}</td><td>{money(inv.total)}</td><td><span className="pay-pill">{inv.status.replace("_"," ")}</span>{inv.paymentMethod&&<><br/><small>{inv.paymentMethod}</small></>}</td><td>{inv.status==="paid"?<span className="status">Paid</span>:<button className="btn btn-outline" onClick={explainPayment}>Payment status</button>}</td></tr>)}</tbody></table></div></section></PortalShell>
+
+import Link from "next/link";
+import { PortalShell } from "@/components/admin/PortalShell";
+import { useCustomerBilling } from "@/lib/hooks/useCustomerBilling";
+
+function money(value: number) {
+  return new Intl.NumberFormat("en-CA", {
+    style: "currency",
+    currency: "CAD",
+  }).format(value);
+}
+
+export default function Invoices() {
+  const { invoices, loading, message, summary } = useCustomerBilling();
+
+  return (
+    <PortalShell type="Customer" active="Invoices">
+      <div className="billing-hero invoice-hero">
+        <div>
+          <span className="eyebrow">Billing documents</span>
+          <h1>Invoices</h1>
+          <p>One reliable list for approved work, totals and payment status.</p>
+        </div>
+        <Link className="btn btn-primary" href="/customer/payments">
+          Open payments
+        </Link>
+      </div>
+
+      <section className="billing-summary" aria-label="Invoice summary">
+        <article><span>All invoices</span><strong>{invoices.length}</strong><small>Connected to your account</small></article>
+        <article className="due"><span>Open balance</span><strong>{money(summary.due)}</strong><small>{summary.openCount} awaiting payment</small></article>
+        <article><span>Paid</span><strong>{summary.paidCount}</strong><small>Stripe-confirmed or verified</small></article>
+      </section>
+
+      {message && <div className="billing-message">{message}</div>}
+
+      <section className="billing-panel">
+        <header>
+          <div>
+            <span className="billing-kicker">Documents</span>
+            <h2>Invoice history</h2>
+          </div>
+        </header>
+        {loading ? (
+          <div className="billing-empty"><i>…</i><strong>Loading invoices</strong></div>
+        ) : invoices.length === 0 ? (
+          <div className="billing-empty"><i>≡</i><strong>No invoices yet</strong><p>Approved quotes will create billing records here.</p></div>
+        ) : (
+          <div className="billing-invoice-list">
+            {invoices.map((invoice) => (
+              <article key={invoice.id} className={invoice.status === "paid" ? "paid" : ""}>
+                <div className="billing-invoice-icon">{invoice.status === "paid" ? "✓" : "≡"}</div>
+                <div className="billing-invoice-copy">
+                  <span>{invoice.number}</span>
+                  <strong>{invoice.service}</strong>
+                  <small>{new Date(invoice.createdAt).toLocaleDateString("en-CA")} · {invoice.status.replaceAll("_", " ")}</small>
+                </div>
+                <div className="billing-invoice-total">
+                  <strong>{money(invoice.total)}</strong>
+                  {invoice.status === "paid"
+                    ? <span>Paid</span>
+                    : <Link className="btn btn-primary" href="/customer/payments">Pay invoice</Link>}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </PortalShell>
+  );
 }
