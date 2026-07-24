@@ -21,7 +21,8 @@ Run these in Supabase SQL Editor, in order:
 ## Required Vercel Environment Variables
 
 - `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_WEBHOOK_SECRET` (Your account destination)
+- `STRIPE_CONNECT_WEBHOOK_SECRET` (Connected accounts destination)
 - `NEXT_PUBLIC_SITE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `NEXT_PUBLIC_SUPABASE_URL`
@@ -35,14 +36,19 @@ Configure Stripe webhook URL:
 
 `https://damasio-os-h1mc.vercel.app/api/stripe/webhook`
 
-Minimum events:
+Create two Sandbox webhook destinations pointing to the same URL.
+
+Your account destination (`STRIPE_WEBHOOK_SECRET`):
 
 - `payment_intent.succeeded`
 - `payment_intent.payment_failed`
 - `charge.refunded`
 - `charge.dispute.created`
 - `checkout.session.expired`
-- `account.updated` (listen to events on connected accounts)
+
+Connected accounts destination (`STRIPE_CONNECT_WEBHOOK_SECRET`):
+
+- `account.updated`
 
 ## Flow Now Covered Locally
 
