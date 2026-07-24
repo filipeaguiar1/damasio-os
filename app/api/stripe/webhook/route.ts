@@ -35,20 +35,32 @@ async function claimEvent(db: any, event: Stripe.Event) {
 
   const existing = await db
     .from("stripe_webhook_events")
-    .select("status,attempts")
+    .select("status,attempts,received_at")
     .eq("event_id", event.id)
     .maybeSingle();
   requireDatabaseSuccess(existing.error, "Read webhook event");
-  if (["processed", "processing"].includes(String(existing.data?.status))) return false;
+  if (String(existing.data?.status) === "processed") return false;
+
+  const attempts = Number(existing.data?.attempts || 1);
+  const receivedAt = Date.parse(String(existing.data?.received_at || ""));
+  const isActiveProcessing = String(existing.data?.status) === "processing"
+    && Number.isFinite(receivedAt)
+    && receivedAt > Date.now() - 10 * 60 * 1000;
+  if (isActiveProcessing) return false;
 
   const reclaimed = await db.from("stripe_webhook_events").update({
     status: "processing",
-    attempts: Number(existing.data?.attempts || 1) + 1,
+    attempts: attempts + 1,
     last_error: null,
     received_at: new Date().toISOString()
-  }).eq("event_id", event.id);
+  })
+    .eq("event_id", event.id)
+    .eq("status", String(existing.data?.status || "failed"))
+    .eq("attempts", attempts)
+    .select("event_id")
+    .maybeSingle();
   requireDatabaseSuccess(reclaimed.error, "Reclaim webhook event");
-  return true;
+  return Boolean(reclaimed.data);
 }
 
 async function finishEvent(db: any, eventId: string) {
