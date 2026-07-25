@@ -4,6 +4,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { createOperationQuote, updateOperationQuoteStatus } from "@/lib/repositories/operationsRepository";
 import { readDemoSession } from "@/lib/auth/demoAuth";
 
+// Keep local/demo records aligned with the canonical ownership fields used in production.
 function normalize(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
 }
