@@ -21,6 +21,8 @@ export type CustomerPropertyRecord = {
   accessNotes: string | null;
   propertyNotes: string | null;
   officialPhotoUrl: string | null;
+  acquisitionSource: "platform" | "company_referral" | "company_created";
+  lockedByPlatform: boolean;
   createdAt: string;
 };
 
@@ -67,7 +69,13 @@ type RpcRecord = {
   created_at: string;
 };
 
-function mapRecord(row: RpcRecord): CustomerPropertyRecord {
+type OwnershipRecord = {
+  customer_id: string;
+  acquisition_source: CustomerPropertyRecord["acquisitionSource"];
+  locked_by_platform: boolean;
+};
+
+function mapRecord(row: RpcRecord, ownership?: OwnershipRecord): CustomerPropertyRecord {
   return {
     customerId: row.customer_id,
     propertyId: row.property_id,
@@ -87,15 +95,22 @@ function mapRecord(row: RpcRecord): CustomerPropertyRecord {
     accessNotes: row.access_notes,
     propertyNotes: row.property_notes,
     officialPhotoUrl: row.official_photo_url,
+    acquisitionSource: ownership?.acquisition_source || "company_created",
+    lockedByPlatform: Boolean(ownership?.locked_by_platform),
     createdAt: row.created_at,
   };
 }
 
 export async function listCustomerProperties(): Promise<CustomerPropertyRecord[]> {
   const supabase = getSupabaseBrowserClient();
-  const { data, error } = await supabase.rpc("get_customer_property_directory" as never);
+  const [{ data, error }, ownershipResult] = await Promise.all([
+    supabase.rpc("get_customer_property_directory" as never),
+    supabase.rpc("get_company_customer_ownership" as never),
+  ]);
   if (error) throw new Error(error.message);
-  return ((data || []) as RpcRecord[]).map(mapRecord);
+  if (ownershipResult.error) throw new Error(ownershipResult.error.message);
+  const ownership = new Map(((ownershipResult.data || []) as OwnershipRecord[]).map((row) => [row.customer_id, row]));
+  return ((data || []) as RpcRecord[]).map((row) => mapRecord(row, ownership.get(row.customer_id)));
 }
 
 export async function createCustomerProperty(input: CreateCustomerPropertyInput): Promise<CustomerPropertyRecord> {
@@ -120,7 +135,11 @@ export async function createCustomerProperty(input: CreateCustomerPropertyInput)
   if (error) throw new Error(error.message);
   const first = Array.isArray(data) ? data[0] : data;
   if (!first) throw new Error("Customer was not created.");
-  return mapRecord(first as RpcRecord);
+  return mapRecord(first as RpcRecord, {
+    customer_id: (first as RpcRecord).customer_id,
+    acquisition_source: "company_created",
+    locked_by_platform: false,
+  });
 }
 
 export async function deleteCustomerRecords(customerIds:string[]):Promise<number>{
