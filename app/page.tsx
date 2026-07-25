@@ -6,10 +6,12 @@ import { Services } from "@/components/home/Services";
 import { Membership } from "@/components/home/Membership";
 import { Portals } from "@/components/home/Portals";
 import { FAQ } from "@/components/home/FAQ";
+import { AuthLinkRouter } from "@/components/auth/AuthLinkRouter";
 
 export default function HomePage() {
   return (
     <>
+      <AuthLinkRouter />
       <Header />
       <main>
         <Hero />
