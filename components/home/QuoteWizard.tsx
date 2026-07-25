@@ -47,10 +47,11 @@ export function QuoteWizard() {
     setBusy(true);
     setMsg("Sending your quote request to Admin...");
     try {
+      const propertyDetails = { lawnSize: size, grassHeight, grassHandling, backyard, gated, annual };
       const response = await fetch("/api/public/quote-referral", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...lead, service: serviceLabels[service], referralCode, estimatedTotal: isExtra ? null : quote.total }),
+        body: JSON.stringify({ ...lead, service: serviceLabels[service], referralCode, estimatedTotal: isExtra ? null : quote.total, propertyDetails }),
       });
       const result = await response.json();
       if (!response.ok) {
