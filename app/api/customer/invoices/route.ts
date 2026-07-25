@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await db
       .from("invoices")
-      .select("id,invoice_number,status,total,subtotal,tax,created_at,quote_id,customer_id,property_id,quotes(service_name,quote_number,status)")
+      .select("id,invoice_number,status,total,subtotal,tax,created_at,quote_id,customer_id,property_id,quotes(quote_number,status,notes,request_id,service_requests(service_name))")
       .eq("customer_id", customer.id)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
       linked: customer.profile_id === auth.user.id,
       invoices: (data || []).map((invoice: any) => {
         const quote = Array.isArray(invoice.quotes) ? invoice.quotes[0] : invoice.quotes;
+        const request = Array.isArray(quote?.service_requests) ? quote.service_requests[0] : quote?.service_requests;
         return {
           id: invoice.id,
           number: invoice.invoice_number,
@@ -67,7 +68,7 @@ export async function GET(request: NextRequest) {
           createdAt: invoice.created_at,
           quoteNumber: quote?.quote_number || null,
           quoteStatus: quote?.status || null,
-          service: quote?.service_name || "Approved service",
+          service: request?.service_name || quote?.notes || "Approved service",
         };
       }),
     });
