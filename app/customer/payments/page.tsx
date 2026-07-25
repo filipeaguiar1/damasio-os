@@ -5,10 +5,8 @@ import Link from "next/link";
 import { PortalShell } from "@/components/admin/PortalShell";
 import { useCustomerBilling } from "@/lib/hooks/useCustomerBilling";
 import { useCustomerWallet } from "@/lib/hooks/useCustomerWallet";
-import { useCustomerTips } from "@/lib/hooks/useCustomerTips";
 
 const creditOptions = [5, 10, 20, 50, 100];
-const tipOptions = [5, 10, 20];
 
 function money(value: number) {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(value);
@@ -22,16 +20,12 @@ export default function CustomerPayments() {
   const [selectedCredits, setSelectedCredits] = useState<number[]>([]);
   const [customCredits, setCustomCredits] = useState("");
   const [editingCredits, setEditingCredits] = useState(false);
-  const [tipAmount, setTipAmount] = useState("");
   const billing = useCustomerBilling();
   const wallet = useCustomerWallet();
-  const tips = useCustomerTips();
 
   const customAmount = Number(customCredits);
   const validCustom = Number.isInteger(customAmount) && customAmount >= 5 && customAmount <= 1000;
   const selectedTotal = useMemo(() => selectedCredits.reduce((sum, credits) => sum + credits, 0) + (editingCredits && validCustom ? customAmount : 0), [selectedCredits, editingCredits, validCustom, customAmount]);
-  const selectedTip = Number(tipAmount);
-  const validTip = Number.isFinite(selectedTip) && selectedTip >= 1 && selectedTip <= 500;
 
   function toggleCredits(credits: number) {
     setSelectedCredits((current) => current.includes(credits) ? current.filter((value) => value !== credits) : [...current, credits]);
@@ -42,17 +36,12 @@ export default function CustomerPayments() {
     void wallet.topUp(selectedTotal);
   }
 
-  async function payTipFromWallet() {
-    const balance = await tips.sendWalletTip(selectedTip);
-    if (balance !== null) await wallet.reload();
-  }
-
-  const visibleMessage = billing.message || wallet.message || tips.message;
+  const visibleMessage = billing.message || wallet.message;
 
   return (
     <PortalShell type="Customer" active="Payments">
       <div className="billing-hero">
-        <div><span className="eyebrow">Secure billing</span><h1>Payments</h1><p>Pay invoices, add wallet credits, or send an optional tip by card or balance.</p></div>
+        <div><span className="eyebrow">Secure billing</span><h1>Payments</h1><p>Pay invoices or add wallet credits securely.</p></div>
         <div className="billing-secure-badge"><i>✓</i><span><strong>Protected checkout</strong><small>Card information stays with Stripe</small></span></div>
       </div>
 
@@ -74,12 +63,7 @@ export default function CustomerPayments() {
         {billing.loading ? <div className="billing-empty"><i>…</i><strong>Loading billing</strong><p>Checking your connected invoices.</p></div> : billing.invoices.length === 0 ? <div className="billing-empty"><i>✓</i><strong>No invoices due</strong><p>Approved quotes and new invoices will appear here automatically.</p></div> : <div className="billing-invoice-list">{billing.invoices.map((invoice) => { const paid = invoice.status === "paid"; return <article key={invoice.id} className={paid ? "paid" : ""}><div className="billing-invoice-icon">{paid ? "✓" : "$"}</div><div className="billing-invoice-copy"><span>{invoice.number}</span><strong>{invoice.service}</strong><small>{new Date(invoice.createdAt).toLocaleDateString("en-CA")} · {statusLabel(invoice.status)}</small></div><div className="billing-invoice-total"><strong>{money(invoice.total)}</strong>{paid ? <span>Paid</span> : <button className="btn btn-primary" type="button" disabled={billing.payingId === invoice.id || billing.source !== "live"} onClick={() => void billing.checkout(invoice.id)}>{billing.payingId === invoice.id ? "Opening..." : "Pay by card"}</button>}</div></article>; })}</div>}
       </section>
 
-      <section className="billing-panel">
-        <header><div><span className="billing-kicker">Optional tip</span><h2>Send a tip</h2><p>Choose the amount, then pay with wallet credits or a card.</p></div></header>
-        <div className="billing-invoice-list"><article><div className="billing-invoice-icon">★</div><div className="billing-invoice-copy"><span>Choose tip</span><strong>Thank the service team</strong><small>Wallet payment is immediate. Card payment opens Stripe Checkout.</small></div><div className="billing-invoice-total" style={{ alignItems: "stretch", gap: 10, minWidth: 300 }}><div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>{tipOptions.map((amount) => <button key={amount} className={selectedTip === amount ? "btn btn-primary" : "btn btn-outline"} type="button" onClick={() => setTipAmount(String(amount))}>${amount}</button>)}<input aria-label="Custom tip amount" type="number" min={1} max={500} step="0.01" placeholder="Custom" value={tipAmount} onChange={(event) => setTipAmount(event.target.value)} style={{ width: 120 }} /></div><div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 }}><button className="btn btn-outline" type="button" disabled={tips.payingWallet || !validTip || wallet.balanceCredits < selectedTip} onClick={() => void payTipFromWallet()}>{tips.payingWallet ? "Paying..." : `Use wallet (${wallet.balanceCredits.toFixed(0)} credits)`}</button><button className="btn btn-primary" type="button" disabled={tips.opening || !validTip} onClick={() => void tips.sendTip(selectedTip)}>{tips.opening ? "Opening Stripe..." : "Pay tip by card"}</button></div></div></article></div>
-      </section>
-
-      <section className="billing-help-strip"><div><i>i</i><span><strong>Stripe test mode</strong><small>Use test card 4242 4242 4242 4242, any future expiry date and any CVC.</small></span></div><Link className="btn btn-outline" href="/customer/requests">Request help</Link></section>
+      <section className="billing-help-strip"><div><i>i</i><span><strong>Tips after service</strong><small>An optional tip is offered only with the customer feedback after a completed service.</small></span></div><Link className="btn btn-outline" href="/customer/feedback">Open feedback</Link></section>
     </PortalShell>
   );
 }
