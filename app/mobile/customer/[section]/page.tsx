@@ -29,6 +29,11 @@ function money(value: number) {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(value);
 }
 
+function initials(name?: string | null) {
+  const parts = String(name || "Customer").trim().split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : parts[0]?.slice(0, 2) || "CU").toUpperCase();
+}
+
 export default function MobileCustomerSection() {
   const section = String(useParams().section || "more");
   const page = config[section] || config.more;
@@ -65,6 +70,7 @@ export default function MobileCustomerSection() {
   const validCustom = Number.isInteger(parsedCustom) && parsedCustom >= 5 && parsedCustom <= 1000;
   const depositAmount = editingAmount ? (validCustom ? parsedCustom : 0) : selectedDeposit || 0;
   const visibleMessage = message || billing.message || wallet.message;
+  const customerInitials = initials(board.property?.customerName);
 
   function chooseDeposit(amount: number) {
     setSelectedDeposit(amount);
@@ -110,7 +116,7 @@ export default function MobileCustomerSection() {
         <header className="role-mobile-topbar">
           <MobileBackButton fallback="/mobile/customer" />
           <div><strong>{page.title}</strong><span>{page.subtitle}</span></div>
-          <span className="role-mobile-avatar">{page.icon}</span>
+          <Link href="/mobile/customer/profile" className="role-mobile-avatar role-mobile-profile-avatar" aria-label="Open customer profile">{customerInitials}</Link>
         </header>
 
         <section className={`customer-native-hero ${section}`}>
@@ -147,16 +153,16 @@ export default function MobileCustomerSection() {
           <h2>Add funds</h2>
           <div className="customer-wallet-topups">{[10, 20, 50, 100].map((amount) => { const selected = !editingAmount && selectedDeposit === amount; return <button key={amount} className={selected ? "selected" : ""} disabled={wallet.openingCredits > 0} onClick={() => chooseDeposit(amount)}><strong>{selected ? `✓ $${amount}` : `$${amount}`}</strong><span>CAD</span></button>; })}<button className={editingAmount ? "selected" : ""} disabled={wallet.openingCredits > 0} onClick={chooseCustom}><strong>Custom</strong><span>Choose amount</span></button></div>
           {editingAmount && <div className="customer-wallet-custom"><span>$</span><input aria-label="Custom deposit amount" type="number" min={5} max={1000} step={1} placeholder="Enter amount" value={customAmount} onChange={(event) => setCustomAmount(event.target.value)} />{customAmount && !validCustom && <small>Enter $5–$1,000 CAD</small>}</div>}
-          <div className="customer-wallet-total"><span>Deposit amount</span><strong>{money(depositAmount)}</strong><button disabled={wallet.openingCredits > 0 || depositAmount < 5 || depositAmount > 1000} onClick={addFunds}>{wallet.openingCredits > 0 ? "Opening Stripe..." : "Continue to payment"}</button></div>
+          <div className="customer-wallet-total"><div><span>Deposit amount</span><strong>{money(depositAmount)}</strong></div><button disabled={wallet.openingCredits > 0 || depositAmount < 5 || depositAmount > 1000} onClick={addFunds}>{wallet.openingCredits > 0 ? "Opening Stripe..." : "Continue to payment"}</button></div>
           <p className="customer-wallet-note">Deposited funds stay synchronized across mobile and desktop.</p>
 
-          <h2>Balance history</h2>
-          {wallet.transactions.length ? <><div className="customer-wallet-history-box"><div className="customer-wallet-history">{wallet.transactions.slice(0, 10).map((item) => <article key={item.id}><div><strong>{item.description || item.type}</strong><span>{new Date(item.createdAt).toLocaleDateString("en-CA")}</span></div><b>{item.credits > 0 ? "+" : ""}{money(item.credits)}</b></article>)}</div></div><div className="customer-history-footer"><small>Showing up to 10 transactions</small>{wallet.transactions.length > 10 && <Link href="/mobile/customer/balance-history">Open full history →</Link>}</div></> : <Empty icon="$" title="No balance activity" text="Deposits and account payments will appear here." />}
+          <div className="customer-history-heading"><div><span>ACCOUNT LEDGER</span><h2>Balance history</h2></div><Link href="/mobile/customer/balance-history">View all</Link></div>
+          {wallet.transactions.length ? <><div className="customer-wallet-history-box customer-wallet-history-preview"><div className="customer-wallet-history">{wallet.transactions.slice(0, 10).map((item) => <article key={item.id}><div><strong>{item.description || item.type}</strong><span>{new Date(item.createdAt).toLocaleDateString("en-CA")}</span></div><b>{item.credits > 0 ? "+" : ""}{money(item.credits)}</b></article>)}</div></div><div className="customer-history-footer"><small>{wallet.transactions.length} transaction{wallet.transactions.length === 1 ? "" : "s"} · 10 per page</small><Link href="/mobile/customer/balance-history">Page 1 →</Link></div></> : <Empty icon="$" title="No balance activity" text="Deposits and account payments will appear here." />}
         </section>}
 
         {section === "issues" && <section className="customer-native-list">{board.tasks.map((item) => <article key={item.id}><button onClick={() => setOpen(open === item.id ? "" : item.id)}><i>↺</i><div><strong>{item.title}</strong><span>{item.status} · {niceDate(item.scheduledDate)}</span></div><b>›</b></button>{open === item.id && <div className="customer-row-detail"><p>{item.customerIssue}</p>{item.completionSummary && <span>{item.completionSummary}</span>}</div>}</article>)}{!board.tasks.length && <Empty icon="✓" title="No return visits" text="Your connected follow-up list is clear." />}</section>}
 
-        {section === "profile" && <section className="customer-profile-native"><div className="customer-property-photo">{photoHistory?.profilePhotoUrl ? <img src={photoHistory.profilePhotoUrl} alt="Property" /> : <span>🏠</span>}</div><label>Official property photo<input type="file" accept="image/*" onChange={upload} /></label>{board.property ? <dl><div><dt>Name</dt><dd>{board.property.customerName}</dd></div><div><dt>Address</dt><dd>{board.property.address}</dd></div><div><dt>City</dt><dd>{board.property.city}, {board.property.province}</dd></div><div><dt>Postal code</dt><dd>{board.property.postalCode || "Not set"}</dd></div><div><dt>Lot size</dt><dd>{board.property.lotSize || "Not set"}</dd></div><div><dt>Access notes</dt><dd>{board.property.accessNotes || "No special access note"}</dd></div></dl> : <Empty icon="○" title="Property not connected" text="Your quote information has not been linked to this login yet." />}</section>}
+        {section === "profile" && <section className="customer-profile-native"><div className="customer-property-photo">{photoHistory?.profilePhotoUrl ? <img src={photoHistory.profilePhotoUrl} alt="Property" /> : <span>🏠</span>}</div><label>Official property photo<input type="file" accept="image/*" onChange={upload} /></label>{board.property ? <dl><div><dt>Name</dt><dd>{board.property.customerName}</dd></div><div><dt>Primary address</dt><dd>{board.property.address}</dd></div><div><dt>City</dt><dd>{board.property.city}, {board.property.province}</dd></div><div><dt>Postal code</dt><dd>{board.property.postalCode || "Not set"}</dd></div><div><dt>Lot size</dt><dd>{board.property.lotSize || "Not set"}</dd></div><div><dt>Access notes</dt><dd>{board.property.accessNotes || "No special access note"}</dd></div></dl> : <Empty icon="○" title="Property not connected" text="Your quote information has not been linked to this login yet." />}</section>}
 
         {section === "feedback" && <section className="customer-native-list">{history.map((item) => { const review = board.feedback.find((value) => value.visitId === item.id); return <CustomerRow key={item.id} icon={review ? "✓" : "★"} title={item.serviceName} subtitle={review ? `${review.rating || 0} stars · ${review.comment || "Reviewed"}` : "Waiting for your review"} status={niceDate(item.scheduledDate)} onClick={() => router.push("/mobile/customer")} />; })}{!history.length && <Empty icon="★" title="Nothing to review" text="Completed services will appear here." />}</section>}
 
