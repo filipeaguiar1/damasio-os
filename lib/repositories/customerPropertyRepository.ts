@@ -23,6 +23,7 @@ export type CustomerPropertyRecord = {
   officialPhotoUrl: string | null;
   acquisitionSource: "platform" | "company_referral" | "company_created";
   lockedByPlatform: boolean;
+  offerStatus: string | null;
   createdAt: string;
 };
 
@@ -73,6 +74,7 @@ type OwnershipRecord = {
   customer_id: string;
   acquisition_source: CustomerPropertyRecord["acquisitionSource"];
   locked_by_platform: boolean;
+  offer_status: string | null;
 };
 
 function mapRecord(row: RpcRecord, ownership?: OwnershipRecord): CustomerPropertyRecord {
@@ -97,6 +99,7 @@ function mapRecord(row: RpcRecord, ownership?: OwnershipRecord): CustomerPropert
     officialPhotoUrl: row.official_photo_url,
     acquisitionSource: ownership?.acquisition_source || "company_created",
     lockedByPlatform: Boolean(ownership?.locked_by_platform),
+    offerStatus: ownership?.offer_status || null,
     createdAt: row.created_at,
   };
 }
@@ -113,7 +116,7 @@ export async function listCustomerProperties(): Promise<CustomerPropertyRecord[]
   const ownership = new Map<string, OwnershipRecord>();
   const ownershipResult = await supabase
     .from("customers")
-    .select("id,acquisition_source,platform_managed")
+    .select("id,acquisition_source,platform_managed,offer_status")
     .in("id", ids);
 
   if (!ownershipResult.error) {
@@ -123,11 +126,14 @@ export async function listCustomerProperties(): Promise<CustomerPropertyRecord[]
         customer_id: row.id,
         acquisition_source: source,
         locked_by_platform: row.platform_managed === true || source === "platform",
+        offer_status: row.offer_status || null,
       });
     }
   }
 
-  return rows.map((row) => mapRecord(row, ownership.get(row.customer_id)));
+  return rows
+    .map((row) => mapRecord(row, ownership.get(row.customer_id)))
+    .filter((record) => record.acquisitionSource !== "platform" || record.offerStatus === "accepted");
 }
 
 export async function createCustomerProperty(input: CreateCustomerPropertyInput): Promise<CustomerPropertyRecord> {
@@ -156,6 +162,7 @@ export async function createCustomerProperty(input: CreateCustomerPropertyInput)
     customer_id: (first as RpcRecord).customer_id,
     acquisition_source: "company_created",
     locked_by_platform: false,
+    offer_status: null,
   });
 }
 
