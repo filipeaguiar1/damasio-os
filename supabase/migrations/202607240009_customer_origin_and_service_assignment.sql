@@ -1,5 +1,5 @@
 -- Separate commercial origin from the company currently servicing a customer.
--- A customer is always free to change service companies; origin remains historical.
+-- A referral code records origin only. The Master assigns the servicing company later.
 begin;
 
 alter table public.customers
@@ -22,14 +22,15 @@ alter table public.quotes
   add column if not exists origin_company_id uuid references public.organizations(id) on delete set null,
   add column if not exists referral_code_used text;
 
--- Existing company-linked customers keep their current servicing company.
+-- Existing customers already linked operationally to a company keep that assignment.
 update public.customers
 set service_company_id = coalesce(service_company_id, company_id, organization_id),
     assignment_status = case
       when coalesce(service_company_id, company_id, organization_id) is not null then 'assigned'
       else assignment_status
     end
-where service_company_id is null;
+where service_company_id is null
+  and coalesce(company_id, organization_id) is not null;
 
 create index if not exists customers_assignment_status_idx
   on public.customers(assignment_status, created_at desc);
@@ -40,7 +41,7 @@ create index if not exists customers_service_company_idx
 create index if not exists quotes_origin_company_idx
   on public.quotes(origin_company_id, created_at desc);
 
--- Resolve a referral code at quote creation/update and preserve its historical origin.
+-- Resolve a referral code and preserve commercial origin without assigning service.
 create or replace function public.apply_quote_company_origin()
 returns trigger
 language plpgsql
@@ -74,14 +75,7 @@ begin
     update public.customers
     set acquisition_source = 'company_referral',
         origin_company_id = coalesce(origin_company_id, v_company_id),
-        service_company_id = coalesce(service_company_id, v_company_id),
-        referral_code_used = coalesce(referral_code_used, v_code),
-        assignment_status = case
-          when coalesce(service_company_id, v_company_id) is not null then 'assigned'
-          else assignment_status
-        end,
-        company_id = coalesce(company_id, v_company_id),
-        organization_id = coalesce(organization_id, v_company_id)
+        referral_code_used = coalesce(referral_code_used, v_code)
     where id = new.customer_id;
   end if;
 
@@ -95,7 +89,7 @@ before insert or update of referral_code_used, customer_id
 on public.quotes
 for each row execute function public.apply_quote_company_origin();
 
--- Mark a customer as ready for Master assignment after the first successful payment.
+-- Mark the customer as ready for Master assignment after the first successful payment.
 create or replace function public.mark_customer_ready_after_payment()
 returns trigger
 language plpgsql
@@ -152,7 +146,11 @@ begin
       service_company_id = p_service_company_id,
       company_id = p_service_company_id,
       organization_id = p_service_company_id,
-      assignment_status = case when p_service_company_id is null then 'ready_for_assignment' else 'assigned' end,
+      assignment_status = case
+        when p_service_company_id is null and first_payment_at is null then 'pending_payment'
+        when p_service_company_id is null then 'ready_for_assignment'
+        else 'assigned'
+      end,
       last_transfer_at = now(),
       last_transfer_reason = nullif(trim(coalesce(p_reason, '')), ''),
       previous_company_notified_at = null
