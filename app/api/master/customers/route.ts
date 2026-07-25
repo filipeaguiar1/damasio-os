@@ -46,16 +46,6 @@ function serverClient() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
 }
 
-function userClient(token: string) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) throw new Error("Authenticated Master access is not configured.");
-  return createClient(url, key, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  }) as any;
-}
-
 async function requireMaster(request: NextRequest) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) throw new Error("Sign in as Master.");
@@ -64,7 +54,7 @@ async function requireMaster(request: NextRequest) {
   if (authError || !auth.user) throw new Error("Your login expired. Sign in again.");
   const { data: profile, error } = await client.from("profiles").select("id,role,active").eq("id", auth.user.id).maybeSingle();
   if (error || !profile?.active || profile.role !== "master") throw new Error("Only an active Master can manage customers.");
-  return { client, masterId: auth.user.id, token };
+  return { client, masterId: auth.user.id };
 }
 
 function fail(error: unknown, status = 400) {
@@ -128,7 +118,7 @@ export async function GET(request: NextRequest) {
         ...customer,
         property: propertyByCustomer.get(customer.id) || null,
         originCompanyName: customer.origin_company_id ? names.get(customer.origin_company_id) || "Unknown company" : "Platform",
-        serviceCompanyName: customer.service_company_id ? names.get(customer.service_company_id) || "Unknown company" : "Unassigned",
+        serviceCompanyName: customer.service_company_id ? names.get(customer.service_company_id) || "Unknown company" : "Master hold queue",
         platformManaged: customer.platform_managed === true || customer.acquisition_source === "platform",
       })),
     });
@@ -139,7 +129,7 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { client, masterId, token } = await requireMaster(request);
+    const { client, masterId } = await requireMaster(request);
     const raw = await request.json();
 
     if (raw?.action === "save") {
@@ -150,6 +140,9 @@ export async function PATCH(request: NextRequest) {
         .eq("id", body.customerId)
         .maybeSingle();
       if (customerReadError || !customer) throw new Error(customerReadError?.message || "Customer not found.");
+
+      const ownerId = customer.service_company_id || customer.organization_id || customer.company_id;
+      if (!ownerId) throw new Error("This customer has no platform owner. Assign a company once, then place the customer on hold if needed.");
 
       const customerUpdate = await client.from("customers").update({
         full_name: body.customer.fullName,
@@ -162,8 +155,8 @@ export async function PATCH(request: NextRequest) {
 
       const propertyPayload = {
         customer_id: body.customerId,
-        company_id: customer.service_company_id || customer.company_id || null,
-        organization_id: customer.service_company_id || customer.organization_id || null,
+        company_id: customer.company_id || ownerId,
+        organization_id: customer.organization_id || ownerId,
         address_line1: body.property.addressLine1,
         city: body.property.city,
         province: body.property.province,
@@ -181,8 +174,9 @@ export async function PATCH(request: NextRequest) {
 
       let propertyId = body.property.propertyId;
       if (propertyId) {
-        const propertyUpdate = await client.from("properties").update(propertyPayload).eq("id", propertyId).eq("customer_id", body.customerId);
+        const propertyUpdate = await client.from("properties").update(propertyPayload).eq("id", propertyId).eq("customer_id", body.customerId).select("id").maybeSingle();
         if (propertyUpdate.error) throw new Error(propertyUpdate.error.message);
+        if (!propertyUpdate.data) throw new Error("Property record was not found. Refresh and try again.");
       } else {
         const propertyInsert = await client.from("properties").insert({ ...propertyPayload, created_at: new Date().toISOString() }).select("id").single();
         if (propertyInsert.error) throw new Error(propertyInsert.error.message);
@@ -196,30 +190,65 @@ export async function PATCH(request: NextRequest) {
         entity_id: body.customerId,
         details: { property_id: propertyId },
       });
-      return NextResponse.json({ saved: true, propertyId, message: body.property.propertyId ? "Customer and property updated by Master." : "Customer updated and property record created." });
+      return NextResponse.json({ saved: true, propertyId, message: body.property.propertyId ? "Customer and property saved." : "Customer and property created." });
     }
 
     const body = transferSchema.parse(raw);
-    const scopedClient = userClient(token);
-    const { data, error } = await scopedClient.rpc("master_transfer_customer", {
-      p_customer_id: body.customerId,
-      p_service_company_id: body.serviceCompanyId,
-      p_reason: body.reason || null,
-    });
-    if (error || !data) throw new Error(error?.message || "Customer could not be transferred.");
+    const { data: customer, error: readError } = await client
+      .from("customers")
+      .select("id,company_id,organization_id,service_company_id,first_payment_at,origin_company_id")
+      .eq("id", body.customerId)
+      .maybeSingle();
+    if (readError || !customer) throw new Error(readError?.message || "Customer not found.");
+
+    if (body.serviceCompanyId) {
+      const { data: company, error: companyError } = await client.from("organizations").select("id,active,deleted_at").eq("id", body.serviceCompanyId).maybeSingle();
+      if (companyError || !company?.active || company.deleted_at) throw new Error("Selected company is not active.");
+    }
+
+    const now = new Date().toISOString();
+    const customerPatch: Record<string, unknown> = {
+      previous_service_company_id: customer.service_company_id,
+      service_company_id: body.serviceCompanyId,
+      assignment_status: body.serviceCompanyId ? "assigned" : (customer.first_payment_at ? "ready_for_assignment" : "pending_payment"),
+      last_transfer_at: now,
+      last_transfer_reason: body.reason || null,
+      previous_company_notified_at: null,
+      assigned_by_master_at: now,
+      assigned_by_master_id: masterId,
+      updated_at: now,
+    };
+
+    // Hold means no active service company. Keep the canonical organization/company
+    // owner so NOT NULL tenant constraints and all saved property data remain valid.
+    if (body.serviceCompanyId) {
+      customerPatch.company_id = body.serviceCompanyId;
+      customerPatch.organization_id = body.serviceCompanyId;
+    }
+
+    const { data: updated, error: updateError } = await client.from("customers").update(customerPatch).eq("id", body.customerId).select().single();
+    if (updateError) throw new Error(updateError.message);
+
+    if (body.serviceCompanyId) {
+      const linkedPatch = { company_id: body.serviceCompanyId, organization_id: body.serviceCompanyId, updated_at: now };
+      const propertyUpdate = await client.from("properties").update(linkedPatch).eq("customer_id", body.customerId);
+      if (propertyUpdate.error) throw new Error(propertyUpdate.error.message);
+      await client.from("jobs").update(linkedPatch).eq("customer_id", body.customerId).eq("active", true);
+      await client.from("service_requests").update(linkedPatch).eq("customer_id", body.customerId).not("status", "in", "(completed,cancelled,rejected)");
+    }
 
     await client.from("master_audit_log").insert({
       master_profile_id: masterId,
       company_id: body.serviceCompanyId,
-      action: body.serviceCompanyId ? "customer.service_company_changed" : "customer.returned_to_assignment_queue",
+      action: body.serviceCompanyId ? "customer.service_company_changed" : "customer.placed_on_master_hold",
       entity_type: "customer",
       entity_id: body.customerId,
-      details: { reason: body.reason || null, origin_company_id: data.origin_company_id, previous_service_company_id: data.previous_service_company_id },
+      details: { reason: body.reason || null, origin_company_id: customer.origin_company_id, previous_service_company_id: customer.service_company_id },
     });
 
     return NextResponse.json({
-      customer: data,
-      message: body.serviceCompanyId ? "Customer moved to the selected company. No new code or quote was required." : "Customer returned to the Master assignment queue.",
+      customer: updated,
+      message: body.serviceCompanyId ? "Customer assigned to the selected company." : "Customer placed on Master hold. Saved profile and property data were preserved.",
     });
   } catch (error) {
     return fail(error);
