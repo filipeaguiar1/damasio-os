@@ -24,7 +24,7 @@ async function requireCustomer(request: NextRequest) {
   if (authError || !auth.user) throw new Error("Your session expired. Sign in again.");
   const { data: customer, error } = await client
     .from("customers")
-    .select("id,profile_id,email,full_name,phone")
+    .select("id,profile_id,email,full_name,phone,company_id")
     .or(`profile_id.eq.${auth.user.id},email.ilike.${String(auth.user.email || "").replace(/,/g, "")}`)
     .limit(1)
     .maybeSingle();
@@ -32,18 +32,43 @@ async function requireCustomer(request: NextRequest) {
   return { client, customer, user: auth.user };
 }
 
+async function responseProfile(client: any, customer: any, user: any) {
+  const avatarPath = typeof user.user_metadata?.customer_avatar_path === "string" ? user.user_metadata.customer_avatar_path : "";
+  let avatarUrl: string | null = null;
+  if (avatarPath) {
+    const { data } = await client.storage.from("property-photos").createSignedUrl(avatarPath, 3600);
+    avatarUrl = data?.signedUrl || null;
+  }
+  return {
+    id: customer.id,
+    fullName: customer.full_name || "",
+    phone: customer.phone || "",
+    email: customer.email || user.email || "",
+    avatarUrl,
+  };
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const { client, customer, user } = await requireCustomer(request);
+    return NextResponse.json({ profile: await responseProfile(client, customer, user) });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Customer profile could not be loaded." }, { status: 400 });
+  }
+}
+
 export async function PATCH(request: NextRequest) {
   try {
     const body = schema.parse(await request.json());
-    const { client, customer } = await requireCustomer(request);
+    const { client, customer, user } = await requireCustomer(request);
     const { data, error } = await client
       .from("customers")
       .update({ full_name: body.fullName, phone: body.phone || null, updated_at: new Date().toISOString() })
       .eq("id", customer.id)
-      .select("id,full_name,phone,email")
+      .select("id,full_name,phone,email,company_id")
       .single();
     if (error) throw new Error(error.message);
-    return NextResponse.json({ saved: true, customer: data });
+    return NextResponse.json({ saved: true, profile: await responseProfile(client, data, user) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Customer profile could not be saved." }, { status: 400 });
   }
