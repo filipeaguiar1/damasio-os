@@ -103,6 +103,8 @@ export async function POST(request: NextRequest) {
         company_id: companyId,
         customer_id: customerId,
         address_line1: body.address,
+        city: "Hamilton",
+        province: "ON",
         country: "Canada",
         ...propertyValues(body.propertyDetails),
       };
