@@ -142,16 +142,16 @@ export async function PATCH(request: NextRequest) {
       if (customerReadError || !customer) throw new Error(customerReadError?.message || "Customer not found.");
 
       const ownerId = customer.service_company_id || customer.organization_id || customer.company_id;
-      if (!ownerId) throw new Error("This customer has no platform owner. Assign a company once, then place the customer on hold if needed.");
+      if (!ownerId) throw new Error("This customer has no platform owner. Assign a company once before creating the property.");
 
       const customerUpdate = await client.from("customers").update({
         full_name: body.customer.fullName,
         email: body.customer.email,
         phone: body.customer.phone || null,
         notes: body.customer.notes || null,
-        updated_at: new Date().toISOString(),
-      }).eq("id", body.customerId);
+      }).eq("id", body.customerId).select("id").maybeSingle();
       if (customerUpdate.error) throw new Error(customerUpdate.error.message);
+      if (!customerUpdate.data) throw new Error("Customer record was not found.");
 
       const propertyPayload = {
         customer_id: body.customerId,
@@ -169,7 +169,6 @@ export async function PATCH(request: NextRequest) {
         access_notes: body.property.accessNotes || null,
         property_notes: body.property.propertyNotes || null,
         customer_comment: body.property.customerComment || null,
-        updated_at: new Date().toISOString(),
       };
 
       let propertyId = body.property.propertyId;
@@ -216,11 +215,8 @@ export async function PATCH(request: NextRequest) {
       previous_company_notified_at: null,
       assigned_by_master_at: now,
       assigned_by_master_id: masterId,
-      updated_at: now,
     };
 
-    // Hold means no active service company. Keep the canonical organization/company
-    // owner so NOT NULL tenant constraints and all saved property data remain valid.
     if (body.serviceCompanyId) {
       customerPatch.company_id = body.serviceCompanyId;
       customerPatch.organization_id = body.serviceCompanyId;
@@ -230,7 +226,7 @@ export async function PATCH(request: NextRequest) {
     if (updateError) throw new Error(updateError.message);
 
     if (body.serviceCompanyId) {
-      const linkedPatch = { company_id: body.serviceCompanyId, organization_id: body.serviceCompanyId, updated_at: now };
+      const linkedPatch = { company_id: body.serviceCompanyId, organization_id: body.serviceCompanyId };
       const propertyUpdate = await client.from("properties").update(linkedPatch).eq("customer_id", body.customerId);
       if (propertyUpdate.error) throw new Error(propertyUpdate.error.message);
       await client.from("jobs").update(linkedPatch).eq("customer_id", body.customerId).eq("active", true);
