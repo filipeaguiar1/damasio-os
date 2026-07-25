@@ -1,22 +1,27 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 
 export function MasterCustomersShortcut() {
   const pathname = usePathname();
-  if (pathname === "/master/customers") return null;
+  const [nav, setNav] = useState<HTMLElement | null>(null);
 
-  return (
+  useEffect(() => {
+    const findNav = () => setNav(document.querySelector(".master-sidebar nav"));
+    findNav();
+    const timer = window.setInterval(findNav, 250);
+    return () => window.clearInterval(timer);
+  }, [pathname]);
+
+  if (pathname === "/master/customers" || !nav) return null;
+
+  return createPortal(
     <Link
       href="/master/customers"
-      aria-label="Open Master Customers"
       style={{
-        position: "fixed",
-        left: 18,
-        top: 132,
-        zIndex: 120,
-        width: 220,
         minHeight: 44,
         display: "flex",
         alignItems: "center",
@@ -24,16 +29,13 @@ export function MasterCustomersShortcut() {
         gap: 12,
         padding: "11px 14px",
         borderRadius: 10,
-        border: "1px solid rgba(255,255,255,.18)",
-        background: "#0b5c43",
-        color: "#fff",
+        color: "inherit",
         fontWeight: 800,
         textDecoration: "none",
-        boxShadow: "0 10px 24px rgba(4,61,46,.24)",
       }}
     >
-      <span>Customers</span>
-      <span aria-hidden="true">→</span>
-    </Link>
+      Customers <span aria-hidden="true">›</span>
+    </Link>,
+    nav,
   );
 }
