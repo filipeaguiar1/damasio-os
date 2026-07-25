@@ -38,7 +38,7 @@ export default function MobileCustomerApp() {
     { href: "/mobile/customer/invoices", icon: "≡", label: "Invoices" },
     { href: "/mobile/customer/payments", icon: "$", label: "Payments" },
     { href: "/mobile/customer/feedback", icon: "★", label: "Feedback" },
-    { href: "/mobile/customer/profile", icon: "○", label: "Profile" },
+    { href: "/mobile/customer/profile", icon: "⌂", label: "My Property" },
   ];
 
   return (
@@ -47,7 +47,7 @@ export default function MobileCustomerApp() {
         <header className="role-mobile-topbar">
           <MobileBackButton />
           <div><strong>My home</strong><span>{board.property?.customerName || "Customer portal"}</span></div>
-          <Link href="/mobile/customer/profile" className="role-mobile-avatar role-mobile-profile-avatar" aria-label="Open customer profile">{customerInitials}</Link>
+          <Link href="/mobile/customer/account" className="role-mobile-avatar role-mobile-profile-avatar" aria-label="Open customer profile">{customerInitials}</Link>
         </header>
 
         {error && <p className="mobile-message mobile-error" role="alert">{error}</p>}
@@ -58,7 +58,7 @@ export default function MobileCustomerApp() {
             <div className="role-customer-status"><i>✓</i><span><strong>{nextVisit ? "Service scheduled" : "Property connected"}</strong><small>{nextVisit?.serviceName || "Customer account active"}</small></span></div>
             <p>{board.property.address}, {board.property.city}</p>
             <div className="role-next-visit"><span>Next visit</span><strong>{nextVisit?.scheduledDate || "To be confirmed"}</strong><small>{nextVisit ? `Status · ${nextVisit.status}` : "No visit scheduled"}</small></div>
-          </> : <><h1>Property not connected.</h1><p>Your quote information has not been linked to this login yet.</p><Link className="role-mobile-hero-link" href="/mobile/customer/profile">Check profile <span>→</span></Link></>}
+          </> : <><h1>Property not connected.</h1><p>Your quote information has not been linked to this login yet.</p><Link className="role-mobile-hero-link" href="/mobile/customer/profile">Check property <span>→</span></Link></>}
         </section>
 
         <section className="mobile-stats-card">
