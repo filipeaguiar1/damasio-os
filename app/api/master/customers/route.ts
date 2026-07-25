@@ -36,6 +36,7 @@ const transferSchema = z.object({
   action: z.literal("transfer"),
   customerId: z.string().uuid(),
   serviceCompanyId: z.string().uuid().nullable(),
+  offeredPrice: z.number().min(0).max(100000).nullable().optional(),
   reason: z.string().trim().max(1000).nullable().optional(),
 }).strict();
 
@@ -70,7 +71,7 @@ async function companyMap(client: any) {
 async function customerDetail(client: any, customerId: string) {
   const { data: customer, error } = await client
     .from("customers")
-    .select("id,full_name,email,phone,notes,created_at,profile_id,company_id,organization_id,acquisition_source,origin_company_id,service_company_id,referral_code_used,assignment_status,first_payment_at,last_transfer_at,last_transfer_reason,previous_service_company_id,platform_managed")
+    .select("id,full_name,email,phone,notes,created_at,profile_id,company_id,organization_id,acquisition_source,origin_company_id,service_company_id,referral_code_used,assignment_status,first_payment_at,last_transfer_at,last_transfer_reason,previous_service_company_id,platform_managed,offered_service_price,offer_status,offer_sent_at,offer_responded_at,offer_response_note")
     .eq("id", customerId)
     .maybeSingle();
   if (error || !customer) throw new Error(error?.message || "Customer not found.");
@@ -101,7 +102,7 @@ export async function GET(request: NextRequest) {
     if (customerId) return NextResponse.json(await customerDetail(client, customerId));
 
     const [customersResult, propertiesResult, companies] = await Promise.all([
-      client.from("customers").select("id,full_name,email,phone,created_at,company_id,acquisition_source,origin_company_id,service_company_id,assignment_status,first_payment_at,last_transfer_at,platform_managed").is("archived_at", null).order("full_name"),
+      client.from("customers").select("id,full_name,email,phone,created_at,company_id,acquisition_source,origin_company_id,service_company_id,assignment_status,first_payment_at,last_transfer_at,platform_managed,offered_service_price,offer_status,offer_sent_at,offer_responded_at").is("archived_at", null).order("full_name"),
       client.from("properties").select("id,customer_id,address_line1,city,province,postal_code,official_photo_url,created_at").order("created_at"),
       companyMap(client),
     ]);
@@ -203,13 +204,19 @@ export async function PATCH(request: NextRequest) {
     if (body.serviceCompanyId) {
       const { data: company, error: companyError } = await client.from("organizations").select("id,active,deleted_at").eq("id", body.serviceCompanyId).maybeSingle();
       if (companyError || !company?.active || company.deleted_at) throw new Error("Selected company is not active.");
+      if (body.offeredPrice == null) throw new Error("Enter the service value offered to the company.");
     }
 
     const now = new Date().toISOString();
     const customerPatch: Record<string, unknown> = {
       previous_service_company_id: customer.service_company_id,
       service_company_id: body.serviceCompanyId,
-      assignment_status: body.serviceCompanyId ? "assigned" : (customer.first_payment_at ? "ready_for_assignment" : "pending_payment"),
+      assignment_status: body.serviceCompanyId ? "offered" : (customer.first_payment_at ? "ready_for_assignment" : "pending_payment"),
+      offer_status: body.serviceCompanyId ? "offered" : "cancelled",
+      offered_service_price: body.serviceCompanyId ? body.offeredPrice : null,
+      offer_sent_at: body.serviceCompanyId ? now : null,
+      offer_responded_at: null,
+      offer_response_note: null,
       last_transfer_at: now,
       last_transfer_reason: body.reason || null,
       previous_company_notified_at: null,
@@ -217,34 +224,28 @@ export async function PATCH(request: NextRequest) {
       assigned_by_master_id: masterId,
     };
 
-    if (body.serviceCompanyId) {
-      customerPatch.company_id = body.serviceCompanyId;
-      customerPatch.organization_id = body.serviceCompanyId;
-    }
-
     const { data: updated, error: updateError } = await client.from("customers").update(customerPatch).eq("id", body.customerId).select().single();
     if (updateError) throw new Error(updateError.message);
-
-    if (body.serviceCompanyId) {
-      const linkedPatch = { company_id: body.serviceCompanyId, organization_id: body.serviceCompanyId };
-      const propertyUpdate = await client.from("properties").update(linkedPatch).eq("customer_id", body.customerId);
-      if (propertyUpdate.error) throw new Error(propertyUpdate.error.message);
-      await client.from("jobs").update(linkedPatch).eq("customer_id", body.customerId).eq("active", true);
-      await client.from("service_requests").update(linkedPatch).eq("customer_id", body.customerId).not("status", "in", "(completed,cancelled,rejected)");
-    }
 
     await client.from("master_audit_log").insert({
       master_profile_id: masterId,
       company_id: body.serviceCompanyId,
-      action: body.serviceCompanyId ? "customer.service_company_changed" : "customer.placed_on_master_hold",
+      action: body.serviceCompanyId ? "customer.offer_sent" : "customer.placed_on_master_hold",
       entity_type: "customer",
       entity_id: body.customerId,
-      details: { reason: body.reason || null, origin_company_id: customer.origin_company_id, previous_service_company_id: customer.service_company_id },
+      details: {
+        reason: body.reason || null,
+        offered_service_price: body.offeredPrice ?? null,
+        origin_company_id: customer.origin_company_id,
+        previous_service_company_id: customer.service_company_id,
+      },
     });
 
     return NextResponse.json({
       customer: updated,
-      message: body.serviceCompanyId ? "Customer assigned to the selected company." : "Customer placed on Master hold. Saved profile and property data were preserved.",
+      message: body.serviceCompanyId
+        ? `Offer of $${Number(body.offeredPrice || 0).toFixed(2)} CAD sent to the selected company.`
+        : "Customer placed on Master hold. Saved profile and property data were preserved.",
     });
   } catch (error) {
     return fail(error);
