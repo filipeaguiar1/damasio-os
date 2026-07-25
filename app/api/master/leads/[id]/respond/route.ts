@@ -37,6 +37,53 @@ function quoteNumber(count: number) { return `EST-${new Date().getFullYear()}-${
 function invoiceNumber(count: number) { return `INV-${new Date().getFullYear()}-${String(count + 1).padStart(6, "0")}`; }
 function temporaryPassword() { return `FourSeasons!${Math.random().toString(36).slice(2, 8)}${Math.floor(100 + Math.random() * 900)}`; }
 
+type QuotePropertyDetails = {
+  lawnSize?: "xs" | "small" | "legacy" | "oversize";
+  grassHeight?: "2in" | "3in" | "4in" | "5in";
+  grassHandling?: string;
+  backyard?: boolean;
+  gated?: boolean;
+  annual?: boolean;
+};
+
+function extractPropertyDetails(notes: unknown): QuotePropertyDetails | null {
+  const text = String(notes || "");
+  const marker = "PROPERTY_DETAILS:";
+  const start = text.indexOf(marker);
+  if (start < 0) return null;
+  const jsonStart = start + marker.length;
+  const jsonEnd = text.indexOf(" | ", jsonStart);
+  const raw = text.slice(jsonStart, jsonEnd >= 0 ? jsonEnd : undefined).trim();
+  try {
+    return JSON.parse(raw) as QuotePropertyDetails;
+  } catch {
+    return null;
+  }
+}
+
+function cleanLeadNotes(notes: unknown) {
+  return String(notes || "")
+    .split(" | ")
+    .filter((part) => !part.startsWith("PROPERTY_DETAILS:"))
+    .join(" | ")
+    .trim();
+}
+
+function propertyValues(details: QuotePropertyDetails | null) {
+  if (!details) return {};
+  const propertyNotes = [
+    details.grassHandling ? `Grass handling: ${details.grassHandling.replaceAll("_", " ")}` : null,
+    typeof details.backyard === "boolean" ? `Backyard: ${details.backyard ? "Yes" : "No"}` : null,
+    typeof details.annual === "boolean" ? `Annual plan: ${details.annual ? "Yes" : "No"}` : null,
+  ].filter(Boolean).join(" | ") || null;
+  return {
+    lot_size: details.lawnSize || null,
+    grass_height: details.grassHeight || null,
+    gate: Boolean(details.gated),
+    property_notes: propertyNotes,
+  };
+}
+
 async function findAuthUserByEmail(client: any, email: string) {
   for (let page = 1; page <= 10; page++) {
     const { data, error } = await client.auth.admin.listUsers({ page, perPage: 1000 });
@@ -67,7 +114,9 @@ export async function POST(request: NextRequest, context: { params: { id: string
     const subtotal = Math.round((body.finalTotal / 1.13) * 100) / 100;
     const tax = Math.round((body.finalTotal - subtotal) * 100) / 100;
     const total = Math.round(body.finalTotal * 100) / 100;
-    const notes = [lead.notes, `Master response: ${body.message}`, `Final quoted amount: $${total.toFixed(2)}`].filter(Boolean).join(" | ");
+    const quoteDetails = extractPropertyDetails(lead.notes);
+    const publicNotes = cleanLeadNotes(lead.notes);
+    const notes = [publicNotes, `Master response: ${body.message}`, `Final quoted amount: $${total.toFixed(2)}`].filter(Boolean).join(" | ");
 
     const { data: existingCustomer } = await client.from("customers").select("id,profile_id").eq("company_id", body.companyId).ilike("email", email).maybeSingle();
     let customerId = existingCustomer?.id;
@@ -78,15 +127,29 @@ export async function POST(request: NextRequest, context: { params: { id: string
       customerId = createdCustomer.id;
       profileId = createdCustomer.profile_id || "";
     } else {
-      await client.from("customers").update({ full_name: lead.full_name, phone: lead.phone || null, notes }).eq("id", customerId);
+      const { error } = await client.from("customers").update({ full_name: lead.full_name, phone: lead.phone || null, notes }).eq("id", customerId);
+      if (error) throw new Error(error.message);
     }
 
     const { data: existingProperty } = await client.from("properties").select("id").eq("company_id", body.companyId).eq("customer_id", customerId).eq("address_line1", lead.address || "").maybeSingle();
     let propertyId = existingProperty?.id;
+    const canonicalProperty = {
+      organization_id: body.companyId,
+      company_id: body.companyId,
+      customer_id: customerId,
+      address_line1: lead.address,
+      city: "Hamilton",
+      province: "ON",
+      country: "Canada",
+      ...propertyValues(quoteDetails),
+    };
     if (!propertyId && String(lead.address || "").trim()) {
-      const { data: property, error: propertyError } = await client.from("properties").insert({ organization_id: body.companyId, company_id: body.companyId, customer_id: customerId, address_line1: lead.address, city: "Hamilton", province: "ON", country: "Canada" }).select("id").single();
+      const { data: property, error: propertyError } = await client.from("properties").insert(canonicalProperty).select("id").single();
       if (propertyError) throw new Error(propertyError.message);
       propertyId = property.id;
+    } else if (propertyId) {
+      const { error: propertyError } = await client.from("properties").update(canonicalProperty).eq("id", propertyId);
+      if (propertyError) throw new Error(propertyError.message);
     }
 
     let requestRow = null;
@@ -166,7 +229,8 @@ export async function POST(request: NextRequest, context: { params: { id: string
 
       const { error: profileError } = await client.from("profiles").upsert({ id: profileId, organization_id: body.companyId, company_id: body.companyId, role: "customer", full_name: lead.full_name, email, phone: lead.phone || null, active: true }, { onConflict: "id" });
       if (profileError) throw new Error(profileError.message);
-      await client.from("customers").update({ profile_id: profileId }).eq("id", customerId);
+      const { error: customerLinkError } = await client.from("customers").update({ profile_id: profileId }).eq("id", customerId);
+      if (customerLinkError) throw new Error(customerLinkError.message);
       await client.from("quote_invitations").upsert({ company_id: body.companyId, quote_id: quote.id, email, status: inviteSent ? "sent" : "pending", sent_at: inviteSent ? new Date().toISOString() : null, expires_at: new Date(Date.now() + 14 * 86400000).toISOString() }, { onConflict: "quote_id,email" });
     }
 
@@ -174,7 +238,7 @@ export async function POST(request: NextRequest, context: { params: { id: string
     const leadUpdate = await client.from("lead_center").update(leadPatch).eq("id", leadId);
     if (leadUpdate.error) await client.from("lead_center").update({ assigned_company_id: body.companyId, status: "offered", notes, updated_at: new Date().toISOString() }).eq("id", leadId);
 
-    await client.from("master_audit_log").insert({ master_profile_id: masterId, company_id: body.companyId, action: "lead.response_sent", entity_type: "lead_center", entity_id: leadId, details: { customer_id: customerId, property_id: propertyId, quote_id: quote.id, invoice_id: invoice.id, invite_sent: inviteSent, access_method: accessMethod } });
+    await client.from("master_audit_log").insert({ master_profile_id: masterId, company_id: body.companyId, action: "lead.response_sent", entity_type: "lead_center", entity_id: leadId, details: { customer_id: customerId, property_id: propertyId, quote_id: quote.id, invoice_id: invoice.id, invite_sent: inviteSent, access_method: accessMethod, property_details_saved: Boolean(quoteDetails) } });
 
     const message = accessMethod === "invite"
       ? `Invitation sent to ${email}.`
