@@ -4,6 +4,22 @@ import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
+const propertySchema = z.object({
+  propertyId: z.string().uuid().nullable(),
+  addressLine1: z.string().trim().min(3).max(240),
+  city: z.string().trim().min(2).max(120),
+  province: z.string().trim().min(2).max(80),
+  postalCode: z.string().trim().max(20).nullable().optional(),
+  lotSize: z.string().trim().max(80).nullable().optional(),
+  grassHeight: z.string().trim().max(40).nullable().optional(),
+  gate: z.boolean(),
+  dog: z.boolean(),
+  irrigation: z.boolean(),
+  accessNotes: z.string().trim().max(2000).nullable().optional(),
+  propertyNotes: z.string().trim().max(3000).nullable().optional(),
+  customerComment: z.string().trim().max(1500).nullable().optional(),
+});
+
 const saveSchema = z.object({
   action: z.literal("save"),
   customerId: z.string().uuid(),
@@ -13,21 +29,7 @@ const saveSchema = z.object({
     phone: z.string().trim().max(40).nullable().optional(),
     notes: z.string().trim().max(2000).nullable().optional(),
   }),
-  property: z.object({
-    propertyId: z.string().uuid(),
-    addressLine1: z.string().trim().min(3).max(240),
-    city: z.string().trim().min(2).max(120),
-    province: z.string().trim().min(2).max(80),
-    postalCode: z.string().trim().max(20).nullable().optional(),
-    lotSize: z.string().trim().max(80).nullable().optional(),
-    grassHeight: z.string().trim().max(40).nullable().optional(),
-    gate: z.boolean(),
-    dog: z.boolean(),
-    irrigation: z.boolean(),
-    accessNotes: z.string().trim().max(2000).nullable().optional(),
-    propertyNotes: z.string().trim().max(3000).nullable().optional(),
-    customerComment: z.string().trim().max(1500).nullable().optional(),
-  }),
+  property: propertySchema,
 }).strict();
 
 const transferSchema = z.object({
@@ -44,13 +46,13 @@ function serverClient() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
 }
 
-function authenticatedClient(token: string) {
+function userClient(token: string) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) throw new Error("Authenticated Supabase access is not configured.");
-  return createClient(url, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) throw new Error("Authenticated Master access is not configured.");
+  return createClient(url, key, {
     global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
   }) as any;
 }
 
@@ -62,7 +64,7 @@ async function requireMaster(request: NextRequest) {
   if (authError || !auth.user) throw new Error("Your login expired. Sign in again.");
   const { data: profile, error } = await client.from("profiles").select("id,role,active").eq("id", auth.user.id).maybeSingle();
   if (error || !profile?.active || profile.role !== "master") throw new Error("Only an active Master can manage customers.");
-  return { client, userClient: authenticatedClient(token), masterId: auth.user.id };
+  return { client, masterId: auth.user.id, token };
 }
 
 function fail(error: unknown, status = 400) {
@@ -109,7 +111,7 @@ export async function GET(request: NextRequest) {
     if (customerId) return NextResponse.json(await customerDetail(client, customerId));
 
     const [customersResult, propertiesResult, companies] = await Promise.all([
-      client.from("customers").select("id,full_name,email,phone,created_at,company_id,acquisition_source,origin_company_id,service_company_id,assignment_status,first_payment_at,last_transfer_at,platform_managed").is("archived_at", null).order("created_at", { ascending: false }),
+      client.from("customers").select("id,full_name,email,phone,created_at,company_id,acquisition_source,origin_company_id,service_company_id,assignment_status,first_payment_at,last_transfer_at,platform_managed").is("archived_at", null).order("full_name"),
       client.from("properties").select("id,customer_id,address_line1,city,province,postal_code,official_photo_url,created_at").order("created_at"),
       companyMap(client),
     ]);
@@ -137,11 +139,18 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { client, userClient, masterId } = await requireMaster(request);
+    const { client, masterId, token } = await requireMaster(request);
     const raw = await request.json();
 
     if (raw?.action === "save") {
       const body = saveSchema.parse(raw);
+      const { data: customer, error: customerReadError } = await client
+        .from("customers")
+        .select("id,company_id,organization_id,service_company_id")
+        .eq("id", body.customerId)
+        .maybeSingle();
+      if (customerReadError || !customer) throw new Error(customerReadError?.message || "Customer not found.");
+
       const customerUpdate = await client.from("customers").update({
         full_name: body.customer.fullName,
         email: body.customer.email,
@@ -151,7 +160,10 @@ export async function PATCH(request: NextRequest) {
       }).eq("id", body.customerId);
       if (customerUpdate.error) throw new Error(customerUpdate.error.message);
 
-      const propertyUpdate = await client.from("properties").update({
+      const propertyPayload = {
+        customer_id: body.customerId,
+        company_id: customer.service_company_id || customer.company_id || null,
+        organization_id: customer.service_company_id || customer.organization_id || null,
         address_line1: body.property.addressLine1,
         city: body.property.city,
         province: body.property.province,
@@ -165,21 +177,31 @@ export async function PATCH(request: NextRequest) {
         property_notes: body.property.propertyNotes || null,
         customer_comment: body.property.customerComment || null,
         updated_at: new Date().toISOString(),
-      }).eq("id", body.property.propertyId).eq("customer_id", body.customerId);
-      if (propertyUpdate.error) throw new Error(propertyUpdate.error.message);
+      };
+
+      let propertyId = body.property.propertyId;
+      if (propertyId) {
+        const propertyUpdate = await client.from("properties").update(propertyPayload).eq("id", propertyId).eq("customer_id", body.customerId);
+        if (propertyUpdate.error) throw new Error(propertyUpdate.error.message);
+      } else {
+        const propertyInsert = await client.from("properties").insert({ ...propertyPayload, created_at: new Date().toISOString() }).select("id").single();
+        if (propertyInsert.error) throw new Error(propertyInsert.error.message);
+        propertyId = propertyInsert.data.id;
+      }
 
       await client.from("master_audit_log").insert({
         master_profile_id: masterId,
-        action: "customer.profile_updated",
+        action: body.property.propertyId ? "customer.profile_updated" : "customer.property_created",
         entity_type: "customer",
         entity_id: body.customerId,
-        details: { property_id: body.property.propertyId },
+        details: { property_id: propertyId },
       });
-      return NextResponse.json({ saved: true, message: "Customer and property updated by Master." });
+      return NextResponse.json({ saved: true, propertyId, message: body.property.propertyId ? "Customer and property updated by Master." : "Customer updated and property record created." });
     }
 
     const body = transferSchema.parse(raw);
-    const { data, error } = await userClient.rpc("master_transfer_customer", {
+    const scopedClient = userClient(token);
+    const { data, error } = await scopedClient.rpc("master_transfer_customer", {
       p_customer_id: body.customerId,
       p_service_company_id: body.serviceCompanyId,
       p_reason: body.reason || null,
@@ -197,9 +219,7 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({
       customer: data,
-      message: body.serviceCompanyId
-        ? "Customer moved to the selected company. No new code or quote was required."
-        : "Customer returned to the Master assignment queue.",
+      message: body.serviceCompanyId ? "Customer moved to the selected company. No new code or quote was required." : "Customer returned to the Master assignment queue.",
     });
   } catch (error) {
     return fail(error);
