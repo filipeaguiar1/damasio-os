@@ -1,0 +1,102 @@
+.role-mobile-profile-avatar img,
+.customer-avatar-preview img,
+.mini-user img,
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.customer-avatar-editor {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 22px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid rgba(4,61,46,.1);
+}
+
+.customer-avatar-preview {
+  width: 84px;
+  height: 84px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: linear-gradient(135deg,#07513c,#0b7655);
+  color: #fff;
+  font-size: 24px;
+  font-weight: 900;
+  box-shadow: 0 12px 28px rgba(7,81,60,.2);
+}
+
+.customer-avatar-preview.large { width: 160px; height: 160px; font-size: 38px; }
+.customer-avatar-editor small { display:block; margin:5px 0 12px; color:#667a72; line-height:1.4; }
+.customer-photo-select { display:inline-flex; align-items:center; justify-content:center; min-height:42px; padding:0 16px; border-radius:12px; background:#e8f5ef; color:#07513c; font-weight:800; cursor:pointer; }
+.customer-photo-select input { display:none; }
+.customer-photo-confirm { display:flex; justify-content:flex-end; gap:10px; margin-top:14px; }
+.customer-photo-confirm button { min-height:42px; padding:0 16px; border:1px solid rgba(4,61,46,.14); border-radius:12px; background:#fff; font-weight:800; }
+.customer-photo-confirm button.primary { border-color:#07513c; background:#07513c; color:#fff; }
+
+.customer-property-editor { display:grid; gap:18px; }
+.customer-house-photo-card,
+.customer-property-locked-card,
+.customer-property-comment-card {
+  padding:20px;
+  border:1px solid rgba(4,61,46,.09);
+  border-radius:20px;
+  background:#fff;
+  box-shadow:0 12px 34px rgba(28,54,44,.08);
+}
+
+.customer-house-photo-card { display:grid; grid-template-columns:minmax(260px,1.2fr) minmax(220px,.8fr); gap:20px; align-items:center; }
+.customer-house-photo-frame { aspect-ratio:16/9; overflow:hidden; border-radius:16px; background:#eaf1ed; }
+.customer-house-photo-frame img { width:100%; height:100%; object-fit:cover; display:block; }
+.customer-house-photo-frame > div { width:100%; height:100%; display:grid; place-items:center; align-content:center; gap:6px; padding:20px; text-align:center; color:#60736b; }
+.customer-house-photo-frame i { font-size:34px; font-style:normal; color:#07513c; }
+.customer-house-photo-copy p { color:#667a72; line-height:1.5; }
+.customer-house-photo-card .customer-photo-confirm { grid-column:1/-1; }
+
+.customer-property-locked-card header { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; margin-bottom:16px; }
+.customer-property-locked-card header span { color:#07513c; font-size:11px; font-weight:900; letter-spacing:.13em; }
+.customer-property-locked-card header h2 { margin:4px 0 0; }
+.customer-property-locked-card header b { padding:7px 10px; border-radius:999px; background:#edf2ef; color:#566b62; font-size:11px; }
+.customer-property-locked-card dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.customer-property-locked-card dl div { padding:13px; border-radius:13px; background:#f6f9f7; }
+.customer-property-locked-card dl div.wide { grid-column:1/-1; }
+.customer-property-locked-card dt { color:#6b7c75; font-size:11px; }
+.customer-property-locked-card dd { margin:5px 0 0; font-weight:800; }
+.customer-property-lock-note { margin:14px 0 0; color:#667a72; font-size:12px; }
+
+.customer-property-comment-card label { display:grid; gap:8px; font-weight:800; }
+.customer-property-comment-card textarea,
+.customer-edit-form input {
+  width:100%;
+  padding:13px 14px;
+  border:1px solid rgba(4,61,46,.15);
+  border-radius:12px;
+  background:#fff;
+  color:#16271f;
+  font:inherit;
+}
+.customer-property-comment-card textarea { resize:vertical; min-height:120px; }
+.customer-property-comment-card > div { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px; }
+.customer-property-comment-card button,
+.customer-profile-save { min-height:46px; padding:0 18px; border:0; border-radius:12px; background:#07513c; color:#fff; font-weight:900; }
+.customer-edit-form { display:grid; gap:14px; }
+.customer-edit-form label { display:grid; gap:7px; font-weight:800; }
+.customer-edit-form input:disabled { background:#edf2ef; color:#6c7c75; }
+.customer-account-photo-panel { display:grid; place-items:center; gap:16px; }
+
+@media (max-width:900px) {
+  .customer-house-photo-card { grid-template-columns:1fr; padding:16px; }
+  .customer-house-photo-card .customer-photo-confirm { grid-column:auto; }
+  .customer-property-editor.mobile { margin-top:16px; }
+  .customer-property-locked-card dl { grid-template-columns:1fr 1fr; }
+  .customer-property-locked-card dl div.wide { grid-column:1/-1; }
+  .customer-avatar-editor { grid-template-columns:72px 1fr; }
+  .customer-avatar-preview { width:72px; height:72px; }
+}
