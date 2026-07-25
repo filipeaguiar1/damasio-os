@@ -2,7 +2,7 @@
 
 import { ChangeEvent, useEffect, useState } from "react";
 import { loadCustomerPortal } from "@/lib/services/customerPortalService";
-import { getPropertyPhotoHistory, uploadPropertyProfilePhoto } from "@/lib/services/propertyPhotoService";
+import { getPropertyPhotoHistory } from "@/lib/services/propertyPhotoService";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { CustomerPortalBoard } from "@/lib/repositories/customerPortalRepository";
 
@@ -44,12 +44,14 @@ export function CustomerPropertyEditor({ mobile = false }: { mobile?: boolean })
         setMessage(error instanceof Error ? error.message : "Property could not be loaded.");
       }
     })();
+    return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
   }, []);
 
   function choosePhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) { setMessage("Choose a valid image."); return; }
+    if (file.size > 10 * 1024 * 1024) { setMessage("Image must be smaller than 10 MB."); return; }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPendingFile(file);
     setPreviewUrl(URL.createObjectURL(file));
@@ -57,17 +59,38 @@ export function CustomerPropertyEditor({ mobile = false }: { mobile?: boolean })
     event.target.value = "";
   }
 
+  function cancelPhoto() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setPendingFile(null);
+    setMessage("Photo change cancelled.");
+  }
+
   async function confirmPhoto() {
-    if (!pendingFile || !property?.propertyId) return;
+    if (!pendingFile) {
+      setMessage("Choose a photo before confirming.");
+      return;
+    }
     setBusy(true);
     setMessage("Saving house photo...");
     try {
-      const url = await uploadPropertyProfilePhoto(property.propertyId, pendingFile);
-      setPhotoUrl(url);
+      const token = await accessToken();
+      const form = new FormData();
+      form.append("file", pendingFile, pendingFile.name || "property-photo.jpg");
+      const response = await fetch("/api/customer/property/photo", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+        body: form,
+      });
+      const result = await response.json();
+      if (!response.ok || !result.url) throw new Error(result.error || "House photo could not be saved.");
+      setPhotoUrl(String(result.url));
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
       setPendingFile(null);
       setMessage("House photo updated successfully.");
+      const nextBoard = await loadCustomerPortal({ force: true });
+      setBoard(nextBoard);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "House photo could not be saved.");
     } finally {
@@ -100,13 +123,13 @@ export function CustomerPropertyEditor({ mobile = false }: { mobile?: boolean })
     <section className="customer-house-photo-card">
       <div className="customer-house-photo-frame">{displayPhoto ? <img src={displayPhoto} alt="Front of property" /> : <div><i>⌂</i><strong>No house photo yet</strong><span>Use a clear landscape photo of the front of the house.</span></div>}</div>
       <div className="customer-house-photo-copy"><strong>Front house photo</strong><p>For best results, turn the phone sideways and capture the entire front of the property.</p><label className="customer-photo-select">Choose photo<input type="file" accept="image/*" onChange={choosePhoto} /></label></div>
-      {pendingFile && <div className="customer-photo-confirm"><button type="button" onClick={() => { if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(null); setPendingFile(null); }}>Cancel</button><button type="button" className="primary" disabled={busy} onClick={() => void confirmPhoto()}>{busy ? "Saving..." : "Confirm photo"}</button></div>}
+      {pendingFile && <div className="customer-photo-confirm"><button type="button" disabled={busy} onClick={cancelPhoto}>Cancel</button><button type="button" className="primary" disabled={busy} onClick={confirmPhoto}>{busy ? "Saving..." : "Confirm photo"}</button></div>}
     </section>
 
     <section className="customer-property-locked-card">
       <header><div><span>PRIMARY PROPERTY</span><h2>Property and service details</h2></div><b>Admin controlled</b></header>
       <dl>
-        <div className="wide"><dt>Address</dt><dd>{property ? `${property.address}, ${property.city}, ${property.province} ${property.postalCode || ""}` : "Not connected"}</dd></div>
+        <div className="wide"><dt>Address</dt><dd>{property ? [property.address, property.city, property.province, property.postalCode].filter(Boolean).join(", ") : "Not connected"}</dd></div>
         <div><dt>Lot size</dt><dd>{property?.lotSize || "Not set"}</dd></div>
         <div><dt>Grass height</dt><dd>{property?.grassHeight || "Not set"}</dd></div>
         <div><dt>Gate</dt><dd>{property?.gate ? "Yes" : "No"}</dd></div>
