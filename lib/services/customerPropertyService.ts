@@ -36,6 +36,8 @@ function leadToCustomerPropertyRecord(lead: Lead): CustomerPropertyRecord {
     accessNotes: lead.propertyDetails?.accessNotes || null,
     propertyNotes: [lead.propertyDetails?.adminNotes, lead.propertyDetails?.propertyAlerts].filter(Boolean).join(" | ") || null,
     officialPhotoUrl: lead.propertyPhoto || null,
+    acquisitionSource: "company_created",
+    lockedByPlatform: false,
     createdAt: lead.createdAt,
   };
 }
@@ -100,9 +102,6 @@ export async function addCustomerWithProperty(input: CreateCustomerPropertyInput
 
   const record=await createCustomerProperty(input);
   if(input.serviceName){
-    // The approved quote is the financial source of truth. Its workflow creates
-    // the active job so Customers, Visits, Payments and Employee Dispatch share
-    // the same customer/property/service/value identifiers.
     const board=await createOperationQuote({customerId:record.customerId,propertyId:record.propertyId,serviceName:input.serviceName,subtotal:input.subtotal||0,notes:`Admin-created customer · ${input.frequency||"one_time"}`});
     const quote=board.quotes.find(item=>item.propertyId===record.propertyId&&item.status==="draft");
     if(!quote)throw new Error("Customer and property were saved, but the service quote could not be created.");
