@@ -1,0 +1,248 @@
+/* Canonical profile and property media presentation. */
+
+.role-mobile-profile-avatar,
+.role-mobile-avatar.role-mobile-profile-avatar,
+.employee-profile-trigger,
+.employee-profile-photo,
+.profile-avatar,
+.mini-user > span,
+.customer-avatar-preview {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  aspect-ratio: 1 / 1;
+  overflow: hidden !important;
+  border-radius: 50% !important;
+  background: linear-gradient(135deg, #07513c, #0b7655);
+  color: #fff;
+}
+
+.role-mobile-profile-avatar,
+.role-mobile-avatar.role-mobile-profile-avatar,
+.employee-profile-trigger {
+  width: 42px !important;
+  height: 42px !important;
+  min-width: 42px !important;
+  min-height: 42px !important;
+  max-width: 42px !important;
+  max-height: 42px !important;
+  padding: 0 !important;
+  border: 2px solid #fff !important;
+  box-shadow: 0 8px 20px rgba(5, 70, 51, .22);
+  line-height: 1 !important;
+}
+
+.role-mobile-profile-avatar img,
+.role-mobile-avatar.role-mobile-profile-avatar img,
+.employee-profile-trigger img,
+.employee-profile-photo img,
+.profile-avatar img,
+.mini-user > span img,
+.customer-avatar-preview img {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 100% !important;
+  min-height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  border-radius: 50% !important;
+  object-fit: cover !important;
+  object-position: center center;
+}
+
+.customer-avatar-preview {
+  width: 112px;
+  height: 112px;
+  min-width: 112px;
+  border: 4px solid #fff;
+  box-shadow: 0 16px 34px rgba(5, 70, 51, .18);
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.customer-avatar-editor {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid rgba(4, 61, 46, .1);
+  border-radius: 20px;
+  background: #f7faf8;
+}
+
+.customer-avatar-editor > div:last-child {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.customer-avatar-editor small {
+  color: #687a72;
+  line-height: 1.4;
+}
+
+.customer-photo-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid rgba(4, 61, 46, .14);
+  border-radius: 12px;
+  background: #fff;
+  color: #07513c;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.customer-photo-select input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.customer-photo-confirm {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.customer-photo-confirm button {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid rgba(4, 61, 46, .14);
+  border-radius: 12px;
+  background: #fff;
+  color: #17382c;
+  font-weight: 800;
+}
+
+.customer-photo-confirm button.primary {
+  border-color: #07513c;
+  background: #07513c;
+  color: #fff;
+}
+
+.customer-house-photo-card {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.35fr) minmax(220px, .65fr);
+  gap: 22px;
+  padding: 20px;
+  border: 1px solid rgba(4, 61, 46, .1);
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(24, 56, 44, .08);
+}
+
+.customer-house-photo-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #e7efeb;
+}
+
+.customer-house-photo-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center center;
+}
+
+.customer-house-photo-frame > div {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+  color: #5f736a;
+}
+
+.customer-house-photo-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.customer-house-photo-copy > strong {
+  font-size: 21px;
+  color: #17382c;
+}
+
+.customer-house-photo-copy p {
+  margin: 0;
+  color: #64766f;
+  line-height: 1.5;
+}
+
+.customer-property-locked-card,
+.customer-property-comment-card {
+  margin-top: 18px;
+  padding: 20px;
+  border: 1px solid rgba(4, 61, 46, .1);
+  border-radius: 20px;
+  background: #fff;
+}
+
+@media (max-width: 900px) {
+  .role-mobile-topbar {
+    grid-template-columns: 44px minmax(0, 1fr) 44px !important;
+    align-items: center !important;
+  }
+
+  .role-mobile-profile-avatar,
+  .role-mobile-avatar.role-mobile-profile-avatar,
+  .employee-profile-trigger {
+    position: static !important;
+    inset: auto !important;
+    margin: 0 !important;
+    transform: none !important;
+    align-self: center !important;
+    justify-self: end !important;
+  }
+
+  .customer-avatar-editor {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .customer-avatar-editor > div:last-child {
+    justify-items: center;
+  }
+
+  .customer-house-photo-card {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 16px;
+  }
+
+  .customer-house-photo-copy {
+    align-items: stretch;
+  }
+
+  .customer-photo-select {
+    width: 100%;
+  }
+
+  .customer-photo-confirm {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+
+  .customer-photo-confirm button {
+    width: 100%;
+  }
+}
