@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { MobileBackButton } from "@/components/mobile/MobileBackButton";
 import { MobileCustomerNav } from "@/components/mobile/MobileCustomerNav";
@@ -12,7 +12,7 @@ function money(value: number) {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(value);
 }
 
-export default function CustomerBalanceHistoryPage() {
+function BalanceHistoryContent() {
   const wallet = useCustomerWallet();
   const [page, setPage] = useState(1);
   const pageCount = Math.max(1, Math.ceil(wallet.transactions.length / PAGE_SIZE));
@@ -47,5 +47,13 @@ export default function CustomerBalanceHistoryPage() {
         <MobileCustomerNav active="billing" />
       </main>
     </MobileRoleGuard>
+  );
+}
+
+export default function CustomerBalanceHistoryPage() {
+  return (
+    <Suspense fallback={<main className="mobile-app-shell role-mobile-shell mobile-customer-subpage"><div className="customer-native-empty"><i>…</i><strong>Loading history</strong><p>Preparing your account ledger.</p></div></main>}>
+      <BalanceHistoryContent />
+    </Suspense>
   );
 }
