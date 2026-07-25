@@ -74,7 +74,6 @@ set search_path = public
 as $$
 declare
   v_customer_id uuid;
-  v_company_id uuid;
   v_property_id uuid;
   v_result jsonb;
 begin
@@ -91,12 +90,11 @@ begin
     );
   end if;
 
-  select coalesce(c.service_company_id, c.company_id, c.organization_id), p.id
-  into v_company_id, v_property_id
-  from public.customers c
-  left join public.properties p on p.customer_id = c.id
-  where c.id = v_customer_id
-  order by p.created_at nulls last
+  select p.id
+  into v_property_id
+  from public.properties p
+  where p.customer_id = v_customer_id
+  order by p.created_at
   limit 1;
 
   select jsonb_build_object(
@@ -107,7 +105,7 @@ begin
         'customerName', c.full_name,
         'email', c.email,
         'phone', c.phone,
-        'address', coalesce(p.address_line1, q.customer_address, ''),
+        'address', coalesce(p.address_line1, ''),
         'city', coalesce(p.city, ''),
         'province', coalesce(p.province, ''),
         'postalCode', p.postal_code,
@@ -121,13 +119,6 @@ begin
       )
       from public.customers c
       left join public.properties p on p.id = v_property_id
-      left join lateral (
-        select coalesce(qu.customer_address, '') as customer_address
-        from public.quotes qu
-        where qu.customer_id = c.id
-        order by qu.created_at desc
-        limit 1
-      ) q on true
       where c.id = v_customer_id
     ),
     'visits', coalesce((
@@ -188,8 +179,8 @@ begin
         'id', qu.id,
         'quoteNumber', qu.quote_number,
         'status', qu.status::text,
-        'serviceName', coalesce(qu.service_name, qu.notes, 'Service Quote'),
-        'address', coalesce(p.address_line1, qu.customer_address),
+        'serviceName', coalesce(sr.service_name, qu.notes, 'Service Quote'),
+        'address', p.address_line1,
         'subtotal', qu.subtotal,
         'tax', qu.tax,
         'total', qu.total,
@@ -197,6 +188,7 @@ begin
         'createdAt', qu.created_at
       ) order by qu.created_at desc)
       from public.quotes qu
+      left join public.service_requests sr on sr.id = qu.request_id
       left join public.properties p on p.id = qu.property_id
       where qu.customer_id = v_customer_id
     ), '[]'::jsonb),
