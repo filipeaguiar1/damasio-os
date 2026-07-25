@@ -4,6 +4,15 @@ import { z } from "zod";
 
 export const dynamic = "force-dynamic";
 
+const propertyDetails = z.object({
+  lawnSize: z.enum(["xs", "small", "medium", "large", "legacy", "oversize"]),
+  grassHeight: z.enum(["2in", "3in", "4in", "5in"]),
+  grassHandling: z.enum(["mulched", "bag_green_bin", "bag_leave_property", "no_preference"]),
+  backyard: z.boolean(),
+  gated: z.boolean(),
+  annual: z.boolean(),
+}).strict();
+
 const quoteReferral = z.object({
   name: z.string().trim().min(2).max(120),
   email: z.string().trim().toLowerCase().email().max(254),
@@ -13,7 +22,8 @@ const quoteReferral = z.object({
   notes: z.string().trim().max(1500).optional().default(""),
   referralCode: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{4,12}$/).optional().or(z.literal("")),
   estimatedTotal: z.number().nonnegative().nullable().optional(),
-  website: z.string().max(0).optional() // honeypot: real customers never fill this field
+  propertyDetails: propertyDetails.optional(),
+  website: z.string().max(0).optional()
 }).strict();
 
 export async function POST(request: NextRequest) {
@@ -37,6 +47,15 @@ export async function POST(request: NextRequest) {
       companyId = data.id;
       companyName = data.name;
     }
+
+    const detailsMarker = body.propertyDetails ? `PROPERTY_DETAILS:${JSON.stringify(body.propertyDetails)}` : null;
+    const notes = [
+      body.notes,
+      typeof body.estimatedTotal === "number" ? `Average estimate shown: $${body.estimatedTotal.toFixed(2)}` : null,
+      body.referralCode ? `Company referral code: ${body.referralCode}` : null,
+      detailsMarker,
+    ].filter(Boolean).join(" | ") || null;
+
     const { data, error } = await client.from("lead_center").insert({
       assigned_company_id: companyId,
       full_name: body.name,
@@ -44,7 +63,7 @@ export async function POST(request: NextRequest) {
       phone: body.phone || null,
       address: body.address,
       service_requested: body.service,
-      notes: [body.notes, typeof body.estimatedTotal === "number" ? `Average estimate shown: $${body.estimatedTotal.toFixed(2)}` : null, body.referralCode ? `Company referral code: ${body.referralCode}` : null].filter(Boolean).join(" | ") || null,
+      notes,
       status: companyId ? "offered" : "new"
     }).select("id").single();
     if (error) throw error;
