@@ -1,166 +1,75 @@
 "use client";
 
-import "./task-evidence.css";
-
-import { useMobileRealtime } from "@/lib/mobile/useMobileRealtime";
-import { ChangeEvent,useEffect, useMemo, useRef,useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { DAMASIO_SYNC_EVENT, createCustomerTaskFromService, getLeads, saveFeedback, seedDemoLeads } from "@/lib/storage";
-import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
-import {signOutAccount} from "@/lib/auth/signOut";
-import {MobileBackButton} from "@/components/mobile/MobileBackButton";
-import {MobileCustomerNav} from "@/components/mobile/MobileCustomerNav";
+import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
+import { MobileBackButton } from "@/components/mobile/MobileBackButton";
+import { MobileCustomerNav } from "@/components/mobile/MobileCustomerNav";
+import { signOutAccount } from "@/lib/auth/signOut";
+import { loadCustomerPortal } from "@/lib/services/customerPortalService";
+import type { CustomerPortalBoard } from "@/lib/repositories/customerPortalRepository";
 
-type Sentiment = "like" | "dislike" | null;
+const empty: CustomerPortalBoard = { property: null, visits: [], tasks: [], requests: [], quotes: [], feedback: [] };
 
-export default function MobileCustomerApp(){
-  const [refreshKey,setRefreshKey]=useState(0);
-  const [message,setMessage]=useState("");
-  const [error,setError]=useState("");
-  const [busy,setBusy]=useState(false);
-  const [sentiment,setSentiment]=useState<Sentiment>(null);
-  const [comment,setComment]=useState("");
-  const [createTask,setCreateTask]=useState(false);
-  const [tip,setTip]=useState(0);
-  const [customTip,setCustomTip]=useState("");
-  const [confirming,setConfirming]=useState(false);
-  const [closedVisitId,setClosedVisitId]=useState("");
-  const [evidencePhotos,setEvidencePhotos]=useState<string[]>([]);
-  const evidenceInput=useRef<HTMLInputElement|null>(null);
+export default function MobileCustomerApp() {
+  const [board, setBoard] = useState<CustomerPortalBoard>(empty);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const refresh=()=>setRefreshKey(v=>v+1);
-  useMobileRealtime(refresh);
+  useEffect(() => {
+    void loadCustomerPortal({ force: true })
+      .then(setBoard)
+      .catch(() => setError("Your connected customer information is temporarily unavailable."))
+      .finally(() => setLoading(false));
+  }, []);
 
-  useEffect(()=>{
-    try{seedDemoLeads()}catch{setError("Customer data is temporarily unavailable.")}
-    const on=()=>refresh();
-    window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener);
-    window.addEventListener("storage",on);
-    return()=>{
-      window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);
-      window.removeEventListener("storage",on);
-    };
-  },[]);
-
-  const lead=useMemo(()=>{
-    refreshKey;
-    try{const leads=getLeads();return leads.find(item=>item.status==="completed"&&!item.feedback)||leads[0]||null}catch{return null}
-  },[refreshKey]);
-
-  const finalTip=useMemo(()=>{
-    if(tip>0)return tip;
-    const parsed=Number(customTip);
-    return Number.isFinite(parsed)&&parsed>0?Math.round(parsed*100)/100:0;
-  },[tip,customTip]);
-
-  const feedbackClosed=Boolean(lead&&(lead.feedback||closedVisitId===lead.id));
-
-  function resetForm(){
-    setSentiment(null);
-    setComment("");
-    setCreateTask(false);
-    setTip(0);
-    setCustomTip("");
-    setConfirming(false);
-    setEvidencePhotos([]);
-  }
-  async function addEvidence(e:ChangeEvent<HTMLInputElement>){const files=Array.from(e.target.files||[]).slice(0,Math.max(0,3-evidencePhotos.length));const images=await Promise.all(files.map(file=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||""));reader.onerror=reject;reader.readAsDataURL(file)})));setEvidencePhotos(current=>[...current,...images].slice(0,3));e.target.value=""}
-
-  function prepareSubmit(){
-    setError("");
-    if(!lead||busy)return;
-    if(!sentiment){setError("Choose Like or Dislike before sending.");return;}
-    if(sentiment==="dislike"&&!comment.trim()){setError("Please tell us what happened.");return;}
-    setConfirming(true);
-  }
-
-  function submitFeedback(){
-    if(!lead||!sentiment||busy)return;
-    setBusy(true);
-    setError("");
-    try{
-      saveFeedback(lead.id,{
-        rating:sentiment==="like"?5:1,
-        comment:comment.trim()||"Service approved by customer.",
-        tipAmount:finalTip,
-        tipMethod:"card",
-        recommend:sentiment==="like"?"yes":"no",
-        createdAt:new Date().toISOString()
-      });
-      if(sentiment==="dislike"&&createTask){
-        createCustomerTaskFromService(lead.id,comment.trim(),evidencePhotos);
-      }
-      setClosedVisitId(lead.id);
-      setMessage(createTask?"Feedback sent and Task created for the company Admin.":"Feedback sent. Thank you.");
-      resetForm();
-      refresh();
-    }catch{
-      setError("We could not send your feedback. Please try again.");
-    }finally{
-      setBusy(false);
-    }
-  }
-
-  const modules=[
-    {href:"/mobile/customer/services",icon:"✦",label:"Services"},{href:"/mobile/customer/history",icon:"↶",label:"History"},
-    {href:"/mobile/customer/requests",icon:"＋",label:"Request"},{href:"/mobile/customer/estimates",icon:"▤",label:"Estimates"},
-    {href:"/mobile/customer/invoices",icon:"≡",label:"Invoices"},{href:"/mobile/customer/payments",icon:"$",label:"Payments"},
-    {href:"/mobile/customer/feedback",icon:"★",label:"Feedback"},{href:"/mobile/customer/profile",icon:"○",label:"Profile"},
+  const nextVisit = useMemo(() => board.visits.filter((item) => !["completed", "cancelled"].includes(item.status)).sort((a, b) => String(a.scheduledDate).localeCompare(String(b.scheduledDate)))[0] || null, [board.visits]);
+  const openTasks = board.tasks.filter((item) => !["completed", "resolved"].includes(item.status)).length;
+  const modules = [
+    { href: "/mobile/customer/services", icon: "✦", label: "Services" },
+    { href: "/mobile/customer/history", icon: "↶", label: "History" },
+    { href: "/mobile/customer/requests", icon: "+", label: "Request" },
+    { href: "/mobile/customer/estimates", icon: "▤", label: "Estimates" },
+    { href: "/mobile/customer/invoices", icon: "≡", label: "Invoices" },
+    { href: "/mobile/customer/payments", icon: "$", label: "Payments" },
+    { href: "/mobile/customer/feedback", icon: "★", label: "Feedback" },
+    { href: "/mobile/customer/profile", icon: "○", label: "Profile" },
   ];
 
-  return <MobileRoleGuard allowed={["customer"]}><main className="mobile-app-shell role-mobile-shell role-customer-mobile">
-    <header className="role-mobile-topbar"><MobileBackButton/><div><strong>My home</strong><span>Customer portal</span></div><button type="button" className="role-mobile-avatar" onClick={()=>void signOutAccount("/mobile/login")} aria-label="Sign out">C</button></header>
-    {error&&<p className="mobile-message mobile-error" role="alert">{error}</p>}
-    {!lead?<section className="mobile-empty"><strong>No property found.</strong><p>Customer information will appear here as soon as the account is connected.</p><Link className="mobile-outline" href="/mobile/customer/profile">Check Profile</Link></section>:<>
-      <section className="mobile-hero-card compact role-customer-hero"><span className="role-mobile-eyebrow">YOUR PROPERTY</span><div className="role-customer-status"><i>✓</i><span><strong>{lead.status==="completed"?"Service completed":"Service scheduled"}</strong><small>{lead.service}</small></span></div><p>{lead.address}</p><div className="role-next-visit"><span>Next visit</span><strong>{lead.nextVisitDate||lead.scheduledDate||"To be confirmed"}</strong><small>Status · {lead.status}</small></div></section>
-      <section className="role-mobile-section"><div className="role-mobile-section-head"><div><span>MY ACCOUNT</span><h2>What do you need?</h2></div></div><div className="role-customer-modules">{modules.map(module=><Link href={module.href} key={module.href}><i>{module.icon}</i><span>{module.label}</span></Link>)}</div></section>
-      <section className="mobile-card-list role-feedback-section">
+  return (
+    <MobileRoleGuard allowed={["customer"]}>
+      <main className="mobile-app-shell role-mobile-shell role-customer-mobile">
+        <header className="role-mobile-topbar">
+          <MobileBackButton />
+          <div><strong>My home</strong><span>Customer portal</span></div>
+          <button type="button" className="role-mobile-avatar" onClick={() => void signOutAccount("/mobile/login")} aria-label="Sign out">C</button>
+        </header>
 
-        {!feedbackClosed&&lead.status==="completed"&&<article className="mobile-issue-card mobile-feedback-card">
-          <strong>How did we do today?</strong>
-          <p>Choose one option. A Dislike can be sent as feedback only or turned into a Task.</p>
-          <div className="mobile-sentiment-row">
-            <button type="button" className={sentiment==="like"?"like active":"like"} onClick={()=>{setSentiment("like");setCreateTask(false)}} aria-pressed={sentiment==="like"}><span aria-hidden="true">👍</span><b>Like</b></button>
-            <button type="button" className={sentiment==="dislike"?"dislike active":"dislike"} onClick={()=>setSentiment("dislike")} aria-pressed={sentiment==="dislike"}><span aria-hidden="true">👎</span><b>Dislike</b></button>
-          </div>
+        {error && <p className="mobile-message mobile-error" role="alert">{error}</p>}
 
-          {sentiment&&<>
-            <label className="mobile-field-label" htmlFor="feedback-comment">Comment {sentiment==="dislike"?"(required)":"(optional)"}</label>
-            <textarea id="feedback-comment" className="mobile-textarea" value={comment} onChange={e=>setComment(e.target.value)} placeholder={sentiment==="dislike"?"Tell the company what needs attention.":"Leave a message for the crew."}/>
-          </>}
-
-          {sentiment==="dislike"&&<div className="mobile-task-choice">
-            <button type="button" className={!createTask?"active":""} onClick={()=>setCreateTask(false)}><span>Feedback only</span><small>Notify Admin without opening a Task.</small></button>
-            <button type="button" className={createTask?"task active":"task"} onClick={()=>setCreateTask(true)}><span>Create Task</span><small>Send a red-priority Task directly to Admin.</small></button>
-          </div>}
-          {sentiment==="dislike"&&createTask&&<div className="mobile-task-evidence"><strong>Photo evidence</strong><p>Add a photo showing what was missed. This helps Admin approve the return without unnecessary charges.</p><input ref={evidenceInput} type="file" accept="image/*" capture="environment" multiple hidden onChange={addEvidence}/><button type="button" className="mobile-outline" onClick={()=>evidenceInput.current?.click()} disabled={evidencePhotos.length>=3}>Add photo ({evidencePhotos.length}/3)</button>{evidencePhotos.length>0&&<div>{evidencePhotos.map((photo,index)=><img src={photo} alt={`Issue evidence ${index+1}`} key={index}/>)}</div>}</div>}
-
-          {sentiment==="like"&&<div className="mobile-tip-box">
-            <strong>Tip (optional)</strong>
-            <p>Payment by saved card or balance will be enabled with 4Ever Seasons Pay in the future.</p>
-            <div className="mobile-tip-grid">
-              {[5,10,20].map(value=><button type="button" key={value} className={tip===value?"active":""} onClick={()=>{setTip(value);setCustomTip("")}}>${value}</button>)}
-              <button type="button" className={tip===0&&customTip!==""?"active":""} onClick={()=>setTip(0)}>Custom</button>
-            </div>
-            {tip===0&&<input className="mobile-tip-input" inputMode="decimal" value={customTip} onChange={e=>setCustomTip(e.target.value.replace(/[^0-9.]/g,""))} placeholder="Custom amount" aria-label="Custom tip amount"/>}
-          </div>}
-
-          {sentiment&&<button className={createTask?"mobile-task-submit":"mobile-primary"} disabled={busy} onClick={prepareSubmit}>Send feedback</button>}
-        </article>}
-
-      </section>
-      {message&&<p className="mobile-message" role="status">{message}</p>}
-
-      {confirming&&<div className="mobile-confirm-backdrop" role="presentation" onClick={()=>!busy&&setConfirming(false)}>
-        <section className="mobile-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={e=>e.stopPropagation()}>
-          <span className={sentiment==="like"?"confirm-icon like":"confirm-icon dislike"}>{sentiment==="like"?"👍":"👎"}</span>
-          <h2 id="confirm-title">Confirm feedback</h2>
-          <p>{sentiment==="like"?"You are approving today's service.":createTask?"Your feedback will be sent and a Task will be created for Admin.":"Your feedback will be sent to Admin without creating a Task."}</p>
-          {finalTip>0&&<div className="mobile-confirm-amount"><span>Tip selected</span><strong>${finalTip.toFixed(2)}</strong><small>No charge is processed until 4Ever Seasons Pay is activated.</small></div>}
-          <div className="mobile-action-grid"><button className="mobile-outline" disabled={busy} onClick={()=>setConfirming(false)}>Cancel</button><button className={createTask?"mobile-task-submit":"mobile-primary"} disabled={busy} onClick={submitFeedback}>{busy?"Sending...":"Confirm and send"}</button></div>
+        <section className="mobile-hero-card compact role-customer-hero">
+          <span className="role-mobile-eyebrow">YOUR PROPERTY</span>
+          {loading ? <><h1>Loading your account...</h1><p>Connecting your customer and property records.</p></> : board.property ? <>
+            <div className="role-customer-status"><i>✓</i><span><strong>{nextVisit ? "Service scheduled" : "Property connected"}</strong><small>{nextVisit?.serviceName || "Customer account active"}</small></span></div>
+            <p>{board.property.address}, {board.property.city}</p>
+            <div className="role-next-visit"><span>Next visit</span><strong>{nextVisit?.scheduledDate || "To be confirmed"}</strong><small>{nextVisit ? `Status · ${nextVisit.status}` : "No visit scheduled"}</small></div>
+          </> : <><h1>Property not connected.</h1><p>Your quote information has not been linked to this login yet.</p><Link className="role-mobile-hero-link" href="/mobile/customer/profile">Check profile <span>→</span></Link></>}
         </section>
-      </div>}
-      <MobileCustomerNav active="home"/>
-    </>}
-  </main></MobileRoleGuard>
+
+        <section className="mobile-stats-card">
+          <Link href="/mobile/customer/services"><span>Services</span><strong>{board.visits.length}</strong><small>connected</small></Link>
+          <Link href="/mobile/customer/estimates"><span>Estimates</span><strong>{board.quotes.length}</strong><small>quotes</small></Link>
+          <Link href="/mobile/customer/invoices"><span>Invoices</span><strong>→</strong><small>billing</small></Link>
+          <Link href="/mobile/customer/issues"><span>Tasks</span><strong>{openTasks}</strong><small>follow-up</small></Link>
+        </section>
+
+        <section className="role-mobile-section">
+          <div className="role-mobile-section-head"><div><span>MY ACCOUNT</span><h2>What do you need?</h2></div></div>
+          <div className="role-customer-modules">{modules.map((module) => <Link href={module.href} key={module.href}><i>{module.icon}</i><span>{module.label}</span></Link>)}</div>
+        </section>
+
+        <MobileCustomerNav active="home" />
+      </main>
+    </MobileRoleGuard>
+  );
 }
