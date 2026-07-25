@@ -10,7 +10,7 @@ export function MasterCustomersShortcut() {
   const [nav, setNav] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    const findNav = () => setNav(document.querySelector(".master-sidebar nav"));
+    const findNav = () => setNav(document.querySelector<HTMLElement>(".master-sidebar nav"));
     findNav();
     const timer = window.setInterval(findNav, 250);
     return () => window.clearInterval(timer);
