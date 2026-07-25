@@ -7,6 +7,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 export function useCustomerTips() {
   const searchParams = useSearchParams();
   const [opening, setOpening] = useState(false);
+  const [payingWallet, setPayingWallet] = useState(false);
   const [message, setMessage] = useState("");
 
   const token = useCallback(async () => {
@@ -65,5 +66,31 @@ export function useCustomerTips() {
     }
   }, [token]);
 
-  return { opening, message, sendTip, clearMessage: () => setMessage("") };
+  const sendWalletTip = useCallback(async (amount: number, note = "") => {
+    if (!Number.isFinite(amount) || amount < 1 || amount > 500) {
+      setMessage("Choose a tip between $1 and $500.");
+      return null;
+    }
+    setPayingWallet(true);
+    setMessage("Paying tip from wallet credits...");
+    try {
+      const accessToken = await token();
+      const response = await fetch("/api/stripe/tips/wallet", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ amount, note }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "The tip could not be paid from wallet credits.");
+      setMessage(result.message || "Tip paid successfully from wallet credits.");
+      return Number(result.balanceCredits || 0);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The tip could not be paid from wallet credits.");
+      return null;
+    } finally {
+      setPayingWallet(false);
+    }
+  }, [token]);
+
+  return { opening, payingWallet, message, sendTip, sendWalletTip, clearMessage: () => setMessage("") };
 }
