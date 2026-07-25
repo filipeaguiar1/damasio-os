@@ -22,11 +22,11 @@ export function useCustomerWallet() {
   const [message, setMessage] = useState("");
 
   const token = useCallback(async () => {
-    if (!isSupabaseConfigured()) throw new Error("Wallet credits require a connected customer account.");
+    if (!isSupabaseConfigured()) throw new Error("Account balance requires a connected customer account.");
     const supabase = getSupabaseBrowserClient();
     const { data } = await supabase.auth.getSession();
     const accessToken = data.session?.access_token;
-    if (!accessToken) throw new Error("Sign in before using wallet credits.");
+    if (!accessToken) throw new Error("Sign in before using your account balance.");
     return accessToken;
   }, []);
 
@@ -39,18 +39,18 @@ export function useCustomerWallet() {
         cache: "no-store"
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Wallet could not be loaded.");
+      if (!response.ok) throw new Error(result.error || "Account balance could not be loaded.");
       setBalanceCredits(Number(result.balanceCredits || 0));
       setTransactions(result.transactions || []);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Wallet could not be loaded.");
+      setMessage(error instanceof Error ? error.message : "Account balance could not be loaded.");
     } finally {
       setLoading(false);
     }
   }, [token]);
 
   const confirm = useCallback(async (sessionId: string) => {
-    setMessage("Confirming your wallet credits...");
+    setMessage("Confirming your deposit...");
     try {
       const accessToken = await token();
       const response = await fetch("/api/stripe/wallet/confirm", {
@@ -59,12 +59,12 @@ export function useCustomerWallet() {
         body: JSON.stringify({ sessionId })
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Wallet credits could not be confirmed.");
+      if (!response.ok) throw new Error(result.error || "Deposit could not be confirmed.");
       setBalanceCredits(Number(result.balanceCredits || 0));
-      setMessage(result.credited ? "Credits added successfully." : "This payment was already credited.");
+      setMessage(result.credited ? "Funds added successfully." : "This payment was already added to your balance.");
       await load();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Wallet credits could not be confirmed.");
+      setMessage(error instanceof Error ? error.message : "Deposit could not be confirmed.");
     }
   }, [load, token]);
 
@@ -73,16 +73,16 @@ export function useCustomerWallet() {
   useEffect(() => {
     const sessionId = searchParams.get("session_id");
     if (searchParams.get("wallet_topup") === "success" && sessionId) void confirm(sessionId);
-    if (searchParams.get("wallet_topup") === "cancelled") setMessage("Wallet top-up was cancelled. No charge was made.");
+    if (searchParams.get("wallet_topup") === "cancelled") setMessage("Deposit was cancelled. No charge was made.");
   }, [confirm, searchParams]);
 
-  const topUp = useCallback(async (credits: number) => {
-    if (!Number.isInteger(credits) || credits < 5 || credits > 1000) {
-      setMessage("Choose a whole credit total between 5 and 1000.");
+  const topUp = useCallback(async (amount: number) => {
+    if (!Number.isInteger(amount) || amount < 5 || amount > 1000) {
+      setMessage("Choose a whole amount between $5 and $1,000 CAD.");
       return;
     }
 
-    setOpeningCredits(credits);
+    setOpeningCredits(amount);
     setMessage("Opening secure Stripe Checkout...");
     try {
       const accessToken = await token();
@@ -92,14 +92,14 @@ export function useCustomerWallet() {
       const response = await fetch("/api/stripe/wallet", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ credits, returnPath })
+        body: JSON.stringify({ credits: amount, returnPath })
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Wallet checkout could not be opened.");
+      if (!response.ok) throw new Error(result.error || "Deposit checkout could not be opened.");
       if (!result.url) throw new Error("Stripe did not return a checkout link.");
       window.location.assign(result.url);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Wallet checkout could not be opened.");
+      setMessage(error instanceof Error ? error.message : "Deposit checkout could not be opened.");
       setOpeningCredits(0);
     }
   }, [token]);
