@@ -48,54 +48,11 @@ export default function Customers(){
 
   return <AdminShell active="Customers">
     <div className="app-top">
-      <div>
-        <span className="eyebrow">V42.8.1 Practical Filters</span>
-        <h1>Customers</h1>
-        <p className="section-intro">Quick filters now focus on route decisions: city, lawn size, grass height, access and missing contact info.</p>
-      </div>
-      <div className="toolbar-inline">
-        <input className="input" placeholder="Search customer, city, lawn..." value={query} onChange={e=>setQuery(e.target.value)} />
-        <CompactFilter label="Useful filters"><label><input type="radio" checked={filter==="all"} onChange={()=>setFilter("all")}/> All</label><label><input type="radio" checked={filter==="big-lawn"} onChange={()=>setFilter("big-lawn")}/> Big lawns</label><label><input type="radio" checked={filter==="high-grass"} onChange={()=>setFilter("high-grass")}/> High grass</label><label><input type="radio" checked={filter==="access"} onChange={()=>setFilter("access")}/> Gate / dog / access</label><label><input type="radio" checked={filter==="missing-phone"} onChange={()=>setFilter("missing-phone")}/> Missing phone</label><label><input type="radio" checked={filter==="missing-email"} onChange={()=>setFilter("missing-email")}/> Missing email</label><label><input type="radio" checked={filter==="with-notes"} onChange={()=>setFilter("with-notes")}/> Has notes</label><hr/><label>City<select className="input" value={city} onChange={e=>setCity(e.target.value)}><option value="all">All cities</option>{cities.map(c=><option key={c} value={c}>{c}</option>)}</select></label><label>Order<select className="input" value={sort} onChange={e=>setSort(e.target.value)}><option value="city">City / address</option><option value="lawn">Lawn size</option><option value="grass">Grass height</option></select></label></CompactFilter>
-        <Link className="btn btn-primary" href="/admin/add-client">＋ Add Customer</Link>
-        <button className="btn btn-danger" disabled={busy||selected.length===0} onClick={()=>void remove(selected,`${selected.length} selected customer(s)`)}>Delete Selected ({selected.length})</button>
-        <button className="btn btn-primary" onClick={refresh}>Refresh</button>
-      </div>
+      <div><span className="eyebrow">V42.8.1 Practical Filters</span><h1>Customers</h1><p className="section-intro">Quick filters now focus on route decisions: city, lawn size, grass height, access and missing contact info.</p></div>
+      <div className="toolbar-inline"><input className="input" placeholder="Search customer, city, lawn..." value={query} onChange={e=>setQuery(e.target.value)} /><CompactFilter label="Useful filters"><label><input type="radio" checked={filter==="all"} onChange={()=>setFilter("all")}/> All</label><label><input type="radio" checked={filter==="big-lawn"} onChange={()=>setFilter("big-lawn")}/> Big lawns</label><label><input type="radio" checked={filter==="high-grass"} onChange={()=>setFilter("high-grass")}/> High grass</label><label><input type="radio" checked={filter==="access"} onChange={()=>setFilter("access")}/> Gate / dog / access</label><label><input type="radio" checked={filter==="missing-phone"} onChange={()=>setFilter("missing-phone")}/> Missing phone</label><label><input type="radio" checked={filter==="missing-email"} onChange={()=>setFilter("missing-email")}/> Missing email</label><label><input type="radio" checked={filter==="with-notes"} onChange={()=>setFilter("with-notes")}/> Has notes</label><hr/><label>City<select className="input" value={city} onChange={e=>setCity(e.target.value)}><option value="all">All cities</option>{cities.map(c=><option key={c} value={c}>{c}</option>)}</select></label><label>Order<select className="input" value={sort} onChange={e=>setSort(e.target.value)}><option value="city">City / address</option><option value="lawn">Lawn size</option><option value="grass">Grass height</option></select></label></CompactFilter><Link className="btn btn-primary" href="/admin/add-client">＋ Add Customer</Link><button className="btn btn-danger" disabled={busy||selected.length===0} onClick={()=>void remove(selected,`${selected.length} selected customer(s)`)}>Delete Selected ({selected.length})</button><button className="btn btn-primary" onClick={refresh}>Refresh</button></div>
     </div>
-
-    <div className="stats v19-stats">
-      <div className="card dash-card"><div className="mini-label">Today's homes</div><div className="mini-value">{today.completed}/{today.homes}</div><small>{Math.max(0,today.homes-today.completed)} remaining</small></div>
-      <div className="card dash-card"><div className="mini-label">Today's tasks</div><div className="mini-value">{today.tasksCompleted}/{today.tasks}</div><small>{Math.max(0,today.tasks-today.tasksCompleted)} remaining</small></div>
-      <div className="card dash-card"><div className="mini-label">Visible</div><div className="mini-value">{visible.length}</div></div>
-      <div className="card dash-card"><div className="mini-label">Cities</div><div className="mini-value">{Object.keys(grouped).length}</div></div>
-      <div className="card dash-card"><div className="mini-label">Total Synced</div><div className="mini-value">{records.length}</div></div>
-    </div>
-
-    {error && <div className="payment-message" style={{marginBottom:16}}>Using local operational sync. Supabase note: {error}</div>}
-    {message&&<div className="payment-message" style={{marginBottom:16}}>{message}</div>}
-
-    <section className="card table-card">
-      <div className="table-head"><div><h2>Customer Directory</h2><p className="section-intro">Grouped by city to reduce search time.</p></div><span className="sync-note">{filter} · {city} · {sort}</span></div>
-      <div className="table-wrap">
-        <table>
-          <thead><tr><th><input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} aria-label="Select all visible customers"/></th><th>Customer</th><th>Property</th><th>Contact</th><th>Lawn</th><th>Access</th><th>Actions</th></tr></thead>
-          <tbody>
-            {loading && <tr><td colSpan={7}>Loading synced records...</td></tr>}
-            {!loading && visible.length===0 && <tr><td colSpan={7}>No customers match this filter.</td></tr>}
-            {!loading && Object.entries(grouped).map(([group,rows])=><Fragment key={group}>
-              <tr key={group}><td colSpan={7}><strong>{group}</strong> · {rows.length} customer(s)</td></tr>
-              {rows.map(r=><tr key={r.propertyId}>
-                <td><input type="checkbox" checked={selected.includes(r.customerId)} onChange={()=>toggle(r.customerId)} aria-label={`Select ${r.fullName}`}/></td>
-                <td><div className="customer-directory-person"><div>{r.officialPhotoUrl?<img src={r.officialPhotoUrl} alt={r.fullName}/>:<span>⌂</span>}</div><p><strong>{r.fullName}</strong><small>{r.customerNotes || "No customer notes"}</small></p></div></td>
-                <td>{r.addressLine1}, {r.city}<br/><small>{r.province} {r.postalCode || ""}</small></td>
-                <td>{r.phone || "—"}<br/><small>{r.email || "—"}</small></td>
-                <td>{r.lotSize || "—"}<br/><small>{r.grassHeight || "—"}</small></td>
-                <td>{r.accessNotes || "—"}<br/><small>{r.gate ? "Gate" : "No gate"}{r.dog ? " · Dog" : ""}</small></td>
-                <td><div className="row"><Link className="btn btn-small btn-outline" href={`/admin/customers/${r.propertyId}?tab=property`}>Open</Link><button className="btn btn-small btn-danger" disabled={busy} onClick={()=>void remove([r.customerId],r.fullName)}>Delete</button></div></td>
-              </tr>)}
-            </Fragment>)}
-          </tbody>
-        </table>
-      </div>
-    </section>
+    <div className="stats v19-stats"><div className="card dash-card"><div className="mini-label">Today's homes</div><div className="mini-value">{today.completed}/{today.homes}</div><small>{Math.max(0,today.homes-today.completed)} remaining</small></div><div className="card dash-card"><div className="mini-label">Today's tasks</div><div className="mini-value">{today.tasksCompleted}/{today.tasks}</div><small>{Math.max(0,today.tasks-today.tasksCompleted)} remaining</small></div><div className="card dash-card"><div className="mini-label">Visible</div><div className="mini-value">{visible.length}</div></div><div className="card dash-card"><div className="mini-label">Cities</div><div className="mini-value">{Object.keys(grouped).length}</div></div><div className="card dash-card"><div className="mini-label">Total Synced</div><div className="mini-value">{records.length}</div></div></div>
+    {error && <div className="payment-message" style={{marginBottom:16}}>Using local operational sync. Supabase note: {error}</div>}{message&&<div className="payment-message" style={{marginBottom:16}}>{message}</div>}
+    <section className="card table-card"><div className="table-head"><div><h2>Customer Directory</h2><p className="section-intro">Grouped by city to reduce search time.</p></div><span className="sync-note">{filter} · {city} · {sort}</span></div><div className="table-wrap"><table><thead><tr><th><input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} aria-label="Select all visible customers"/></th><th>Customer</th><th>Property</th><th>Contact</th><th>Lawn</th><th>Access</th><th>Actions</th></tr></thead><tbody>{loading && <tr><td colSpan={7}>Loading synced records...</td></tr>}{!loading && visible.length===0 && <tr><td colSpan={7}>No customers match this filter.</td></tr>}{!loading && Object.entries(grouped).map(([group,rows])=><Fragment key={group}><tr key={group}><td colSpan={7}><strong>{group}</strong> · {rows.length} customer(s)</td></tr>{rows.map(r=><tr key={r.propertyId}><td><input type="checkbox" checked={selected.includes(r.customerId)} onChange={()=>toggle(r.customerId)} aria-label={`Select ${r.fullName}`}/></td><td><div className="customer-directory-person"><div>{r.officialPhotoUrl?<img src={r.officialPhotoUrl} alt={r.fullName}/>:<span>⌂</span>}</div><p><strong>{r.fullName}</strong><small>{r.customerNotes || "No customer notes"}</small></p></div></td><td>{r.addressLine1}, {r.city}<br/><small>{r.province} {r.postalCode || ""}</small></td><td>{r.phone || "—"}<br/><small>{r.email || "—"}</small></td><td>{r.lotSize || "—"}<br/><small>{r.grassHeight || "—"}</small></td><td>{r.accessNotes || "—"}<br/><small>{r.gate ? "Gate" : "No gate"}{r.dog ? " · Dog" : ""}</small></td><td><div className="row"><Link className="btn btn-small btn-primary" href={`/admin/customers/${r.propertyId}/edit`}>Edit</Link><Link className="btn btn-small btn-outline" href={`/admin/customers/${r.propertyId}?tab=property`}>History</Link><button className="btn btn-small btn-danger" disabled={busy} onClick={()=>void remove([r.customerId],r.fullName)}>Delete</button></div></td></tr>)}</Fragment>)}</tbody></table></div></section>
   </AdminShell>
 }
