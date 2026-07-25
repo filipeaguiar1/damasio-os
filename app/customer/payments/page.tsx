@@ -30,6 +30,8 @@ export default function CustomerPayments() {
   const customAmount = Number(customCredits);
   const validCustom = Number.isInteger(customAmount) && customAmount >= 5 && customAmount <= 1000;
   const selectedTotal = useMemo(() => selectedCredits.reduce((sum, credits) => sum + credits, 0) + (editingCredits && validCustom ? customAmount : 0), [selectedCredits, editingCredits, validCustom, customAmount]);
+  const selectedTip = Number(tipAmount);
+  const validTip = Number.isFinite(selectedTip) && selectedTip >= 1 && selectedTip <= 500;
 
   function toggleCredits(credits: number) {
     setSelectedCredits((current) => current.includes(credits) ? current.filter((value) => value !== credits) : [...current, credits]);
@@ -40,19 +42,24 @@ export default function CustomerPayments() {
     void wallet.topUp(selectedTotal);
   }
 
+  async function payTipFromWallet() {
+    const balance = await tips.sendWalletTip(selectedTip);
+    if (balance !== null) await wallet.reload();
+  }
+
   const visibleMessage = billing.message || wallet.message || tips.message;
 
   return (
     <PortalShell type="Customer" active="Payments">
       <div className="billing-hero">
-        <div><span className="eyebrow">Secure billing</span><h1>Payments</h1><p>Pay invoices, add wallet credits, or send an optional tip through Stripe.</p></div>
+        <div><span className="eyebrow">Secure billing</span><h1>Payments</h1><p>Pay invoices, add wallet credits, or send an optional tip by card or balance.</p></div>
         <div className="billing-secure-badge"><i>✓</i><span><strong>Protected checkout</strong><small>Card information stays with Stripe</small></span></div>
       </div>
 
       <section className="billing-summary" aria-label="Billing summary">
         <article className="due"><span>Wallet credits</span><strong>{wallet.loading ? "…" : wallet.balanceCredits.toFixed(0)}</strong><small>1 credit = $1 CAD</small></article>
         <article><span>Amount due</span><strong>{money(billing.summary.due)}</strong><small>{billing.summary.openCount} open invoice{billing.summary.openCount === 1 ? "" : "s"}</small></article>
-        <article><span>Payment method</span><strong>Stripe</strong><small>Card checkout available in test mode</small></article>
+        <article><span>Payment method</span><strong>Stripe + Wallet</strong><small>Pay by card or available credits</small></article>
       </section>
 
       {visibleMessage && <div className="billing-message">{visibleMessage}</div>}
@@ -68,8 +75,8 @@ export default function CustomerPayments() {
       </section>
 
       <section className="billing-panel">
-        <header><div><span className="billing-kicker">Optional tip</span><h2>Send a tip by card</h2><p>Tips are separate from invoice payments and wallet credits.</p></div></header>
-        <div className="billing-invoice-list"><article><div className="billing-invoice-icon">★</div><div className="billing-invoice-copy"><span>Choose tip</span><strong>Thank the service team</strong><small>Use a quick amount or enter a custom tip from $1 to $500.</small></div><div className="billing-invoice-total" style={{ alignItems: "stretch", gap: 10, minWidth: 300 }}><div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>{tipOptions.map((amount) => <button key={amount} className={Number(tipAmount) === amount ? "btn btn-primary" : "btn btn-outline"} type="button" onClick={() => setTipAmount(String(amount))}>${amount}</button>)}<input aria-label="Custom tip amount" type="number" min={1} max={500} step="0.01" placeholder="Custom" value={tipAmount} onChange={(event) => setTipAmount(event.target.value)} style={{ width: 120 }} /></div><button className="btn btn-primary" type="button" disabled={tips.opening || Number(tipAmount) < 1 || Number(tipAmount) > 500} onClick={() => void tips.sendTip(Number(tipAmount))}>{tips.opening ? "Opening Stripe..." : "Pay tip by card"}</button></div></article></div>
+        <header><div><span className="billing-kicker">Optional tip</span><h2>Send a tip</h2><p>Choose the amount, then pay with wallet credits or a card.</p></div></header>
+        <div className="billing-invoice-list"><article><div className="billing-invoice-icon">★</div><div className="billing-invoice-copy"><span>Choose tip</span><strong>Thank the service team</strong><small>Wallet payment is immediate. Card payment opens Stripe Checkout.</small></div><div className="billing-invoice-total" style={{ alignItems: "stretch", gap: 10, minWidth: 300 }}><div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end" }}>{tipOptions.map((amount) => <button key={amount} className={selectedTip === amount ? "btn btn-primary" : "btn btn-outline"} type="button" onClick={() => setTipAmount(String(amount))}>${amount}</button>)}<input aria-label="Custom tip amount" type="number" min={1} max={500} step="0.01" placeholder="Custom" value={tipAmount} onChange={(event) => setTipAmount(event.target.value)} style={{ width: 120 }} /></div><div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 }}><button className="btn btn-outline" type="button" disabled={tips.payingWallet || !validTip || wallet.balanceCredits < selectedTip} onClick={() => void payTipFromWallet()}>{tips.payingWallet ? "Paying..." : `Use wallet (${wallet.balanceCredits.toFixed(0)} credits)`}</button><button className="btn btn-primary" type="button" disabled={tips.opening || !validTip} onClick={() => void tips.sendTip(selectedTip)}>{tips.opening ? "Opening Stripe..." : "Pay tip by card"}</button></div></div></article></div>
       </section>
 
       <section className="billing-help-strip"><div><i>i</i><span><strong>Stripe test mode</strong><small>Use test card 4242 4242 4242 4242, any future expiry date and any CVC.</small></span></div><Link className="btn btn-outline" href="/customer/requests">Request help</Link></section>
