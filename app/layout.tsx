@@ -3,6 +3,7 @@ import "./globals.css";
 import "./role-portal-alignment.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 import {AdminAccessFallback} from "@/components/master/AdminAccessFallback";
+import {CustomerLegacyDataGuard} from "@/components/customer/CustomerLegacyDataGuard";
 
 export const metadata: Metadata = {
   title: "4Ever Seasons | Premium Property Care",
@@ -18,5 +19,5 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="en" data-season="summer"><body><SeasonThemeProvider>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
+  return <html lang="en" data-season="summer"><body><SeasonThemeProvider><CustomerLegacyDataGuard/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
 }
