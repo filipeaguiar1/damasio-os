@@ -20,6 +20,13 @@ type CustomerRow = {
 };
 type Detail = { customer: any; properties: any[]; quotes: any[]; invoices: any[]; payments: any[]; companies: Company[] };
 
+type ServicePlan = {
+  serviceType: string;
+  frequency: string;
+  seasonStatus: string;
+  operationalNotes: string;
+};
+
 const blankProperty = {
   id: "",
   address_line1: "",
@@ -35,6 +42,27 @@ const blankProperty = {
   property_notes: "",
   customer_comment: "",
 };
+
+function parseServicePlan(value?: string | null): ServicePlan {
+  const text = String(value || "");
+  const read = (label: string) => text.match(new RegExp(`^${label}:\\s*(.*)$`, "mi"))?.[1]?.trim() || "";
+  const structured = /^(Service type|Frequency|Season status):/mi.test(text);
+  return {
+    serviceType: read("Service type"),
+    frequency: read("Frequency"),
+    seasonStatus: read("Season status"),
+    operationalNotes: structured ? read("Operational notes") : text,
+  };
+}
+
+function composeServicePlan(plan: ServicePlan) {
+  return [
+    `Service type: ${plan.serviceType || "Not set"}`,
+    `Frequency: ${plan.frequency || "Not set"}`,
+    `Season status: ${plan.seasonStatus || "Not set"}`,
+    `Operational notes: ${plan.operationalNotes || "None"}`,
+  ].join("\n");
+}
 
 async function accessToken() {
   const supabase = getSupabaseBrowserClient() as any;
@@ -55,6 +83,7 @@ export default function MasterCustomersPage() {
   const [message, setMessage] = useState("Loading customers...");
   const [transferCompany, setTransferCompany] = useState("");
   const [transferReason, setTransferReason] = useState("");
+  const [servicePlan, setServicePlan] = useState<ServicePlan>({ serviceType: "", frequency: "", seasonStatus: "", operationalNotes: "" });
 
   async function loadDirectory() {
     const token = await accessToken();
@@ -70,10 +99,7 @@ export default function MasterCustomersPage() {
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return customers.filter((customer) => {
-      if (!needle) return true;
-      return `${customer.full_name} ${customer.email || ""} ${customer.phone || ""} ${customer.property?.address_line1 || ""} ${customer.property?.city || ""}`.toLowerCase().includes(needle);
-    });
+    return customers.filter((customer) => !needle || `${customer.full_name} ${customer.email || ""} ${customer.phone || ""} ${customer.property?.address_line1 || ""} ${customer.property?.city || ""}`.toLowerCase().includes(needle));
   }, [customers, search]);
 
   async function openCustomer(id: string) {
@@ -89,6 +115,7 @@ export default function MasterCustomersPage() {
       if (!result.properties?.length) result.properties = [{ ...blankProperty }];
       setDetail(result);
       setPropertyIndex(0);
+      setServicePlan(parseServicePlan(result.properties[0]?.property_notes));
       setTransferCompany(result.customer.service_company_id || "");
       setTransferReason("");
       setMessage("");
@@ -109,11 +136,16 @@ export default function MasterCustomersPage() {
     });
   }
 
+  function changeProperty(index: number) {
+    setPropertyIndex(index);
+    setServicePlan(parseServicePlan(detail?.properties[index]?.property_notes));
+  }
+
   async function save() {
     if (!detail) return;
     const property = detail.properties[propertyIndex] || blankProperty;
     setBusy(true);
-    setMessage("Saving customer and property...");
+    setMessage("Saving customer, property and service plan...");
     try {
       const token = await accessToken();
       const response = await fetch("/api/master/customers", {
@@ -131,26 +163,29 @@ export default function MasterCustomersPage() {
             postalCode: property.postal_code || null,
             lotSize: property.lot_size || null,
             grassHeight: property.grass_height || null,
-            gate: Boolean(property.gate), dog: Boolean(property.dog), irrigation: Boolean(property.irrigation),
+            gate: Boolean(property.gate),
+            dog: Boolean(property.dog),
+            irrigation: Boolean(property.irrigation),
             accessNotes: property.access_notes || null,
-            propertyNotes: property.property_notes || null,
+            propertyNotes: composeServicePlan(servicePlan),
             customerComment: property.customer_comment || null,
           },
         }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Customer could not be saved.");
-      setMessage(result.message || "Customer updated.");
       await loadDirectory();
       await openCustomer(detail.customer.id);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Customer could not be saved."); }
-    finally { setBusy(false); }
+      setMessage(result.message || "Customer, property and service plan saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Customer could not be saved.");
+    } finally { setBusy(false); }
   }
 
   async function transfer() {
     if (!detail) return;
     setBusy(true);
-    setMessage("Updating service company...");
+    setMessage(transferCompany ? "Assigning service company..." : "Placing customer on Master hold...");
     try {
       const token = await accessToken();
       const response = await fetch("/api/master/customers", {
@@ -159,17 +194,18 @@ export default function MasterCustomersPage() {
         body: JSON.stringify({ action: "transfer", customerId: detail.customer.id, serviceCompanyId: transferCompany || null, reason: transferReason || null }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Customer could not be moved.");
-      setMessage(result.message || "Company updated.");
+      if (!response.ok) throw new Error(result.error || "Customer assignment could not be updated.");
       await loadDirectory();
       await openCustomer(detail.customer.id);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Customer could not be moved."); }
-    finally { setBusy(false); }
+      setMessage(result.message || "Assignment updated.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Customer assignment could not be updated.");
+    } finally { setBusy(false); }
   }
 
   const property = detail?.properties[propertyIndex] || null;
-  const card: React.CSSProperties = { background: "#fff", border: "1px solid #dfe8e3", borderRadius: 18, padding: 20, boxShadow: "0 10px 30px rgba(15,55,42,.06)" };
-  const input: React.CSSProperties = { width: "100%", minHeight: 44, border: "1px solid #cad8d1", borderRadius: 10, padding: "10px 12px", background: "#fff" };
+  const card: React.CSSProperties = { background: "#fff", border: "1px solid #dce8e2", borderRadius: 18, padding: 22, boxShadow: "0 12px 34px rgba(15,55,42,.07)" };
+  const input: React.CSSProperties = { width: "100%", minHeight: 44, border: "1px solid #c7d7cf", borderRadius: 10, padding: "10px 12px", background: "#fff", font: "inherit" };
   const grid: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))", gap: 14 };
 
   return <main className="master-shell">
@@ -180,7 +216,7 @@ export default function MasterCustomersPage() {
 
     <section className="master-content" style={{ maxWidth: 1180 }}>
       {message && <div className="master-alert">{message}<button onClick={() => setMessage("")}>×</button></div>}
-      <header className="master-header"><div><span className="master-kicker">CUSTOMER CONTROL</span><h2>Customers</h2><p>Select a customer, then edit the profile, property and service assignment in one clean workspace.</p></div></header>
+      <header className="master-header"><div><span className="master-kicker">CUSTOMER CONTROL</span><h2>Customers</h2><p>Select a customer and maintain one connected operational record for Master, Admin and Employee.</p></div></header>
 
       <section style={{ ...card, marginBottom: 18 }}>
         <label style={{ display: "block", fontWeight: 800, marginBottom: 8 }}>Find a customer</label>
@@ -193,21 +229,21 @@ export default function MasterCustomersPage() {
         </div>
       </section>
 
-      {!detail && <section style={{ ...card, textAlign: "center", padding: 48 }}><h3 style={{ marginBottom: 8 }}>Choose a customer to begin</h3><p style={{ margin: 0, color: "#60746b" }}>The editor will open here without showing a large customer table.</p></section>}
+      {!detail && <section style={{ ...card, textAlign: "center", padding: 48 }}><h3 style={{ marginBottom: 8 }}>Choose a customer to begin</h3><p style={{ margin: 0, color: "#60746b" }}>Customer, property, service and assignment information will appear here.</p></section>}
 
       {detail && <div style={{ display: "grid", gap: 18 }}>
         <section style={card}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", marginBottom: 18 }}><div><span className="master-kicker">CUSTOMER PROFILE</span><h3 style={{ margin: "4px 0" }}>{detail.customer.full_name}</h3><small>{detail.customer.platform_managed ? "Platform-managed" : "Company-origin"}</small></div><span className="master-status">{detail.customer.assignment_status?.replaceAll("_", " ") || "unassigned"}</span></div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", marginBottom: 18 }}><div><span className="master-kicker">CUSTOMER PROFILE</span><h3 style={{ margin: "4px 0" }}>{detail.customer.full_name}</h3><small>{detail.customer.platform_managed ? "Platform-managed" : "Company-origin"}</small></div><span className="master-status">{detail.customer.service_company_id ? detail.customer.assignment_status?.replaceAll("_", " ") : "Master hold"}</span></div>
           <div style={grid}>
             <label>Name<input style={input} value={detail.customer.full_name || ""} onChange={(e) => updateCustomer("full_name", e.target.value)} /></label>
             <label>Email<input style={input} type="email" value={detail.customer.email || ""} onChange={(e) => updateCustomer("email", e.target.value)} /></label>
             <label>Phone<input style={input} value={detail.customer.phone || ""} onChange={(e) => updateCustomer("phone", e.target.value)} /></label>
-            <label style={{ gridColumn: "1 / -1" }}>Customer notes<textarea style={{ ...input, minHeight: 90 }} value={detail.customer.notes || ""} onChange={(e) => updateCustomer("notes", e.target.value)} /></label>
+            <label style={{ gridColumn: "1 / -1" }}>Customer notes<textarea style={{ ...input, minHeight: 88 }} value={detail.customer.notes || ""} onChange={(e) => updateCustomer("notes", e.target.value)} /></label>
           </div>
         </section>
 
         <section style={card}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 18 }}><div><span className="master-kicker">PROPERTY</span><h3 style={{ margin: "4px 0" }}>{property?.id ? "Property record" : "Create property record"}</h3><small>{property?.id ? "Edit the operational property information." : "No property exists yet. Complete the fields below and save."}</small></div>{detail.properties.length > 1 && <select style={input} value={propertyIndex} onChange={(e) => setPropertyIndex(Number(e.target.value))}>{detail.properties.map((item, index) => <option key={item.id || index} value={index}>{item.address_line1 || `Property ${index + 1}`}</option>)}</select>}</div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 18 }}><div><span className="master-kicker">PROPERTY</span><h3 style={{ margin: "4px 0" }}>{property?.id ? property.address_line1 || "Property record" : "Create property record"}</h3><small>{property?.id ? "This record feeds Admin and Employee views." : "Complete the property information and save."}</small></div>{detail.properties.length > 1 && <select style={{ ...input, width: 260 }} value={propertyIndex} onChange={(e) => changeProperty(Number(e.target.value))}>{detail.properties.map((item, index) => <option key={item.id || index} value={index}>{item.address_line1 || `Property ${index + 1}`}</option>)}</select>}</div>
           {property && <div style={grid}>
             <label style={{ gridColumn: "1 / -1" }}>Address<input style={input} value={property.address_line1 || ""} onChange={(e) => updateProperty("address_line1", e.target.value)} placeholder="Street address" /></label>
             <label>City<input style={input} value={property.city || ""} onChange={(e) => updateProperty("city", e.target.value)} /></label>
@@ -218,16 +254,31 @@ export default function MasterCustomersPage() {
             <label>Gate<select style={input} value={property.gate ? "yes" : "no"} onChange={(e) => updateProperty("gate", e.target.value === "yes")}><option value="no">No</option><option value="yes">Yes</option></select></label>
             <label>Dog on property<select style={input} value={property.dog ? "yes" : "no"} onChange={(e) => updateProperty("dog", e.target.value === "yes")}><option value="no">No</option><option value="yes">Yes</option></select></label>
             <label>Irrigation<select style={input} value={property.irrigation ? "yes" : "no"} onChange={(e) => updateProperty("irrigation", e.target.value === "yes")}><option value="no">No</option><option value="yes">Yes</option></select></label>
-            <label style={{ gridColumn: "1 / -1" }}>Contract / service plan<textarea style={{ ...input, minHeight: 80 }} value={property.property_notes || ""} onChange={(e) => updateProperty("property_notes", e.target.value)} placeholder="Example: Weekly lawn care, seasonal contract, snow removal only..." /></label>
-            <label style={{ gridColumn: "1 / -1" }}>Worker alert / access note<textarea style={{ ...input, minHeight: 90, borderColor: "#e2a43b", background: "#fffaf0" }} value={property.access_notes || ""} onChange={(e) => updateProperty("access_notes", e.target.value)} placeholder="Important instructions shown to Admin and Employee before the visit" /></label>
-            <label style={{ gridColumn: "1 / -1" }}>Customer property comment<textarea style={{ ...input, minHeight: 70 }} value={property.customer_comment || ""} onChange={(e) => updateProperty("customer_comment", e.target.value)} /></label>
           </div>}
         </section>
 
         <section style={card}>
+          <span className="master-kicker">SERVICE PLAN</span><h3 style={{ margin: "4px 0 16px" }}>Contract and visit settings</h3>
+          <div style={grid}>
+            <label>Service type<select style={input} value={servicePlan.serviceType} onChange={(e) => setServicePlan((v) => ({ ...v, serviceType: e.target.value }))}><option value="">Select service</option><option value="Lawn mowing">Lawn mowing</option><option value="Snow removal">Snow removal</option><option value="Seasonal lawn care">Seasonal lawn care</option><option value="Spring / fall cleanup">Spring / fall cleanup</option><option value="Property maintenance">Property maintenance</option><option value="Other">Other</option></select></label>
+            <label>Frequency<select style={input} value={servicePlan.frequency} onChange={(e) => setServicePlan((v) => ({ ...v, frequency: e.target.value }))}><option value="">Select frequency</option><option value="Weekly">Weekly</option><option value="Bi-weekly">Bi-weekly</option><option value="Adaptive">Adaptive</option><option value="One-time">One-time</option><option value="On demand">On demand</option></select></label>
+            <label>Season status<select style={input} value={servicePlan.seasonStatus} onChange={(e) => setServicePlan((v) => ({ ...v, seasonStatus: e.target.value }))}><option value="">Select status</option><option value="Active in season">Active in season</option><option value="Paused out of season">Paused out of season</option><option value="Year-round">Year-round</option><option value="On hold">On hold</option><option value="Completed">Completed</option></select></label>
+            <label style={{ gridColumn: "1 / -1" }}>Operational service notes<textarea style={{ ...input, minHeight: 82 }} value={servicePlan.operationalNotes} onChange={(e) => setServicePlan((v) => ({ ...v, operationalNotes: e.target.value }))} placeholder="Contract details, preferred day, special scope or recurring instructions" /></label>
+          </div>
+        </section>
+
+        <section style={{ ...card, borderColor: property?.access_notes ? "#e4a63b" : "#dce8e2" }}>
+          <span className="master-kicker">VISIT INFORMATION</span><h3 style={{ margin: "4px 0 16px" }}>What Admin and Employee need to know</h3>
+          <div style={grid}>
+            <label style={{ gridColumn: "1 / -1" }}>Worker alert / access note<textarea style={{ ...input, minHeight: 92, borderColor: "#e2a43b", background: "#fffaf0" }} value={property?.access_notes || ""} onChange={(e) => updateProperty("access_notes", e.target.value)} placeholder="Gate code, dog warning, access route, fragile area or important visit instruction" /></label>
+            <label style={{ gridColumn: "1 / -1" }}>Customer property comment<textarea style={{ ...input, minHeight: 72 }} value={property?.customer_comment || ""} onChange={(e) => updateProperty("customer_comment", e.target.value)} /></label>
+          </div>
+        </section>
+
+        <section style={card}>
           <span className="master-kicker">SERVICE COMPANY</span><h3 style={{ margin: "4px 0 16px" }}>Assignment</h3>
-          <div style={grid}><label>Company<select style={input} value={transferCompany} onChange={(e) => setTransferCompany(e.target.value)}><option value="">Master assignment queue</option>{companies.filter((company) => company.active).map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label><label>Transfer reason<input style={input} value={transferReason} onChange={(e) => setTransferReason(e.target.value)} placeholder="Optional internal reason" /></label></div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}><button className="master-inline-button" disabled={busy} onClick={() => void transfer()}>Update company</button><button className="btn btn-primary" disabled={busy} onClick={() => void save()}>Save customer and property</button></div>
+          <div style={grid}><label>Company / hold queue<select style={input} value={transferCompany} onChange={(e) => setTransferCompany(e.target.value)}><option value="">Master hold — choose company later</option>{companies.filter((company) => company.active).map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label><label>Assignment note<input style={input} value={transferReason} onChange={(e) => setTransferReason(e.target.value)} placeholder="Optional internal reason" /></label></div>
+          <div style={{ display: "flex", justifyContent: "flex-end", flexWrap: "wrap", gap: 10, marginTop: 18 }}><button className="master-inline-button" disabled={busy} onClick={() => void transfer()}>{transferCompany ? "Assign company" : "Place on hold"}</button><button className="btn btn-primary" disabled={busy} onClick={() => void save()}>Save all customer information</button></div>
         </section>
       </div>}
     </section>
