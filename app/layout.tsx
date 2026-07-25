@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
+import {AdminAccessFallback} from "@/components/master/AdminAccessFallback";
 
 export const metadata: Metadata = {
   title: "4Ever Seasons | Premium Property Care",
@@ -16,5 +17,5 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="en" data-season="summer"><body><SeasonThemeProvider>{children}</SeasonThemeProvider></body></html>;
+  return <html lang="en" data-season="summer"><body><SeasonThemeProvider>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
 }
