@@ -44,6 +44,16 @@ function serverClient() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
 }
 
+function authenticatedClient(token: string) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) throw new Error("Authenticated Supabase access is not configured.");
+  return createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  }) as any;
+}
+
 async function requireMaster(request: NextRequest) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) throw new Error("Sign in as Master.");
@@ -52,7 +62,7 @@ async function requireMaster(request: NextRequest) {
   if (authError || !auth.user) throw new Error("Your login expired. Sign in again.");
   const { data: profile, error } = await client.from("profiles").select("id,role,active").eq("id", auth.user.id).maybeSingle();
   if (error || !profile?.active || profile.role !== "master") throw new Error("Only an active Master can manage customers.");
-  return { client, masterId: auth.user.id };
+  return { client, userClient: authenticatedClient(token), masterId: auth.user.id };
 }
 
 function fail(error: unknown, status = 400) {
@@ -127,7 +137,7 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { client, masterId } = await requireMaster(request);
+    const { client, userClient, masterId } = await requireMaster(request);
     const raw = await request.json();
 
     if (raw?.action === "save") {
@@ -169,7 +179,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = transferSchema.parse(raw);
-    const { data, error } = await client.rpc("master_transfer_customer", {
+    const { data, error } = await userClient.rpc("master_transfer_customer", {
       p_customer_id: body.customerId,
       p_service_company_id: body.serviceCompanyId,
       p_reason: body.reason || null,
