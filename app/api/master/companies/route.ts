@@ -27,7 +27,7 @@ async function requireMaster(request:NextRequest){
 
 function slugify(value:string){return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")}
 function failure(error:unknown,status=400){return NextResponse.json({error:error instanceof Error?error.message:"Company creation failed."},{status})}
-function inviteFailureMessage(message?:string){return message?.toLowerCase().includes("rate limit")?"Company saved, but Supabase reached its email sending limit. Wait for the limit to reset or configure custom SMTP, then resend the Admin access email.":`Company saved, but the Admin access email was not sent${message?`: ${message}`:"."}`}
+function inviteFailureMessage(message?:string){return message?.toLowerCase().includes("rate limit")?"Company saved, but Supabase reached its email sending limit. Use Resend Admin invitation again to generate a temporary password.":`Company saved, but the Admin access email was not sent${message?`: ${message}`:"."}`}
 function invitationOrigin(request:NextRequest){
   const requestOrigin=request.nextUrl.origin;
   const configured=String(process.env.NEXT_PUBLIC_SITE_URL||"").replace(/\/$/,"");
@@ -47,6 +47,10 @@ async function findAuthUserByEmail(client:ReturnType<typeof serverClient>,email:
   return null;
 }
 
+function temporaryPassword(){
+  return `Dms!${crypto.randomUUID().replace(/-/g,"").slice(0,12)}7a`;
+}
+
 async function linkExistingAdmin(client:ReturnType<typeof serverClient>,company:{id:string;name:string;contact_email:string},adminName:string,siteUrl:string){
   const user=await findAuthUserByEmail(client,company.contact_email);
   if(!user)throw new Error("This email is registered, but its Auth user could not be located. Remove it in Supabase Authentication or contact support.");
@@ -55,8 +59,12 @@ async function linkExistingAdmin(client:ReturnType<typeof serverClient>,company:
   const{data:admin,error:profileError}=await client.from("profiles").upsert({id:user.id,organization_id:company.id,company_id:company.id,role:"admin",full_name:adminName,email:company.contact_email,active:true},{onConflict:"id"}).select("id,company_id,full_name,email,active").single();
   if(profileError||!admin)throw new Error(profileError?.message||"The existing Admin profile could not be linked to this company.");
   const{error:resetError}=await client.auth.resetPasswordForEmail(company.contact_email,{redirectTo:`${siteUrl}/reset-password?onboarding=company`});
-  if(resetError)throw new Error(resetError.message);
-  return admin;
+  if(!resetError)return{admin,delivery:"recovery" as const,temporaryPassword:null};
+  if(!resetError.message.toLowerCase().includes("rate limit"))throw new Error(resetError.message);
+  const password=temporaryPassword();
+  const{error:passwordError}=await client.auth.admin.updateUserById(user.id,{password,email_confirm:true});
+  if(passwordError)throw new Error(`Email is rate limited and a temporary password could not be created: ${passwordError.message}`);
+  return{admin,delivery:"temporary_password" as const,temporaryPassword:password};
 }
 
 export async function GET(request:NextRequest){
@@ -125,16 +133,17 @@ export async function PUT(request:NextRequest){
     const siteUrl=invitationOrigin(request);
 
     let admin;
-    let delivery:"invitation"|"recovery"="invitation";
+    let delivery:"invitation"|"recovery"|"temporary_password"="invitation";
+    let generatedPassword:string|null=null;
     if(existingProfile.data){
-      admin=await linkExistingAdmin(client,company,adminName,siteUrl);
-      delivery="recovery";
+      const linked=await linkExistingAdmin(client,company,adminName,siteUrl);
+      admin=linked.admin;delivery=linked.delivery;generatedPassword=linked.temporaryPassword;
     }else{
       const{data:invite,error:inviteError}=await client.auth.admin.inviteUserByEmail(company.contact_email,{redirectTo:`${siteUrl}/auth/complete`,data:{full_name:adminName,role:"admin",company_id:company.id}});
       if(inviteError||!invite.user){
         if(inviteError?.message?.toLowerCase().includes("already")||inviteError?.message?.toLowerCase().includes("registered")){
-          admin=await linkExistingAdmin(client,company,adminName,siteUrl);
-          delivery="recovery";
+          const linked=await linkExistingAdmin(client,company,adminName,siteUrl);
+          admin=linked.admin;delivery=linked.delivery;generatedPassword=linked.temporaryPassword;
         }else return NextResponse.json({error:inviteFailureMessage(inviteError?.message)},{status:inviteError?.message?.toLowerCase().includes("rate limit")?429:400});
       }else{
         invitedUserId=invite.user.id;
@@ -143,8 +152,13 @@ export async function PUT(request:NextRequest){
         admin=result.data;
       }
     }
-    await client.from("master_audit_log").insert({master_profile_id:masterId,company_id:company.id,action:delivery==="recovery"?"company.admin_access_resent":"company.admin_invited",entity_type:"profile",entity_id:admin.id,details:{admin_email:company.contact_email,delivery}});
-    return NextResponse.json({member:{id:admin.id,company_id:company.id,kind:"admin",name:admin.full_name,email:admin.email,active:admin.active},message:delivery==="recovery"?`Access email sent to ${company.contact_email}. The Admin can create a new password and continue company setup.`:`Admin invitation sent to ${company.contact_email}.`});
+    await client.from("master_audit_log").insert({master_profile_id:masterId,company_id:company.id,action:delivery==="invitation"?"company.admin_invited":delivery==="recovery"?"company.admin_access_resent":"company.admin_temporary_password_created",entity_type:"profile",entity_id:admin.id,details:{admin_email:company.contact_email,delivery}});
+    const message=delivery==="temporary_password"
+      ?`Supabase email is rate limited. Temporary password for ${company.contact_email}: ${generatedPassword} — sign in at /login, then complete the company profile and change the password.`
+      :delivery==="recovery"
+        ?`Access email sent to ${company.contact_email}. The Admin can create a new password and continue company setup.`
+        :`Admin invitation sent to ${company.contact_email}.`;
+    return NextResponse.json({member:{id:admin.id,company_id:company.id,kind:"admin",name:admin.full_name,email:admin.email,active:admin.active},message,temporaryPassword:generatedPassword});
   }catch(error){
     if(invitedUserId)try{await serverClient().auth.admin.deleteUser(invitedUserId)}catch{}
     return failure(error);
@@ -172,9 +186,12 @@ export async function POST(request:NextRequest){
     const{data:invite,error:inviteError}=await client.auth.admin.inviteUserByEmail(adminEmail,{redirectTo:`${siteUrl}/auth/complete`,data:{full_name:adminName,role:"admin",company_id:companyId}});
     if(inviteError||!invite.user){
       if(inviteError?.message?.toLowerCase().includes("already")||inviteError?.message?.toLowerCase().includes("registered")){
-        const admin=await linkExistingAdmin(client,{id:company.id,name:company.name,contact_email:adminEmail},adminName,siteUrl);
-        await client.from("master_audit_log").insert({master_profile_id:masterId,company_id:companyId,action:"company.created_existing_admin_relinked",entity_type:"profile",entity_id:admin.id,details:{admin_email:adminEmail,plan}});
-        return NextResponse.json({company,inviteSent:true,member:{id:admin.id,company_id:company.id,kind:"admin",name:admin.full_name,email:admin.email,active:admin.active},message:`Company created. ${adminEmail} already had an account, so a new password/setup email was sent.`},{status:201});
+        const linked=await linkExistingAdmin(client,{id:company.id,name:company.name,contact_email:adminEmail},adminName,siteUrl);
+        await client.from("master_audit_log").insert({master_profile_id:masterId,company_id:companyId,action:linked.delivery==="temporary_password"?"company.created_existing_admin_temporary_password":"company.created_existing_admin_relinked",entity_type:"profile",entity_id:linked.admin.id,details:{admin_email:adminEmail,plan,delivery:linked.delivery}});
+        const message=linked.delivery==="temporary_password"
+          ?`Company created. Supabase email is rate limited. Temporary password for ${adminEmail}: ${linked.temporaryPassword} — use /login and complete company setup.`
+          :`Company created. ${adminEmail} already had an account, so a new password/setup email was sent.`;
+        return NextResponse.json({company,inviteSent:true,member:{id:linked.admin.id,company_id:company.id,kind:"admin",name:linked.admin.full_name,email:linked.admin.email,active:linked.admin.active},message,temporaryPassword:linked.temporaryPassword},{status:201});
       }
       await client.from("master_audit_log").insert({master_profile_id:masterId,company_id:companyId,action:"company.created_invite_pending",entity_type:"organization",entity_id:companyId,details:{admin_email:adminEmail,plan,error:inviteError?.message}});
       return NextResponse.json({company,inviteSent:false,message:inviteFailureMessage(inviteError?.message)},{status:201});
