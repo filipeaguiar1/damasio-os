@@ -36,12 +36,12 @@ function serverClient() {
 
 async function requireCompanyAdmin(request: NextRequest) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) throw new Error("Sign in as Admin or Master.");
+  if (!token) throw new Error("Sign in as a company Admin.");
   const client = serverClient();
   const { data: auth, error: authError } = await client.auth.getUser(token);
   if (authError || !auth.user) throw new Error("Your session expired. Sign in again.");
   const { data: profile, error } = await client.from("profiles").select("id,role,company_id,organization_id,active").eq("id", auth.user.id).single();
-  if (error || !profile?.active || !["admin", "master"].includes(profile.role)) throw new Error("Only Admin or Master can edit customer and property records.");
+  if (error || !profile?.active || profile.role !== "admin") throw new Error("Only an active company Admin can use this customer editor.");
   const companyId = profile.company_id || profile.organization_id;
   if (!companyId) throw new Error("Admin profile is not linked to a company.");
   return { client, companyId };
@@ -55,16 +55,30 @@ async function resolveRecord(client: any, companyId: string, id: string) {
     if (property.error) throw new Error(property.error.message);
   }
   if (!property.data) throw new Error("Property could not be found in this company.");
-  const customer = await client.from("customers").select("*").eq("id", property.data.customer_id).eq("company_id", companyId).maybeSingle();
-  if (customer.error || !customer.data) throw new Error(customer.error?.message || "Customer could not be found in this company.");
+  const customer = await client.from("customers").select("*").eq("id", property.data.customer_id).eq("service_company_id", companyId).maybeSingle();
+  if (customer.error || !customer.data) {
+    const legacy = await client.from("customers").select("*").eq("id", property.data.customer_id).eq("company_id", companyId).maybeSingle();
+    if (legacy.error || !legacy.data) throw new Error(legacy.error?.message || "Customer could not be found in this company.");
+    return { customer: legacy.data, property: property.data };
+  }
   return { customer: customer.data, property: property.data };
+}
+
+function isPlatformLocked(customer: any) {
+  return customer.acquisition_source === "platform";
 }
 
 export async function GET(request: NextRequest, context: { params: { id: string } }) {
   try {
     const { client, companyId } = await requireCompanyAdmin(request);
     const record = await resolveRecord(client, companyId, context.params.id);
-    return NextResponse.json(record);
+    return NextResponse.json({
+      ...record,
+      permissions: {
+        canEdit: !isPlatformLocked(record.customer),
+        lockedByPlatform: isPlatformLocked(record.customer),
+      },
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Customer profile could not be loaded." }, { status: 400 });
   }
@@ -75,6 +89,13 @@ export async function PATCH(request: NextRequest, context: { params: { id: strin
     const body = bodySchema.parse(await request.json());
     const { client, companyId } = await requireCompanyAdmin(request);
     const record = await resolveRecord(client, companyId, context.params.id);
+
+    if (isPlatformLocked(record.customer)) {
+      return NextResponse.json({
+        error: "Locked by Platform. Contact the platform Master to change this customer or property.",
+        code: "PLATFORM_CUSTOMER_LOCKED",
+      }, { status: 403 });
+    }
 
     const customerUpdate = await client.from("customers").update({
       full_name: body.customer.fullName,
