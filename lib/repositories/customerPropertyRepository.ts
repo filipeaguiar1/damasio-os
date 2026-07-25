@@ -102,15 +102,32 @@ function mapRecord(row: RpcRecord, ownership?: OwnershipRecord): CustomerPropert
 }
 
 export async function listCustomerProperties(): Promise<CustomerPropertyRecord[]> {
-  const supabase = getSupabaseBrowserClient();
-  const [{ data, error }, ownershipResult] = await Promise.all([
-    supabase.rpc("get_customer_property_directory" as never),
-    supabase.rpc("get_company_customer_ownership" as never),
-  ]);
+  const supabase = getSupabaseBrowserClient() as any;
+  const { data, error } = await supabase.rpc("get_customer_property_directory");
   if (error) throw new Error(error.message);
-  if (ownershipResult.error) throw new Error(ownershipResult.error.message);
-  const ownership = new Map(((ownershipResult.data || []) as OwnershipRecord[]).map((row) => [row.customer_id, row]));
-  return ((data || []) as RpcRecord[]).map((row) => mapRecord(row, ownership.get(row.customer_id)));
+
+  const rows = (data || []) as RpcRecord[];
+  if (!rows.length) return [];
+
+  const ids = [...new Set(rows.map((row) => row.customer_id))];
+  const ownership = new Map<string, OwnershipRecord>();
+  const ownershipResult = await supabase
+    .from("customers")
+    .select("id,acquisition_source,platform_managed")
+    .in("id", ids);
+
+  if (!ownershipResult.error) {
+    for (const row of ownershipResult.data || []) {
+      const source = (row.acquisition_source || "company_created") as CustomerPropertyRecord["acquisitionSource"];
+      ownership.set(row.id, {
+        customer_id: row.id,
+        acquisition_source: source,
+        locked_by_platform: row.platform_managed === true || source === "platform",
+      });
+    }
+  }
+
+  return rows.map((row) => mapRecord(row, ownership.get(row.customer_id)));
 }
 
 export async function createCustomerProperty(input: CreateCustomerPropertyInput): Promise<CustomerPropertyRecord> {
