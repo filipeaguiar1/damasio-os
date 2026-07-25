@@ -1,12 +1,27 @@
 "use client";
 
 import { ChangeEvent, useEffect, useState } from "react";
-import { loadCustomerPortal } from "@/lib/services/customerPortalService";
-import { getPropertyPhotoHistory } from "@/lib/services/propertyPhotoService";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import type { CustomerPortalBoard } from "@/lib/repositories/customerPortalRepository";
 
-const emptyBoard: CustomerPortalBoard = { property: null, visits: [], tasks: [], requests: [], quotes: [], feedback: [] };
+type PropertyView = {
+  propertyId: string;
+  customerName: string;
+  email: string | null;
+  phone: string | null;
+  address: string;
+  city: string;
+  province: string;
+  postalCode: string | null;
+  lotSize: string | null;
+  grassHeight: string | null;
+  gate: boolean;
+  dog: boolean;
+  irrigation: boolean;
+  accessNotes: string | null;
+  propertyNotes: string | null;
+  customerComment: string;
+  photoUrl: string | null;
+};
 
 async function accessToken() {
   const supabase = getSupabaseBrowserClient();
@@ -17,34 +32,30 @@ async function accessToken() {
 }
 
 export function CustomerPropertyEditor({ mobile = false }: { mobile?: boolean }) {
-  const [board, setBoard] = useState<CustomerPortalBoard>(emptyBoard);
+  const [property, setProperty] = useState<PropertyView | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [customerComment, setCustomerComment] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const property = board.property;
   const displayPhoto = previewUrl || photoUrl;
 
+  async function loadProperty() {
+    const token = await accessToken();
+    const response = await fetch("/api/customer/property", {
+      headers: { authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Property could not be loaded.");
+    setProperty(result.property || null);
+    setCustomerComment(result.property?.customerComment || "");
+    setPhotoUrl(result.property?.photoUrl || null);
+  }
+
   useEffect(() => {
-    void (async () => {
-      try {
-        const nextBoard = await loadCustomerPortal({ force: true });
-        setBoard(nextBoard);
-        if (nextBoard.property?.propertyId) {
-          const history = await getPropertyPhotoHistory(nextBoard.property.propertyId);
-          setPhotoUrl(history.profilePhotoUrl);
-        }
-        const token = await accessToken();
-        const response = await fetch("/api/customer/property", { headers: { authorization: `Bearer ${token}` }, cache: "no-store" });
-        const result = await response.json();
-        if (response.ok) setCustomerComment(result.property?.customer_comment || "");
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Property could not be loaded.");
-      }
-    })();
-    return () => { if (previewUrl) URL.revokeObjectURL(previewUrl); };
+    void loadProperty().catch((error) => setMessage(error instanceof Error ? error.message : "Property could not be loaded."));
   }, []);
 
   function choosePhoto(event: ChangeEvent<HTMLInputElement>) {
@@ -67,10 +78,7 @@ export function CustomerPropertyEditor({ mobile = false }: { mobile?: boolean })
   }
 
   async function confirmPhoto() {
-    if (!pendingFile) {
-      setMessage("Choose a photo before confirming.");
-      return;
-    }
+    if (!pendingFile) { setMessage("Choose a photo before confirming."); return; }
     setBusy(true);
     setMessage("Saving house photo...");
     try {
@@ -89,8 +97,7 @@ export function CustomerPropertyEditor({ mobile = false }: { mobile?: boolean })
       setPreviewUrl(null);
       setPendingFile(null);
       setMessage("House photo updated successfully.");
-      const nextBoard = await loadCustomerPortal({ force: true });
-      setBoard(nextBoard);
+      await loadProperty();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "House photo could not be saved.");
     } finally {
