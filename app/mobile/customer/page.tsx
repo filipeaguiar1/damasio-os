@@ -5,11 +5,15 @@ import Link from "next/link";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { MobileBackButton } from "@/components/mobile/MobileBackButton";
 import { MobileCustomerNav } from "@/components/mobile/MobileCustomerNav";
-import { signOutAccount } from "@/lib/auth/signOut";
 import { loadCustomerPortal } from "@/lib/services/customerPortalService";
 import type { CustomerPortalBoard } from "@/lib/repositories/customerPortalRepository";
 
 const empty: CustomerPortalBoard = { property: null, visits: [], tasks: [], requests: [], quotes: [], feedback: [] };
+
+function initials(name?: string | null) {
+  const parts = String(name || "Customer").trim().split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : parts[0]?.slice(0, 2) || "CU").toUpperCase();
+}
 
 export default function MobileCustomerApp() {
   const [board, setBoard] = useState<CustomerPortalBoard>(empty);
@@ -25,6 +29,7 @@ export default function MobileCustomerApp() {
 
   const nextVisit = useMemo(() => board.visits.filter((item) => !["completed", "cancelled"].includes(item.status)).sort((a, b) => String(a.scheduledDate).localeCompare(String(b.scheduledDate)))[0] || null, [board.visits]);
   const openTasks = board.tasks.filter((item) => !["completed", "resolved"].includes(item.status)).length;
+  const customerInitials = initials(board.property?.customerName);
   const modules = [
     { href: "/mobile/customer/services", icon: "✦", label: "Services" },
     { href: "/mobile/customer/history", icon: "↶", label: "History" },
@@ -41,14 +46,14 @@ export default function MobileCustomerApp() {
       <main className="mobile-app-shell role-mobile-shell role-customer-mobile">
         <header className="role-mobile-topbar">
           <MobileBackButton />
-          <div><strong>My home</strong><span>Customer portal</span></div>
-          <button type="button" className="role-mobile-avatar" onClick={() => void signOutAccount("/mobile/login")} aria-label="Sign out">C</button>
+          <div><strong>My home</strong><span>{board.property?.customerName || "Customer portal"}</span></div>
+          <Link href="/mobile/customer/profile" className="role-mobile-avatar role-mobile-profile-avatar" aria-label="Open customer profile">{customerInitials}</Link>
         </header>
 
         {error && <p className="mobile-message mobile-error" role="alert">{error}</p>}
 
         <section className="mobile-hero-card compact role-customer-hero">
-          <span className="role-mobile-eyebrow">YOUR PROPERTY</span>
+          <span className="role-mobile-eyebrow">PRIMARY PROPERTY</span>
           {loading ? <><h1>Loading your account...</h1><p>Connecting your customer and property records.</p></> : board.property ? <>
             <div className="role-customer-status"><i>✓</i><span><strong>{nextVisit ? "Service scheduled" : "Property connected"}</strong><small>{nextVisit?.serviceName || "Customer account active"}</small></span></div>
             <p>{board.property.address}, {board.property.city}</p>
