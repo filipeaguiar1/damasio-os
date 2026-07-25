@@ -1,103 +1,188 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AdminShell } from "@/components/admin/AdminShell";
-import { getCustomerPropertyDirectory } from "@/lib/services/customerPropertyService";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { loadSchedulingDispatchBoard } from "@/lib/services/schedulingService";
-import {getPropertyPhotoHistory,type PropertyPhotoHistory} from "@/lib/services/propertyPhotoService";
-import {
-  formatDuration,
-  getActivityLogs,
-  getEmployeeTasks,
-  getLead,
-  getSessionForLead,
-  Lead,
-  LawnSize,
-  GrassHandling,
-  GrassHeight,
-  updateLead,
-  updatePropertyDetails,
-  calculateVisitStatus,
-} from "@/lib/storage";
+import { getPropertyPhotoHistory, type PropertyPhotoHistory } from "@/lib/services/propertyPhotoService";
+import { calculateVisitStatus, formatDuration, type Lead } from "@/lib/storage";
 
-const tabs = ["Customer", "Property", "Service", "History", "Feedback History"];
-const grassOptions: { value: GrassHandling; label: string }[] = [
-  { value: "mulched", label: "Mulched" },
-  { value: "bag_green_bin", label: "Bag to green bin" },
-  { value: "bag_leave_property", label: "Bag and leave on property" },
-  { value: "no_preference", label: "No preference" },
-];
+const tabs = ["Customer", "Property", "Service", "History"];
+
+type AdminRecord = {
+  customer: any;
+  property: any;
+  permissions: {
+    canEditCustomer: boolean;
+    canEditProperty: boolean;
+    contactHidden: boolean;
+    lockedByPlatform: boolean;
+  };
+  offer: {
+    status: string | null;
+    price: number | null;
+    sentAt: string | null;
+    respondedAt: string | null;
+    responseNote: string | null;
+  };
+};
+
 function tabKey(label: string) { return label.toLowerCase(); }
-function visitLabel(lead: Lead) { return lead.status === "completed" ? "Done" : "Open"; }
-function clock(value?:string){return value?new Date(value).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"—"}
-function handlingLabel(value:GrassHandling){return grassOptions.find(option=>option.value===value)?.label||"No preference"}
-function lotLabel(value:LawnSize){return({xs:"XS lot",small:"Small lot",legacy:"Legacy lot",oversize:"Oversized lot"} as Record<string,string>)[value]||value}
+function clock(value?: string | null) { return value ? new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"; }
+function fullAddress(property: any) { return [property?.address_line1, property?.city, property?.province, property?.postal_code].filter(Boolean).join(", ") || "Address not set"; }
+function lotLabel(value?: string | null) { return ({ xs: "Extra small", small: "Small", legacy: "Medium / standard", oversize: "Large / oversize" } as Record<string, string>)[value || ""] || "Not set"; }
+function servicePlan(property: any) {
+  const text = String(property?.property_notes || "");
+  const read = (label: string) => text.match(new RegExp(`^${label}:\\s*(.*)$`, "mi"))?.[1]?.trim() || "";
+  return { service: read("Service type") || "Property Service", frequency: read("Frequency") || "One time", notes: read("Operational notes") || "" };
+}
+
+async function accessToken() {
+  const supabase = getSupabaseBrowserClient() as any;
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Your Admin session expired. Sign in again.");
+  return token;
+}
 
 export default function CustomerProfilePage({ params }: { params: { id: string } }) {
   const searchParams = useSearchParams();
+  const [record, setRecord] = useState<AdminRecord | null>(null);
   const [lead, setLead] = useState<Lead | null>(null);
   const [tab, setTab] = useState(searchParams.get("tab") || "customer");
-  const [message, setMessage] = useState("");
-  const [tick, setTick] = useState(0);
-  const [detailsOpen,setDetailsOpen]=useState(true);
-  const [editOpen,setEditOpen]=useState(false);
-  const [photoHistory,setPhotoHistory]=useState<PropertyPhotoHistory|null>(null);
+  const [message, setMessage] = useState("Loading customer...");
+  const [busy, setBusy] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(true);
+  const [photoHistory, setPhotoHistory] = useState<PropertyPhotoHistory | null>(null);
+  const [responseNote, setResponseNote] = useState("");
 
   async function refresh() {
-    const local=getLead(params.id);if(local){setLead(local);void getPropertyPhotoHistory(local.id).then(setPhotoHistory).catch(()=>setPhotoHistory(null));return}
-    try{const[records,board]=await Promise.all([getCustomerPropertyDirectory(),loadSchedulingDispatchBoard({force:true})]);const record=records.find(item=>item.propertyId===params.id||item.customerId===params.id);if(!record){setLead(null);return}const jobs=[...board.unscheduledJobs,...board.assignedJobs];const job=jobs.find(item=>item.propertyId===record.propertyId);const visits=board.visits.filter(item=>item.propertyId===record.propertyId).sort((a,b)=>b.scheduledDate.localeCompare(a.scheduledDate));const visit=visits[0];setLead({id:record.propertyId,createdAt:record.createdAt,name:record.fullName,phone:record.phone||"",email:record.email||"",address:[record.addressLine1,record.city,record.province,record.postalCode].filter(Boolean).join(", "),service:job?.serviceName||visit?.serviceName||"Property Service",serviceFrequency:(job?.frequency as any)||"one_time",status:visit?.status==="completed"?"completed":"booked",subtotal:0,tax:0,total:0,notes:record.customerNotes||undefined,assignedCrew:job?.crewName||visit?.crewName||undefined,scheduledDate:visit?.scheduledDate||job?.recurrenceAnchorDate||undefined,nextVisitDate:job?.nextVisitDate||undefined,canonicalVisitId:visit?.id,visitStartedAt:visit?.startedAt||undefined,visitFinishedAt:visit?.finishedAt||undefined,visitDurationSeconds:visit?.durationSeconds||undefined,propertyPhoto:record.officialPhotoUrl||undefined,photos:[],propertyDetails:{lawnSize:record.lotSize||"small",grassHeight:record.grassHeight||"3in",grassHandling:record.propertyNotes?.toLowerCase().includes("green bin")?"bag_green_bin":record.propertyNotes?.toLowerCase().includes("bag")?"bag_leave_property":"no_preference",backyard:true,gated:record.gate,accessNotes:record.accessNotes||undefined,adminNotes:record.propertyNotes||undefined}});void getPropertyPhotoHistory(record.propertyId).then(setPhotoHistory).catch(()=>setPhotoHistory(null))}catch{setLead(null)}
+    const token = await accessToken();
+    const response = await fetch(`/api/admin/customers/${encodeURIComponent(params.id)}`, { headers: { authorization: `Bearer ${token}` }, cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Customer profile could not be loaded.");
+    const next = result as AdminRecord;
+    setRecord(next);
+
+    const board = await loadSchedulingDispatchBoard({ force: true });
+    const jobs = [...board.unscheduledJobs, ...board.assignedJobs];
+    const job = jobs.find((item) => item.propertyId === next.property.id);
+    const visits = board.visits.filter((item) => item.propertyId === next.property.id).sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate));
+    const visit = visits[0];
+    const plan = servicePlan(next.property);
+    setLead({
+      id: next.property.id,
+      createdAt: next.property.created_at || next.customer.created_at,
+      name: next.customer.full_name,
+      phone: next.customer.phone || "",
+      email: next.customer.email || "",
+      address: fullAddress(next.property),
+      service: job?.serviceName || visit?.serviceName || plan.service,
+      serviceFrequency: (job?.frequency as any) || (plan.frequency.toLowerCase().replaceAll("-", "_") as any) || "one_time",
+      status: visit?.status === "completed" ? "completed" : "booked",
+      subtotal: Number(next.offer.price || 0),
+      tax: 0,
+      total: Number(next.offer.price || 0),
+      notes: next.customer.notes || undefined,
+      scheduledDate: visit?.scheduledDate || job?.recurrenceAnchorDate || undefined,
+      nextVisitDate: job?.nextVisitDate || undefined,
+      canonicalVisitId: visit?.id,
+      visitStartedAt: visit?.startedAt || undefined,
+      visitFinishedAt: visit?.finishedAt || undefined,
+      visitDurationSeconds: visit?.durationSeconds || undefined,
+      propertyPhoto: next.property.official_photo_url || undefined,
+      photos: [],
+      propertyDetails: {
+        lawnSize: next.property.lot_size || "small",
+        grassHeight: next.property.grass_height || "3in",
+        grassHandling: next.property.property_notes?.toLowerCase().includes("green bin") ? "bag_green_bin" : next.property.property_notes?.toLowerCase().includes("bag") ? "bag_leave_property" : "no_preference",
+        backyard: true,
+        gated: Boolean(next.property.gate),
+        accessNotes: next.property.access_notes || undefined,
+        adminNotes: plan.notes || undefined,
+      },
+    });
+    await getPropertyPhotoHistory(next.property.id).then(setPhotoHistory).catch(() => setPhotoHistory(null));
+    setMessage("");
   }
-  useEffect(() => { void refresh(); const t = setInterval(() => setTick((v) => v + 1), 1000); return () => clearInterval(t); }, [params.id]);
 
-  const defaultDetails = { lawnSize: "small" as LawnSize, grassHeight: "3in" as GrassHeight, grassHandling: "no_preference" as GrassHandling, backyard: true, gated: false, adminNotes: "", propertyAlerts: "", accessNotes: "" };
-  const details = lead?.propertyDetails || defaultDetails;
-  const session = lead ? getSessionForLead(lead.id) : null;
-  const tasks = lead ? getEmployeeTasks().filter((t) => t.leadId === lead.id) : [];
-  const openTasks = tasks.filter((t) => t.status !== "resolved");
-  const logs = lead ? getActivityLogs().filter((a) => a.target === lead.id || a.target === lead.name || a.details.includes(lead.address) || a.details.includes(lead.name)).slice(0, 20) : [];
-  const runningSeconds = useMemo(() => {
-    if (!session) return lead?.visitDurationSeconds||0;
-    if (session.status === "running" && session.startedAt) return Math.max(0, Math.round((Date.now() - new Date(session.startedAt).getTime()) / 1000));
-    return session.durationSeconds || 0;
-  }, [session, tick,lead?.visitDurationSeconds]);
+  useEffect(() => { void refresh().catch((error) => setMessage(error.message)); }, [params.id]);
 
-  if (!lead) return <AdminShell active="Customers"><div className="card profile-card"><h2>Property not found</h2></div></AdminShell>;
+  const plan = useMemo(() => servicePlan(record?.property), [record?.property]);
+  const visits = photoHistory?.visits || [];
 
-  function saveAll() { if (!lead) return; updateLead(lead.id, { name: lead.name, phone: lead.phone, email: lead.email, address: lead.address, service: lead.service, notes: lead.notes }); updatePropertyDetails(lead.id, details); setMessage("Saved. Customer, property and operations now use this same record."); void refresh(); }
-  function updateDetails(patch: Partial<typeof details>) { if (!lead) return; setLead({ ...lead, propertyDetails: { ...details, ...patch } }); }
+  async function saveCustomer() {
+    if (!record || !record.permissions.canEditCustomer) return;
+    setBusy(true);
+    try {
+      const token = await accessToken();
+      const response = await fetch(`/api/admin/customers/${encodeURIComponent(params.id)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ customer: { fullName: record.customer.full_name, phone: record.customer.phone || null, email: record.customer.email, notes: record.customer.notes || null } }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Customer could not be saved.");
+      setMessage("Customer saved directly to the company database.");
+      await refresh();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Customer could not be saved."); }
+    finally { setBusy(false); }
+  }
+
+  async function respondToOffer(action: "accept" | "decline") {
+    setBusy(true);
+    try {
+      const token = await accessToken();
+      const response = await fetch(`/api/admin/customers/${encodeURIComponent(params.id)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action, note: responseNote || null }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Offer response failed.");
+      setMessage(result.message);
+      setResponseNote("");
+      await refresh();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Offer response failed."); }
+    finally { setBusy(false); }
+  }
+
+  if (!record || !lead) return <AdminShell active="Customers"><div className="card profile-card"><h2>{message || "Property not found"}</h2></div></AdminShell>;
+
+  const property = record.property;
+  const details = lead.propertyDetails!;
+  const visitStatus = calculateVisitStatus(lead);
 
   return <AdminShell active="Customers">
-    <section className="property-service-hero">
-      <div className="property-service-identity"><div className="property-service-avatar">{lead.propertyPhoto?<img src={lead.propertyPhoto} alt="Property"/>:<span>⌂</span>}</div><div><span className="property-service-kicker">PROPERTY SERVICE · LIVE RECORD</span><h1>{lead.address || lead.name}</h1><p>{lead.name} · {lead.phone || "No phone"} · {lead.email || "No email"}</p></div></div>
-      <div className="property-service-actions"><span className={`visit-badge ${calculateVisitStatus(lead)}`}><i></i>{visitLabel(lead)}</span><button className="btn btn-primary" onClick={saveAll}>Save changes</button></div>
-      <div className="property-service-summary"><div><small>Service</small><strong>{lead.service}</strong><span>{lead.serviceFrequency||"One time"}</span></div><div><small>Next visit</small><strong>{lead.nextVisitDate||lead.scheduledDate||"Not scheduled"}</strong><span>{lead.assignedCrew||"Crew unassigned"}</span></div><div><small>Contract value</small><strong>${Number(lead.total||lead.subtotal||0).toFixed(2)}</strong><span>{lead.paymentStatus||"Payment status pending"}</span></div><div><small>Open tasks</small><strong>{openTasks.length}</strong><span>{openTasks.length?"Needs attention":"Property clear"}</span></div></div>
-    </section>
-    <div className="client-tabs property-service-tabs">{tabs.map((t) => <button key={t} className={tab === tabKey(t) ? "client-tab active" : "client-tab"} onClick={() => setTab(tabKey(t))}>{t}</button>)}</div>
+    {message && <div className="payment-message" style={{ marginBottom: 16 }}>{message}</div>}
 
-    {tab === "customer" && <section className="card profile-card"><h2>Edit Customer</h2><div className="form-grid"><div className="field"><label>Name</label><input className="input" value={lead.name} onChange={(e) => setLead({ ...lead, name: e.target.value })} /></div><div className="field"><label>Phone</label><input className="input" value={lead.phone} onChange={(e) => setLead({ ...lead, phone: e.target.value })} /></div><div className="field"><label>Email</label><input className="input" value={lead.email} onChange={(e) => setLead({ ...lead, email: e.target.value })} /></div><div className="field"><label>Customer Notes</label><input className="input" value={lead.notes || ""} onChange={(e) => setLead({ ...lead, notes: e.target.value })} /></div></div></section>}
-
-    {tab === "property" && <section className="property-reference-layout">
-      <div className="property-reference-head"><h2>Contract</h2><button type="button" onClick={()=>setDetailsOpen(value=>!value)}>{detailsOpen?"Hide details":"Show details"}</button></div>
-      <article className="property-contract-summary"><div className="property-contract-thumb">{lead.propertyPhoto?<img src={lead.propertyPhoto} alt="Property"/>:<span>🏡</span>}</div><div><strong>{lead.service}</strong><small>{lead.serviceFrequency||"one time"} · {lead.nextVisitDate||lead.scheduledDate||"Route day pending"}</small></div><i>ⓘ</i></article>
-      {detailsOpen&&<article className="property-compact-card">
-        {(details.accessNotes||details.propertyAlerts)&&<div className="property-access-banner">ⓘ {details.accessNotes||details.propertyAlerts}</div>}
-        <dl><div><dt>Cut height</dt><dd>{details.grassHeight.replace("in","")} inches</dd></div><div><dt>Grass clippings</dt><dd>{handlingLabel(details.grassHandling)}</dd></div><div><dt>Lot size</dt><dd>{lotLabel(details.lawnSize)}</dd></div><div><dt>Service level</dt><dd>{lead.serviceFrequency||"One time"}</dd></div><div><dt>Backyard / gate</dt><dd>{details.backyard?"Backyard":"No backyard"} · {details.gated?"Gated":"Open"}</dd></div></dl>
-      </article>}
-      <div className="property-visit-title">{lead.scheduledDate?new Date(`${lead.scheduledDate}T12:00:00`).toLocaleDateString([],{month:"short",day:"numeric"}):"Latest visit"}</div>
-      <div className="property-time-cards"><div><span>Started</span><strong>{clock(session?.startedAt||lead.visitStartedAt)}</strong></div><div><span>Duration</span><strong>{formatDuration(session?.durationSeconds||lead.visitDurationSeconds||runningSeconds)}</strong></div><div><span>Finished</span><strong>{clock(session?.finishedAt||lead.visitFinishedAt)}</strong></div></div>
-      <section className="property-images"><h3>Images</h3><div>{[lead.propertyPhoto,...(lead.photos||[])].filter(Boolean).map((photo,index)=><img key={index} src={photo} alt={`Property ${index+1}`}/>)}{!lead.propertyPhoto&&!(lead.photos||[]).length&&<div className="property-no-images">No images yet</div>}</div></section>
-      <div className="property-edit-toggle"><button className="btn btn-outline" onClick={()=>setEditOpen(value=>!value)}>{editOpen?"Close editing":"Edit customer and property data"}</button><span className="pill">Operational controls are Employee-only</span></div>
-      {editOpen&&<section className="card profile-card property-edit-panel"><div className="form-grid"><div className="field"><label>Address</label><input className="input" value={lead.address} onChange={(e) => setLead({ ...lead, address: e.target.value })} /></div><div className="field"><label>Lot Size</label><select className="input" value={details.lawnSize} onChange={(e) => updateDetails({ lawnSize: e.target.value as LawnSize })}><option value="xs">XS</option><option value="small">Small</option><option value="legacy">Legacy</option><option value="oversize">Oversize</option></select></div><div className="field"><label>Grass Height</label><select className="input" value={details.grassHeight} onChange={(e) => updateDetails({ grassHeight: e.target.value as GrassHeight })}><option value="2in">2&quot;</option><option value="3in">3&quot;</option><option value="4in">4&quot;</option><option value="5in">5&quot;</option></select></div><div className="field"><label>Grass Handling</label><select className="input" value={details.grassHandling} onChange={(e) => updateDetails({ grassHandling: e.target.value as GrassHandling })}>{grassOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div><div className="field"><label>Backyard</label><select className="input" value={details.backyard ? "yes" : "no"} onChange={(e) => updateDetails({ backyard: e.target.value === "yes" })}><option value="yes">Yes</option><option value="no">No</option></select></div><div className="field"><label>Gate</label><select className="input" value={details.gated ? "yes" : "no"} onChange={(e) => updateDetails({ gated: e.target.value === "yes" })}><option value="yes">Yes</option><option value="no">No</option></select></div></div><div className="field"><label>Access Notes</label><textarea className="input field-note" value={details.accessNotes || ""} onChange={(e) => updateDetails({ accessNotes: e.target.value })} /></div><div className="field"><label>Property Alerts</label><textarea className="input field-note" value={details.propertyAlerts || ""} onChange={(e) => updateDetails({ propertyAlerts: e.target.value })} /></div></section>}
+    {record.offer.status === "offered" && <section className="card profile-card" style={{ borderColor: "#d8a73d", marginBottom: 18 }}>
+      <div className="table-head"><div><h2>New customer offer</h2><p className="section-intro">Master offered this property to your company. Accepting releases it to Schedule, Dispatch and Employee Route.</p></div><span className="pill">${Number(record.offer.price || 0).toFixed(2)} CAD</span></div>
+      <div className="field"><label>Response note</label><textarea className="input field-note" value={responseNote} onChange={(event) => setResponseNote(event.target.value)} placeholder="Optional note to Master" /></div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}><button className="btn btn-outline" disabled={busy} onClick={() => void respondToOffer("decline")}>Decline</button><button className="btn btn-primary" disabled={busy} onClick={() => void respondToOffer("accept")}>Accept customer</button></div>
     </section>}
 
-    {tab === "service" && <section className="card profile-card"><div className="table-head"><div><h2>Service Overview</h2><p className="section-intro">Read-only operational view. Only the assigned Employee can start, finish, reset or upload completion photos.</p></div><span className={`visit-badge ${calculateVisitStatus(lead)}`}><i></i>{visitLabel(lead)}</span></div><div className="detail-grid"><div className="detail-box"><div className="detail-label">Service</div><div className="detail-value">{lead.service}</div><small>{lead.serviceFrequency||"one time"}</small></div><div className="detail-box"><div className="detail-label">Value</div><div className="detail-value">${Number(lead.total||lead.subtotal||0).toFixed(2)}</div><small>Customer contract</small></div><div className="detail-box"><div className="detail-label">Status</div><div className="detail-value">{visitLabel(lead)}</div><small>{lead.nextVisitDate||lead.scheduledDate||"Not scheduled"}</small></div><div className="detail-box"><div className="detail-label">Crew</div><div className="detail-value">{lead.assignedCrew||"Unassigned"}</div><small>Synced assignment</small></div><div className="detail-box"><div className="detail-label">Started</div><div className="detail-value">{clock(session?.startedAt||lead.visitStartedAt)}</div><small>Employee record</small></div><div className="detail-box"><div className="detail-label">Finished</div><div className="detail-value">{clock(session?.finishedAt||lead.visitFinishedAt)}</div><small>{formatDuration(session?.durationSeconds||lead.visitDurationSeconds||runningSeconds)}</small></div><div className="detail-box"><div className="detail-label">Open tasks</div><div className="detail-value">{openTasks.length}</div><small>{openTasks[0]?.description||"No return visit"}</small></div><div className="detail-box"><div className="detail-label">Completion</div><div className="detail-value">{session?.completionComment||"Pending"}</div><small>Read only</small></div></div></section>}
+    <section className="property-service-hero">
+      <div className="property-service-identity"><div className="property-service-avatar">{lead.propertyPhoto ? <img src={lead.propertyPhoto} alt="Property" /> : <span>⌂</span>}</div><div><span className="property-service-kicker">PROPERTY SERVICE · LIVE DATABASE RECORD</span><h1>{lead.address}</h1><p>{record.permissions.contactHidden ? `${lead.name} · Platform customer · Contact protected` : `${lead.name} · ${lead.phone || "No phone"} · ${lead.email || "No email"}`}</p></div></div>
+      <div className="property-service-actions"><span className={`visit-badge ${visitStatus}`}><i></i>{lead.status === "completed" ? "Done" : "Open"}</span></div>
+      <div className="property-service-summary"><div><small>Service</small><strong>{lead.service}</strong><span>{plan.frequency}</span></div><div><small>Next visit</small><strong>{lead.nextVisitDate || lead.scheduledDate || "Not scheduled"}</strong><span>Employee not assigned</span></div><div><small>Company value</small><strong>${Number(record.offer.price || 0).toFixed(2)}</strong><span>CAD service offer</span></div><div><small>History</small><strong>{visits.length}</strong><span>Visits in this company</span></div></div>
+    </section>
 
-    {tab === "history" && <section className="card profile-card"><div className="table-head"><div><h2>Service History</h2><p className="section-intro">Every visit keeps its own details and execution photos. The property profile photo is never mixed into this gallery.</p></div><span className="pill">{photoHistory?.visits.length||0} visits</span></div><div className="property-visit-history">{photoHistory?.visits.map(visit=><article key={visit.id}><header><div><small>{new Date(`${visit.scheduled_date}T12:00:00`).toLocaleDateString()}</small><h3>{visit.service_name}</h3></div><span>{visit.status}</span></header><div className="property-visit-meta"><span>Started <strong>{clock(visit.started_at||undefined)}</strong></span><span>Finished <strong>{clock(visit.finished_at||undefined)}</strong></span><span>Duration <strong>{formatDuration(visit.duration_seconds||0)}</strong></span></div><p>{visit.customer_visible_summary||visit.employee_notes||"No completion notes recorded."}</p>{visit.photos.length?<div className="property-visit-photos">{visit.photos.map(photo=><figure key={photo.id}><img src={photo.url} alt={photo.caption||`${visit.service_name} ${photo.type}`}/><figcaption>{photo.caption||photo.type}</figcaption></figure>)}</div>:<div className="property-no-images">No service photos for this visit</div>}</article>)}{!photoHistory?.visits.length&&<div className="history-list">{logs.length?logs.map(a=><div className="history-day" key={a.id}><button><span>{new Date(a.createdAt).toLocaleString()}</span><strong>{a.action}</strong><em>{a.actor}</em></button><div className="history-detail"><p>{a.details}</p></div></div>):<div className="empty-state"><strong>No service history yet.</strong><p>Completed visits and their photos will appear here.</p></div>}</div>}</div></section>}
+    <div className="client-tabs property-service-tabs">{tabs.map((item) => <button key={item} className={tab === tabKey(item) ? "client-tab active" : "client-tab"} onClick={() => setTab(tabKey(item))}>{item}</button>)}</div>
 
-    {tab === "feedback history" && <section className="card profile-card"><div className="table-head"><div><h2>Feedback History</h2><p className="section-intro">Read-only record of completed visits and customer reviews. Admin cannot edit customer ratings.</p></div><span className="pill">Read only</span></div><div className="table-wrap"><table><thead><tr><th>Visit</th><th>Employee</th><th>Timer</th><th>Customer Feedback</th><th>Comment</th></tr></thead><tbody><tr><td><strong>{lead.service}</strong><br/><small>{session?.finishedAt ? new Date(session.finishedAt).toLocaleString() : lead.status === "completed" ? "Completed date not recorded" : "Not completed yet"}</small></td><td>{session?.employee || lead.assignedCrew || "Crew"}<br/><small>{session?.crew || "-"}</small></td><td>{formatDuration(session?.durationSeconds || runningSeconds)}</td><td>{lead.feedback?.rating ? `${lead.feedback.rating} ★` : lead.status === "completed" ? "No feedback left" : "Waiting completion"}</td><td>{lead.feedback?.comment || session?.completionComment || "-"}</td></tr>{tasks.filter((t) => t.status === "resolved").map((t) => <tr key={t.id}><td><strong>Return Visit</strong><br/><small>{t.resolvedAt ? new Date(t.resolvedAt).toLocaleString() : "Resolved"}</small></td><td>{t.completedBy || t.assignedTo || "Employee"}</td><td>{formatDuration(t.durationSeconds || 0)}</td><td>No customer feedback left</td><td>{t.completionSummary || t.workDone || t.description}</td></tr>)}</tbody></table></div></section>}
+    {tab === "customer" && <section className="card profile-card"><div className="table-head"><div><h2>{record.permissions.canEditCustomer ? "Customer" : "Platform customer"}</h2><p className="section-intro">{record.permissions.canEditCustomer ? "This customer belongs to your company. Changes save directly to the database." : "Contact details are protected and profile changes are Master-only."}</p></div>{record.permissions.lockedByPlatform && <span className="pill">Master managed</span>}</div><div className="form-grid"><div className="field"><label>Name</label><input className="input" disabled={!record.permissions.canEditCustomer} value={record.customer.full_name || ""} onChange={(event) => setRecord({ ...record, customer: { ...record.customer, full_name: event.target.value } })} /></div>{!record.permissions.contactHidden && <><div className="field"><label>Phone</label><input className="input" disabled={!record.permissions.canEditCustomer} value={record.customer.phone || ""} onChange={(event) => setRecord({ ...record, customer: { ...record.customer, phone: event.target.value } })} /></div><div className="field"><label>Email</label><input className="input" disabled={!record.permissions.canEditCustomer} value={record.customer.email || ""} onChange={(event) => setRecord({ ...record, customer: { ...record.customer, email: event.target.value } })} /></div></>}<div className="field"><label>Customer notes</label><input className="input" disabled={!record.permissions.canEditCustomer} value={record.customer.notes || ""} onChange={(event) => setRecord({ ...record, customer: { ...record.customer, notes: event.target.value } })} /></div></div>{record.permissions.canEditCustomer && <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}><button className="btn btn-primary" disabled={busy} onClick={() => void saveCustomer()}>{busy ? "Saving…" : "Save customer"}</button></div>}</section>}
 
-    {message && <div className="payment-message" style={{ marginTop: 16 }}>{message}</div>}
+    {tab === "property" && <section className="property-reference-layout">
+      <div className="property-reference-head"><h2>Contract</h2><button type="button" onClick={() => setDetailsOpen((value) => !value)}>{detailsOpen ? "Hide details" : "Show details"}</button></div>
+      <article className="property-contract-summary"><div className="property-contract-thumb">{lead.propertyPhoto ? <img src={lead.propertyPhoto} alt="Property" /> : <span>🏡</span>}</div><div><strong>{lead.address}</strong><small>{lead.service} · {plan.frequency} · {lead.nextVisitDate || lead.scheduledDate || "Route day pending"}</small></div><i>ⓘ</i></article>
+      {detailsOpen && <article className="property-compact-card">{details.accessNotes && <div className="property-access-banner">ⓘ {details.accessNotes}</div>}<dl><div><dt>Cut height</dt><dd>{String(details.grassHeight || "").replace("in", "")} inches</dd></div><div><dt>Lot size</dt><dd>{lotLabel(property.lot_size)}</dd></div><div><dt>Gate</dt><dd>{property.gate ? "Yes" : "No"}</dd></div><div><dt>Dog</dt><dd>{property.dog ? "Yes" : "No"}</dd></div><div><dt>Irrigation</dt><dd>{property.irrigation ? "Yes" : "No"}</dd></div><div><dt>Service level</dt><dd>{plan.frequency}</dd></div></dl></article>}
+      <section className="property-images"><h3>Images</h3><div>{lead.propertyPhoto ? <img src={lead.propertyPhoto} alt="Property" /> : <div className="property-no-images">No house photo yet</div>}</div></section>
+      <div className="property-edit-toggle"><span className="pill">Property details are Master-only</span></div>
+    </section>}
+
+    {tab === "service" && <section className="card profile-card"><div className="table-head"><div><h2>Service overview</h2><p className="section-intro">Read-only operational data from the canonical job and visit records.</p></div><span className={`visit-badge ${visitStatus}`}><i></i>{lead.status === "completed" ? "Done" : "Open"}</span></div><div className="detail-grid"><div className="detail-box"><div className="detail-label">Property</div><div className="detail-value">{lead.address}</div><small>Database address</small></div><div className="detail-box"><div className="detail-label">Service</div><div className="detail-value">{lead.service}</div><small>{plan.frequency}</small></div><div className="detail-box"><div className="detail-label">Company value</div><div className="detail-value">${Number(record.offer.price || 0).toFixed(2)}</div><small>CAD</small></div><div className="detail-box"><div className="detail-label">Status</div><div className="detail-value">{lead.status === "completed" ? "Done" : "Open"}</div><small>{lead.nextVisitDate || lead.scheduledDate || "Not scheduled"}</small></div><div className="detail-box"><div className="detail-label">Started</div><div className="detail-value">{clock(lead.visitStartedAt)}</div><small>Employee record</small></div><div className="detail-box"><div className="detail-label">Finished</div><div className="detail-value">{clock(lead.visitFinishedAt)}</div><small>{formatDuration(lead.visitDurationSeconds || 0)}</small></div></div></section>}
+
+    {tab === "history" && <section className="card profile-card"><div className="table-head"><div><h2>Service history</h2><p className="section-intro">Every service completed for this property while assigned to this company.</p></div><span className="pill">{visits.length} visits</span></div><div className="property-visit-history">{visits.map((visit) => <article key={visit.id}><header><div><small>{new Date(`${visit.scheduled_date}T12:00:00`).toLocaleDateString()}</small><h3>{visit.service_name}</h3></div><span>{visit.status}</span></header><div className="property-visit-meta"><span>Started <strong>{clock(visit.started_at)}</strong></span><span>Finished <strong>{clock(visit.finished_at)}</strong></span><span>Duration <strong>{formatDuration(visit.duration_seconds || 0)}</strong></span></div><p>{visit.customer_visible_summary || visit.employee_notes || "No completion notes recorded."}</p>{visit.photos.length ? <div className="property-visit-photos">{visit.photos.map((photo) => <figure key={photo.id}><img src={photo.url} alt={photo.caption || `${visit.service_name} ${photo.type}`} /><figcaption>{photo.caption || photo.type}</figcaption></figure>)}</div> : <div className="property-no-images">No service photos for this visit</div>}</article>)}{!visits.length && <div className="empty-state"><strong>No service history yet.</strong><p>Completed visits for this company will appear here.</p></div>}</div></section>}
   </AdminShell>;
 }
