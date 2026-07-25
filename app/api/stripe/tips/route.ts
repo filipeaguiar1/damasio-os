@@ -41,7 +41,8 @@ export async function POST(request: NextRequest) {
     if (!Number.isFinite(amount) || amount < 1 || amount > 500) return failure("Choose a tip between $1 and $500.", 400);
     const amountCents = Math.round(amount * 100);
     const companyId = customer.company_id || customer.organization_id || "";
-    const returnPath = body.returnPath === "/customer/payments" ? "/customer/payments" : "/mobile/customer/payments";
+    const allowedPaths = new Set(["/customer/feedback", "/mobile/customer/feedback"]);
+    const returnPath = allowedPaths.has(String(body.returnPath || "")) ? String(body.returnPath) : "/customer/feedback";
     const metadata = {
       paymentKind: "customer_tip",
       customerId: customer.id,
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: customer.email || auth.user.email || undefined,
-      line_items: [{ quantity: 1, price_data: { currency: "cad", unit_amount: amountCents, product_data: { name: "Service tip", description: "Optional tip submitted through 4Ever Seasons." } } }],
+      line_items: [{ quantity: 1, price_data: { currency: "cad", unit_amount: amountCents, product_data: { name: "Service tip", description: "Optional tip submitted after customer feedback." } } }],
       metadata,
       payment_intent_data: { metadata },
       success_url: `${siteUrl}${returnPath}?tip=success&tip_session_id={CHECKOUT_SESSION_ID}`,
