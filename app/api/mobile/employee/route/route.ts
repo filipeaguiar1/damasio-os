@@ -70,7 +70,7 @@ async function loadRoute(client:ReturnType<typeof serviceClient>,employee:Employ
     .from("visits")
     .select("id,route_id,property_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,employee_notes,properties(address_line1,city,province,postal_code,latitude,longitude),customers(full_name),jobs(service_name)")
     .eq("scheduled_date",date)
-    .not("status","in","(cancelled,missed)")
+    .neq("status","cancelled")
     .order("route_order",{ascending:true,nullsFirst:false});
   if(employee.crew_id)query=query.or(`assigned_employee_id.eq.${employee.id},crew_id.eq.${employee.crew_id}`);
   else query=query.eq("assigned_employee_id",employee.id);
