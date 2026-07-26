@@ -115,10 +115,16 @@ async function publishSmartRoute(service:any, companyId:string, crewId:string, r
 
   for (let index=0; index<jobIds.length; index++) {
     const job = jobs.find((item:any)=>item.id===jobIds[index]);
-    const current = await service.from("visits").select("id").eq("job_id", job.id).eq("scheduled_date", routeDate).not("status","in",'("cancelled","missed")').or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).limit(1).maybeSingle();
-    if (current.error) throw new Error(current.error.message);
-    if (current.data?.id) {
-      const updated = await service.from("visits").update({ route_id: routeId, crew_id: crewId, scheduled_date: routeDate, route_order: index+1, status: "scheduled" }).eq("id", current.data.id);
+    const existingVisits = await service.from("visits").select("id,status,created_at")
+      .eq("job_id", job.id)
+      .eq("scheduled_date", routeDate)
+      .or(`company_id.eq.${companyId},organization_id.eq.${companyId}`)
+      .order("created_at", { ascending: true });
+    if (existingVisits.error) throw new Error(existingVisits.error.message);
+    const current = (existingVisits.data || []).find((visit:any)=>visit.status !== "cancelled" && visit.status !== "missed");
+
+    if (current?.id) {
+      const updated = await service.from("visits").update({ route_id: routeId, crew_id: crewId, scheduled_date: routeDate, route_order: index+1, status: "scheduled" }).eq("id", current.id);
       if (updated.error) throw new Error(updated.error.message);
     } else {
       const inserted = await service.from("visits").insert({ organization_id: companyId, company_id: companyId, job_id: job.id, route_id: routeId, customer_id: job.customer_id, property_id: job.property_id, crew_id: crewId, scheduled_date: routeDate, route_order: index+1, status: "scheduled" });
