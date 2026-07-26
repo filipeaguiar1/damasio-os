@@ -24,7 +24,7 @@ const quickActions: NavLink[] = [
   ["New Work Order", "/admin/tasks/open"],
   ["Add Customer", "/admin/add-client"],
   ["Recommend Service", "/admin/recommend-service"],
-  ["Routes", "/admin/routes"],
+  ["Build Route", "/admin/routes?tab=build"],
   ["Request Approval", "/admin/requests"],
   ["Message Center", "/admin/notifications"],
   ["Database Health", "/admin/database"],
@@ -116,7 +116,7 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
       </footer>
       <nav className="mobile-shell-bottom" aria-label="Admin subpage navigation">
         <Link className={active === "Dashboard" || active === "Operations Studio" ? "active" : ""} href="/admin"><i>H</i><span>Home</span></Link>
-        <Link className={active === "Dispatch" || active === "Calendar" ? "active" : ""} href="/admin/schedule"><i>S</i><span>Schedule</span></Link>
+        <Link href="/admin/routes?tab=build"><i>B</i><span>Build</span></Link>
         <Link className={active === "Routes" || active === "Dispatch & Routes" || active === "Map" ? "active" : ""} href="/admin/routes"><i>R</i><span>Routes</span></Link>
         <Link className={active === "Tasks" ? "active" : ""} href="/admin/tasks/open"><i>!</i><span>Tasks</span></Link>
         <button type="button" onClick={() => setMobileMenuOpen(true)}><i>...</i><span>More</span></button>
