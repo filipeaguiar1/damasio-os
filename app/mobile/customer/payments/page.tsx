@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { MobileBackButton } from "@/components/mobile/MobileBackButton";
 import { MobileCustomerNav } from "@/components/mobile/MobileCustomerNav";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
@@ -20,7 +20,7 @@ function label(value: string) {
   return value.replaceAll("_", " ");
 }
 
-export default function MobileCustomerPayments() {
+function MobileCustomerPaymentsContent() {
   const wallet = useCustomerWallet();
   const billing = useCustomerBilling();
   const [servicePaymentMethod, setServicePaymentMethod] = useState<CustomerPaymentMethod>("card");
@@ -92,4 +92,8 @@ export default function MobileCustomerPayments() {
 
     <MobileCustomerNav active="billing"/>
   </main></MobileRoleGuard>;
+}
+
+export default function MobileCustomerPayments() {
+  return <Suspense fallback={<main className="mobile-splash"><div className="mobile-logo-pulse"><span>4</span></div><h1>4Ever Seasons</h1><p>Loading payments...</p></main>}><MobileCustomerPaymentsContent /></Suspense>;
 }
