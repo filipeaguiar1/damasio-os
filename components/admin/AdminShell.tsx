@@ -115,7 +115,7 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
         <Link href="/admin/finance">Finance queue</Link>
       </footer>
       <nav className="mobile-shell-bottom" aria-label="Admin subpage navigation">
-        <Link href="/mobile/admin"><i>H</i><span>Home</span></Link>
+        <Link className={active === "Dashboard" || active === "Operations Studio" ? "active" : ""} href="/admin"><i>H</i><span>Home</span></Link>
         <Link className={active === "Dispatch" || active === "Calendar" ? "active" : ""} href="/admin/schedule"><i>S</i><span>Schedule</span></Link>
         <Link className={active === "Routes" || active === "Dispatch & Routes" || active === "Map" ? "active" : ""} href="/admin/routes"><i>R</i><span>Routes</span></Link>
         <Link className={active === "Tasks" ? "active" : ""} href="/admin/tasks/open"><i>!</i><span>Tasks</span></Link>
