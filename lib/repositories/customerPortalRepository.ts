@@ -89,7 +89,85 @@ export type CustomerPortalBoard = {
   feedback: CustomerPortalFeedback[];
 };
 
+export type PaymentsVisit = {
+  id: string;
+  jobId: string | null;
+  serviceName: string;
+  scheduledDate: string | null;
+  status: string;
+  address: string | null;
+  city?: string | null;
+  crewName?: string | null;
+  routeOrder?: number | null;
+  finishedAt?: string | null;
+  customerVisibleSummary?: string | null;
+  feedbackRating?: number | null;
+  feedbackComment?: string | null;
+};
+
+export type PaymentsAgreement = {
+  id: string;
+  jobId: string;
+  billingModel: string;
+  collectionTiming: string;
+  customerOrigin: "platform" | "company";
+  contractStartsOn: string | null;
+  contractEndsOn: string | null;
+  feedbackWindowHours: number;
+  prepaidPlanType: "monthly" | "seasonal" | null;
+  planBillingDay: number;
+  serviceStartDay: number | null;
+  active: boolean;
+  serviceFrequency: string;
+  serviceName: string;
+};
+
+export type PaymentsBillingCycle = {
+  id: string;
+  agreementId: string;
+  cycleType: "monthly" | "seasonal";
+  periodStartsOn: string;
+  periodEndsOn: string;
+  chargeDueOn: string;
+  serviceAvailableOn: string;
+  state: string;
+  paidAt: string | null;
+};
+
+export type PaymentsBillingEvent = {
+  id: string;
+  visitId: string;
+  state: string;
+  visitCompletedAt: string;
+  feedbackDeadlineAt: string;
+  reopenedFeedbackDeadlineAt: string | null;
+  eligibleToChargeAt: string | null;
+  chargedAt: string | null;
+  transferredAt: string | null;
+  activeTaskId: string | null;
+};
+
+export type PaymentsOpenTask = {
+  id: string;
+  visitId: string | null;
+  title: string;
+  status: string;
+  priority: string;
+  createdAt: string;
+  resolvedAt: string | null;
+};
+
+export type CustomerPaymentsVisitsPortal = {
+  upcomingVisits: PaymentsVisit[];
+  visitHistory: PaymentsVisit[];
+  agreements: PaymentsAgreement[];
+  billingCycles: PaymentsBillingCycle[];
+  billingEvents: PaymentsBillingEvent[];
+  openTasks: PaymentsOpenTask[];
+};
+
 const emptyBoard: CustomerPortalBoard = { property: null, visits: [], tasks: [], requests: [], quotes: [], feedback: [] };
+const emptyPaymentsPortal: CustomerPaymentsVisitsPortal = { upcomingVisits: [], visitHistory: [], agreements: [], billingCycles: [], billingEvents: [], openTasks: [] };
 
 function normalizeBoard(data: unknown): CustomerPortalBoard {
   const board = (data || {}) as Partial<CustomerPortalBoard>;
@@ -103,6 +181,18 @@ function normalizeBoard(data: unknown): CustomerPortalBoard {
   };
 }
 
+function normalizePaymentsPortal(data: unknown): CustomerPaymentsVisitsPortal {
+  const portal = (data || {}) as Partial<CustomerPaymentsVisitsPortal>;
+  return {
+    upcomingVisits: Array.isArray(portal.upcomingVisits) ? portal.upcomingVisits : [],
+    visitHistory: Array.isArray(portal.visitHistory) ? portal.visitHistory : [],
+    agreements: Array.isArray(portal.agreements) ? portal.agreements : [],
+    billingCycles: Array.isArray(portal.billingCycles) ? portal.billingCycles : [],
+    billingEvents: Array.isArray(portal.billingEvents) ? portal.billingEvents : [],
+    openTasks: Array.isArray(portal.openTasks) ? portal.openTasks : [],
+  };
+}
+
 async function rpcBoard(name: string, args?: Record<string, unknown>) {
   const supabase = getSupabaseBrowserClient();
   const { data, error } = await supabase.rpc(name as never, (args || {}) as never);
@@ -112,6 +202,13 @@ async function rpcBoard(name: string, args?: Record<string, unknown>) {
 
 export function getCustomerPortalBoard() {
   return rpcBoard("get_customer_portal_board");
+}
+
+export async function getCustomerPaymentsVisitsPortal() {
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase.rpc("get_customer_payments_visits_portal" as never);
+  if (error) throw new Error(error.message);
+  return normalizePaymentsPortal(data || emptyPaymentsPortal);
 }
 
 export function createCustomerPortalRequest(input: { serviceName: string; message?: string }) {
