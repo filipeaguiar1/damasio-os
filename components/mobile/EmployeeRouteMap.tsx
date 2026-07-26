@@ -10,9 +10,7 @@ import { readRoadGeometry, saveRoadGeometry } from "@/lib/maps/clientMapCache";
 declare global { interface Window { L?: any } }
 
 type Point = Lead & { latitude: number; longitude: number; color: string; label: string };
-
 type RouteOriginPoint = { latitude:number; longitude:number; label?:string };
-
 type Props = {
   route: Lead[];
   onOpenVisit: (lead: Lead) => void;
@@ -72,11 +70,11 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false,
       })).then(values => values.filter((lead): lead is Lead => Boolean(lead)));
       if (cancelled) return;
       setResolvedRoute(located);
-      if (located.length < 2) { setGeometry(null); setMapStatus("Map ready"); return; }
       const coordinates = [
         ...(originPoint ? [[Number(originPoint.longitude), Number(originPoint.latitude)] as [number, number]] : []),
         ...located.map(lead => [Number(lead.longitude), Number(lead.latitude)] as [number, number])
       ];
+      if (coordinates.length < 2) { setGeometry(null); setMapStatus("Map ready"); return; }
       const cached = readRoadGeometry(coordinates);
       if (cached) { setGeometry(cached); setMapStatus("Driving route"); return; }
       setMapStatus("Calculating driving route...");
@@ -92,7 +90,7 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false,
     }
     locateAndRoute();
     return () => { cancelled = true; };
-  }, [routeKey, routeId, originKey]); // Re-geocode only when the assigned stops or their addresses change.
+  }, [routeKey, routeId, originKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,7 +164,7 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false,
         });
         L.marker([point.latitude, point.longitude], { icon }).on("click", () => setSelectedId(point.id)).addTo(markerLayerRef.current);
       });
-      if (!didInitialFit.current && points.length) {
+      if (!didInitialFit.current && (points.length || originPoint)) {
         didInitialFit.current = true;
         fitRoute();
       }
