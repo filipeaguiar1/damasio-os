@@ -2,10 +2,10 @@ export type DemoRole = "master" | "admin" | "employee" | "customer";
 export type DemoSession = { role: DemoRole; name: string; email: string; companyId: string; companyName: string };
 
 export const DEMO_SESSIONS: Record<DemoRole, DemoSession> = {
-  master: { role: "master", name: "Filipe Damasio", email: "master@damasioos.demo", companyId: "master-control-plane", companyName: "4Ever Seasons" },
-  admin: { role: "admin", name: "Filipe Damasio", email: "admin@damasioos.demo", companyId: "demo-company", companyName: "4Ever Seasons" },
-  employee: { role: "employee", name: "Field Employee", email: "employee@damasioos.demo", companyId: "demo-company", companyName: "4Ever Seasons" },
-  customer: { role: "customer", name: "Customer Demo", email: "customer@damasioos.demo", companyId: "demo-company", companyName: "4Ever Seasons" },
+  master: { role: "master", name: "Disabled", email: "", companyId: "", companyName: "" },
+  admin: { role: "admin", name: "Disabled", email: "", companyId: "", companyName: "" },
+  employee: { role: "employee", name: "Disabled", email: "", companyId: "", companyName: "" },
+  customer: { role: "customer", name: "Disabled", email: "", companyId: "", companyName: "" },
 };
 
 export function getRoleHome(role: DemoRole){
@@ -15,16 +15,14 @@ export function getRoleHome(role: DemoRole){
   return "/customer";
 }
 
-export function saveDemoSession(role: DemoRole){
-  if(typeof window==="undefined") return;
-  window.localStorage.setItem("damasio_os_session", JSON.stringify(DEMO_SESSIONS[role]));
+export function saveDemoSession(_role: DemoRole){
+  clearDemoSession();
+  throw new Error("Demo access has been removed. Sign in with a live account.");
 }
 
 export function readDemoSession(): DemoSession | null{
-  if(typeof window==="undefined") return null;
-  const raw=window.localStorage.getItem("damasio_os_session");
-  if(!raw) return null;
-  try{return JSON.parse(raw) as DemoSession}catch{return null}
+  clearDemoSession();
+  return null;
 }
 
 export function clearDemoSession(){
