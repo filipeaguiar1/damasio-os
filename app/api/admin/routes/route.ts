@@ -102,18 +102,32 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { user } = await requireAdmin(request);
-    const body = await request.json() as { action?: "assign"|"smart"|"move"; jobIds?: string[]; crewId?: string; routeDate?: string };
+    const body = await request.json() as { action?: "assign"|"unassign"|"smart"|"move"; jobIds?: string[]; crewId?: string; routeDate?: string };
     const jobIds = [...new Set((body.jobIds || []).filter(Boolean))];
-    if (!body.crewId) throw new Error("Select an Employee.");
     if (!jobIds.length) throw new Error("Select at least one customer.");
     const action = body.action || "assign";
-    if (action === "assign") {
-      for (const jobId of jobIds) { const result = await user.rpc("assign_job_to_crew", { p_job_id: jobId, p_crew_id: body.crewId }); if (result.error) throw new Error(result.error.message); }
+
+    if (action === "unassign") {
+      for (const jobId of jobIds) {
+        const result = await user.rpc("assign_job_to_crew", { p_job_id: jobId, p_crew_id: null });
+        if (result.error) throw new Error(result.error.message);
+      }
       return NextResponse.json({ saved: true, count: jobIds.length, action });
     }
+
+    if (!body.crewId) throw new Error("Select an Employee.");
+    if (action === "assign") {
+      for (const jobId of jobIds) {
+        const result = await user.rpc("assign_job_to_crew", { p_job_id: jobId, p_crew_id: body.crewId });
+        if (result.error) throw new Error(result.error.message);
+      }
+      return NextResponse.json({ saved: true, count: jobIds.length, action });
+    }
+
     if (!body.routeDate) throw new Error("Select a route date.");
+    const rpcName = action === "smart" ? "schedule_job_on_route" : "save_job_route_pattern";
     for (let index = 0; index < jobIds.length; index++) {
-      const result = await user.rpc("save_job_route_pattern", { p_job_id: jobIds[index], p_crew_id: body.crewId, p_route_date: body.routeDate, p_route_order: Number(index + 1) });
+      const result = await user.rpc(rpcName, { p_job_id: jobIds[index], p_crew_id: body.crewId, p_route_date: body.routeDate, p_route_order: index + 1 });
       if (result.error) throw new Error(result.error.message);
     }
     return NextResponse.json({ saved: true, count: jobIds.length, action });
