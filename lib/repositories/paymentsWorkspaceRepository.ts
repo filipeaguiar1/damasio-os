@@ -111,11 +111,17 @@ export async function saveAgreement(input: SaveAgreementInput) {
   return String(data);
 }
 
+function defaultHorizon() {
+  const date = new Date();
+  date.setDate(date.getDate() + 90);
+  return date.toISOString().slice(0, 10);
+}
+
 export async function generateAgreementVisits(agreementId: string, horizon?: string) {
   const supabase = getSupabaseBrowserClient();
   const { data, error } = await supabase.rpc("generate_agreement_visits" as never, {
     p_agreement_id: agreementId,
-    p_horizon: horizon || null,
+    p_horizon: horizon || defaultHorizon(),
   } as never);
   if (error) throw new Error(error.message);
   return Number(data || 0);
