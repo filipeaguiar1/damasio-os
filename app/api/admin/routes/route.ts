@@ -97,25 +97,35 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
 async function canonicalVisits(service:any, companyId:string){
   const result=await service.from("visits").select("id,job_id,route_id,crew_id,assigned_employee_id,customer_id,property_id,scheduled_date,status,route_order,started_at,finished_at,duration_seconds,created_at,customers(full_name),properties(address_line1,city,province,postal_code),jobs(service_name),employees(full_name)").or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).not("status","in","(cancelled,missed)").order("scheduled_date",{ascending:false}).order("route_order",{ascending:true,nullsFirst:false}).limit(500);
   if(result.error)throw new Error(result.error.message);
-  return (result.data||[]).map((row:any)=>({
-    id:row.id,jobId:row.job_id,routeId:row.route_id,crewId:row.crew_id,employeeId:row.assigned_employee_id,
-    employeeName:(Array.isArray(row.employees)?row.employees[0]:row.employees)?.full_name||null,
-    customerId:row.customer_id,customerName:(Array.isArray(row.customers)?row.customers[0]:row.customers)?.full_name||null,
-    propertyId:row.property_id,address:[(Array.isArray(row.properties)?row.properties[0]:row.properties)?.address_line1,(Array.isArray(row.properties)?row.properties[0]:row.properties)?.city,(Array.isArray(row.properties)?row.properties[0]:row.properties)?.province,(Array.isArray(row.properties)?row.properties[0]:row.properties)?.postal_code].filter(Boolean).join(", "),
-    serviceName:(Array.isArray(row.jobs)?row.jobs[0]:row.jobs)?.service_name||"Property Service",scheduledDate:row.scheduled_date,status:row.status,routeOrder:row.route_order,startedAt:row.started_at,finishedAt:row.finished_at,durationSeconds:row.duration_seconds,createdAt:row.created_at,
-  }));
+  return (result.data||[]).map((row:any)=>{
+    const employee=(Array.isArray(row.employees)?row.employees[0]:row.employees)?.full_name||null;
+    const property=Array.isArray(row.properties)?row.properties[0]:row.properties;
+    return {
+      id:row.id,jobId:row.job_id,routeId:row.route_id,crewId:row.crew_id,crewName:employee,employeeId:row.assigned_employee_id,employeeName:employee,
+      customerId:row.customer_id,customerName:(Array.isArray(row.customers)?row.customers[0]:row.customers)?.full_name||null,
+      propertyId:row.property_id,address:[property?.address_line1,property?.city,property?.province,property?.postal_code].filter(Boolean).join(", "),
+      serviceName:(Array.isArray(row.jobs)?row.jobs[0]:row.jobs)?.service_name||"Property Service",scheduledDate:row.scheduled_date,status:row.status,routeOrder:row.route_order,startedAt:row.started_at,finishedAt:row.finished_at,durationSeconds:row.duration_seconds,createdAt:row.created_at,
+    };
+  });
 }
 
-async function publishEmployeeRoute(service:any, companyId:string, employeeId:string, crewId:string, routeDate:string, jobIds:string[]) {
-  const employeeResult=await service.from("employees").select("id,crew_id,full_name").eq("id",employeeId).eq("active",true).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).single();
-  if(employeeResult.error||!employeeResult.data)throw new Error("The selected Employee is not active in this company.");
-  const canonicalCrewId=employeeResult.data.crew_id||crewId;
+async function resolveRouteEmployee(service:any,companyId:string,employeeId:string|undefined,crewId:string){
+  let query=service.from("employees").select("id,crew_id,full_name").eq("active",true).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
+  query=employeeId?query.eq("id",employeeId):query.eq("crew_id",crewId);
+  const result=await query.limit(2);
+  if(result.error)throw new Error(result.error.message);
+  if((result.data||[]).length!==1)throw new Error("The selected route must resolve to exactly one active Employee.");
+  return result.data[0];
+}
+
+async function publishEmployeeRoute(service:any, companyId:string, employeeId:string|undefined, crewId:string, routeDate:string, jobIds:string[]) {
+  const employee=await resolveRouteEmployee(service,companyId,employeeId,crewId);
+  const canonicalCrewId=employee.crew_id||crewId;
   if(!canonicalCrewId)throw new Error("The selected Employee has no route crew.");
   const jobsResult = await service.from("jobs").select("id,customer_id,property_id").in("id", jobIds).eq("active", true).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
   if (jobsResult.error) throw new Error(jobsResult.error.message);
   const jobs = jobsResult.data || [];
   if (jobs.length !== jobIds.length) throw new Error("One or more selected customer jobs are no longer available. Refresh and try again.");
-
   let routeId:string|null=null;
   const existing = await service.from("routes").select("id").eq("crew_id", canonicalCrewId).eq("route_date", routeDate).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).order("created_at").limit(1).maybeSingle();
   if (existing.error) throw new Error(existing.error.message);
@@ -128,13 +138,12 @@ async function publishEmployeeRoute(service:any, companyId:string, employeeId:st
     const updatedRoute = await service.from("routes").update({ status: "published" }).eq("id", routeId);
     if (updatedRoute.error) throw new Error(updatedRoute.error.message);
   }
-
   for (let index=0; index<jobIds.length; index++) {
     const job = jobs.find((item:any)=>item.id===jobIds[index]);
     const existingVisits = await service.from("visits").select("id,status,created_at").eq("job_id", job.id).eq("scheduled_date", routeDate).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).order("created_at", { ascending: true });
     if (existingVisits.error) throw new Error(existingVisits.error.message);
     const current = (existingVisits.data || []).find((visit:any)=>visit.status !== "cancelled" && visit.status !== "missed");
-    const visitPatch={ route_id: routeId, crew_id: canonicalCrewId, assigned_employee_id: employeeId, customer_id:job.customer_id, property_id:job.property_id, scheduled_date: routeDate, route_order: index+1, status: "scheduled" };
+    const visitPatch={ route_id: routeId, crew_id: canonicalCrewId, assigned_employee_id: employee.id, customer_id:job.customer_id, property_id:job.property_id, scheduled_date: routeDate, route_order: index+1, status: "scheduled" };
     if (current?.id) {
       const updated = await service.from("visits").update(visitPatch).eq("id", current.id);
       if (updated.error) throw new Error(updated.error.message);
@@ -145,10 +154,10 @@ async function publishEmployeeRoute(service:any, companyId:string, employeeId:st
     const updatedJob = await service.from("jobs").update({ next_visit_date: routeDate, recurrence_anchor_date: routeDate, default_route_order: index+1 }).eq("id", job.id).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
     if (updatedJob.error) throw new Error(updatedJob.error.message);
   }
-  const verification=await service.from("visits").select("id,job_id,assigned_employee_id,crew_id,scheduled_date,route_order").in("job_id",jobIds).eq("scheduled_date",routeDate).eq("assigned_employee_id",employeeId).not("status","in","(cancelled,missed)");
+  const verification=await service.from("visits").select("id,job_id,assigned_employee_id,crew_id,scheduled_date,route_order").in("job_id",jobIds).eq("scheduled_date",routeDate).eq("assigned_employee_id",employee.id).not("status","in","(cancelled,missed)");
   if(verification.error)throw new Error(verification.error.message);
   if((verification.data||[]).length!==jobIds.length)throw new Error("The route was not fully saved. No success confirmation was issued.");
-  return { saved:true, count:jobIds.length, action:"smart", routeId, employeeId, employeeName:employeeResult.data.full_name, visits:verification.data };
+  return { saved:true, count:jobIds.length, action:"smart", routeId, employeeId:employee.id, employeeName:employee.full_name, visits:verification.data };
 }
 
 export async function GET(request: NextRequest) {
@@ -173,7 +182,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ saved: true, count: jobIds.length, action });
     }
     if (!body.routeDate) throw new Error("Select a route date.");
-    if(!body.employeeId)throw new Error("Select the real Employee account for this route.");
     return NextResponse.json(await publishEmployeeRoute(service, companyId, body.employeeId, body.crewId, body.routeDate, jobIds));
   } catch (error) { return fail(error); }
 }
