@@ -4,6 +4,8 @@ ERP foundation for landscaping operations, finance, SaaS, AI and mobile field wo
 
 New in V49: Production Readiness screen with go-live checklist for operations, dispatch, data, SaaS, finance and mobile.
 
+Production deployment trigger: employee email synchronization and canonical assigned visits.
+
 # Damasio OS V43.0.2 — Feedback History + Stability Fix
 
 - Service Screen refined.
