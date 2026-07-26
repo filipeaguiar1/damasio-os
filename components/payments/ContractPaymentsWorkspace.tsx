@@ -39,7 +39,10 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
     try {
       const data = await getPaymentsWorkspace(scope);
       setWorkspace(data);
-      if (!selectedCustomerId && data.customers[0]) setSelectedCustomerId(data.customers[0].id);
+      if (selectedCustomerId && !data.customers.some((customer) => customer.id === selectedCustomerId)) {
+        setSelectedCustomerId("");
+        setSelectedJobId("");
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Payments workspace could not be loaded.");
     } finally {
@@ -60,8 +63,21 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
   const canEditSelected = Boolean(selectedCustomer && (scope === "master" ? selectedCustomer.origin === "platform" : selectedCustomer.origin !== "platform"));
 
   useEffect(() => {
+    if (!selectedCustomerId) {
+      if (selectedJobId) setSelectedJobId("");
+      return;
+    }
     if (selectedJob && selectedJob.id !== selectedJobId) setSelectedJobId(selectedJob.id);
   }, [selectedCustomerId, selectedJob?.id]);
+
+  const visibleCustomers = selectedCustomer ? [selectedCustomer] : workspace.customers;
+  const visibleHolds = workspace.events.filter((event) =>
+    ["task_hold", "awaiting_feedback", "payout_pending", "charge_failed", "payment_failed"].includes(event.state)
+    && (!selectedCustomerId || event.customerId === selectedCustomerId)
+  );
+  const visibleAgreements = workspace.agreements.filter((agreement) =>
+    agreement.active && (!selectedCustomerId || agreement.customerId === selectedCustomerId)
+  );
 
   const metrics = useMemo(() => {
     const active = workspace.agreements.filter((agreement) => agreement.active);
@@ -86,18 +102,9 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
     const feedbackHours = Number(form.get("feedbackHours") || 24);
     const prepaidPlanType = collectionTiming === "period_prepaid" ? String(form.get("prepaidPlanType") || "monthly") : null;
 
-    if (!customerAmount || customerAmount < 0) {
-      setMessage("Enter the customer contract amount.");
-      return;
-    }
-    if (scope === "master" && providerPayout <= 0) {
-      setMessage("Master contracts require the exact provider payout.");
-      return;
-    }
-    if (scope === "company" && (platformFeePercent < 0 || platformFeePercent > 100)) {
-      setMessage("Enter a valid platform fee percentage.");
-      return;
-    }
+    if (!customerAmount || customerAmount < 0) return setMessage("Enter the customer contract amount.");
+    if (scope === "master" && providerPayout <= 0) return setMessage("Master contracts require the exact provider payout.");
+    if (scope === "company" && (platformFeePercent < 0 || platformFeePercent > 100)) return setMessage("Enter a valid platform fee percentage.");
 
     setSaving(true);
     setMessage("");
@@ -130,7 +137,6 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
     }
   }
 
-  const holds = workspace.events.filter((event) => ["task_hold", "awaiting_feedback", "payout_pending", "charge_failed", "payment_failed"].includes(event.state));
   const title = scope === "master" ? "Platform Payments" : "Payments";
   const subtitle = scope === "master"
     ? "Define platform-owned customer contracts, customer collection, provider payout, and protected release rules."
@@ -151,6 +157,17 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
       <article className={styles.metric}><span>Provider value</span><strong>{money(metrics.payoutCents)}</strong><small>{scope === "master" ? "fixed payouts configured" : "visible contract payouts"}</small></article>
     </section>
 
+    <section className={styles.customerSelector}>
+      <div><span>Customer workspace</span><strong>{selectedCustomer?.name || "None"}</strong><small>Select a customer to view or configure only that account.</small></div>
+      <label>
+        <span>Customer</span>
+        <select value={selectedCustomerId} onChange={(event) => { setSelectedCustomerId(event.target.value); setSelectedJobId(""); }}>
+          <option value="">None</option>
+          {workspace.customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name} · {label(customer.origin)}</option>)}
+        </select>
+      </label>
+    </section>
+
     <section className={styles.layout}>
       <main className={styles.main}>
         <nav className={styles.tabs}>
@@ -158,9 +175,9 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
         </nav>
 
         {tab === "overview" && <section className={styles.panel}>
-          <header className={styles.panelHeader}><div><span>Live contract board</span><h2>Customers and service plans</h2><p>Contract ownership follows the customer acquisition source.</p></div><button type="button" className={`${styles.button} ${styles.secondary}`} onClick={() => void load()} disabled={loading}>{loading ? "Syncing…" : "Refresh"}</button></header>
+          <header className={styles.panelHeader}><div><span>Live contract board</span><h2>{selectedCustomer ? "Selected customer" : "Customers and service plans"}</h2><p>{selectedCustomer ? "Showing only the selected account." : "Select a customer above or review all available accounts."}</p></div><button type="button" className={`${styles.button} ${styles.secondary}`} onClick={() => void load()} disabled={loading}>{loading ? "Syncing…" : "Refresh"}</button></header>
           <div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>Customer</th><th>Origin</th><th>Service</th><th>Next visit</th><th>Contract</th><th>Owner</th></tr></thead><tbody>
-            {workspace.customers.length === 0 ? <tr><td colSpan={6}>No customers available in this scope.</td></tr> : workspace.customers.map((customer) => {
+            {visibleCustomers.length === 0 ? <tr><td colSpan={6}>No customers available in this scope.</td></tr> : visibleCustomers.map((customer) => {
               const job = workspace.jobs.find((item) => item.customerId === customer.id);
               const agreement = workspace.agreements.find((item) => item.customerId === customer.id && item.active);
               return <tr key={customer.id}><td><strong>{customer.name}</strong><small>{customer.email || "No email"}</small></td><td><span className={styles.pill}>{label(customer.origin)}</span></td><td>{job?.serviceName || "No active job"}</td><td>{job?.nextVisitDate || "Not generated"}</td><td>{agreement ? label(agreement.billingModel) : "Needs setup"}</td><td>{customer.origin === "platform" ? "Master" : "Company"}</td></tr>;
@@ -169,11 +186,11 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
         </section>}
 
         {tab === "contracts" && <section className={styles.panel}>
-          <header className={styles.panelHeader}><div><span>Contract builder</span><h2>Define service and billing</h2><p>The saved contract generates future visits and controls who can edit commercial terms.</p></div></header>
-          <form className={styles.form} onSubmit={submitContract}>
+          <header className={styles.panelHeader}><div><span>Contract builder</span><h2>Define service and billing</h2><p>Select the customer above, then choose the active service job.</p></div></header>
+          <form className={styles.form} onSubmit={submitContract} key={`${selectedCustomerId}-${selectedAgreement?.id || "new"}`}>
             <div className={styles.formGrid}>
-              <div className={`${styles.field} ${styles.wide}`}><label>Customer</label><select value={selectedCustomerId} onChange={(event) => { setSelectedCustomerId(event.target.value); setSelectedJobId(""); }}><option value="">Choose customer</option>{workspace.customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name} · {label(customer.origin)}</option>)}</select></div>
-              <div className={`${styles.field} ${styles.wide}`}><label>Service job</label><select value={selectedJob?.id || ""} onChange={(event) => setSelectedJobId(event.target.value)}><option value="">Choose active job</option>{customerJobs.map((job) => <option key={job.id} value={job.id}>{job.serviceName}</option>)}</select></div>
+              <div className={`${styles.field} ${styles.wide}`}><label>Selected customer</label><input value={selectedCustomer?.name || "None"} readOnly /></div>
+              <div className={`${styles.field} ${styles.wide}`}><label>Service job</label><select value={selectedJob?.id || ""} onChange={(event) => setSelectedJobId(event.target.value)} disabled={!selectedCustomer}><option value="">None</option>{customerJobs.map((job) => <option key={job.id} value={job.id}>{job.serviceName}</option>)}</select></div>
               <div className={styles.field}><label>Frequency</label><select name="frequency" defaultValue={selectedAgreement?.serviceFrequency || "weekly"}><option value="one_time">One time</option><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option><option value="custom">Custom</option></select></div>
               <div className={styles.field}><label>Collection</label><select name="collectionTiming" defaultValue={selectedAgreement?.collectionTiming || "after_visit"}><option value="after_visit">After each visit</option><option value="period_prepaid">Period prepaid</option><option value="manual">Manual</option></select></div>
               <div className={styles.field}><label>Billing model</label><select name="billingModel" defaultValue={selectedAgreement?.billingModel || (scope === "master" ? "per_visit_fixed_payout" : "per_visit_percentage_fee")}><option value="per_visit_fixed_payout">Per visit · fixed provider payout</option><option value="per_visit_percentage_fee">Per visit · percentage fee</option><option value="monthly_fixed_subscription">Monthly fixed plan</option><option value="weekly_subscription">Weekly subscription</option><option value="biweekly_subscription">Biweekly subscription</option><option value="manual">Manual</option></select></div>
@@ -188,25 +205,25 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
               <div className={styles.field}><label>Custom interval</label><input name="customInterval" type="number" min="1" defaultValue="1" /></div>
               <div className={styles.field}><label>Custom unit</label><select name="customUnit" defaultValue="week"><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option></select></div>
             </div>
-            {!selectedCustomer ? <div className={styles.scopeLock}>Choose a customer to configure the contract.</div> : !canEditSelected ? <div className={`${styles.scopeLock} ${styles.notice}`}>This is a platform-owned customer. The company can see service and payout status, but only Master can change the commercial contract.</div> : <div className={styles.notice}>{scope === "master" ? "Master owns this platform customer contract and defines the exact company payout." : "This company owns the customer and may define the contract. The platform fee remains visible to the company admin."}</div>}
+            {!selectedCustomer ? <div className={styles.scopeLock}>No customer selected. Choose one in Customer workspace.</div> : !canEditSelected ? <div className={`${styles.scopeLock} ${styles.notice}`}>This is a platform-owned customer. The company can see service and payout status, but only Master can change the commercial contract.</div> : <div className={styles.notice}>{scope === "master" ? "Master owns this platform customer contract and defines the exact company payout." : "This company owns the customer and may define the contract. The platform fee remains visible to the company admin."}</div>}
             <div className={styles.actions}><button type="submit" className={styles.button} disabled={saving || !selectedJob || !canEditSelected}>{saving ? "Saving contract…" : "Save contract & generate visits"}</button></div>
           </form>
         </section>}
 
         {tab === "holds" && <section className={styles.panel}>
-          <header className={styles.panelHeader}><div><span>Protected release</span><h2>Feedback and Task holds</h2><p>Payment and provider transfer remain separated until the service is approved.</p></div></header>
-          <div className={styles.cards}>{holds.length === 0 ? <div className={styles.empty}>No protected holds right now.</div> : holds.map((event) => <article className={styles.event} key={event.id}><div className={styles.eventIcon}>◷</div><div><strong>{workspace.customers.find((customer) => customer.id === event.customerId)?.name || "Customer"}</strong><span>Visit {event.visitId.slice(0, 8)}</span><small>{event.feedbackDeadlineAt ? `Review until ${new Date(event.feedbackDeadlineAt).toLocaleString("en-CA")}` : "Operational review"}</small></div><em className={`${styles.pill} ${event.state.includes("failed") ? styles.issue : styles.hold}`}>{label(event.state)}</em></article>)}</div>
+          <header className={styles.panelHeader}><div><span>Protected release</span><h2>Feedback and Task holds</h2><p>{selectedCustomer ? `Showing holds for ${selectedCustomer.name}.` : "Select a customer to narrow the list."}</p></div></header>
+          <div className={styles.cards}>{visibleHolds.length === 0 ? <div className={styles.empty}>No protected holds right now.</div> : visibleHolds.map((event) => <article className={styles.event} key={event.id}><div className={styles.eventIcon}>◷</div><div><strong>{workspace.customers.find((customer) => customer.id === event.customerId)?.name || "Customer"}</strong><span>Visit {event.visitId.slice(0, 8)}</span><small>{event.feedbackDeadlineAt ? `Review until ${new Date(event.feedbackDeadlineAt).toLocaleString("en-CA")}` : "Operational review"}</small></div><em className={`${styles.pill} ${event.state.includes("failed") ? styles.issue : styles.hold}`}>{label(event.state)}</em></article>)}</div>
         </section>}
 
         {tab === "payouts" && <section className={styles.panel}>
-          <header className={styles.panelHeader}><div><span>Separate charges and transfers</span><h2>Company payout rules</h2><p>Customer payment never automatically means immediate provider payout.</p></div></header>
-          <div className={styles.cards}>{workspace.agreements.filter((agreement) => agreement.active).length === 0 ? <div className={styles.empty}>No active payout rules yet.</div> : workspace.agreements.filter((agreement) => agreement.active).map((agreement) => <article className={styles.event} key={agreement.id}><div className={styles.eventIcon}>$</div><div><strong>{workspace.customers.find((customer) => customer.id === agreement.customerId)?.name || "Customer"}</strong><span>{label(agreement.billingModel)} · {label(agreement.serviceFrequency)}</span><small>{agreement.ownerRole === "master" ? `Fixed provider payout ${money(agreement.providerPayoutCents)}` : `Platform fee ${((agreement.platformFeeBasisPoints || 0) / 100).toFixed(2)}%`}</small></div><em className={styles.pill}>{agreement.ownerRole}</em></article>)}</div>
+          <header className={styles.panelHeader}><div><span>Separate charges and transfers</span><h2>Company payout rules</h2><p>{selectedCustomer ? `Showing payout rules for ${selectedCustomer.name}.` : "Select a customer to narrow the list."}</p></div></header>
+          <div className={styles.cards}>{visibleAgreements.length === 0 ? <div className={styles.empty}>No active payout rules yet.</div> : visibleAgreements.map((agreement) => <article className={styles.event} key={agreement.id}><div className={styles.eventIcon}>$</div><div><strong>{workspace.customers.find((customer) => customer.id === agreement.customerId)?.name || "Customer"}</strong><span>{label(agreement.billingModel)} · {label(agreement.serviceFrequency)}</span><small>{agreement.ownerRole === "master" ? `Fixed provider payout ${money(agreement.providerPayoutCents)}` : `Platform fee ${((agreement.platformFeeBasisPoints || 0) / 100).toFixed(2)}%`}</small></div><em className={styles.pill}>{agreement.ownerRole}</em></article>)}</div>
         </section>}
       </main>
 
       <aside className={styles.side}>
-        <section className={styles.sideCard}><span>Ownership rule</span><h3>{scope === "master" ? "Master-owned customers" : "Company-owned contracts"}</h3><p>{scope === "master" ? "Platform customers stay commercially controlled by Master even after a service company is assigned." : "The company can edit only customers it acquired. Platform customer payment failures remain private to Master."}</p><dl><div><dt>Contract editor</dt><dd>{scope === "master" ? "Platform customers" : "Company customers"}</dd></div><div><dt>Payment failures</dt><dd>{scope === "master" ? "Visible" : "Private clients only"}</dd></div><div><dt>Visit generation</dt><dd>From active contract</dd></div></dl></section>
-        <section className={styles.panel}><header className={styles.panelHeader}><div><span>Selected account</span><h2>{selectedCustomer?.name || "Choose customer"}</h2><p>{selectedJob?.serviceName || "No service selected"}</p></div></header><div className={styles.form}>{selectedAgreement ? <div className={styles.notice}><strong>{label(selectedAgreement.serviceFrequency)}</strong><br />{label(selectedAgreement.billingModel)}<br />{selectedAgreement.contractStartsOn || "No start date"} → {selectedAgreement.contractEndsOn || "Open ended"}</div> : <div className={styles.scopeLock}>No active billing agreement for this job.</div>}</div></section>
+        <section className={styles.sideCard}><span>How it works</span><h3>{scope === "master" ? "Master customer control" : "Company customer control"}</h3><p>{scope === "master" ? "Choose a platform customer, define what the customer pays, and set the exact amount released to the service company after approval." : "Choose a company-owned customer, define the billing terms, and track holds and payouts. Platform-owned customer card failures remain private to Master."}</p><dl><div><dt>No selection</dt><dd>None</dd></div><div><dt>Contract editor</dt><dd>{scope === "master" ? "Platform customers" : "Company customers"}</dd></div><div><dt>Visit generation</dt><dd>From active contract</dd></div></dl></section>
+        <section className={styles.panel}><header className={styles.panelHeader}><div><span>Selected account</span><h2>{selectedCustomer?.name || "None"}</h2><p>{selectedJob?.serviceName || "No service selected"}</p></div></header><div className={styles.form}>{selectedAgreement ? <div className={styles.notice}><strong>{label(selectedAgreement.serviceFrequency)}</strong><br />{label(selectedAgreement.billingModel)}<br />{selectedAgreement.contractStartsOn || "No start date"} → {selectedAgreement.contractEndsOn || "Open ended"}</div> : <div className={styles.scopeLock}>{selectedCustomer ? "No active billing agreement for this job." : "Choose a customer to open the account."}</div>}</div></section>
       </aside>
     </section>
   </div>;
