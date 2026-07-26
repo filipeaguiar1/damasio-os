@@ -169,8 +169,63 @@ function mapRows(rows: VisitMapRow[]): EmployeeRouteMapContext {
   };
 }
 
+async function loadCanonicalEmployeeRoute(routeDate: string): Promise<EmployeeRouteMapContext | null> {
+  try {
+    const supabase = getSupabaseBrowserClient() as any;
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return null;
+    const response = await fetch(`/api/mobile/employee/route?date=${encodeURIComponent(routeDate)}`, {
+      headers: { authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const result = await response.json() as {
+      routeId?: string | null;
+      stops?: Array<{
+        visitId: string;
+        propertyId?: string | null;
+        addressLine1?: string;
+        latitude?: number | null;
+        longitude?: number | null;
+        routeOrder?: number | null;
+        status?: string;
+        customerName?: string;
+        serviceName?: string;
+        scheduledDate?: string;
+        startedAt?: string | null;
+        finishedAt?: string | null;
+        durationSeconds?: number | null;
+      }>;
+    };
+    if (!Array.isArray(result.stops)) return null;
+    return {
+      routeId: result.routeId || null,
+      stops: result.stops.map((stop) => ({
+        visitId: stop.visitId,
+        propertyId: stop.propertyId || null,
+        addressLine1: stop.addressLine1 || "",
+        latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : null,
+        longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : null,
+        routeOrder: stop.routeOrder ?? null,
+        status: stop.status || "scheduled",
+        customerName: stop.customerName || "Customer",
+        serviceName: stop.serviceName || "Property Service",
+        scheduledDate: stop.scheduledDate,
+        startedAt: stop.startedAt || undefined,
+        finishedAt: stop.finishedAt || undefined,
+        durationSeconds: stop.durationSeconds ?? undefined,
+      })),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function loadEmployeeRouteMapContext(routeDate: string, crewName: string): Promise<EmployeeRouteMapContext> {
   if (!routeDate || !isSupabaseConfigured()) return emptyContext;
+  const canonical = await loadCanonicalEmployeeRoute(routeDate);
+  if (canonical) return canonical;
   try {
     const supabase = getSupabaseBrowserClient() as any;
     const assignment = await resolveEmployeeAssignment(supabase, crewName);
