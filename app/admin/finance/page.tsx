@@ -1,5 +1,137 @@
-﻿"use client";
-import{useEffect,useMemo,useState}from"react";import Link from"next/link";import{AdminShell}from"@/components/admin/AdminShell";import{DAMASIO_SYNC_EVENT,getExpenses,getInvoices,getLeads,Lead,seedDemoExpenses,seedDemoLeads,updateLeadPayment,PaymentMethod,PaymentStatus,Invoice,recordInvoicePayment}from"@/lib/storage";
-function money(n:number){return `$${n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`}
-export default function Finance(){const[leads,setLeads]=useState<Lead[]>([]);const[expenses,setExpenses]=useState(getExpenses());const[invoices,setInvoices]=useState(getInvoices());const[paying,setPaying]=useState<Lead|null>(null);const[payingInv,setPayingInv]=useState<Invoice|null>(null);const[method,setMethod]=useState<PaymentMethod>("etransfer");const[status,setStatus]=useState<PaymentStatus|Invoice["status"]>("processing");const[amount,setAmount]=useState("");const[ref,setRef]=useState("");const[note,setNote]=useState("");function refresh(){setLeads(getLeads());setExpenses(getExpenses());setInvoices(getInvoices())}useEffect(()=>{seedDemoLeads();seedDemoExpenses();refresh();const onSync=()=>refresh();window.addEventListener(DAMASIO_SYNC_EVENT,onSync as EventListener);window.addEventListener("storage",onSync);return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,onSync as EventListener);window.removeEventListener("storage",onSync)}},[]);function openPay(l:Lead){setPaying(l);setPayingInv(null);setMethod((l.paymentMethod||"etransfer") as PaymentMethod);setStatus("processing");setAmount(String(l.total));setRef("");setNote("")}function openInv(inv:Invoice){setPaying(null);setPayingInv(inv);setMethod((inv.paymentMethod||"etransfer") as PaymentMethod);setStatus(inv.status==="paid"?"paid":"processing");setAmount(String(inv.total));setRef(inv.paymentReference||"");setNote(inv.paymentNotes||"")}function savePayment(){if(!confirm("Confirm this payment record?"))return;if(paying){updateLeadPayment(paying.id,method,status as PaymentStatus,`Amount ${amount}. ${note}`,ref)}if(payingInv){recordInvoicePayment(payingInv.id,method,status as Invoice["status"],`Amount ${amount}. ${note}`,ref)}setPaying(null);setPayingInv(null);refresh()}const data=useMemo(()=>{const invoicedLeadIds=new Set(invoices.map(i=>i.leadId).filter(Boolean));const paid=leads.filter(l=>(l.paymentStatus==="paid"||l.status==="completed")&&!invoicedLeadIds.has(l.id));const pending=leads.filter(l=>(l.paymentStatus==="pending"||l.paymentStatus==="processing")&&!invoicedLeadIds.has(l.id));const pendingInvoices=invoices.filter(i=>i.status==="waiting_payment"||i.status==="processing"||i.status==="overdue"||i.status==="sent");const paidInvoices=invoices.filter(i=>i.status==="paid");const revenue=paid.reduce((s,l)=>s+l.total,0)+paidInvoices.reduce((s,i)=>s+i.total,0);const pendingTotal=pending.reduce((s,l)=>s+l.total,0)+pendingInvoices.reduce((s,i)=>s+i.total,0);const expenseTotal=expenses.reduce((s,e)=>s+e.amount,0);const commission=Math.max(0,revenue*.12);return{paid,pending,pendingInvoices,revenue,pendingTotal,expenseTotal,profit:revenue-expenseTotal,commission,net:revenue-expenseTotal-commission}},[leads,expenses,invoices]);return <AdminShell active="Finance"><div className="app-top"><div><span className="eyebrow">V45 Finance Foundation</span><h1>Finance Center</h1><p className="section-intro">Invoices, payment verification, expenses, commission estimate and operating profit.</p></div><div className="row"><Link className="btn btn-outline" href="/admin/expenses">Expenses</Link><Link className="btn btn-primary" href="/admin/invoices">Invoices</Link></div></div><section className="business-metrics"><div className="business-metric"><span>Revenue</span><strong>{money(data.revenue)}</strong><small>paid/completed</small></div><div className="business-metric warn"><span>Pending</span><strong>{money(data.pendingTotal)}</strong><small>waiting / processing</small></div><div className="business-metric"><span>Commission Est.</span><strong>{money(data.commission)}</strong><small>12% platform/subcontractor margin</small></div><div className="business-metric"><span>Net Profit Est.</span><strong>{money(data.net)}</strong><small>after expenses + commission</small></div></section><div className="grid-2"><section className="card table-card"><div className="table-head"><div><h2>Pending Payments</h2><p className="section-intro">Admin confirms before payment becomes paid.</p></div></div><div className="table-wrap"><table><thead><tr><th>Customer</th><th>Service</th><th>Total</th><th>Status</th><th>Resolve</th></tr></thead><tbody>{data.pending.length===0&&data.pendingInvoices.length===0?<tr><td colSpan={5}>No pending payments.</td></tr>:<>{data.pendingInvoices.map(inv=><tr key={inv.id}><td><strong>{inv.customer}</strong><br/><small>{inv.number}</small></td><td>{inv.service}</td><td>{money(inv.total)}</td><td><span className="pill">{inv.status.replace("_"," ")}</span><br/><small>{inv.paymentMethod||"not selected"}</small></td><td><button className="btn btn-primary" onClick={()=>openInv(inv)}>Record</button></td></tr>)}{data.pending.map(l=><tr key={l.id}><td><strong>{l.name}</strong><br/><small>{l.address}</small></td><td>{l.service}</td><td>{money(l.total)}</td><td><span className="pill">{l.paymentStatus}</span><br/><small>{l.paymentMethod||"not selected"}</small></td><td><button className="btn btn-primary" onClick={()=>openPay(l)}>Record</button></td></tr>)}</>}</tbody></table></div></section><section className="card table-card"><div className="table-head"><div><h2>Finance Rules</h2><p className="section-intro">Commercial controls added for V45.</p></div></div><div className="stack"><div className="visit-row"><span className="dot booked"></span><div><strong>No silent payment changes</strong><p>Admin must confirm before saving payment status.</p></div><span className="pill">Active</span></div><div className="visit-row"><span className="dot booked"></span><div><strong>Pending stays visible</strong><p>Processing e-transfer remains pending until verified.</p></div><span className="pill">Active</span></div><div className="visit-row"><span className="dot upcoming"></span><div><strong>Commission estimate</strong><p>Prepares subcontractor/marketplace model.</p></div><span className="pill">Draft</span></div></div></section></div>{(paying||payingInv)&&<div className="modal-backdrop"><div className="modal-card"><h2>Record Payment</h2><p>{paying?`${paying.name} - ${money(paying.total)}`:`${payingInv?.number} - ${money(payingInv?.total||0)}`}</p><div className="field"><label>Payment Method</label><select className="input" value={method} onChange={e=>setMethod(e.target.value as PaymentMethod)}><option value="credit_card">Credit Card</option><option value="etransfer">E-transfer</option><option value="cash_visit">Cash</option><option value="cheque_visit">Cheque</option><option value="other">Other</option></select></div><div className="field"><label>Status</label><select className="input" value={status} onChange={e=>setStatus(e.target.value as any)}><option value="processing">Processing / waiting verification</option><option value="paid">Paid / verified</option><option value="failed">Failed</option><option value="refunded">Refunded</option></select></div><div className="field"><label>Amount received</label><input className="input" value={amount} onChange={e=>setAmount(e.target.value)}/></div><div className="field"><label>Reference</label><input className="input" value={ref} onChange={e=>setRef(e.target.value)}/></div><div className="field"><label>Notes</label><textarea className="input" value={note} onChange={e=>setNote(e.target.value)}/></div><div className="row"><button className="btn btn-primary" onClick={savePayment}>Confirm & Save</button><button className="btn btn-outline" onClick={()=>{setPaying(null);setPayingInv(null)}}>Cancel</button></div></div></div>}</AdminShell>}
+"use client";
 
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { AdminShell } from "@/components/admin/AdminShell";
+import {
+  DAMASIO_SYNC_EVENT,
+  getExpenses,
+  getInvoices,
+  getLeads,
+  type Invoice,
+  type Lead,
+} from "@/lib/storage";
+
+type Tab = "overview" | "invoices" | "holds" | "payouts";
+
+function money(value: number) {
+  return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(value);
+}
+
+function label(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+export default function Finance() {
+  const [tab, setTab] = useState<Tab>("overview");
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [expenses, setExpenses] = useState(getExpenses());
+
+  function refresh() {
+    setLeads(getLeads());
+    setInvoices(getInvoices());
+    setExpenses(getExpenses());
+  }
+
+  useEffect(() => {
+    refresh();
+    const onSync = () => refresh();
+    window.addEventListener(DAMASIO_SYNC_EVENT, onSync as EventListener);
+    window.addEventListener("storage", onSync);
+    const timer = window.setInterval(refresh, 15000);
+    return () => {
+      window.removeEventListener(DAMASIO_SYNC_EVENT, onSync as EventListener);
+      window.removeEventListener("storage", onSync);
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const data = useMemo(() => {
+    const paidInvoices = invoices.filter((invoice) => invoice.status === "paid");
+    const pendingInvoices = invoices.filter((invoice) => ["waiting_payment", "processing", "overdue", "sent"].includes(invoice.status));
+    const failedInvoices = invoices.filter((invoice) => invoice.status === "failed");
+    const paidLeadIds = new Set(paidInvoices.map((invoice) => invoice.leadId).filter(Boolean));
+    const completedWithoutInvoice = leads.filter((lead) => lead.status === "completed" && !paidLeadIds.has(lead.id));
+    const revenue = paidInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
+    const pending = pendingInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
+    const expenseTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+    const estimatedPlatformMargin = Math.max(0, revenue * 0.12);
+    return {
+      paidInvoices,
+      pendingInvoices,
+      failedInvoices,
+      completedWithoutInvoice,
+      revenue,
+      pending,
+      expenseTotal,
+      estimatedPlatformMargin,
+      net: revenue - expenseTotal - estimatedPlatformMargin,
+    };
+  }, [expenses, invoices, leads]);
+
+  return (
+    <AdminShell active="Payments">
+      <div className="app-top">
+        <div>
+          <span className="eyebrow">Company financial operations</span>
+          <h1>Payments</h1>
+          <p className="section-intro">Invoices, customer collections, service holds, company payouts, and payment history in one place.</p>
+        </div>
+        <div className="row">
+          <button className="btn btn-outline" type="button" onClick={refresh}>Refresh</button>
+          <Link className="btn btn-primary" href="/admin/invoices">Open invoices</Link>
+        </div>
+      </div>
+
+      <section className="business-metrics">
+        <div className="business-metric"><span>Collected</span><strong>{money(data.revenue)}</strong><small>confirmed customer payments</small></div>
+        <div className="business-metric warn"><span>Pending</span><strong>{money(data.pending)}</strong><small>waiting or processing</small></div>
+        <div className="business-metric"><span>Payment issues</span><strong>{data.failedInvoices.length}</strong><small>private company customers only</small></div>
+        <div className="business-metric"><span>Net estimate</span><strong>{money(data.net)}</strong><small>after expenses and platform margin</small></div>
+      </section>
+
+      <div className="row" style={{ marginBottom: 16, flexWrap: "wrap" }}>
+        {(["overview", "invoices", "holds", "payouts"] as Tab[]).map((item) => (
+          <button key={item} type="button" className={tab === item ? "btn btn-primary" : "btn btn-outline"} onClick={() => setTab(item)}>{label(item)}</button>
+        ))}
+      </div>
+
+      {tab === "overview" && <div className="grid-2">
+        <section className="card table-card">
+          <div className="table-head"><div><h2>Payment queue</h2><p className="section-intro">Current customer collections requiring attention.</p></div></div>
+          <div className="table-wrap"><table><thead><tr><th>Customer</th><th>Service</th><th>Total</th><th>Status</th></tr></thead><tbody>
+            {data.pendingInvoices.length === 0 ? <tr><td colSpan={4}>No pending payments.</td></tr> : data.pendingInvoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.customer}</strong><br/><small>{invoice.number}</small></td><td>{invoice.service}</td><td>{money(invoice.total)}</td><td><span className="pill">{label(invoice.status)}</span></td></tr>)}
+          </tbody></table></div>
+        </section>
+        <section className="card table-card">
+          <div className="table-head"><div><h2>Financial protection</h2><p className="section-intro">Canonical rules for customer charges and company payouts.</p></div></div>
+          <div className="stack">
+            <div className="visit-row"><span className="dot booked"></span><div><strong>Visit review window</strong><p>Customer charge waits for feedback or an open Task.</p></div><span className="pill">48h default</span></div>
+            <div className="visit-row"><span className="dot upcoming"></span><div><strong>Task hold</strong><p>Provider payout stays blocked until the Task is resolved and the new review window closes.</p></div><span className="pill">Protected</span></div>
+            <div className="visit-row"><span className="dot booked"></span><div><strong>Separate charge and transfer</strong><p>Customer collection and company payout remain independent.</p></div><span className="pill">Canonical</span></div>
+          </div>
+        </section>
+      </div>}
+
+      {tab === "invoices" && <section className="card table-card">
+        <div className="table-head"><div><h2>Invoices</h2><p className="section-intro">All company invoices remain inside Payments.</p></div><Link className="btn btn-primary" href="/admin/invoices">Manage invoices</Link></div>
+        <div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Service</th><th>Total</th><th>Status</th></tr></thead><tbody>
+          {invoices.length === 0 ? <tr><td colSpan={5}>No invoices yet.</td></tr> : invoices.map((invoice) => <tr key={invoice.id}><td><strong>{invoice.number}</strong></td><td>{invoice.customer}</td><td>{invoice.service}</td><td>{money(invoice.total)}</td><td><span className="pill">{label(invoice.status)}</span></td></tr>)}
+        </tbody></table></div>
+      </section>}
+
+      {tab === "holds" && <section className="card table-card">
+        <div className="table-head"><div><h2>Service holds</h2><p className="section-intro">Visits completed without a final payment record or with an operational review still pending.</p></div></div>
+        <div className="table-wrap"><table><thead><tr><th>Customer</th><th>Service</th><th>Total</th><th>Reason</th></tr></thead><tbody>
+          {data.completedWithoutInvoice.length === 0 ? <tr><td colSpan={4}>No operational holds in the current local dataset.</td></tr> : data.completedWithoutInvoice.map((lead) => <tr key={lead.id}><td><strong>{lead.name}</strong><br/><small>{lead.address}</small></td><td>{lead.service}</td><td>{money(lead.total)}</td><td><span className="pill">Awaiting billing event</span></td></tr>)}
+        </tbody></table></div>
+      </section>}
+
+      {tab === "payouts" && <div className="grid-2">
+        <section className="card table-card"><div className="table-head"><div><h2>Company payouts</h2><p className="section-intro">Fixed payout for Master-originated customers and percentage fee for company-owned customers.</p></div></div><div className="stack"><div className="visit-row"><span className="dot booked"></span><div><strong>Fixed provider payout</strong><p>The accepted offer stores the exact amount owed to the company.</p></div><span className="pill">Master client</span></div><div className="visit-row"><span className="dot upcoming"></span><div><strong>Percentage platform fee</strong><p>Private company clients use the configured platform fee.</p></div><span className="pill">Company client</span></div></div></section>
+        <section className="card table-card"><div className="table-head"><div><h2>Financial snapshot</h2><p className="section-intro">Current estimates from the connected records.</p></div></div><div className="stack"><div className="visit-row"><span className="dot booked"></span><div><strong>Platform margin estimate</strong><p>{money(data.estimatedPlatformMargin)}</p></div><span className="pill">12% legacy estimate</span></div><div className="visit-row"><span className="dot booked"></span><div><strong>Operating expenses</strong><p>{money(data.expenseTotal)}</p></div><span className="pill">Tracked</span></div></div></section>
+      </div>}
+    </AdminShell>
+  );
+}
