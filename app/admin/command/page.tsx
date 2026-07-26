@@ -40,11 +40,11 @@ export default function Command(){
   return <AdminShell active="Command">
     <div className="business-hero">
       <div><span className="eyebrow">4Ever Seasons V44</span><h1>Smart Operations Command Center</h1><p>One screen for today’s houses, live crews, overdue work, return visits, feedback and money.</p></div>
-      <div className="hero-actions"><button className="btn btn-white" onClick={seed}>Load Demo</button><Link className="btn btn-primary" href="/admin/schedule">Create Route</Link></div>
+      <div className="hero-actions"><button className="btn btn-white" onClick={seed}>Load Demo</button><Link className="btn btn-primary" href="/admin/routes?tab=build">Create Route</Link></div>
     </div>
 
     <section className="business-metrics">
-      <Link href="/admin/schedule" className="business-metric"><span>Today</span><strong>{data.todayJobs.length}</strong><small>{data.done.length} done · {data.running.length} running</small></Link>
+      <Link href="/admin/routes?tab=view" className="business-metric"><span>Today</span><strong>{data.todayJobs.length}</strong><small>{data.done.length} done · {data.running.length} running</small></Link>
       <Link href="/admin/alerts?status=overdue" className="business-metric warn"><span>Overdue</span><strong>{data.overdue.length}</strong><small>unfinished houses</small></Link>
       <Link href="/admin/tasks" className="business-metric warn"><span>Return Visits</span><strong>{data.openTasks.length}</strong><small>{data.adminReviewTasks.length} waiting admin</small></Link>
       <Link href="/admin/finance?filter=pending" className="business-metric"><span>Pending Payments</span><strong>{money(data.pendingPayments)}</strong><small>needs collection</small></Link>
@@ -65,7 +65,7 @@ export default function Command(){
     </div>
 
     <section className="card table-card" style={{marginTop:20}}>
-      <div className="table-head"><div><h2>Live Route</h2><p className="section-intro">Click any house to open the official Service Screen.</p></div><Link href="/admin/schedule" className="btn btn-primary">Dispatch</Link></div>
+      <div className="table-head"><div><h2>Live Route</h2><p className="section-intro">Click any house to open the official Service Screen.</p></div><Link href="/admin/routes?tab=build" className="btn btn-primary">Dispatch</Link></div>
       <div className="table-wrap"><table><thead><tr><th>Status</th><th>Customer</th><th>Address</th><th>Crew</th><th>Next Cut</th><th>Open</th></tr></thead><tbody>{data.todayJobs.slice(0,10).map(l=>{const running=data.running.some(s=>s.leadId===l.id);const overdue=data.overdue.some(o=>o.id===l.id);const label=l.status==="completed"?"Done":running?"Running":overdue?"Overdue":"Open";return <tr key={l.id}><td><span className="pill">{label}</span></td><td><strong>{l.name}</strong><br/><small>{l.service}</small></td><td>{l.address}</td><td>{l.assignedCrew||"-"}</td><td>{l.nextVisitDate||l.scheduledDate||"-"}</td><td><Link className="btn btn-outline" href={serviceHref(l.id)}>Open</Link></td></tr>})}</tbody></table></div>
     </section>
 
