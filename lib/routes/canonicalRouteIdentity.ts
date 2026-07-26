@@ -13,6 +13,11 @@ export type CanonicalEmployeeIdentity = {
   crewId: string;
 };
 
+export type CanonicalRouteWarning = {
+  visitId: string;
+  missing: string[];
+};
+
 export function belongsToCanonicalEmployee(
   lead: CanonicalRouteLead,
   employee: CanonicalEmployeeIdentity,
@@ -21,18 +26,23 @@ export function belongsToCanonicalEmployee(
   return Boolean(lead.canonicalCrewId && lead.canonicalCrewId === employee.crewId);
 }
 
-export function canonicalRouteWarnings(leads: CanonicalRouteLead[]) {
-  return leads.flatMap((lead) => {
-    if (!lead.canonicalVisitId) return [];
+export function canonicalRouteWarnings(leads: CanonicalRouteLead[]): CanonicalRouteWarning[] {
+  const warnings: CanonicalRouteWarning[] = [];
+
+  for (const lead of leads) {
+    if (!lead.canonicalVisitId) continue;
+
     const missing = [
       !lead.canonicalCustomerId && "customerId",
       !lead.canonicalPropertyId && "propertyId",
       !lead.canonicalJobId && "jobId",
-      !lead.canonicalVisitId && "visitId",
       !lead.canonicalRouteId && "routeId",
       !lead.canonicalEmployeeId && "employeeId",
       !lead.canonicalCrewId && "crewId",
-    ].filter(Boolean) as string[];
-    return missing.length ? [{ visitId: lead.canonicalVisitId, missing }] : [];
-  });
+    ].filter((value): value is string => Boolean(value));
+
+    if (missing.length) warnings.push({ visitId: lead.canonicalVisitId, missing });
+  }
+
+  return warnings;
 }
