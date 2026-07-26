@@ -94,6 +94,42 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
   }; });
 }
 
+async function publishSmartRoute(service:any, companyId:string, crewId:string, routeDate:string, jobIds:string[]) {
+  const jobsResult = await service.from("jobs").select("id,customer_id,property_id").in("id", jobIds).eq("active", true).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
+  if (jobsResult.error) throw new Error(jobsResult.error.message);
+  const jobs = jobsResult.data || [];
+  if (jobs.length !== jobIds.length) throw new Error("One or more selected customer jobs are no longer available. Refresh and try again.");
+
+  let routeId:string|null=null;
+  const existing = await service.from("routes").select("id").eq("crew_id", crewId).eq("route_date", routeDate).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).order("created_at").limit(1).maybeSingle();
+  if (existing.error) throw new Error(existing.error.message);
+  routeId = existing.data?.id || null;
+  if (!routeId) {
+    const created = await service.from("routes").insert({ organization_id: companyId, company_id: companyId, crew_id: crewId, route_date: routeDate, status: "published" }).select("id").single();
+    if (created.error) throw new Error(created.error.message);
+    routeId = created.data.id;
+  } else {
+    const updatedRoute = await service.from("routes").update({ status: "published" }).eq("id", routeId);
+    if (updatedRoute.error) throw new Error(updatedRoute.error.message);
+  }
+
+  for (let index=0; index<jobIds.length; index++) {
+    const job = jobs.find((item:any)=>item.id===jobIds[index]);
+    const current = await service.from("visits").select("id").eq("job_id", job.id).eq("scheduled_date", routeDate).not("status","in",'("cancelled","missed")').or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).limit(1).maybeSingle();
+    if (current.error) throw new Error(current.error.message);
+    if (current.data?.id) {
+      const updated = await service.from("visits").update({ route_id: routeId, crew_id: crewId, scheduled_date: routeDate, route_order: index+1, status: "scheduled" }).eq("id", current.data.id);
+      if (updated.error) throw new Error(updated.error.message);
+    } else {
+      const inserted = await service.from("visits").insert({ organization_id: companyId, company_id: companyId, job_id: job.id, route_id: routeId, customer_id: job.customer_id, property_id: job.property_id, crew_id: crewId, scheduled_date: routeDate, route_order: index+1, status: "scheduled" });
+      if (inserted.error) throw new Error(inserted.error.message);
+    }
+    const updatedJob = await service.from("jobs").update({ next_visit_date: routeDate, recurrence_anchor_date: routeDate, default_route_order: index+1 }).eq("id", job.id).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
+    if (updatedJob.error) throw new Error(updatedJob.error.message);
+  }
+  return { saved:true, count:jobIds.length, action:"smart", routeId };
+}
+
 export async function GET(request: NextRequest) {
   try { const { service, user, companyId } = await requireAdmin(request); const [employees, jobs] = await Promise.all([ensureEmployees(service, companyId), canonicalJobs(service, user, companyId)]); return NextResponse.json({ employees, board: { crews: [], unscheduledJobs: jobs.filter((job: any) => !job.crewId), assignedJobs: jobs.filter((job: any) => Boolean(job.crewId)), visits: [], tasks: [], activity: [] } }); }
   catch (error) { return fail(error, 401); }
@@ -101,7 +137,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { user } = await requireAdmin(request);
+    const { service, user, companyId } = await requireAdmin(request);
     const body = await request.json() as { action?: "assign"|"unassign"|"smart"|"move"; jobIds?: string[]; crewId?: string; routeDate?: string };
     const jobIds = [...new Set((body.jobIds || []).filter(Boolean))];
     if (!jobIds.length) throw new Error("Select at least one customer.");
@@ -125,9 +161,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (!body.routeDate) throw new Error("Select a route date.");
-    const rpcName = action === "smart" ? "schedule_job_on_route" : "save_job_route_pattern";
+    if (action === "smart") return NextResponse.json(await publishSmartRoute(service, companyId, body.crewId, body.routeDate, jobIds));
+
     for (let index = 0; index < jobIds.length; index++) {
-      const result = await user.rpc(rpcName, { p_job_id: jobIds[index], p_crew_id: body.crewId, p_route_date: body.routeDate, p_route_order: index + 1 });
+      const result = await user.rpc("save_job_route_pattern", { p_job_id: jobIds[index], p_crew_id: body.crewId, p_route_date: body.routeDate, p_route_order: index + 1 });
       if (result.error) throw new Error(result.error.message);
     }
     return NextResponse.json({ saved: true, count: jobIds.length, action });
