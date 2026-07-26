@@ -90,6 +90,6 @@ export default function MobileCustomerPayments() {
       {wallet.transactions.length===0?<div className="role-mobile-clear"><i>✓</i><span><strong>No transactions yet</strong><small>Your activity will appear here.</small></span></div>:wallet.transactions.slice(0,6).map((item)=><article className="role-mobile-priority" key={item.id}><i>{item.credits>=0?"+":"−"}</i><span><strong>{item.description||label(item.type)}</strong><small>{new Date(item.createdAt).toLocaleString("en-CA")}</small></span><b>{item.credits>=0?"+":""}{money(item.credits)}</b></article>)}
     </section>
 
-    <MobileCustomerNav active="payments"/>
+    <MobileCustomerNav active="billing"/>
   </main></MobileRoleGuard>;
 }
