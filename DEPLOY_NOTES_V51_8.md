@@ -15,6 +15,8 @@ Run these in Supabase SQL Editor, in order:
 4. `supabase/migrations/202607240004_payout_batch_item_link.sql`
 5. `supabase/migrations/202607240005_payout_feedback_task_triggers.sql`
 6. `supabase/migrations/202607240006_stripe_production_safety.sql`
+7. `supabase/migrations/202607260007_employee_profile_auto_link.sql`
+8. `supabase/migrations/202607260008_employee_email_sync.sql`
 
 ## Required Vercel Environment Variables
 
@@ -65,3 +67,7 @@ Connected accounts destination (`STRIPE_CONNECT_WEBHOOK_SECRET`):
 11. Master prepares the weekly draft and reviews its amount.
 12. Master explicitly approves the reviewed batch.
 13. Friday cron transfers the approved batch to the company Connect account.
+
+## Employee Identity Release
+
+Employee email synchronization now keeps `auth.users`, `public.profiles`, and `public.employees` aligned while preserving `employee_id/profile_id` as the canonical operational identity.
