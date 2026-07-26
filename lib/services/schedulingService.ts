@@ -4,7 +4,6 @@ import {
   assignJobCrew,
   moveVisitToRoute,
   scheduleJobOnRoute,
-  saveJobRoutePattern,
   updateVisitDispatchStatus,
   type DispatchVisit,
   type SchedulingDispatchBoard,
@@ -40,7 +39,11 @@ export async function assignJobToCrew(jobId:string,crewId:string|null){if(!jobId
 
 export async function publishJobRoutePattern(input:{jobId:string;crewId:string;routeDate:string;routeOrder?:number}){
   if(!input.jobId||!input.crewId||!input.routeDate)throw new Error("Job, crew and route date are required.");
-  const board=await saveJobRoutePattern(input);invalidateQuery("scheduling:");return board;
+  const board=await scheduleJobOnRoute(input);
+  const savedVisit=board.visits.find(visit=>visit.jobId===input.jobId&&visit.crewId===input.crewId&&visit.scheduledDate===input.routeDate&&visit.status!=="cancelled");
+  if(!savedVisit)throw new Error("The route preview was generated, but the dated visit was not saved. Please try again.");
+  invalidateQuery("scheduling:");
+  return board;
 }
 
 export async function loadSchedulingDispatchBoard(options?: { force?: boolean }) {
