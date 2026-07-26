@@ -1,8 +1,12 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build",
   "outputDirectory": ".next",
+  "git": {
+    "deploymentEnabled": false
+  },
   "crons": [
     { "path": "/api/map/rebuild", "schedule": "0 5 * * *" },
     { "path": "/api/cron/company-lifecycle", "schedule": "15 5 * * *" },
