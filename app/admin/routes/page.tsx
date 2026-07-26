@@ -5,7 +5,8 @@ import Link from "next/link";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { loadSchedulingDispatchBoard, publishJobRoutePattern, schedulingBoardToLeads } from "@/lib/services/schedulingService";
+import { schedulingBoardToLeads } from "@/lib/services/schedulingService";
+import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
 import type { Lead } from "@/lib/storage";
 
 type RouteEmployee={id:string;employeeId:string|null;crewId:string;name:string;email:string;routeStartAddress:string|null};
@@ -26,17 +27,12 @@ export default function RoutesPage(){
   async function refresh(){
     try{
       const token=await accessToken();
-      const[board,userResponse]=await Promise.all([
-        loadSchedulingDispatchBoard({force:true}),
-        fetch("/api/admin/users",{headers:{authorization:`Bearer ${token}`},cache:"no-store"}),
-      ]);
-      const userResult=await userResponse.json();
-      if(!userResponse.ok)throw new Error(userResult.error||"Employees could not be loaded.");
-      const realEmployees:RouteEmployee[]=(userResult.users||[])
-        .filter((item:any)=>item.active&&item.crew_id)
-        .map((item:any)=>({id:item.id,employeeId:item.employee_id||null,crewId:item.crew_id,name:item.full_name,email:item.email,routeStartAddress:item.route_start_address||item.address_line1||null}));
+      const response=await fetch("/api/admin/routes",{headers:{authorization:`Bearer ${token}`},cache:"no-store"});
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.error||"Routes could not be loaded.");
+      const realEmployees:RouteEmployee[]=result.employees||[];
       setEmployees(realEmployees);
-      setLeads(schedulingBoardToLeads(board));
+      setLeads(schedulingBoardToLeads((result.board||{}) as SchedulingDispatchBoard));
       if(realEmployees.length&&!realEmployees.some(item=>item.id===employeeId))setEmployeeId(realEmployees[0].id);
       if(!realEmployees.length)setEmployeeId("");
       setMessage(realEmployees.length?"":"No Employees have been added yet. Add an Employee before publishing routes.");
@@ -68,10 +64,14 @@ export default function RoutesPage(){
     if(!selectedJobs.length){setMessage("Select at least one accepted customer property.");return}
     setBusy(true);
     try{
-      for(let index=0;index<selectedJobs.length;index++){
-        const item=selectedJobs[index];
-        await publishJobRoutePattern({jobId:item.canonicalJobId||item.id,crewId:employee.crewId,routeDate:date,routeOrder:index+1});
-      }
+      const token=await accessToken();
+      const response=await fetch("/api/admin/routes",{
+        method:"POST",
+        headers:{"content-type":"application/json",authorization:`Bearer ${token}`},
+        body:JSON.stringify({jobIds:selectedJobs.map(item=>item.canonicalJobId||item.id),crewId:employee.crewId,routeDate:date}),
+      });
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.error||"Route could not be published.");
       setSelected([]);setMessage(`Route published to ${employee.name}.`);await refresh();
     }catch(error){setMessage(error instanceof Error?error.message:"Route could not be published.")}
     finally{setBusy(false)}
