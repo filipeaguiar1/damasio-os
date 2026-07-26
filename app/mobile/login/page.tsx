@@ -3,7 +3,7 @@ import {useState} from "react";
 import {useRouter} from "next/navigation";
 import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
 
-function roleHome(role:string){if(role==="master")return"/master";if(role==="admin"||role==="manager")return"/mobile/admin";if(role==="employee")return"/mobile/employee";return"/mobile/customer"}
+function roleHome(role:string){if(role==="master")return"/mobile/master";if(role==="admin"||role==="manager")return"/mobile/admin";if(role==="employee")return"/mobile/employee";return"/mobile/customer"}
 
 export default function MobileLogin(){
   const router=useRouter();const[email,setEmail]=useState("");const[password,setPassword]=useState("");const[message,setMessage]=useState("");const[busy,setBusy]=useState(false);
