@@ -1,0 +1,2 @@
+Production deployment trigger for commit c4321df.
+Purpose: publish the employee route fix that keeps activity_log notes optional so route loading can return canonical visits even when notes are unavailable.
