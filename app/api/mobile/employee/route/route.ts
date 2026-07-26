@@ -32,6 +32,28 @@ type RouteVisitRow = {
   duration_seconds: number | null;
 };
 
+type RouteStop = {
+  visitId: string;
+  jobId: string | null;
+  customerId: string | null;
+  propertyId: string | null;
+  addressLine1: string;
+  city: string;
+  province: string;
+  postalCode: string;
+  latitude: number | null;
+  longitude: number | null;
+  routeOrder: number | null;
+  status: string;
+  customerName: string;
+  serviceName: string;
+  scheduledDate: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  durationSeconds: number | null;
+  employeeNotes: string | null;
+};
+
 function serviceClient(){
   const url=process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key=process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -130,35 +152,37 @@ async function loadRoute(client:ReturnType<typeof serviceClient>,employee:Employ
   const notes=new Map<string,string|null>();
   for(const row of noteResult.data||[])if(row.entity_id&&!notes.has(row.entity_id))notes.set(row.entity_id,row.details||null);
 
+  const stops:RouteStop[]=rows.map(row=>{
+    const property=properties.get(row.property_id||"") as any;
+    const customer=customers.get(row.customer_id||"") as any;
+    const job=jobs.get(row.job_id||"") as any;
+    return{
+      visitId:row.id,
+      jobId:row.job_id,
+      customerId:row.customer_id,
+      propertyId:row.property_id,
+      addressLine1:property?.address_line1||"",
+      city:property?.city||"",
+      province:property?.province||"",
+      postalCode:property?.postal_code||"",
+      latitude:property?.latitude??null,
+      longitude:property?.longitude??null,
+      routeOrder:row.route_order,
+      status:row.status,
+      customerName:customer?.full_name||"Customer",
+      serviceName:job?.service_name||"Property Service",
+      scheduledDate:row.scheduled_date,
+      startedAt:row.started_at||null,
+      finishedAt:row.finished_at||null,
+      durationSeconds:row.duration_seconds??null,
+      employeeNotes:notes.get(row.id)||null,
+    };
+  });
+
   return{
     employee:{id:employee.id,profileId:employee.profile_id,companyId,name:employee.full_name||"Employee",crewId:employee.crew_id||null,email:employee.email||null,avatarUrl},
     routeId:rows.find(row=>row.route_id)?.route_id||null,
-    stops:rows.map(row=>{
-      const property=properties.get(row.property_id||"") as any;
-      const customer=customers.get(row.customer_id||"") as any;
-      const job=jobs.get(row.job_id||"") as any;
-      return{
-        visitId:row.id,
-        jobId:row.job_id,
-        customerId:row.customer_id,
-        propertyId:row.property_id,
-        addressLine1:property?.address_line1||"",
-        city:property?.city||"",
-        province:property?.province||"",
-        postalCode:property?.postal_code||"",
-        latitude:property?.latitude??null,
-        longitude:property?.longitude??null,
-        routeOrder:row.route_order,
-        status:row.status,
-        customerName:customer?.full_name||"Customer",
-        serviceName:job?.service_name||"Property Service",
-        scheduledDate:row.scheduled_date,
-        startedAt:row.started_at||null,
-        finishedAt:row.finished_at||null,
-        durationSeconds:row.duration_seconds??null,
-        employeeNotes:notes.get(row.id)||null,
-      };
-    }),
+    stops,
   };
 }
 
@@ -166,7 +190,19 @@ export async function GET(request:NextRequest){
   try{
     const{client,employee,companyId,avatarUrl}=await requireEmployee(request);
     const date=request.nextUrl.searchParams.get("date")||torontoDateKey();
-    return NextResponse.json(await loadRoute(client,employee,companyId,date,avatarUrl));
+    const payload=await loadRoute(client,employee,companyId,date,avatarUrl);
+    console.info("employee-route-get-ok",{
+      employeeId:employee.id,
+      companyId,
+      date,
+      routeId:payload.routeId,
+      stopCount:payload.stops.length,
+      visitIds:payload.stops.map(stop=>stop.visitId),
+      customerIds:uniqueIds(payload.stops.map(stop=>stop.customerId)),
+      propertyIds:uniqueIds(payload.stops.map(stop=>stop.propertyId)),
+      jobIds:uniqueIds(payload.stops.map(stop=>stop.jobId)),
+    });
+    return NextResponse.json(payload);
   }catch(error){
     console.error("employee-route-get",error);
     return NextResponse.json({error:error instanceof Error?error.message:"Employee route could not be loaded."},{status:400});
@@ -185,7 +221,7 @@ export async function PATCH(request:NextRequest){
 
     if(body.action==="note"){
       const note=String(body.note||"").trim();
-      const noteInsert=await client.from("activity_log").insert({organization_id:companyId,actor_profile_id:userId,action:"visit.employee_note",entity_type:"visit",entity_id:visit.id,details:note||null});
+      const noteInsert=await client.from("activity_log").insert({organization_id:companyId,company_id:companyId,actor_profile_id:userId,action:"visit.employee_note",entity_type:"visit",entity_id:visit.id,details:note||null});
       if(noteInsert.error)throw new Error(noteInsert.error.message);
       return NextResponse.json({visit:{id:visit.id,employeeNotes:note||null}});
     }
