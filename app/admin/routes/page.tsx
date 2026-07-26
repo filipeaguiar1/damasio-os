@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -16,6 +17,7 @@ function firstName(name:string){return name.trim().split(/\s+/)[0]||name}
 async function accessToken(){const client=getSupabaseBrowserClient()as any;const{data}=await client.auth.getSession();const token=data.session?.access_token;if(!token)throw new Error("Your Admin session expired. Sign in again.");return token}
 
 export default function RoutesPage(){
+  const searchParams=useSearchParams();
   const[leads,setLeads]=useState<Lead[]>([]);
   const[employees,setEmployees]=useState<RouteEmployee[]>([]);
   const[employeeId,setEmployeeId]=useState("");
@@ -41,6 +43,7 @@ export default function RoutesPage(){
     }catch(error){setMessage(error instanceof Error?error.message:"Routes could not be loaded.")}
   }
 
+  useEffect(()=>{const requested=searchParams.get("tab");if(requested==="view"||requested==="build"||requested==="move")setMode(requested)},[searchParams]);
   useEffect(()=>{void refresh();const timer=window.setInterval(()=>void refresh(),15000);return()=>window.clearInterval(timer)},[]);
 
   const employee=employees.find(item=>item.id===employeeId)||null;
@@ -54,7 +57,7 @@ export default function RoutesPage(){
   const selectedJobs=jobs.filter(item=>selected.includes(item.id));
   const mapHomes=mode==="build"?available:mode==="move"?assigned:employeeRoute;
 
-  function changeMode(next:Mode){setMode(next);setSelected([]);setQuery("")}
+  function changeMode(next:Mode){setMode(next);setSelected([]);setQuery("");window.history.replaceState(null,"",`/admin/routes?tab=${next}`)}
   function toggle(id:string){setSelected(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id])}
   function selectVisible(){const ids=candidates.map(item=>item.id);setSelected(current=>ids.every(id=>current.includes(id))?current.filter(id=>!ids.includes(id)):[...new Set([...current,...ids])])}
 
@@ -67,7 +70,7 @@ export default function RoutesPage(){
       const response=await fetch("/api/admin/routes",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},body:JSON.stringify({jobIds:selectedJobs.map(item=>item.canonicalJobId||item.id),crewId:employee.crewId,routeDate:date})});
       const result=await response.json();
       if(!response.ok)throw new Error(result.error||"Route could not be published.");
-      setSelected([]);setMessage(mode==="move"?`${result.count} customer${result.count===1?"":"s"} moved to ${employee.name}.`:`Route built for ${employee.name} with ${result.count} stop${result.count===1?"":"s"}.`);await refresh();setMode("view");
+      setSelected([]);setMessage(mode==="move"?`${result.count} customer${result.count===1?"":"s"} moved to ${employee.name}.`:`Route built for ${employee.name} with ${result.count} stop${result.count===1?"":"s"}.`);await refresh();changeMode("view");
     }catch(error){setMessage(error instanceof Error?error.message:"Route could not be published.")}
     finally{setBusy(false)}
   }
