@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getInvoices } from "@/lib/storage";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 export type CustomerBillingInvoice = {
@@ -15,7 +14,7 @@ export type CustomerBillingInvoice = {
   createdAt: string;
 };
 
-type BillingSource = "live" | "demo" | "none";
+type BillingSource = "live" | "none";
 
 export function useCustomerBilling() {
   const [invoices, setInvoices] = useState<CustomerBillingInvoice[]>([]);
@@ -29,15 +28,9 @@ export function useCustomerBilling() {
     setMessage("");
 
     if (!isSupabaseConfigured()) {
-      setInvoices(getInvoices().map((invoice) => ({
-        id: invoice.id,
-        number: invoice.number,
-        status: invoice.status,
-        total: invoice.total,
-        service: invoice.service,
-        createdAt: invoice.createdAt,
-      })));
-      setSource("demo");
+      setInvoices([]);
+      setSource("none");
+      setMessage("Billing is unavailable until the live database is connected.");
       setLoading(false);
       return;
     }
@@ -76,7 +69,7 @@ export function useCustomerBilling() {
 
   const checkout = useCallback(async (invoiceId: string) => {
     if (source !== "live") {
-      setMessage("Demo invoices cannot create a real Stripe Checkout session.");
+      setMessage("Live billing is required to create a Stripe Checkout session.");
       return;
     }
 
