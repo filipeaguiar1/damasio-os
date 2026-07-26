@@ -84,8 +84,6 @@ export type SaveAgreementInput = {
   prepaidPlanType?: string | null;
   planBillingDay?: number;
   serviceStartDay?: number | null;
-  customFrequencyInterval?: number | null;
-  customFrequencyUnit?: string | null;
 };
 
 export async function saveAgreement(input: SaveAgreementInput) {
@@ -104,11 +102,30 @@ export async function saveAgreement(input: SaveAgreementInput) {
     p_prepaid_plan_type: input.prepaidPlanType || null,
     p_plan_billing_day: input.planBillingDay ?? 1,
     p_service_start_day: input.serviceStartDay ?? null,
-    p_custom_frequency_interval: input.customFrequencyInterval ?? null,
-    p_custom_frequency_unit: input.customFrequencyUnit ?? null,
+    p_custom_frequency_interval: null,
+    p_custom_frequency_unit: null,
   } as never);
   if (error) throw new Error(error.message);
   return String(data);
+}
+
+export async function syncAgreementToStripe(agreementId: string) {
+  const supabase = getSupabaseBrowserClient();
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Sign in before syncing the agreement with Stripe.");
+
+  const response = await fetch("/api/stripe/agreements/sync", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ agreementId }),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Agreement could not be synced with Stripe.");
+  return result as { synced: boolean; productId: string; priceId: string };
 }
 
 function defaultHorizon() {
