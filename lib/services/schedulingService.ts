@@ -8,7 +8,7 @@ import {
   type DispatchVisit,
   type SchedulingDispatchBoard,
 } from "@/lib/repositories/schedulingRepository";
-import { dayNameFromDate, type Lead, type ServiceFrequency } from "@/lib/storage";
+import { dayNameFromDate, type ServiceFrequency } from "@/lib/storage";
 import type { CanonicalRouteLead } from "@/lib/routes/canonicalRouteIdentity";
 
 export type RouteLead = CanonicalRouteLead;
