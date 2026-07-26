@@ -41,8 +41,9 @@ export function CustomerPropertyModal({ property, onClose, onReturnToAvailable, 
       </div>
     </section>
     <style jsx global>{`
-      .customer-property-backdrop{position:fixed;inset:0;z-index:500;display:grid;place-items:center;padding:18px;background:rgba(5,20,15,.72);backdrop-filter:blur(9px)}
-      .customer-property-modal{position:relative;width:min(760px,100%);max-height:calc(100dvh - 36px);overflow:auto;border:1px solid rgba(255,255,255,.2);border-radius:28px;background:#f7faf8;box-shadow:0 30px 90px rgba(0,0,0,.38)}
+      .customer-property-backdrop{position:fixed;inset:0;z-index:2147483000;isolation:isolate;display:grid;place-items:center;padding:18px;background:rgba(5,20,15,.78);backdrop-filter:blur(10px)}
+      .customer-property-backdrop .leaflet-control-container,.customer-property-backdrop~.leaflet-control-container{visibility:hidden!important}
+      .customer-property-modal{position:relative;z-index:1;width:min(760px,100%);max-height:calc(100dvh - 36px);overflow:auto;border:1px solid rgba(255,255,255,.2);border-radius:28px;background:#f7faf8;box-shadow:0 30px 90px rgba(0,0,0,.38)}
       .customer-property-close{position:absolute;right:14px;top:14px;z-index:3;width:42px;height:42px;border:1px solid rgba(255,255,255,.5);border-radius:50%;background:rgba(7,33,25,.62);color:#fff;font-size:27px;cursor:pointer}
       .customer-property-cover{position:relative;min-height:280px;overflow:hidden;border-radius:27px 27px 0 0;background:linear-gradient(135deg,#0b654a,#123d31)}
       .customer-property-cover>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.customer-property-cover-shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(3,18,13,.06),rgba(3,18,13,.82))}
