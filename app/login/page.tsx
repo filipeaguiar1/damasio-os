@@ -3,7 +3,6 @@ import {useState} from "react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
-import {clearDemoSession,DemoRole,getRoleHome,saveDemoSession} from "@/lib/auth/demoAuth";
 
 export default function LoginPage(){
   const router=useRouter();
@@ -12,11 +11,9 @@ export default function LoginPage(){
   const[message,setMessage]=useState("");
   const[loading,setLoading]=useState(false);
 
-  function demo(role:DemoRole){saveDemoSession(role);router.push(getRoleHome(role));}
-
   async function login(){
     if(!isSupabaseConfigured()){
-      setMessage("Supabase is not configured yet. Use Demo Login while we connect the database.");
+      setMessage("The secure database connection is not configured.");
       return;
     }
     setLoading(true);setMessage("Signing in...");
@@ -24,38 +21,17 @@ export default function LoginPage(){
       const supabase=getSupabaseBrowserClient() as any;
       const {data,error}=await supabase.auth.signInWithPassword({email,password});
       if(error){setMessage(error.message);return;}
-      clearDemoSession();
       const userId=data.user?.id;
       if(!userId){setMessage("Login worked, but no user was returned.");return;}
 
-      let profile: { role?: string; full_name?: string; active?: boolean; phone?: string | null } | null = null;
-      const {data:existingProfile,error:profileError}=await supabase.from("profiles").select("role, full_name, active, phone").eq("id",userId).maybeSingle();
-
-      if(existingProfile){
-        profile = existingProfile;
-      } else if(!profileError || profileError.code !== "PGRST116") {
-        setMessage("We could not read your profile yet. Please try again in a moment.");
+      const {data:profile,error:profileError}=await supabase.from("profiles").select("role, full_name, active, phone").eq("id",userId).maybeSingle();
+      if(profileError||!profile){
+        await supabase.auth.signOut();
+        setMessage("This authenticated account does not have an active platform profile. Contact support.");
         return;
-      } else {
-        const fallbackRole = email.toLowerCase().includes("master") ? "master" : email.toLowerCase().includes("admin") ? "admin" : "customer";
-        const {data:createdProfile,error:createProfileError}=await supabase.from("profiles").insert({
-          id: userId,
-          role: fallbackRole,
-          full_name: data.user?.email?.split("@")[0] ?? "User",
-          email: data.user?.email,
-          active: true,
-          organization_id: null,
-          company_id: null,
-        }).select("role, full_name, active, phone").single();
-
-        if(createProfileError || !createdProfile){
-          setMessage("Your account was authenticated, but its profile could not be created automatically. Please contact support.");
-          return;
-        }
-        profile = createdProfile;
       }
 
-      if(!profile?.active){
+      if(!profile.active){
         await supabase.auth.signOut();
         setMessage("This account is inactive. Contact the company Admin.");
         return;
@@ -82,18 +58,12 @@ export default function LoginPage(){
       <div className="season-title auth-logo"><span>4EVER</span><strong>SEASONS</strong></div>
       <span className="eyebrow">4Ever Seasons</span>
       <h1>Sign in</h1>
-      <p>Use the email and password connected to your account.</p>
+      <p>Use the email and password connected to your live account.</p>
       <label>Email<input value={email} onChange={e=>setEmail(e.target.value)} placeholder="admin@company.com" /></label>
       <label>Password<input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="••••••••" /></label>
       <button className="btn btn-primary" onClick={login} disabled={loading}>{loading?"Signing in...":"Sign In"}</button>
       <Link href="/forgot-password">Forgot your password?</Link>
       {message&&<p className="auth-message">{message}</p>}
-      <div className="demo-grid">
-        <button className="btn btn-primary" onClick={()=>demo("master")}>Master Access</button>
-        <button className="btn btn-white" onClick={()=>demo("admin")}>Demo Admin</button>
-        <button className="btn btn-white" onClick={()=>demo("employee")}>Demo Employee</button>
-        <button className="btn btn-white" onClick={()=>demo("customer")}>Demo Customer</button>
-      </div>
       <div className="auth-links"><a href="/admin/database">Database setup</a><a href="/">Back to website</a></div>
     </section>
   </main>;
