@@ -17,6 +17,8 @@ const employeeSchema=z.object({
   active:z.boolean().optional(),
 });
 
+type EmployeeRouteRow={id:string;profile_id:string|null;crew_id:string|null;full_name:string|null;active:boolean};
+
 function serverClient(){
   const url=process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key=process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -54,10 +56,11 @@ function profilePayload(body:z.infer<typeof employeeSchema>){
   };
 }
 
-async function ensureIndividualRouteTeams(client:any,companyId:string){
+async function ensureIndividualRouteTeams(client:any,companyId:string):Promise<EmployeeRouteRow[]>{
   const{data:rows,error}=await client.from("employees").select("id,profile_id,crew_id,full_name,active").eq("company_id",companyId);
   if(error)throw new Error(error.message);
-  for(const employee of rows||[]){
+  const employees=(rows||[]) as EmployeeRouteRow[];
+  for(const employee of employees){
     if(employee.crew_id||!employee.active)continue;
     const{data:crew,error:crewError}=await client.from("crews").insert({company_id:companyId,organization_id:companyId,name:employee.full_name||"Employee route",active:true}).select("id").single();
     if(crewError)throw new Error(crewError.message);
@@ -65,14 +68,15 @@ async function ensureIndividualRouteTeams(client:any,companyId:string){
     if(updateError)throw new Error(updateError.message);
     employee.crew_id=crew.id;
   }
-  return rows||[];
+  return employees;
 }
 
 export async function GET(request:NextRequest){
   try{
     const{client,companyId}=await companyAdmin(request);
     const employeeRows=await ensureIndividualRouteTeams(client,companyId);
-    const byProfile=new Map(employeeRows.map((row:any)=>[row.profile_id,row]));
+    const byProfile=new Map<string,EmployeeRouteRow>();
+    for(const row of employeeRows)if(row.profile_id)byProfile.set(row.profile_id,row);
     const{data,error}=await client.from("profiles").select("id,full_name,email,phone,active,created_at,avatar_url,address_line1,city,province,postal_code,route_start_address,invite_status").eq("role","employee").or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).order("created_at",{ascending:false});
     if(error)throw new Error(error.message);
     return NextResponse.json({users:(data||[]).map((profile:any)=>({...profile,employee_id:byProfile.get(profile.id)?.id||null,crew_id:byProfile.get(profile.id)?.crew_id||null}))});
