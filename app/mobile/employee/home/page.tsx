@@ -5,10 +5,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { PremiumMobileHeader, PremiumMobileNav } from "@/components/mobile/PremiumMobileChrome";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { getEmployeeProfile } from "@/lib/storage";
 
 type Stop = {
   visitId: string;
+  jobId: string | null;
+  customerId: string | null;
   propertyId: string | null;
   addressLine1: string;
   city: string;
@@ -28,18 +29,17 @@ type Stop = {
 };
 
 type RoutePayload = {
-  employee: { id: string; name: string; crewId: string | null; email: string | null };
+  employee: { id: string; profileId: string | null; companyId: string; name: string; crewId: string | null; email: string | null; avatarUrl: string | null };
   routeId: string | null;
   stops: Stop[];
 };
 
-function todayKey(){return new Date().toISOString().slice(0,10)}
-function formatDuration(seconds:number){const safe=Math.max(0,Math.floor(seconds));const h=String(Math.floor(safe/3600)).padStart(2,"0");const m=String(Math.floor((safe%3600)/60)).padStart(2,"0");const s=String(safe%60).padStart(2,"0");return `${h}:${m}:${s}`}
+function todayKey(){const date=new Date();const year=date.getFullYear();const month=String(date.getMonth()+1).padStart(2,"0");const day=String(date.getDate()).padStart(2,"0");return `${year}-${month}-${day}`}
+function formatDuration(seconds:number){const safe=Math.max(0,Math.floor(seconds));const h=String(Math.floor(safe/3600)).padStart(2,"0");const m=String(Math.floor((safe%3600)/60).padStart(2,"0"));const s=String(safe%60).padStart(2,"0");return `${h}:${m}:${s}`}
 function mapsHref(address:string){return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`}
 
 export default function PremiumEmployeeHome(){
-  const localProfile=getEmployeeProfile();
-  const [payload,setPayload]=useState<RoutePayload>({employee:{id:"",name:localProfile.name||"Employee",crewId:null,email:localProfile.email||null},routeId:null,stops:[]});
+  const [payload,setPayload]=useState<RoutePayload>({employee:{id:"",profileId:null,companyId:"",name:"Employee",crewId:null,email:null,avatarUrl:null},routeId:null,stops:[]});
   const [selectedId,setSelectedId]=useState("");
   const [note,setNote]=useState("");
   const [loading,setLoading]=useState(true);
@@ -107,7 +107,7 @@ export default function PremiumEmployeeHome(){
 
   return <MobileRoleGuard allowed={["employee"]}>
     <main className="premium-mobile-page premium-employee-page">
-      <PremiumMobileHeader role="EMPLOYEE" name={payload.employee.name||localProfile.name||"Employee"} subtitle="Employee" menuHref="/mobile/employee" notificationHref="/mobile/employee" avatarUrl={localProfile.photoUrl||null} rightLabel={payload.employee.crewId?"My Crew":"Today's Route"}/>
+      <PremiumMobileHeader role="EMPLOYEE" name={payload.employee.name||"Employee"} subtitle="Employee" menuHref="/mobile/employee" notificationHref="/mobile/employee" avatarUrl={payload.employee.avatarUrl} rightLabel={payload.employee.crewId?"My Crew":"Today's Route"}/>
       <section className="premium-mobile-content">
         {error&&<p className="mobile-message mobile-error">{error}</p>}
         {message&&<p className="mobile-message">{message}</p>}
@@ -135,7 +135,7 @@ export default function PremiumEmployeeHome(){
           <section className="premium-panel premium-notes-panel"><div className="premium-panel-head"><div><small>NOTES / COMMENTS</small><h2>Employee note</h2></div></div><textarea value={note} onChange={event=>setNote(event.target.value)} placeholder="Add a note for Admin and the visit history."/><button disabled={busy||!selected} onClick={()=>void updateVisit("note")}>✎ Save Note</button></section>
         </div>
 
-        <section className="premium-panel"><div className="premium-panel-head"><div><small>UP NEXT</small><h2>Remaining stops</h2></div><Link href="/mobile/employee">Full route</Link></div><div className="premium-list">{upcoming.length?upcoming.map((stop,index)=><button className="premium-list-row premium-next-stop" key={stop.visitId} onClick={()=>setSelectedId(stop.visitId)}><i>{ordered.findIndex(item=>item.visitId===stop.visitId)+1}</i><div><strong>{stop.customerName}</strong><span>{stop.addressLine1}</span></div><b>{stop.serviceName}</b></button>):<div className="premium-list-row"><i>✓</i><div><strong>Route complete</strong><span>No additional stop is waiting.</span></div><b>Done</b></div>}</div></section>
+        <section className="premium-panel"><div className="premium-panel-head"><div><small>UP NEXT</small><h2>Remaining stops</h2></div><Link href="/mobile/employee">Full route</Link></div><div className="premium-list">{upcoming.length?upcoming.map(stop=><button className="premium-list-row premium-next-stop" key={stop.visitId} onClick={()=>setSelectedId(stop.visitId)}><i>{ordered.findIndex(item=>item.visitId===stop.visitId)+1}</i><div><strong>{stop.customerName}</strong><span>{stop.addressLine1}</span></div><b>{stop.serviceName}</b></button>):<div className="premium-list-row"><i>✓</i><div><strong>Route complete</strong><span>No additional stop is waiting.</span></div><b>Done</b></div>}</div></section>
 
         <section className="premium-employee-stats"><div><i>◷</i><span>Stops Today</span><strong>{ordered.length}</strong></div><div><i>✓</i><span>Completed</span><strong>{completed}</strong></div><div><i>◌</i><span>In Progress</span><strong>{inProgress}</strong></div><div><i>◷</i><span>Remaining</span><strong>{Math.max(0,ordered.length-completed)}</strong></div></section>
       </section>
