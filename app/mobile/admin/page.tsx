@@ -1,57 +1,38 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
-import { PremiumMetricCard, PremiumMobileHeader, PremiumMobileNav } from "@/components/mobile/PremiumMobileChrome";
+import { signOutAccount } from "@/lib/auth/signOut";
+import { MobileBackButton } from "@/components/mobile/MobileBackButton";
+import { MobileAdminNav } from "@/components/mobile/MobileAdminNav";
 import { loadDailyOperations, type DailyOperations } from "@/lib/services/dailyOperationsService";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type MobileAdminData = {
-  total: number;
   open: number;
-  inProgress: number;
   done: number;
-  activeRoutes: number;
-  tasksOpen: number;
-  urgent: number;
-  adminName: string;
-  companyName: string;
-  tasks: { id: string; title: string; customer: string; address: string; status: string; priority: string }[];
+  returnVisits: number;
+  alerts: number;
+  tasks: { id: string; title: string; customer: string; address: string; status: string }[];
 };
 
-const EMPTY_DATA: MobileAdminData = {
-  total: 0,
-  open: 0,
-  inProgress: 0,
-  done: 0,
-  activeRoutes: 0,
-  tasksOpen: 0,
-  urgent: 0,
-  adminName: "Company Admin",
-  companyName: "4Ever Seasons",
-  tasks: [],
-};
+const EMPTY_DATA: MobileAdminData = { open: 0, done: 0, returnVisits: 0, alerts: 0, tasks: [] };
 
-function mapOperations(operations: DailyOperations): Pick<MobileAdminData, "total" | "open" | "inProgress" | "done" | "activeRoutes" | "tasksOpen" | "urgent" | "tasks"> {
+function mapOperations(operations: DailyOperations): MobileAdminData {
   return {
-    total: operations.summary.homesTotal,
     open: operations.summary.homesOpen,
-    inProgress: operations.summary.homesInProgress,
     done: operations.summary.homesDone,
-    activeRoutes: operations.assignees.filter((item) => item.total > 0).length,
-    tasksOpen: operations.summary.tasksOpen,
-    urgent: operations.summary.urgentTasks,
+    returnVisits: operations.summary.tasksOpen,
+    alerts: operations.summary.urgentTasks,
     tasks: operations.tasks
       .filter((task) => !["completed", "resolved"].includes(task.status))
-      .slice(0, 4)
+      .slice(0, 5)
       .map((task) => ({
         id: task.id,
         title: task.title,
         customer: task.customerName,
         address: task.address,
         status: task.status,
-        priority: task.priority,
       })),
   };
 }
@@ -60,22 +41,15 @@ export default function MobileAdminApp() {
   const [data, setData] = useState<MobileAdminData>(EMPTY_DATA);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [actionPage, setActionPage] = useState(0);
+  const actionScroller = useRef<HTMLDivElement>(null);
 
   async function refresh() {
     try {
-      const supabase = getSupabaseBrowserClient() as any;
-      const [{ data: auth }, operations] = await Promise.all([supabase.auth.getUser(), loadDailyOperations()]);
-      let adminName = "Company Admin";
-      let companyName = "4Ever Seasons";
-      if (auth?.user?.id) {
-        const { data: profile } = await supabase.from("profiles").select("full_name,company_id,organizations(name)").eq("id", auth.user.id).maybeSingle();
-        const organization = Array.isArray(profile?.organizations) ? profile.organizations[0] : profile?.organizations;
-        adminName = profile?.full_name || adminName;
-        companyName = organization?.name || companyName;
-      }
-      setData({ ...EMPTY_DATA, ...mapOperations(operations), adminName, companyName });
+      setData(mapOperations(await loadDailyOperations()));
       setError("");
     } catch (nextError) {
+      setData(EMPTY_DATA);
       setError(nextError instanceof Error ? nextError.message : "Live operations are temporarily unavailable.");
     } finally {
       setLoading(false);
@@ -88,56 +62,70 @@ export default function MobileAdminApp() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const routeNote = useMemo(() => data.activeRoutes ? `${data.activeRoutes} active route${data.activeRoutes === 1 ? "" : "s"} today` : "No active route yet", [data.activeRoutes]);
-  const nav = [
-    { id: "home", href: "/mobile/admin", icon: "⌂", label: "Home" },
-    { id: "routes", href: "/mobile/admin/routes", icon: "▣", label: "Routes" },
-    { id: "tasks", href: "/mobile/admin/tasks", icon: "☑", label: "Tasks" },
-    { id: "payments", href: "/mobile/admin/finance", icon: "$", label: "Payments" },
-    { id: "more", href: "/mobile/admin/more", icon: "⋮", label: "More" },
+  const actions = [
+    { href: "/mobile/admin/command", icon: "⌁", label: "Command", detail: "Live operation" },
+    { href: "/mobile/admin/routes", icon: "↗", label: "Routes", detail: "Dispatch crews" },
+    { href: "/mobile/admin/schedule", icon: "□", label: "Schedule", detail: "Plan the day" },
+    { href: "/mobile/admin/customers", icon: "◎", label: "Customers", detail: "Homes & contacts" },
+    { href: "/mobile/admin/tasks", icon: "✓", label: "Tasks", detail: "Return visits" },
+    { href: "/mobile/admin/alerts", icon: "!", label: "Alerts", detail: `${data.alerts} urgent` },
+    { href: "/mobile/admin/estimates", icon: "▤", label: "Estimates", detail: "Quotes & approvals" },
+    { href: "/mobile/admin/invoices", icon: "$", label: "Invoices", detail: "Billing status" },
+    { href: "/mobile/admin/requests", icon: "＋", label: "Requests", detail: "Customer needs" },
+    { href: "/mobile/admin/employees", icon: "♧", label: "Employees", detail: "Team & crews" },
+    { href: "/mobile/admin/finance", icon: "◈", label: "Finance", detail: "Revenue & costs" },
+    { href: "/mobile/admin/reports", icon: "▥", label: "Reports", detail: "Business results" },
   ];
+  const actionPages = [actions.slice(0, 6), actions.slice(6, 12)];
+
+  function goToActionPage(index: number) {
+    const scroller = actionScroller.current;
+    if (!scroller) return;
+    scroller.scrollTo({ left: scroller.clientWidth * index, behavior: "smooth" });
+    setActionPage(index);
+  }
 
   return (
-    <MobileRoleGuard allowed={["admin", "manager"]}>
-      <main className="premium-mobile-page">
-        <PremiumMobileHeader role="ADMIN" name={data.adminName} subtitle={data.companyName} menuHref="/mobile/admin/more" notificationHref="/mobile/admin/alerts" />
-        <section className="premium-mobile-content">
-          {error && <p className="mobile-message mobile-error" role="alert">{error}</p>}
+    <MobileRoleGuard allowed={["admin", "manager"]}><main className="mobile-app-shell role-mobile-shell role-admin-mobile">
+      <header className="role-mobile-topbar">
+        <MobileBackButton />
+        <div><strong>Operations</strong><span>Admin workspace</span></div>
+        <button type="button" className="role-mobile-avatar" onClick={() => void signOutAccount("/mobile/login")} aria-label="Sign out">A</button>
+      </header>
 
-          <div className="premium-mobile-metrics">
-            <PremiumMetricCard href="/mobile/admin/status/open" icon="☑" label="Today's Jobs" value={loading ? "…" : data.total} note={`${data.open} still open`} />
-            <PremiumMetricCard href="/mobile/admin/routes" icon="▣" label="Active Routes" value={loading ? "…" : data.activeRoutes} note={routeNote} />
-            <PremiumMetricCard href="/mobile/admin/tasks" icon="!" label="Open Issues" value={loading ? "…" : data.tasksOpen} note={`${data.urgent} urgent`} tone="gold" />
-            <PremiumMetricCard href="/mobile/admin/status/done" icon="✓" label="Completed" value={loading ? "…" : data.done} note={`${data.inProgress} in progress`} />
-          </div>
+      {error && <p className="mobile-message mobile-error" role="alert">{error}</p>}
 
-          <section className="premium-panel premium-route-banner">
-            <div className="premium-route-copy"><span>ROUTE PLANNER</span><h2>Plan. Optimize. Deliver.</h2><p>View today&apos;s routes, assignments and employee progress from the live database.</p><Link className="premium-gold-button" href="/mobile/admin/routes">View Route Planner <b>›</b></Link></div>
-            <div className="premium-route-map-art" aria-hidden="true"><span className="premium-route-line"/><b>1</b><b>2</b><b>3</b><b>4</b><b>5</b></div>
-          </section>
+      <section className="mobile-hero-card compact">
+        <span className="role-mobile-eyebrow">TODAY · LIVE OPERATIONS</span>
+        <h1>{loading ? "Loading live operations..." : "Everything under control."}</h1>
+        <p><strong>{data.open} homes</strong> are open and {data.returnVisits} tasks need follow-up.</p>
+        <Link className="role-mobile-hero-link" href="/mobile/admin/command">Open Command Center <span>→</span></Link>
+      </section>
 
-          <div className="premium-two-column">
-            <section className="premium-panel">
-              <div className="premium-panel-head"><div><small>RECENT CUSTOMER REQUESTS</small><h2>Needs attention</h2></div><Link href="/mobile/admin/tasks">View all</Link></div>
-              <div className="premium-list">
-                {data.tasks.length ? data.tasks.map((task) => <Link href="/mobile/admin/tasks" className="premium-list-row" key={task.id}><i>{task.priority === "urgent" ? "!" : "✦"}</i><div><strong>{task.title}</strong><span>{task.customer} · {task.address}</span></div><b className={task.priority === "urgent" ? "gold" : ""}>{task.status.replaceAll("_", " ")}</b></Link>) : <div className="premium-list-row"><i>✓</i><div><strong>No open customer issue</strong><span>The priority queue is clear.</span></div><b>Clear</b></div>}
-              </div>
-            </section>
+      <section className="mobile-stats-card">
+        <Link href="/mobile/admin/status/open"><span>Open</span><strong>{data.open}</strong><small>homes</small></Link>
+        <Link href="/mobile/admin/status/done"><span>Done</span><strong>{data.done}</strong><small>completed</small></Link>
+        <Link href="/mobile/admin/tasks"><span>Tasks</span><strong>{data.returnVisits}</strong><small>follow-up</small></Link>
+        <Link href="/mobile/admin/alerts"><span>Alerts</span><strong>{data.alerts}</strong><small>urgent</small></Link>
+      </section>
 
-            <section className="premium-panel">
-              <div className="premium-panel-head"><div><small>OPERATIONS TODAY</small><h2>Live status</h2></div></div>
-              <div className="premium-summary-list">
-                <div className="premium-summary-item"><i>◷</i><div><span>In progress</span><strong>{data.inProgress}</strong><small>Employees currently working</small></div></div>
-                <div className="premium-summary-item"><i>✓</i><div><span>Completed</span><strong>{data.done}</strong><small>Finished visits</small></div></div>
-                <div className="premium-summary-item"><i>!</i><div><span>Urgent issues</span><strong>{data.urgent}</strong><small>Requires attention</small></div></div>
-              </div>
-            </section>
-          </div>
+      <section className="role-mobile-section">
+        <div className="role-mobile-section-head"><div><span>QUICK ACCESS</span><h2>Run the business</h2></div><small>{actionPage + 1} / {actionPages.length}</small></div>
+        <div className="role-mobile-action-pages" ref={actionScroller} onScroll={(event) => { const width = event.currentTarget.clientWidth; if (width) setActionPage(Math.round(event.currentTarget.scrollLeft / width)); }}>
+          {actionPages.map((page, index) => <div className="role-mobile-action-grid" key={index}>{page.map((action) => <Link href={action.href} key={action.href}><i>{action.icon}</i><strong>{action.label}</strong><small>{action.detail}</small></Link>)}</div>)}
+        </div>
+        <div className="role-mobile-dots" aria-label="Quick access pages">{actionPages.map((_, index) => <button type="button" key={index} className={actionPage === index ? "active" : ""} onClick={() => goToActionPage(index)} aria-label={`Open quick access page ${index + 1}`} />)}</div>
+      </section>
 
-          <section className="premium-promo"><div><strong>Grow your business with 4Ever Seasons</strong><span>Customers, routes, service quality and finance stay connected.</span></div><Link href="/mobile/admin/reports">View Analytics</Link></section>
-        </section>
-        <PremiumMobileNav items={nav} active="home" />
-      </main>
-    </MobileRoleGuard>
+      <section className="role-mobile-section role-attention-section">
+        <div className="role-mobile-section-head"><div><span>PRIORITIES</span><h2>Needs attention</h2></div><Link href="/mobile/admin/tasks">All tasks</Link></div>
+        {data.tasks.length ? data.tasks.map((task) => (
+          <Link className="role-mobile-priority" href="/mobile/admin/tasks" key={task.id}><i>!</i><span><strong>{task.title}</strong><small>{task.customer} · {task.address}</small></span><b>›</b></Link>
+        )) : (
+          <div className="role-mobile-clear"><i>✓</i><span><strong>No return visits open</strong><small>Your priority list is clear.</small></span></div>
+        )}
+      </section>
+      <MobileAdminNav active="home" />
+    </main></MobileRoleGuard>
   );
 }
