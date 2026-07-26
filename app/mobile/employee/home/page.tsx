@@ -35,7 +35,7 @@ type RoutePayload = {
 };
 
 function todayKey(){const date=new Date();const year=date.getFullYear();const month=String(date.getMonth()+1).padStart(2,"0");const day=String(date.getDate()).padStart(2,"0");return `${year}-${month}-${day}`}
-function formatDuration(seconds:number){const safe=Math.max(0,Math.floor(seconds));const h=String(Math.floor(safe/3600)).padStart(2,"0");const m=String(Math.floor((safe%3600)/60).padStart(2,"0"));const s=String(safe%60).padStart(2,"0");return `${h}:${m}:${s}`}
+function formatDuration(seconds:number){const safe=Math.max(0,Math.floor(seconds));const h=String(Math.floor(safe/3600)).padStart(2,"0");const m=String(Math.floor((safe%3600)/60)).padStart(2,"0");const s=String(safe%60).padStart(2,"0");return `${h}:${m}:${s}`}
 function mapsHref(address:string){return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`}
 
 export default function PremiumEmployeeHome(){
