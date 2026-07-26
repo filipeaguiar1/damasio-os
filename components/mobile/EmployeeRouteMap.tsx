@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Lead } from "@/lib/storage";
-import { getEmployeeTasks, getSessionForLead, updateLead } from "@/lib/storage";
+import { getEmployeeTasks, getSessionForLead } from "@/lib/storage";
 import { loadCachedRouteGeometry } from "@/lib/services/routeMapService";
 import type { RouteLineString } from "@/lib/maps/types";
 import { readRoadGeometry, saveRoadGeometry } from "@/lib/maps/clientMapCache";
@@ -10,7 +10,7 @@ import { readRoadGeometry, saveRoadGeometry } from "@/lib/maps/clientMapCache";
 declare global { interface Window { L?: any } }
 
 type Point = Lead & { latitude: number; longitude: number; color: string; label: string };
-type RouteOriginPoint = { latitude:number; longitude:number; label?:string };
+type RouteOriginPoint = { latitude: number; longitude: number; label?: string };
 type Props = {
   route: Lead[];
   onOpenVisit: (lead: Lead) => void;
@@ -23,6 +23,12 @@ type Props = {
 const HAMILTON: [number, number] = [43.2557, -79.8711];
 
 function visualState(lead: Lead, isNext: boolean) {
+  if (lead.canonicalVisitId) {
+    if (lead.status === "completed") return { color: "#16a34a", label: "Completed" };
+    if (isNext) return { color: "#2563eb", label: "Next visit" };
+    return { color: "#64748b", label: "Pending" };
+  }
+
   const session = getSessionForLead(lead.id);
   const needsAttention = getEmployeeTasks().some(task => task.leadId === lead.id && task.status !== "resolved");
   if (needsAttention) return { color: "#dc2626", label: "Needs attention" };
@@ -32,7 +38,14 @@ function visualState(lead: Lead, isNext: boolean) {
   return { color: "#64748b", label: "Pending" };
 }
 
-export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false, actionLabel = "Open Visit", originPoint = null }: Props) {
+export function EmployeeRouteMap({
+  route,
+  onOpenVisit,
+  routeId,
+  desktop = false,
+  actionLabel = "Open Visit",
+  originPoint = null,
+}: Props) {
   const mapNode = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const markerLayerRef = useRef<any>(null);
@@ -45,83 +58,137 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false,
   const [mapStatus, setMapStatus] = useState("Locating properties...");
   const [mapReady, setMapReady] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
-  const routeKey = route.map(lead => `${lead.id}:${lead.address}`).join("|");
+  const routeKey = route.map(lead => `${lead.id}:${lead.address}:${lead.routeOrder ?? ""}`).join("|");
   const originKey = originPoint ? `${originPoint.latitude}:${originPoint.longitude}` : "";
 
   useEffect(() => {
     let cancelled = false;
+    didInitialFit.current = false;
+    setSelectedId("");
+    setGeometry(null);
+
     async function locateAndRoute() {
       const alreadyLocated = route.filter(lead => Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude));
       setResolvedRoute(alreadyLocated);
-      setMapStatus(routeId ? "Loading saved driving route..." : alreadyLocated.length === route.length ? "Map ready" : "Locating new properties...");
+      setMapStatus(routeId
+        ? "Loading saved driving route..."
+        : alreadyLocated.length === route.length
+          ? "Map ready"
+          : "Locating new properties...");
+
       if (routeId) return;
+
       const located = await Promise.all(route.map(async lead => {
         if (Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude)) return lead;
         try {
           const response = await fetch(`/api/map/geocode?address=${encodeURIComponent(lead.address)}`, { cache: "no-store" });
           if (!response.ok) throw new Error("Address not found");
           const position = await response.json() as { latitude: number; longitude: number };
-          const mapped = { ...lead, ...position };
-          updateLead(lead.id, position);
-          return mapped;
+          return { ...lead, ...position };
         } catch {
           return null;
         }
       })).then(values => values.filter((lead): lead is Lead => Boolean(lead)));
+
       if (cancelled) return;
       setResolvedRoute(located);
+
       const coordinates = [
-        ...(originPoint ? [[Number(originPoint.longitude), Number(originPoint.latitude)] as [number, number]] : []),
-        ...located.map(lead => [Number(lead.longitude), Number(lead.latitude)] as [number, number])
+        ...(originPoint
+          ? [[Number(originPoint.longitude), Number(originPoint.latitude)] as [number, number]]
+          : []),
+        ...located.map(lead => [Number(lead.longitude), Number(lead.latitude)] as [number, number]),
       ];
-      if (coordinates.length < 2) { setGeometry(null); setMapStatus("Map ready"); return; }
+
+      if (coordinates.length < 2) {
+        setGeometry(null);
+        setMapStatus("Map ready");
+        return;
+      }
+
       const cached = readRoadGeometry(coordinates);
-      if (cached) { setGeometry(cached); setMapStatus("Driving route"); return; }
+      if (cached) {
+        setGeometry(cached);
+        setMapStatus("Driving route");
+        return;
+      }
+
       setMapStatus("Calculating driving route...");
       try {
         const response = await fetch("/api/map/route", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ coordinates })
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ coordinates }),
         });
         if (!response.ok) throw new Error("Route unavailable");
         const result = await response.json() as { geometry: RouteLineString };
-        if (!cancelled) { saveRoadGeometry(coordinates, result.geometry); setGeometry(result.geometry); setMapStatus("Driving route"); }
-      } catch { if (!cancelled) setMapStatus("Properties mapped - route unavailable"); }
+        if (!cancelled) {
+          saveRoadGeometry(coordinates, result.geometry);
+          setGeometry(result.geometry);
+          setMapStatus("Driving route");
+        }
+      } catch {
+        if (!cancelled) setMapStatus("Properties mapped - route unavailable");
+      }
     }
-    locateAndRoute();
+
+    void locateAndRoute();
     return () => { cancelled = true; };
   }, [routeKey, routeId, originKey]);
 
   useEffect(() => {
     let cancelled = false;
-    setGeometry(null);
     if (!routeId) return () => { cancelled = true; };
+
     loadCachedRouteGeometry(routeId)
       .then(cache => {
         if (cancelled) return;
-        if (cache?.status === "ready") { setGeometry(cache.geometry); setMapStatus(cache.geometry ? "Driving route" : "Map ready"); }
-        else if (cache?.status === "pending") { setGeometry(null); setMapStatus("Route update pending"); }
-        else { setGeometry(null); setMapStatus("Properties mapped - saved route unavailable"); }
+        if (cache?.status === "ready") {
+          setGeometry(cache.geometry);
+          setMapStatus(cache.geometry ? "Driving route" : "Map ready");
+        } else if (cache?.status === "pending") {
+          setGeometry(null);
+          setMapStatus("Route update pending");
+        } else {
+          setGeometry(null);
+          setMapStatus("Properties mapped - saved route unavailable");
+        }
       })
-      .catch(() => { if (!cancelled) { setGeometry(null); setMapStatus("Properties mapped - saved route unavailable"); } });
+      .catch(() => {
+        if (!cancelled) {
+          setGeometry(null);
+          setMapStatus("Properties mapped - saved route unavailable");
+        }
+      });
+
     return () => { cancelled = true; };
   }, [routeId]);
 
   const nextVisitId = useMemo(() => resolvedRoute.find(lead => {
+    if (lead.canonicalVisitId) return lead.status !== "completed";
     const session = getSessionForLead(lead.id);
     return lead.status !== "completed" && session?.status !== "finished" && session?.status !== "skipped";
   })?.id, [resolvedRoute]);
 
   const points = useMemo<Point[]>(() => resolvedRoute.flatMap(lead => {
     if (!Number.isFinite(lead.latitude) || !Number.isFinite(lead.longitude)) return [];
-    return [{ ...lead, latitude: Number(lead.latitude), longitude: Number(lead.longitude), ...visualState(lead, lead.id === nextVisitId) }];
+    return [{
+      ...lead,
+      latitude: Number(lead.latitude),
+      longitude: Number(lead.longitude),
+      ...visualState(lead, lead.id === nextVisitId),
+    }];
   }), [resolvedRoute, nextVisitId]);
+
   const unmapped = route.filter(lead => !points.some(point => point.id === lead.id));
   const selected = points.find(point => point.id === selectedId) || points[0] || null;
 
   function fitRoute() {
     if (!mapRef.current || !window.L || (!points.length && !originPoint)) return;
-    const bounds=[...points.map(point => [point.latitude, point.longitude] as [number,number]),...(originPoint?[[originPoint.latitude,originPoint.longitude] as [number,number]]:[])];
+    const bounds = [
+      ...points.map(point => [point.latitude, point.longitude] as [number, number]),
+      ...(originPoint ? [[originPoint.latitude, originPoint.longitude] as [number, number]] : []),
+    ];
     mapRef.current.fitBounds(window.L.latLngBounds(bounds).pad(.16), { maxZoom: 16 });
   }
 
@@ -132,11 +199,19 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false,
       if (locationLayerRef.current) mapRef.current.removeLayer(locationLayerRef.current);
       const location: [number, number] = [position.coords.latitude, position.coords.longitude];
       locationLayerRef.current = window.L.circleMarker(location, {
-        radius: 8, color: "#fff", weight: 3, fillColor: "#2563eb", fillOpacity: 1
+        radius: 8,
+        color: "#fff",
+        weight: 3,
+        fillColor: "#2563eb",
+        fillOpacity: 1,
       }).addTo(mapRef.current);
       mapRef.current.setView(location, Math.max(mapRef.current.getZoom(), 15));
       setLocationMessage("");
-    }, () => setLocationMessage("Location unavailable"), { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 });
+    }, () => setLocationMessage("Location unavailable"), {
+      enableHighAccuracy: false,
+      timeout: 8000,
+      maximumAge: 60_000,
+    });
   }
 
   useEffect(() => {
@@ -144,57 +219,89 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false,
     const setup = () => {
       if (cancelled || !mapNode.current || !window.L) return;
       const L = window.L;
+
       if (!mapRef.current) {
         mapRef.current = L.map(mapNode.current, { zoomControl: true, attributionControl: true }).setView(HAMILTON, 12);
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap contributors" }).addTo(mapRef.current);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: "© OpenStreetMap contributors",
+        }).addTo(mapRef.current);
         markerLayerRef.current = L.layerGroup().addTo(mapRef.current);
         setMapReady(true);
       }
+
       markerLayerRef.current.clearLayers();
-      if(originPoint){
-        const originIcon=L.divIcon({className:"employee-map-marker-shell",html:`<div class="employee-map-origin-marker">●</div>`,iconSize:[38,38],iconAnchor:[19,19]});
-        L.marker([originPoint.latitude,originPoint.longitude],{icon:originIcon}).bindTooltip(originPoint.label||"Route start",{direction:"top"}).addTo(markerLayerRef.current);
+      if (originPoint) {
+        const originIcon = L.divIcon({
+          className: "employee-map-marker-shell",
+          html: `<div class="employee-map-origin-marker">●</div>`,
+          iconSize: [38, 38],
+          iconAnchor: [19, 19],
+        });
+        L.marker([originPoint.latitude, originPoint.longitude], { icon: originIcon })
+          .bindTooltip(originPoint.label || "Route start", { direction: "top" })
+          .addTo(markerLayerRef.current);
       }
+
       points.forEach((point, index) => {
         const active = selected?.id === point.id;
         const icon = L.divIcon({
           className: "employee-map-marker-shell",
-          html: `<div class="employee-map-marker ${active ? "active" : ""}" style="background:${point.color}">${index + 1}</div>`,
-          iconSize: [active ? 40 : 34, active ? 40 : 34], iconAnchor: [active ? 20 : 17, active ? 20 : 17]
+          html: `<div class="employee-map-marker ${active ? "active" : ""}" style="background:${point.color}">${point.routeOrder || index + 1}</div>`,
+          iconSize: [active ? 40 : 34, active ? 40 : 34],
+          iconAnchor: [active ? 20 : 17, active ? 20 : 17],
         });
-        L.marker([point.latitude, point.longitude], { icon }).on("click", () => setSelectedId(point.id)).addTo(markerLayerRef.current);
+        L.marker([point.latitude, point.longitude], { icon })
+          .on("click", () => setSelectedId(point.id))
+          .addTo(markerLayerRef.current);
       });
+
       if (!didInitialFit.current && (points.length || originPoint)) {
         didInitialFit.current = true;
         fitRoute();
       }
       window.setTimeout(() => mapRef.current?.invalidateSize(), 50);
     };
+
     if (window.L) setup();
     else {
       if (!document.querySelector("link[data-leaflet]")) {
         const link = document.createElement("link");
-        link.rel = "stylesheet"; link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"; link.dataset.leaflet = "true";
+        link.rel = "stylesheet";
+        link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+        link.dataset.leaflet = "true";
         document.head.appendChild(link);
       }
+
       let script = document.querySelector("script[data-leaflet]") as HTMLScriptElement | null;
       if (!script) {
-        script = document.createElement("script"); script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"; script.async = true; script.dataset.leaflet = "true";
+        script = document.createElement("script");
+        script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+        script.async = true;
+        script.dataset.leaflet = "true";
         document.body.appendChild(script);
       }
       script.addEventListener("load", setup);
-      return () => { cancelled = true; script?.removeEventListener("load", setup); };
+      return () => {
+        cancelled = true;
+        script?.removeEventListener("load", setup);
+      };
     }
+
     return () => { cancelled = true; };
   }, [points, selected?.id, originKey]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !window.L) return;
-    if (routeLayerRef.current) { mapRef.current.removeLayer(routeLayerRef.current); routeLayerRef.current = null; }
+    if (routeLayerRef.current) {
+      mapRef.current.removeLayer(routeLayerRef.current);
+      routeLayerRef.current = null;
+    }
     if (!geometry?.coordinates?.length) return;
+
     routeLayerRef.current = window.L.polyline(
       geometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]),
-      { color: "#2563eb", weight: 5, opacity: .82, lineJoin: "round" }
+      { color: "#2563eb", weight: 5, opacity: .82, lineJoin: "round" },
     ).addTo(mapRef.current);
     routeLayerRef.current.bringToBack();
   }, [geometry, mapReady]);
@@ -202,13 +309,13 @@ export function EmployeeRouteMap({ route, onOpenVisit, routeId, desktop = false,
   return <section className={`employee-map-panel ${desktop ? "employee-map-desktop" : ""}`}>
     <div className="employee-map-toolbar">
       <div><strong>{points.length}/{route.length} properties mapped</strong><span>{mapStatus}{locationMessage ? ` · ${locationMessage}` : ""}</span></div>
-      <div className="employee-map-toolbar-actions"><button type="button" onClick={fitRoute} disabled={!points.length}>Fit Route</button><button type="button" onClick={recenterMe}>Recenter Me</button></div>
+      <div className="employee-map-toolbar-actions"><button type="button" onClick={fitRoute} disabled={!points.length && !originPoint}>Fit Route</button><button type="button" onClick={recenterMe}>Recenter Me</button></div>
     </div>
     {unmapped.length > 0 && <p className="employee-map-notice">{unmapped.length} {unmapped.length === 1 ? "property is" : "properties are"} Not mapped.</p>}
     <div ref={mapNode} className="employee-route-map" aria-label="Interactive map of assigned visits" />
     {selected && <article className="employee-map-sheet">
       <div className="employee-map-sheet-main">
-        <span className="employee-map-sequence" style={{ background: selected.color }}>{points.findIndex(point => point.id === selected.id) + 1}</span>
+        <span className="employee-map-sequence" style={{ background: selected.color }}>{selected.routeOrder || points.findIndex(point => point.id === selected.id) + 1}</span>
         <div><strong>{selected.address}</strong><span>{selected.name} · {selected.service}</span></div>
         <b style={{ color: selected.color }}>{selected.label}</b>
       </div>
