@@ -50,7 +50,7 @@ export default function Finance() {
   const data = useMemo(() => {
     const paidInvoices = invoices.filter((invoice) => invoice.status === "paid");
     const pendingInvoices = invoices.filter((invoice) => ["waiting_payment", "processing", "overdue", "sent"].includes(invoice.status));
-    const failedInvoices = invoices.filter((invoice) => invoice.status === "failed");
+    const failedInvoices = invoices.filter((invoice) => invoice.status === "rejected");
     const paidLeadIds = new Set(paidInvoices.map((invoice) => invoice.leadId).filter(Boolean));
     const completedWithoutInvoice = leads.filter((lead) => lead.status === "completed" && !paidLeadIds.has(lead.id));
     const revenue = paidInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
