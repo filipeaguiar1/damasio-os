@@ -39,6 +39,7 @@ function leadToCustomerPropertyRecord(lead: Lead): CustomerPropertyRecord {
     officialPhotoUrl: lead.propertyPhoto || null,
     acquisitionSource: "company_created",
     lockedByPlatform: false,
+    offerStatus: null,
     createdAt: lead.createdAt,
   };
 }
