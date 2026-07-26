@@ -68,7 +68,7 @@ async function requireEmployee(request:NextRequest){
 async function loadRoute(client:ReturnType<typeof serviceClient>,employee:EmployeeRow,date:string){
   let query=client
     .from("visits")
-    .select("id,route_id,property_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,employee_notes,properties(address_line1,city,province,postal_code,latitude,longitude),customers(full_name),jobs(service_name)")
+    .select("id,route_id,property_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,properties(address_line1,city,province,postal_code,latitude,longitude),customers(full_name),jobs(service_name)")
     .eq("scheduled_date",date)
     .neq("status","cancelled")
     .order("route_order",{ascending:true,nullsFirst:false});
@@ -101,7 +101,6 @@ async function loadRoute(client:ReturnType<typeof serviceClient>,employee:Employ
         startedAt:row.started_at||null,
         finishedAt:row.finished_at||null,
         durationSeconds:row.duration_seconds??null,
-        employeeNotes:row.employee_notes||null,
       };
     }),
   };
@@ -113,6 +112,7 @@ export async function GET(request:NextRequest){
     const date=request.nextUrl.searchParams.get("date")||new Date().toISOString().slice(0,10);
     return NextResponse.json(await loadRoute(client,employee,date));
   }catch(error){
+    console.error("employee-route-get",error);
     return NextResponse.json({error:error instanceof Error?error.message:"Employee route could not be loaded."},{status:400});
   }
 }
@@ -120,7 +120,7 @@ export async function GET(request:NextRequest){
 export async function PATCH(request:NextRequest){
   try{
     const{client,employee}=await requireEmployee(request);
-    const body=await request.json() as{visitId?:string;action?:"start"|"done"|"note";note?:string};
+    const body=await request.json() as{visitId?:string;action?:"start"|"done";note?:string};
     if(!body.visitId)throw new Error("Choose a visit first.");
     const{data:visit,error:visitError}=await client.from("visits").select("id,assigned_employee_id,crew_id,status,started_at,scheduled_date").eq("id",body.visitId).maybeSingle();
     if(visitError||!visit)throw new Error(visitError?.message||"Visit not found.");
@@ -138,13 +138,12 @@ export async function PATCH(request:NextRequest){
       patch.started_at=visit.started_at||now.toISOString();
       patch.finished_at=now.toISOString();
       patch.duration_seconds=Math.max(0,Math.round((now.getTime()-startedAt)/1000));
-    }else if(body.action==="note"){
-      patch.employee_notes=String(body.note||"").trim()||null;
     }else throw new Error("Choose a valid visit action.");
-    const{data:updated,error:updateError}=await client.from("visits").update(patch).eq("id",visit.id).select("id,status,started_at,finished_at,duration_seconds,employee_notes").single();
+    const{data:updated,error:updateError}=await client.from("visits").update(patch).eq("id",visit.id).select("id,status,started_at,finished_at,duration_seconds").single();
     if(updateError)throw new Error(updateError.message);
     return NextResponse.json({visit:updated});
   }catch(error){
+    console.error("employee-route-patch",error);
     return NextResponse.json({error:error instanceof Error?error.message:"Visit could not be updated."},{status:400});
   }
 }
