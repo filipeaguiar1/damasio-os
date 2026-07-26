@@ -13,7 +13,7 @@ function customerInitials(name: string) {
 export function PortalShell({ children, active, type }: { children: React.ReactNode; active: string; type: "Customer" | "Employee" }) {
   const base = type === "Customer" ? "/customer" : "/employee";
   const links = type === "Customer"
-    ? [["Dashboard", base, "H"], ["Services", `${base}/services`, "S"], ["Service Issues", `${base}/tasks`, "!"], ["History", `${base}/history`, "R"], ["Estimates", `${base}/estimates`, "E"], ["Notifications", `${base}/notifications`, "N"], ["Invoices", `${base}/invoices`, "I"], ["Payments", `${base}/payments`, "$"], ["Requests", `${base}/requests`, "+"], ["Feedback", `${base}/feedback`, "*"], ["My Property", `${base}/property`, "M"], ["Profile", `${base}/profile`, "P"]]
+    ? [["Dashboard", base, "H"], ["Services", `${base}/services`, "S"], ["Service Issues", `${base}/tasks`, "!"], ["History", `${base}/history`, "R"], ["Estimates", `${base}/estimates`, "E"], ["Notifications", `${base}/notifications`, "N"], ["Payments", `${base}/payments`, "$"], ["Requests", `${base}/requests`, "+"], ["Feedback", `${base}/feedback`, "*"], ["My Property", `${base}/property`, "M"], ["Profile", `${base}/profile`, "P"]]
     : [["Today", base, "T"], ["Checklist", `${base}/checklist`, "C"], ["Route", `${base}/route`, "R"], ["Photos", `${base}/photos`, "P"], ["Hours", `${base}/hours`, "H"], ["Training", `${base}/training`, "L"]];
   const [profileName, setProfileName] = useState(type === "Customer" ? "Customer" : "Filipe Damasio");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
