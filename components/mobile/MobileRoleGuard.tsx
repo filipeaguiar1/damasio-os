@@ -4,7 +4,7 @@ import {useRouter} from "next/navigation";
 import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
 
 type Role="master"|"admin"|"manager"|"employee"|"customer";
-function roleHome(role:Role){if(role==="master")return"/mobile/master";if(role==="admin"||role==="manager")return"/mobile/admin";if(role==="employee")return"/mobile/employee";return"/mobile/customer"}
+function roleHome(role:Role){if(role==="master")return"/mobile/master";if(role==="admin"||role==="manager")return"/mobile/admin";if(role==="employee")return"/mobile/employee/home";return"/mobile/customer"}
 
 function clearLegacyDemoData(){
   if(typeof window==="undefined")return;
