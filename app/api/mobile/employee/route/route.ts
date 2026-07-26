@@ -222,6 +222,34 @@ async function loadProperties(
   return (fallback.data || []) as PropertyRow[];
 }
 
+async function loadNotes(
+  client: ReturnType<typeof serviceClient>,
+  visitIds: string[],
+  companyId: string,
+) {
+  if (!visitIds.length) return [] as { entity_id: string | null; details: string | null }[];
+
+  const result = await client
+    .from("activity_log")
+    .select("entity_id,details,created_at")
+    .eq("organization_id", companyId)
+    .eq("entity_type", "visit")
+    .eq("action", "visit.employee_note")
+    .in("entity_id", visitIds)
+    .order("created_at", { ascending: false });
+
+  if (result.error) {
+    console.warn("employee-route-notes-unavailable", {
+      companyId,
+      visitCount: visitIds.length,
+      reason: result.error.message,
+    });
+    return [] as { entity_id: string | null; details: string | null }[];
+  }
+
+  return (result.data || []) as { entity_id: string | null; details: string | null }[];
+}
+
 async function loadRoute(
   client: ReturnType<typeof serviceClient>,
   employee: EmployeeRow,
@@ -251,7 +279,7 @@ async function loadRoute(
   const visitIds = rows.map((row) => row.id);
   const empty = Promise.resolve({ data: [] as any[], error: null });
 
-  const [propertyRows, customerResult, jobResult, noteResult] = await Promise.all([
+  const [propertyRows, customerResult, jobResult, noteRows] = await Promise.all([
     loadProperties(client, propertyIds, companyId),
     customerIds.length
       ? client.from("customers").select("id,full_name").in("id", customerIds).or(companyFilter(companyId))
@@ -259,27 +287,17 @@ async function loadRoute(
     jobIds.length
       ? client.from("jobs").select("id,service_name").in("id", jobIds).or(companyFilter(companyId))
       : empty,
-    visitIds.length
-      ? client
-          .from("activity_log")
-          .select("entity_id,details,created_at")
-          .eq("organization_id", companyId)
-          .eq("entity_type", "visit")
-          .eq("action", "visit.employee_note")
-          .in("entity_id", visitIds)
-          .order("created_at", { ascending: false })
-      : empty,
+    loadNotes(client, visitIds, companyId),
   ]);
 
   if (customerResult.error) throw new Error(customerResult.error.message);
   if (jobResult.error) throw new Error(jobResult.error.message);
-  if (noteResult.error) throw new Error(noteResult.error.message);
 
   const properties = new Map(propertyRows.map((row) => [row.id, row]));
   const customers = new Map((customerResult.data || []).map((row: any) => [row.id, row]));
   const jobs = new Map((jobResult.data || []).map((row: any) => [row.id, row]));
   const notes = new Map<string, string | null>();
-  for (const row of noteResult.data || []) {
+  for (const row of noteRows) {
     if (row.entity_id && !notes.has(row.entity_id)) notes.set(row.entity_id, row.details || null);
   }
 
