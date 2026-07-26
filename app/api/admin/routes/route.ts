@@ -61,7 +61,7 @@ async function ensureEmployees(service: any, companyId: string) {
   return result;
 }
 
-async function canonicalJobs(service: any, companyId: string) {
+async function canonicalJobs(service: any, user: any, companyId: string) {
   const customersResult = await service.from("customers").select("id,full_name,assignment_status,offer_status,service_company_id,company_id,organization_id,archived_at").is("archived_at", null).or(`service_company_id.eq.${companyId},company_id.eq.${companyId},organization_id.eq.${companyId}`);
   if (customersResult.error) throw new Error(customersResult.error.message);
   const customers = (customersResult.data || []).filter((customer: any) => customer.offer_status === "accepted" || ["accepted", "assigned", "active"].includes(customer.assignment_status));
@@ -73,7 +73,7 @@ async function canonicalJobs(service: any, companyId: string) {
   const properties = propertyResult.data || [];
   const propertyByCustomer = new Map(properties.map((item: any) => [item.customer_id, item]));
 
-  const jobsResult = await service.from("jobs").select("id,customer_id,property_id,service_name,frequency,next_visit_date,crew_id,recurrence_anchor_date,default_route_order,created_at,active").eq("active", true).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
+  const jobsResult = await service.from("jobs").select("id,customer_id,property_id,service_name,frequency,next_visit_date,recurrence_anchor_date,default_route_order,created_at,active").eq("active", true).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
   if (jobsResult.error) throw new Error(jobsResult.error.message);
   const jobs = jobsResult.data || [];
   const jobByProperty = new Map(jobs.map((item: any) => [item.property_id, item]));
@@ -81,21 +81,32 @@ async function canonicalJobs(service: any, companyId: string) {
   for (const customer of customers) {
     const property: any = propertyByCustomer.get(customer.id);
     if (!property || jobByProperty.has(property.id)) continue;
-    const inserted = await service.from("jobs").insert({ organization_id: companyId, company_id: companyId, customer_id: customer.id, property_id: property.id, service_name: property.property_notes?.split("\n")[0]?.replace(/^Service type:\s*/i, "") || "Property Service", frequency: "one_time", active: true }).select("id,customer_id,property_id,service_name,frequency,next_visit_date,crew_id,recurrence_anchor_date,default_route_order,created_at,active").single();
+    const inserted = await service.from("jobs").insert({ organization_id: companyId, company_id: companyId, customer_id: customer.id, property_id: property.id, service_name: property.property_notes?.split("\n")[0]?.replace(/^Service type:\s*/i, "") || "Property Service", frequency: "one_time", active: true }).select("id,customer_id,property_id,service_name,frequency,next_visit_date,recurrence_anchor_date,default_route_order,created_at,active").single();
     if (inserted.error) throw new Error(inserted.error.message);
     jobs.push(inserted.data);
     jobByProperty.set(property.id, inserted.data);
   }
 
-  const crewIds = [...new Set(jobs.map((item: any) => item.crew_id).filter(Boolean))];
-  const crews = crewIds.length ? await service.from("crews").select("id,name").in("id", crewIds) : { data: [], error: null };
-  if (crews.error) throw new Error(crews.error.message);
-  const crewNames = new Map((crews.data || []).map((item: any) => [item.id, item.name]));
+  const assignmentByJob = new Map<string, { crewId: string | null; crewName: string | null; routeOrder: number | null }>();
+  const assignmentResult = await user.rpc("get_company_dispatch_jobs");
+  if (!assignmentResult.error && Array.isArray(assignmentResult.data)) {
+    for (const row of assignmentResult.data) {
+      const id = row.id || row.jobId;
+      if (!id) continue;
+      assignmentByJob.set(id, {
+        crewId: row.crewId || row.crew_id || null,
+        crewName: row.crewName || row.crew_name || null,
+        routeOrder: row.defaultRouteOrder ?? row.default_route_order ?? null,
+      });
+    }
+  }
+
   const customerNames = new Map(customers.map((item: any) => [item.id, item.full_name]));
   const propertyById = new Map(properties.map((item: any) => [item.id, item]));
 
   return jobs.map((job: any) => {
     const property: any = propertyById.get(job.property_id);
+    const assignment = assignmentByJob.get(job.id);
     return {
       id: job.id,
       serviceName: job.service_name || "Property Service",
@@ -106,10 +117,10 @@ async function canonicalJobs(service: any, companyId: string) {
       propertyId: job.property_id,
       customerId: job.customer_id,
       quoteId: null,
-      crewId: job.crew_id || null,
-      crewName: job.crew_id ? crewNames.get(job.crew_id) || null : null,
+      crewId: assignment?.crewId || null,
+      crewName: assignment?.crewName || null,
       recurrenceAnchorDate: job.recurrence_anchor_date || null,
-      defaultRouteOrder: job.default_route_order ?? null,
+      defaultRouteOrder: assignment?.routeOrder ?? job.default_route_order ?? null,
       createdAt: job.created_at,
     };
   });
@@ -117,8 +128,8 @@ async function canonicalJobs(service: any, companyId: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { service, companyId } = await requireAdmin(request);
-    const [employees, jobs] = await Promise.all([ensureEmployees(service, companyId), canonicalJobs(service, companyId)]);
+    const { service, user, companyId } = await requireAdmin(request);
+    const [employees, jobs] = await Promise.all([ensureEmployees(service, companyId), canonicalJobs(service, user, companyId)]);
     return NextResponse.json({ employees, board: { crews: [], unscheduledJobs: jobs.filter((job: any) => !job.crewId), assignedJobs: jobs.filter((job: any) => Boolean(job.crewId)), visits: [], tasks: [], activity: [] } });
   } catch (error) { return fail(error, 401); }
 }
