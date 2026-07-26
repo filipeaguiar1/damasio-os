@@ -1,19 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Lead } from "@/lib/storage";
 import { getEmployeeTasks, getSessionForLead } from "@/lib/storage";
+import type { CanonicalRouteLead } from "@/lib/routes/canonicalRouteIdentity";
 import { loadCachedRouteGeometry } from "@/lib/services/routeMapService";
 import type { RouteLineString } from "@/lib/maps/types";
 import { readRoadGeometry, saveRoadGeometry } from "@/lib/maps/clientMapCache";
 
 declare global { interface Window { L?: any } }
 
-type Point = Lead & { latitude: number; longitude: number; color: string; label: string };
+type Point = CanonicalRouteLead & { latitude: number; longitude: number; color: string; label: string };
 type RouteOriginPoint = { latitude: number; longitude: number; label?: string };
 type Props = {
-  route: Lead[];
-  onOpenVisit: (lead: Lead) => void;
+  route: CanonicalRouteLead[];
+  onOpenVisit: (lead: CanonicalRouteLead) => void;
   routeId?: string;
   desktop?: boolean;
   actionLabel?: string;
@@ -22,7 +22,7 @@ type Props = {
 
 const HAMILTON: [number, number] = [43.2557, -79.8711];
 
-function visualState(lead: Lead, isNext: boolean) {
+function visualState(lead: CanonicalRouteLead, isNext: boolean) {
   if (lead.canonicalVisitId) {
     if (lead.status === "completed") return { color: "#16a34a", label: "Completed" };
     if (isNext) return { color: "#2563eb", label: "Next visit" };
@@ -54,7 +54,7 @@ export function EmployeeRouteMap({
   const didInitialFit = useRef(false);
   const [selectedId, setSelectedId] = useState("");
   const [geometry, setGeometry] = useState<RouteLineString | null>(null);
-  const [resolvedRoute, setResolvedRoute] = useState<Lead[]>(route);
+  const [resolvedRoute, setResolvedRoute] = useState<CanonicalRouteLead[]>(route);
   const [mapStatus, setMapStatus] = useState("Locating properties...");
   const [mapReady, setMapReady] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
@@ -88,7 +88,7 @@ export function EmployeeRouteMap({
         } catch {
           return null;
         }
-      })).then(values => values.filter((lead): lead is Lead => Boolean(lead)));
+      })).then(values => values.filter((lead): lead is CanonicalRouteLead => Boolean(lead)));
 
       if (cancelled) return;
       setResolvedRoute(located);
