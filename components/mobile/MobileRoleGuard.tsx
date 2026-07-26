@@ -4,7 +4,7 @@ import {useRouter} from "next/navigation";
 import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
 
 type Role="master"|"admin"|"manager"|"employee"|"customer";
-function roleHome(role:Role){if(role==="master")return"/master";if(role==="admin"||role==="manager")return"/mobile/admin";if(role==="employee")return"/mobile/employee";return"/mobile/customer"}
+function roleHome(role:Role){if(role==="master")return"/mobile/master";if(role==="admin"||role==="manager")return"/mobile/admin";if(role==="employee")return"/mobile/employee";return"/mobile/customer"}
 
 function clearLegacyDemoData(){
   if(typeof window==="undefined")return;
@@ -32,9 +32,18 @@ function clearLegacyDemoData(){
   }catch{/* legacy local data must never block secure access */}
 }
 
+async function bootstrapEmployee(client:any){
+  try{
+    const{data}=await client.auth.getSession();
+    const token=data.session?.access_token;
+    if(!token)return;
+    await fetch("/api/mobile/employee/bootstrap",{method:"POST",headers:{authorization:`Bearer ${token}`},cache:"no-store"});
+  }catch{/* account repair must not block field access */}
+}
+
 export function MobileRoleGuard({allowed,children}:{allowed:Role[];children:React.ReactNode}){
   const router=useRouter();const[ready,setReady]=useState(false);const allowedKey=allowed.join(",");
-  useEffect(()=>{let active=true;clearLegacyDemoData();void(async()=>{if(!isSupabaseConfigured()){router.replace("/mobile/login");return}const client=getSupabaseBrowserClient() as any;const{data:auth}=await client.auth.getUser();if(!auth?.user){router.replace("/mobile/login");return}const{data:profile}=await client.from("profiles").select("role,active").eq("id",auth.user.id).single();if(!profile?.active){await client.auth.signOut();router.replace("/mobile/login?inactive=1");return}const role=profile.role as Role;if(allowed.includes(role)){if(active)setReady(true)}else router.replace(roleHome(role))})();return()=>{active=false}},[allowedKey,router]);
+  useEffect(()=>{let active=true;clearLegacyDemoData();void(async()=>{if(!isSupabaseConfigured()){router.replace("/mobile/login");return}const client=getSupabaseBrowserClient() as any;const{data:auth}=await client.auth.getUser();if(!auth?.user){router.replace("/mobile/login");return}const{data:profile}=await client.from("profiles").select("role,active").eq("id",auth.user.id).single();if(!profile?.active){await client.auth.signOut();router.replace("/mobile/login?inactive=1");return}const role=profile.role as Role;if(allowed.includes(role)){if(role==="employee")await bootstrapEmployee(client);if(active)setReady(true)}else router.replace(roleHome(role))})();return()=>{active=false}},[allowedKey,router]);
   if(!ready)return <main className="mobile-splash"><div className="mobile-logo-pulse"><span>4</span></div><h1>4Ever Seasons</h1><p>Checking secure access…</p></main>;
   return <>{children}</>;
 }
