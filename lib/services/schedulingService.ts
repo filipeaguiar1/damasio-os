@@ -9,29 +9,89 @@ import {
   type SchedulingDispatchBoard,
 } from "@/lib/repositories/schedulingRepository";
 import { dayNameFromDate, type Lead, type ServiceFrequency } from "@/lib/storage";
+import type { CanonicalRouteLead } from "@/lib/routes/canonicalRouteIdentity";
 
-export function schedulingBoardToLeads(board: SchedulingDispatchBoard): Lead[] {
-  const jobs: Lead[] = board.unscheduledJobs.map(job => ({
-    id: job.id, createdAt: job.createdAt, name: job.customerName || "Customer", phone: "", email: "",
-    address: job.address || "Address missing", service: job.serviceName, status: "new", subtotal: 0, tax: 0, total: 0,
-    nextVisitDate: job.nextVisitDate || undefined, serviceFrequency: job.frequency as ServiceFrequency, photos: []
+export type RouteLead = CanonicalRouteLead;
+
+export function schedulingBoardToLeads(board: SchedulingDispatchBoard): RouteLead[] {
+  const jobs: RouteLead[] = board.unscheduledJobs.map(job => ({
+    id: job.id,
+    createdAt: job.createdAt,
+    name: job.customerName || "Customer",
+    phone: "",
+    email: "",
+    address: job.address || "Address missing",
+    service: job.serviceName,
+    status: "new",
+    subtotal: 0,
+    tax: 0,
+    total: 0,
+    nextVisitDate: job.nextVisitDate || undefined,
+    serviceFrequency: job.frequency as ServiceFrequency,
+    canonicalJobId: job.id,
+    canonicalCustomerId: job.customerId || undefined,
+    canonicalPropertyId: job.propertyId || undefined,
+    canonicalCrewId: job.crewId || undefined,
+    photos: [],
   }));
-  const assigned: Lead[] = board.assignedJobs.map(job => ({
-    id: job.id, createdAt: job.createdAt, name: job.customerName || "Customer", phone: "", email: "",
-    address: job.address || "Address missing", service: job.serviceName, status: "new", subtotal: 0, tax: 0, total: 0,
-    nextVisitDate: job.nextVisitDate || undefined, scheduledDate: job.recurrenceAnchorDate || undefined,
+
+  const assigned: RouteLead[] = board.assignedJobs.map(job => ({
+    id: job.id,
+    createdAt: job.createdAt,
+    name: job.customerName || "Customer",
+    phone: "",
+    email: "",
+    address: job.address || "Address missing",
+    service: job.serviceName,
+    status: "new",
+    subtotal: 0,
+    tax: 0,
+    total: 0,
+    nextVisitDate: job.nextVisitDate || undefined,
+    scheduledDate: job.recurrenceAnchorDate || undefined,
     serviceDay: job.recurrenceAnchorDate ? dayNameFromDate(job.recurrenceAnchorDate) : undefined,
-    serviceFrequency: job.frequency as ServiceFrequency, assignedCrew: job.crewName || undefined,
-    routeOrder: job.defaultRouteOrder ?? undefined, canonicalJobId: job.id, photos: []
+    serviceFrequency: job.frequency as ServiceFrequency,
+    assignedCrew: job.crewName || undefined,
+    routeOrder: job.defaultRouteOrder ?? undefined,
+    canonicalJobId: job.id,
+    canonicalCustomerId: job.customerId || undefined,
+    canonicalPropertyId: job.propertyId || undefined,
+    canonicalCrewId: job.crewId || undefined,
+    photos: [],
   }));
-  const visits: Lead[] = board.visits.filter(visit => visit.status !== "cancelled" && visit.status !== "missed").map(visit => ({
-    id: visit.id, createdAt: visit.createdAt, name: visit.customerName || "Customer", phone: "", email: "",
-    address: visit.address || "Address missing", service: visit.serviceName || "Property Service",
-    status: visit.status === "completed" ? "completed" : "booked", subtotal: 0, tax: 0, total: 0,
-    scheduledDate: visit.scheduledDate, nextVisitDate: visit.scheduledDate, assignedCrew: visit.crewName || undefined,
-    serviceDay: dayNameFromDate(visit.scheduledDate), routeOrder: visit.routeOrder ?? undefined, photos: [], canonicalVisitId: visit.id, canonicalJobId: visit.jobId || undefined,
-    visitStartedAt: visit.startedAt || undefined, visitFinishedAt: visit.finishedAt || undefined, visitDurationSeconds: visit.durationSeconds ?? undefined
-  }));
+
+  const visits: RouteLead[] = board.visits
+    .filter(visit => visit.status !== "cancelled" && visit.status !== "missed")
+    .map(visit => ({
+      id: visit.id,
+      createdAt: visit.createdAt,
+      name: visit.customerName || "Customer",
+      phone: "",
+      email: "",
+      address: visit.address || "Address missing",
+      service: visit.serviceName || "Property Service",
+      status: visit.status === "completed" ? "completed" : "booked",
+      subtotal: 0,
+      tax: 0,
+      total: 0,
+      scheduledDate: visit.scheduledDate,
+      nextVisitDate: visit.scheduledDate,
+      assignedCrew: visit.employeeName || visit.crewName || undefined,
+      serviceDay: dayNameFromDate(visit.scheduledDate),
+      routeOrder: visit.routeOrder ?? undefined,
+      photos: [],
+      canonicalVisitId: visit.id,
+      canonicalJobId: visit.jobId || undefined,
+      canonicalRouteId: visit.routeId || undefined,
+      canonicalCustomerId: visit.customerId || undefined,
+      canonicalPropertyId: visit.propertyId || undefined,
+      canonicalEmployeeId: visit.employeeId || undefined,
+      canonicalCrewId: visit.crewId || undefined,
+      visitStartedAt: visit.startedAt || undefined,
+      visitFinishedAt: visit.finishedAt || undefined,
+      visitDurationSeconds: visit.durationSeconds ?? undefined,
+    }));
+
   return [...jobs, ...assigned, ...visits];
 }
 
