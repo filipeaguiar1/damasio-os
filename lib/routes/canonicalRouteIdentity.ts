@@ -1,11 +1,14 @@
 import type { Lead } from "@/lib/storage";
 
+export type CanonicalVisitStatus = "scheduled" | "in_progress" | "completed" | "missed" | "cancelled";
+
 export type CanonicalRouteLead = Lead & {
   canonicalCustomerId?: string;
   canonicalPropertyId?: string;
   canonicalRouteId?: string;
   canonicalEmployeeId?: string;
   canonicalCrewId?: string;
+  canonicalVisitStatus?: CanonicalVisitStatus;
 };
 
 export type CanonicalEmployeeIdentity = {
