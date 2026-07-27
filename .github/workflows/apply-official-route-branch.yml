@@ -24,11 +24,13 @@ jobs:
           version: 9.15.4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
       - name: Apply prepared patch
         shell: bash
-        run: python scripts/apply-official-route-patch.py
+        run: |
+          python scripts/apply-official-route-patch.py
+          python scripts/fix-official-route-typecheck.py
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Typecheck
