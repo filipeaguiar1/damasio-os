@@ -6,6 +6,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulingService";
 import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
 import { belongsToCanonicalEmployee } from "@/lib/routes/canonicalRouteIdentity";
+import { operationalDateKey } from "@/lib/dates/operationalDate";
 
 declare global { interface Window { L?: any } }
 
@@ -21,7 +22,7 @@ type RouteEmployee = {
 type Origin = { latitude: number; longitude: number; label: string };
 type WorkerPoint = Origin & { id: string; name: string; count: number; index: number };
 
-function todayKey() { return new Date().toISOString().slice(0, 10); }
+type Props = { date?: string; onDateChange?: (date: string) => void };
 
 async function token() {
   const supabase = getSupabaseBrowserClient() as any;
@@ -37,8 +38,10 @@ async function geocode(address: string) {
   return await response.json() as { latitude: number; longitude: number };
 }
 
-export function OfficialRoutePlanMap() {
-  const [date, setDate] = useState(todayKey());
+export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Props = {}) {
+  const [internalDate, setInternalDate] = useState(operationalDateKey());
+  const date = controlledDate || internalDate;
+  const setDate = (next: string) => { if (!controlledDate) setInternalDate(next); onDateChange?.(next); };
   const [employees, setEmployees] = useState<RouteEmployee[]>([]);
   const [leads, setLeads] = useState<RouteLead[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -63,7 +66,13 @@ export function OfficialRoutePlanMap() {
     }
   }
 
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5000);
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, []);
 
   const visits = useMemo(() => leads.filter(item => Boolean(item.canonicalVisitId) && item.scheduledDate === date), [leads, date]);
   const selectedEmployee = employees.find(item => item.id === selectedId) || null;
@@ -98,12 +107,13 @@ export function OfficialRoutePlanMap() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!selectedEmployee?.routeStartAddress) { setOrigin(null); return () => { cancelled = true; }; }
-    void geocode(selectedEmployee.routeStartAddress).then(point => {
-      if (!cancelled) setOrigin({ ...point, label: `${selectedEmployee.name} start` });
+    const startAddress = selectedEmployee?.routeStartAddress || selectedRoute[0]?.address || "";
+    if (!startAddress) { setOrigin(null); return () => { cancelled = true; }; }
+    void geocode(startAddress).then(point => {
+      if (!cancelled) setOrigin({ ...point, label: `${selectedEmployee?.name || "Employee"} start` });
     }).catch(() => { if (!cancelled) setOrigin(null); });
     return () => { cancelled = true; };
-  }, [selectedEmployee?.id, selectedEmployee?.routeStartAddress]);
+  }, [selectedEmployee?.id, selectedEmployee?.routeStartAddress, selectedRoute[0]?.address]);
 
   useEffect(() => {
     if (selectedEmployee) return;
@@ -168,7 +178,7 @@ export function OfficialRoutePlanMap() {
       <aside className="studio-route-popover official-house-list">
         <strong>{selectedEmployee.name}</strong><small>{selectedRoute.length} houses on {date}</small>
         <div className="studio-route-stop-list">
-          {selectedRoute.map((home, index) => <div key={home.canonicalVisitId || home.id}><b>{home.routeOrder || index + 1}</b><span>{home.name}<small>{home.address}</small></span></div>)}
+          {selectedRoute.map((home, index) => <div key={home.canonicalVisitId || home.id} className={home.canonicalVisitStatus || "scheduled"}><b>{home.routeOrder || index + 1}</b><span>{home.name}<small>{home.address}</small></span><em>{home.canonicalVisitStatus === "completed" ? "Done" : home.canonicalVisitStatus === "missed" ? "Skipped" : home.canonicalVisitStatus === "in_progress" ? "Active" : "Scheduled"}</em></div>)}
           {!selectedRoute.length && <div className="studio-empty">No houses assigned for this date.</div>}
         </div>
       </aside>

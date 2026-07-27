@@ -33,13 +33,14 @@ export function canonicalRouteWarnings(leads: CanonicalRouteLead[]): CanonicalRo
   const warnings: CanonicalRouteWarning[] = [];
 
   for (const lead of leads) {
-    if (!lead.canonicalVisitId) continue;
+    // Forecast Visits are not published route stops. Only a Visit already attached
+    // to a canonical Route can be reported as a broken route stop.
+    if (!lead.canonicalVisitId || !lead.canonicalRouteId) continue;
 
     const missing = [
       !lead.canonicalCustomerId && "customerId",
       !lead.canonicalPropertyId && "propertyId",
       !lead.canonicalJobId && "jobId",
-      !lead.canonicalRouteId && "routeId",
       !lead.canonicalEmployeeId && "employeeId",
       !lead.canonicalCrewId && "crewId",
     ].filter((value): value is string => Boolean(value));
