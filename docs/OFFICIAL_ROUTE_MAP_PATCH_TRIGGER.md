@@ -5,3 +5,4 @@ Run deterministic Python patch.
 Capture TypeScript errors.
 Validate final TypeScript fixes.
 Validate final branch commit before production.
+Retry validated production deployment after Vercel rate limit.
