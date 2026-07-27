@@ -1,12 +1,12 @@
 "use client";
 
-import { changeVisitStatus } from "@/lib/services/schedulingService";
+import { changeEmployeeVisitStatus } from "@/lib/services/employeeVisitStatusService";
 
 export type OfflineVisitAction = {
   id: string;
   type: "visit_status";
   visitId: string;
-  status: "scheduled" | "in_progress" | "completed" | "missed" | "cancelled";
+  status: "scheduled" | "in_progress" | "completed" | "missed";
   createdAt: string;
   attempts: number;
   lastError?: string;
@@ -49,7 +49,7 @@ export function queueVisitStatusAction(visitId: string, status: OfflineVisitActi
     status,
     createdAt: existing?.createdAt || new Date().toISOString(),
     attempts: existing?.attempts || 0,
-    lastError: error instanceof Error ? error.message : undefined
+    lastError: error instanceof Error ? error.message : undefined,
   };
   writeQueue([...queue.filter(action => action.id !== next.id), next]);
   window.dispatchEvent(new CustomEvent("damasio-offline-queue-change"));
@@ -58,7 +58,7 @@ export function queueVisitStatusAction(visitId: string, status: OfflineVisitActi
 
 export async function runVisitStatusOrQueue(visitId: string, status: OfflineVisitAction["status"]) {
   try {
-    await changeVisitStatus(visitId, status);
+    await changeEmployeeVisitStatus(visitId, status);
     return { queued: false };
   } catch (error) {
     if (!isNetworkLikeError(error)) throw error;
@@ -79,13 +79,13 @@ export async function flushOfflineActionQueue() {
       continue;
     }
     try {
-      if (action.type === "visit_status") await changeVisitStatus(action.visitId, action.status);
+      if (action.type === "visit_status") await changeEmployeeVisitStatus(action.visitId, action.status);
       synced += 1;
     } catch (error) {
       remaining.push({
         ...action,
         attempts: action.attempts + 1,
-        lastError: error instanceof Error ? error.message : "Sync failed."
+        lastError: error instanceof Error ? error.message : "Sync failed.",
       });
     }
   }
