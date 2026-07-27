@@ -24,6 +24,17 @@ function companyFilter(companyId: string) {
   return `company_id.eq.${companyId},organization_id.eq.${companyId}`;
 }
 
+function fail(error: unknown, status = 400) {
+  return NextResponse.json(
+    { error: error instanceof Error ? error.message : "Route request failed." },
+    { status },
+  );
+}
+
+function missingMigration(message?: string) {
+  return /publish_canonical_route|schema cache|could not find the function/i.test(message || "");
+}
+
 async function requireAdmin(request: NextRequest) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) throw new Error("Sign in as the company Admin.");
@@ -37,45 +48,49 @@ async function requireAdmin(request: NextRequest) {
     .select("id,role,active,company_id,organization_id")
     .eq("id", auth.user.id)
     .single();
+
   if (error || !profile?.active || !["admin", "manager"].includes(profile.role)) {
     throw new Error("Only an active company Admin can manage routes.");
   }
 
   const companyId = profile.company_id || profile.organization_id;
   if (!companyId) throw new Error("Your Admin profile is not linked to a company.");
-  return { service, user: userClient(token), companyId };
-}
 
-function fail(error: unknown, status = 400) {
-  return NextResponse.json(
-    { error: error instanceof Error ? error.message : "Route request failed." },
-    { status },
-  );
+  return {
+    service,
+    user: userClient(token),
+    companyId,
+  };
 }
 
 async function ensureEmployees(service: any, companyId: string) {
-  const { data: profiles, error } = await service
+  const profilesResult = await service
     .from("profiles")
     .select("id,full_name,email,address_line1,route_start_address,active")
     .eq("role", "employee")
     .eq("active", true)
     .or(companyFilter(companyId))
     .order("full_name");
-  if (error) throw new Error(error.message);
 
-  const { data: rows, error: employeeError } = await service
+  if (profilesResult.error) throw new Error(profilesResult.error.message);
+
+  const employeeResult = await service
     .from("employees")
     .select("id,profile_id,crew_id,full_name,email,address_line1,route_start_address,active")
     .eq("active", true)
     .or(companyFilter(companyId));
-  if (employeeError) throw new Error(employeeError.message);
+
+  if (employeeResult.error) throw new Error(employeeResult.error.message);
 
   const byProfile = new Map<string, any>();
-  for (const row of rows || []) if (row.profile_id) byProfile.set(row.profile_id, row);
+  for (const row of employeeResult.data || []) {
+    if (row.profile_id) byProfile.set(row.profile_id, row);
+  }
 
-  const result: any[] = [];
-  for (const profile of profiles || []) {
+  const employees: any[] = [];
+  for (const profile of profilesResult.data || []) {
     let employee = byProfile.get(profile.id);
+
     if (!employee) {
       const created = await service
         .from("employees")
@@ -92,6 +107,7 @@ async function ensureEmployees(service: any, companyId: string) {
         })
         .select("id,profile_id,crew_id,full_name,email,address_line1,route_start_address,active")
         .single();
+
       if (created.error) throw new Error(created.error.message);
       employee = created.data;
     }
@@ -107,14 +123,18 @@ async function ensureEmployees(service: any, companyId: string) {
         })
         .select("id")
         .single();
+
       if (crew.error) throw new Error(crew.error.message);
 
-      const linked = await service.from("employees").update({ crew_id: crew.data.id }).eq("id", employee.id);
+      const linked = await service
+        .from("employees")
+        .update({ crew_id: crew.data.id })
+        .eq("id", employee.id);
       if (linked.error) throw new Error(linked.error.message);
       employee.crew_id = crew.data.id;
     }
 
-    result.push({
+    employees.push({
       id: profile.id,
       profileId: profile.id,
       employeeId: employee.id,
@@ -122,48 +142,53 @@ async function ensureEmployees(service: any, companyId: string) {
       name: profile.full_name || employee.full_name || "Employee",
       email: profile.email || employee.email || "",
       routeStartAddress:
-        profile.route_start_address ||
-        profile.address_line1 ||
-        employee.route_start_address ||
-        employee.address_line1 ||
-        null,
+        profile.route_start_address
+        || profile.address_line1
+        || employee.route_start_address
+        || employee.address_line1
+        || null,
     });
   }
 
-  return result;
+  return employees;
 }
 
 async function canonicalJobs(service: any, user: any, companyId: string) {
-  const customersResult = await service
+  const customerResult = await service
     .from("customers")
     .select("id,full_name,assignment_status,offer_status,service_company_id,company_id,organization_id,archived_at")
     .is("archived_at", null)
     .or(`service_company_id.eq.${companyId},${companyFilter(companyId)}`);
-  if (customersResult.error) throw new Error(customersResult.error.message);
 
-  const customers = (customersResult.data || []).filter((customer: any) =>
-    customer.offer_status === "accepted" ||
-    ["accepted", "assigned", "active"].includes(customer.assignment_status));
-  const customerIds = customers.map((item: any) => item.id);
-  if (!customerIds.length) return [];
+  if (customerResult.error) throw new Error(customerResult.error.message);
+
+  const customers = (customerResult.data || []).filter((customer: any) =>
+    customer.offer_status === "accepted"
+    || ["accepted", "assigned", "active"].includes(customer.assignment_status));
+  const customerIds = customers.map((customer: any) => customer.id);
+  if (!customerIds.length) return [] as any[];
 
   const propertyResult = await service
     .from("properties")
     .select("id,customer_id,address_line1,city,province,postal_code,property_notes")
     .in("customer_id", customerIds);
+
   if (propertyResult.error) throw new Error(propertyResult.error.message);
   const properties = propertyResult.data || [];
 
-  const jobsResult = await service
+  const jobResult = await service
     .from("jobs")
     .select("id,customer_id,property_id,service_name,frequency,next_visit_date,recurrence_anchor_date,default_route_order,created_at,active")
     .eq("active", true)
     .or(companyFilter(companyId));
-  if (jobsResult.error) throw new Error(jobsResult.error.message);
-  const jobs = jobsResult.data || [];
+
+  if (jobResult.error) throw new Error(jobResult.error.message);
+  const jobs = jobResult.data || [];
 
   const jobByProperty = new Map<string, any>();
-  for (const job of jobs) if (job.property_id && !jobByProperty.has(job.property_id)) jobByProperty.set(job.property_id, job);
+  for (const job of jobs) {
+    if (job.property_id && !jobByProperty.has(job.property_id)) jobByProperty.set(job.property_id, job);
+  }
 
   for (const property of properties) {
     if (!property.id || jobByProperty.has(property.id)) continue;
@@ -174,29 +199,34 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
         company_id: companyId,
         customer_id: property.customer_id,
         property_id: property.id,
-        service_name: property.property_notes?.split("\n")[0]?.replace(/^Service type:\s*/i, "") || "Property Service",
+        service_name: property.property_notes
+          ?.split("\n")[0]
+          ?.replace(/^Service type:\s*/i, "")
+          || "Property Service",
         frequency: "one_time",
         active: true,
       })
       .select("id,customer_id,property_id,service_name,frequency,next_visit_date,recurrence_anchor_date,default_route_order,created_at,active")
       .single();
+
     if (inserted.error) throw new Error(inserted.error.message);
     jobs.push(inserted.data);
     jobByProperty.set(property.id, inserted.data);
   }
 
-  const assignmentByJob = new Map<string, {
+  const assignments = new Map<string, {
     crewId: string | null;
     crewName: string | null;
     routeOrder: number | null;
     routeDate: string | null;
   }>();
+
   const assignmentResult = await user.rpc("get_company_dispatch_jobs");
   if (!assignmentResult.error && Array.isArray(assignmentResult.data)) {
     for (const row of assignmentResult.data) {
       const id = row.id || row.jobId;
       if (!id) continue;
-      assignmentByJob.set(id, {
+      assignments.set(id, {
         crewId: row.crewId || row.crew_id || null,
         crewName: row.crewName || row.crew_name || null,
         routeOrder: row.defaultRouteOrder ?? row.default_route_order ?? null,
@@ -205,12 +235,12 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
     }
   }
 
-  const customerNames = new Map(customers.map((item: any) => [item.id, item.full_name]));
-  const propertyById = new Map(properties.map((item: any) => [item.id, item]));
+  const customerNames = new Map(customers.map((customer: any) => [customer.id, customer.full_name]));
+  const propertyById = new Map(properties.map((property: any) => [property.id, property]));
 
   return jobs.map((job: any) => {
     const property: any = propertyById.get(job.property_id);
-    const assignment = assignmentByJob.get(job.id);
+    const assignment = assignments.get(job.id);
     return {
       id: job.id,
       serviceName: job.service_name || "Property Service",
@@ -218,7 +248,9 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
       nextVisitDate: job.next_visit_date || null,
       customerName: customerNames.get(job.customer_id) || "Customer",
       address: property
-        ? [property.address_line1, property.city, property.province, property.postal_code].filter(Boolean).join(", ")
+        ? [property.address_line1, property.city, property.province, property.postal_code]
+          .filter(Boolean)
+          .join(", ")
         : "Address missing",
       propertyId: job.property_id,
       customerId: job.customer_id,
@@ -241,6 +273,7 @@ async function canonicalVisits(service: any, companyId: string) {
     .order("scheduled_date", { ascending: false })
     .order("route_order", { ascending: true, nullsFirst: false })
     .limit(1000);
+
   if (result.error) throw new Error(result.error.message);
 
   return (result.data || []).map((row: any) => {
@@ -257,7 +290,12 @@ async function canonicalVisits(service: any, companyId: string) {
       customerId: row.customer_id,
       customerName: (Array.isArray(row.customers) ? row.customers[0] : row.customers)?.full_name || null,
       propertyId: row.property_id,
-      address: [property?.address_line1, property?.city, property?.province, property?.postal_code].filter(Boolean).join(", "),
+      address: [
+        property?.address_line1,
+        property?.city,
+        property?.province,
+        property?.postal_code,
+      ].filter(Boolean).join(", "),
       serviceName: (Array.isArray(row.jobs) ? row.jobs[0] : row.jobs)?.service_name || "Property Service",
       scheduledDate: row.scheduled_date,
       status: row.status,
@@ -271,19 +309,18 @@ async function canonicalVisits(service: any, companyId: string) {
 }
 
 function canonicalHealth(employees: any[], visits: any[]) {
-  const activeEmployeeIds = new Set(employees.map(employee => employee.employeeId).filter(Boolean));
-  const activeCrewIds = new Set(employees.map(employee => employee.crewId).filter(Boolean));
+  const employeeIds = new Set(employees.map(employee => employee.employeeId).filter(Boolean));
+  const crewIds = new Set(employees.map(employee => employee.crewId).filter(Boolean));
   const issues = visits.flatMap(visit => {
     const missing = [
       !visit.customerId && "customerId",
       !visit.propertyId && "propertyId",
       !visit.jobId && "jobId",
       !visit.id && "visitId",
-      !visit.routeId && "routeId",
-      !visit.employeeId && "employeeId",
-      !visit.crewId && "crewId",
-      visit.employeeId && !activeEmployeeIds.has(visit.employeeId) && "inactiveEmployeeId",
-      visit.crewId && !activeCrewIds.has(visit.crewId) && "inactiveCrewId",
+      visit.routeId && !visit.employeeId && "employeeId",
+      visit.routeId && !visit.crewId && "crewId",
+      visit.employeeId && !employeeIds.has(visit.employeeId) && "inactiveEmployeeId",
+      visit.crewId && !crewIds.has(visit.crewId) && "inactiveCrewId",
     ].filter(Boolean);
     return missing.length ? [{ visitId: visit.id, missing }] : [];
   });
@@ -292,167 +329,6 @@ function canonicalHealth(employees: any[], visits: any[]) {
     healthy: issues.length === 0,
     issueCount: issues.length,
     issues,
-  };
-}
-
-async function resolveRouteEmployee(service: any, companyId: string, employeeId: string | undefined, crewId: string) {
-  let query = service
-    .from("employees")
-    .select("id,crew_id,full_name")
-    .eq("active", true)
-    .or(companyFilter(companyId));
-  query = employeeId ? query.eq("id", employeeId) : query.eq("crew_id", crewId);
-
-  const result = await query.limit(2);
-  if (result.error) throw new Error(result.error.message);
-  if ((result.data || []).length !== 1) {
-    throw new Error("The selected route must resolve to exactly one active Employee.");
-  }
-  return result.data[0];
-}
-
-async function publishEmployeeRoute(
-  service: any,
-  companyId: string,
-  employeeId: string | undefined,
-  crewId: string,
-  routeDate: string,
-  jobIds: string[],
-) {
-  const employee = await resolveRouteEmployee(service, companyId, employeeId, crewId);
-  const canonicalCrewId = employee.crew_id || crewId;
-  if (!canonicalCrewId) throw new Error("The selected Employee has no route crew.");
-
-  const jobsResult = await service
-    .from("jobs")
-    .select("id,customer_id,property_id")
-    .in("id", jobIds)
-    .eq("active", true)
-    .or(companyFilter(companyId));
-  if (jobsResult.error) throw new Error(jobsResult.error.message);
-  const jobs = jobsResult.data || [];
-  if (jobs.length !== jobIds.length) {
-    throw new Error("One or more selected customer jobs are no longer available. Refresh and try again.");
-  }
-
-  const incompleteJob = jobs.find((job: any) => !job.customer_id || !job.property_id);
-  if (incompleteJob) throw new Error(`Job ${incompleteJob.id} is missing its canonical Customer or Property link.`);
-
-  const existing = await service
-    .from("routes")
-    .select("id")
-    .eq("crew_id", canonicalCrewId)
-    .eq("route_date", routeDate)
-    .or(companyFilter(companyId))
-    .order("created_at")
-    .limit(2);
-  if (existing.error) throw new Error(existing.error.message);
-  if ((existing.data || []).length > 1) {
-    throw new Error("More than one canonical Route exists for this Employee and date. Repair the duplicate before publishing.");
-  }
-
-  let routeId: string | null = existing.data?.[0]?.id || null;
-  if (!routeId) {
-    const created = await service
-      .from("routes")
-      .insert({
-        organization_id: companyId,
-        company_id: companyId,
-        crew_id: canonicalCrewId,
-        route_date: routeDate,
-        status: "published",
-      })
-      .select("id")
-      .single();
-    if (created.error) throw new Error(created.error.message);
-    routeId = created.data.id;
-  } else {
-    const updatedRoute = await service.from("routes").update({ status: "published" }).eq("id", routeId);
-    if (updatedRoute.error) throw new Error(updatedRoute.error.message);
-  }
-
-  for (let index = 0; index < jobIds.length; index++) {
-    const job = jobs.find((item: any) => item.id === jobIds[index]);
-    const existingVisits = await service
-      .from("visits")
-      .select("id,status,created_at")
-      .eq("job_id", job.id)
-      .eq("scheduled_date", routeDate)
-      .or(companyFilter(companyId))
-      .order("created_at", { ascending: true });
-    if (existingVisits.error) throw new Error(existingVisits.error.message);
-
-    const current = (existingVisits.data || []).find((visit: any) => visit.status !== "cancelled");
-    const visitPatch = {
-      route_id: routeId,
-      crew_id: canonicalCrewId,
-      assigned_employee_id: employee.id,
-      customer_id: job.customer_id,
-      property_id: job.property_id,
-      scheduled_date: routeDate,
-      route_order: index + 1,
-      status: "scheduled",
-    };
-
-    if (current?.id) {
-      const updated = await service.from("visits").update(visitPatch).eq("id", current.id);
-      if (updated.error) throw new Error(updated.error.message);
-    } else {
-      const inserted = await service.from("visits").insert({
-        organization_id: companyId,
-        company_id: companyId,
-        job_id: job.id,
-        ...visitPatch,
-      });
-      if (inserted.error) throw new Error(inserted.error.message);
-    }
-
-    const updatedJob = await service
-      .from("jobs")
-      .update({
-        next_visit_date: routeDate,
-        recurrence_anchor_date: routeDate,
-        default_route_order: index + 1,
-      })
-      .eq("id", job.id)
-      .or(companyFilter(companyId));
-    if (updatedJob.error) throw new Error(updatedJob.error.message);
-  }
-
-  const verification = await service
-    .from("visits")
-    .select("id,job_id,route_id,assigned_employee_id,crew_id,customer_id,property_id,scheduled_date,route_order")
-    .in("job_id", jobIds)
-    .eq("scheduled_date", routeDate)
-    .eq("assigned_employee_id", employee.id)
-    .neq("status", "cancelled");
-  if (verification.error) throw new Error(verification.error.message);
-
-  const savedVisits = verification.data || [];
-  if (savedVisits.length !== jobIds.length) {
-    throw new Error("The route was not fully saved. No success confirmation was issued.");
-  }
-  const invalidVisit = savedVisits.find((visit: any) =>
-    !visit.route_id ||
-    visit.route_id !== routeId ||
-    !visit.customer_id ||
-    !visit.property_id ||
-    !visit.job_id ||
-    !visit.assigned_employee_id ||
-    !visit.crew_id ||
-    !visit.route_order);
-  if (invalidVisit) {
-    throw new Error(`Visit ${invalidVisit.id} failed the canonical route verification.`);
-  }
-
-  return {
-    saved: true,
-    count: jobIds.length,
-    action: "smart",
-    routeId,
-    employeeId: employee.id,
-    employeeName: employee.full_name,
-    visits: savedVisits,
   };
 }
 
@@ -472,14 +348,13 @@ export async function GET(request: NextRequest) {
       jobCount: jobs.length,
       visitCount: visits.length,
       canonicalIssueCount: health.issueCount,
-      issueVisitIds: health.issues.map((issue: any) => issue.visitId),
     });
 
     return NextResponse.json({
       employees,
       health,
       board: {
-        crews: employees.map((employee: any) => ({
+        crews: employees.map(employee => ({
           id: employee.crewId,
           name: employee.name,
           active: true,
@@ -500,7 +375,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { service, user, companyId } = await requireAdmin(request);
+    const { user } = await requireAdmin(request);
     const body = await request.json() as {
       action?: "assign" | "unassign" | "smart" | "move";
       jobIds?: string[];
@@ -508,36 +383,48 @@ export async function POST(request: NextRequest) {
       crewId?: string;
       routeDate?: string;
     };
-    const jobIds = [...new Set((body.jobIds || []).filter(Boolean))];
-    if (!jobIds.length) throw new Error("Select at least one customer.");
+
+    const jobIds = [...new Set((body.jobIds || []).map(String).filter(Boolean))];
+    if (!jobIds.length) throw new Error("Select at least one canonical Job.");
 
     const action = body.action || "assign";
-    if (action === "unassign") {
+    if (action === "assign" || action === "unassign") {
+      const crewId = action === "unassign" ? null : String(body.crewId || "");
+      if (action === "assign" && !crewId) throw new Error("Select an Employee.");
+
       for (const jobId of jobIds) {
-        const result = await user.rpc("assign_job_to_crew", { p_job_id: jobId, p_crew_id: null });
+        const result = await user.rpc("assign_job_to_crew", {
+          p_job_id: jobId,
+          p_crew_id: crewId,
+        });
         if (result.error) throw new Error(result.error.message);
       }
       return NextResponse.json({ saved: true, count: jobIds.length, action });
     }
 
-    if (!body.crewId) throw new Error("Select an Employee.");
-    if (action === "assign") {
-      for (const jobId of jobIds) {
-        const result = await user.rpc("assign_job_to_crew", { p_job_id: jobId, p_crew_id: body.crewId });
-        if (result.error) throw new Error(result.error.message);
-      }
-      return NextResponse.json({ saved: true, count: jobIds.length, action });
+    const employeeId = String(body.employeeId || "");
+    const crewId = String(body.crewId || "");
+    const routeDate = String(body.routeDate || "");
+    if (!employeeId || !crewId || !routeDate) {
+      throw new Error("Employee, Crew and route date are required.");
     }
 
-    if (!body.routeDate) throw new Error("Select a route date.");
-    return NextResponse.json(await publishEmployeeRoute(
-      service,
-      companyId,
-      body.employeeId,
-      body.crewId,
-      body.routeDate,
-      jobIds,
-    ));
+    const result = await user.rpc("publish_canonical_route", {
+      p_employee_id: employeeId,
+      p_crew_id: crewId,
+      p_route_date: routeDate,
+      p_ordered_job_ids: jobIds,
+      p_source_visit_ids: [],
+    });
+
+    if (result.error) {
+      if (missingMigration(result.error.message)) {
+        throw new Error("Supabase migration 202607270003_completed_visit_reopen_guard.sql is pending or not confirmed.");
+      }
+      throw new Error(result.error.message);
+    }
+
+    return NextResponse.json(result.data);
   } catch (error) {
     console.error("admin-routes-post", error);
     return fail(error);

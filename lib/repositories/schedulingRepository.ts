@@ -105,46 +105,67 @@ async function rpcBoard(name: string, args?: Record<string, unknown>) {
 }
 
 export async function getSchedulingDispatchBoard() {
-  const board=await rpcBoard("get_scheduling_dispatch_board");
-  try{
-    const supabase=getSupabaseBrowserClient();
-    const {data,error}=await supabase.rpc("get_company_dispatch_jobs" as never);
-    if(error)throw error;
-    const jobs=Array.isArray(data)?data as DispatchJob[]:[];
-    return {...board,unscheduledJobs:jobs.filter(job=>!job.crewId),assignedJobs:jobs.filter(job=>Boolean(job.crewId))};
-  }catch{return board}
+  const board = await rpcBoard("get_scheduling_dispatch_board");
+  try {
+    const supabase = getSupabaseBrowserClient();
+    const { data, error } = await supabase.rpc("get_company_dispatch_jobs" as never);
+    if (error) throw error;
+    const jobs = Array.isArray(data) ? data as DispatchJob[] : [];
+    return {
+      ...board,
+      unscheduledJobs: jobs.filter(job => !job.crewId),
+      assignedJobs: jobs.filter(job => Boolean(job.crewId)),
+    };
+  } catch {
+    return board;
+  }
 }
 
-export async function assignJobCrew(jobId:string,crewId:string|null){
-  const supabase=getSupabaseBrowserClient();const data=await reliableRpc(supabase,"assign_job_to_crew",{p_job_id:jobId,p_crew_id:crewId},{attempts:2,timeoutMs:18000});
-  return Array.isArray(data)?data as DispatchJob[]:[];
+export async function assignJobCrew(jobId: string, crewId: string | null) {
+  const supabase = getSupabaseBrowserClient();
+  const data = await reliableRpc(
+    supabase,
+    "assign_job_to_crew",
+    { p_job_id: jobId, p_crew_id: crewId },
+    { attempts: 2, timeoutMs: 18000 },
+  );
+  return Array.isArray(data) ? data as DispatchJob[] : [];
 }
 
-export function saveJobRoutePattern(input:{jobId:string;crewId:string;routeDate:string;routeOrder?:number}){
-  return rpcBoard("save_job_route_pattern",{p_job_id:input.jobId,p_crew_id:input.crewId,p_route_date:input.routeDate,p_route_order:input.routeOrder||null});
+function canonicalWriterRequired(operation: string): never {
+  throw new Error(`${operation} is disabled here. Use Dispatch & Routes / Route Advisor so the canonical Visit is validated and published transactionally.`);
 }
 
-export function scheduleJobOnRoute(input: { jobId: string; crewId: string; routeDate: string; routeOrder?: number }) {
-  return rpcBoard("schedule_job_on_route", {
-    p_job_id: input.jobId,
-    p_crew_id: input.crewId,
-    p_route_date: input.routeDate,
-    p_route_order: input.routeOrder || null,
-  });
+export async function saveJobRoutePattern(_input: {
+  jobId: string;
+  crewId: string;
+  routeDate: string;
+  routeOrder?: number;
+}): Promise<SchedulingDispatchBoard> {
+  return canonicalWriterRequired("Route pattern publication");
 }
 
-export function moveVisitToRoute(input: { visitId: string; crewId: string; routeDate: string; routeOrder?: number }) {
-  return rpcBoard("move_visit_to_route", {
-    p_visit_id: input.visitId,
-    p_crew_id: input.crewId,
-    p_route_date: input.routeDate,
-    p_route_order: input.routeOrder || null,
-  });
+export async function scheduleJobOnRoute(_input: {
+  jobId: string;
+  crewId: string;
+  routeDate: string;
+  routeOrder?: number;
+}): Promise<SchedulingDispatchBoard> {
+  return canonicalWriterRequired("Schedule");
 }
 
-export function updateVisitDispatchStatus(input: { visitId: string; status: DispatchVisit["status"] }) {
-  return rpcBoard("set_visit_dispatch_status", {
-    p_visit_id: input.visitId,
-    p_status: input.status,
-  });
+export async function moveVisitToRoute(_input: {
+  visitId: string;
+  crewId: string;
+  routeDate: string;
+  routeOrder?: number;
+}): Promise<SchedulingDispatchBoard> {
+  return canonicalWriterRequired("Move");
+}
+
+export async function updateVisitDispatchStatus(_input: {
+  visitId: string;
+  status: DispatchVisit["status"];
+}): Promise<SchedulingDispatchBoard> {
+  return canonicalWriterRequired("Visit status change");
 }

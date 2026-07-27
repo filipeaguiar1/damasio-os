@@ -4,108 +4,185 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { RouteLead } from "@/lib/services/schedulingService";
 import type { RouteLineString } from "@/lib/maps/types";
 
-declare global { interface Window { L?: any } }
+declare global {
+  interface Window {
+    L?: any;
+  }
+}
 
 type Origin = { latitude: number; longitude: number; label: string };
+
+export type RoutePreviewMetrics = {
+  distanceMeters: number | null;
+  durationSeconds: number | null;
+};
+
 type Props = {
   route: RouteLead[];
   origin: Origin | null;
   capacity: number;
   lockedJobIds?: string[];
   onRemove: (home: RouteLead) => void;
+  onMetricsChange?: (metrics: RoutePreviewMetrics) => void;
 };
 
 function jobId(home: RouteLead) {
   return home.canonicalJobId || home.id;
 }
 
-export function InteractiveRoutePreviewMap({ route, origin, capacity, lockedJobIds = [], onRemove }: Props) {
+function formatDistance(value: number | null) {
+  return value === null ? "—" : `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)} km`;
+}
+
+function formatDuration(value: number | null) {
+  return value === null ? "—" : `${Math.max(1, Math.round(value / 60))} min`;
+}
+
+export function InteractiveRoutePreviewMap({
+  route,
+  origin,
+  capacity,
+  lockedJobIds = [],
+  onRemove,
+  onMetricsChange,
+}: Props) {
   const node = useRef<HTMLDivElement | null>(null);
   const map = useRef<any>(null);
   const markerLayer = useRef<any>(null);
   const lineLayer = useRef<any>(null);
   const [geometry, setGeometry] = useState<RouteLineString | null>(null);
+  const [metrics, setMetrics] = useState<RoutePreviewMetrics>({
+    distanceMeters: null,
+    durationSeconds: null,
+  });
   const [status, setStatus] = useState("Preparing preview...");
-  const locked = useMemo(() => new Set(lockedJobIds), [lockedJobIds.join("|")]);
-  const routeKey = route.map(item => `${jobId(item)}:${item.latitude}:${item.longitude}:${item.routeOrder || ""}`).join("|");
+  const locked = useMemo(() => new Set(lockedJobIds), [lockedJobIds]);
+  const routeKey = route
+    .map(item => `${jobId(item)}:${item.latitude}:${item.longitude}:${item.routeOrder || ""}`)
+    .join("|");
   const originKey = origin ? `${origin.latitude}:${origin.longitude}` : "";
 
   useEffect(() => {
     let cancelled = false;
     const coordinates = [
       ...(origin ? [[origin.longitude, origin.latitude] as [number, number]] : []),
-      ...route.flatMap(item => Number.isFinite(item.latitude) && Number.isFinite(item.longitude)
-        ? [[Number(item.longitude), Number(item.latitude)] as [number, number]]
-        : []),
+      ...route.flatMap(item =>
+        Number.isFinite(item.latitude) && Number.isFinite(item.longitude)
+          ? [[Number(item.longitude), Number(item.latitude)] as [number, number]]
+          : []),
     ];
+
     if (coordinates.length < 2) {
+      const next = { distanceMeters: null, durationSeconds: null };
       setGeometry(null);
-      setStatus(route.length ? "Add a valid route start to draw the driving line." : "Select houses to preview the route.");
+      setMetrics(next);
+      onMetricsChange?.(next);
+      setStatus(route.length
+        ? "Add a valid Employee route start to calculate the road line."
+        : "Select houses to preview the route.");
       return () => { cancelled = true; };
     }
-    setStatus("Calculating driving route...");
+
+    setStatus("Recalculating road distance and duration...");
     void fetch("/api/map/route", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ coordinates }),
-    }).then(async response => {
-      if (!response.ok) throw new Error("Route unavailable");
-      return await response.json() as { geometry: RouteLineString };
-    }).then(result => {
-      if (!cancelled) {
+    })
+      .then(async response => {
+        if (!response.ok) throw new Error("Route unavailable");
+        return await response.json() as {
+          geometry: RouteLineString;
+          distance: number;
+          duration: number;
+        };
+      })
+      .then(result => {
+        if (cancelled) return;
+        const next = {
+          distanceMeters: Number.isFinite(result.distance) ? result.distance : null,
+          durationSeconds: Number.isFinite(result.duration) ? result.duration : null,
+        };
         setGeometry(result.geometry);
-        setStatus("Click an unlocked numbered house to remove it from the preview.");
-      }
-    }).catch(() => {
-      if (!cancelled) {
+        setMetrics(next);
+        onMetricsChange?.(next);
+        setStatus("Map, numbers, road line, distance and duration match the current manual order.");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        const next = { distanceMeters: null, durationSeconds: null };
         setGeometry(null);
-        setStatus("Houses mapped. Driving line is temporarily unavailable.");
-      }
-    });
+        setMetrics(next);
+        onMetricsChange?.(next);
+        setStatus("Houses are mapped, but road metrics are temporarily unavailable.");
+      });
+
     return () => { cancelled = true; };
-  }, [routeKey, originKey]);
+  }, [routeKey, originKey, onMetricsChange]);
 
   useEffect(() => {
     let cancelled = false;
+
     const setup = () => {
       if (cancelled || !node.current || !window.L) return;
       const L = window.L;
+
       if (!map.current) {
-        map.current = L.map(node.current, { zoomControl: true, attributionControl: false }).setView([43.2557, -79.8711], 11);
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map.current);
+        map.current = L
+          .map(node.current, { zoomControl: true, attributionControl: false })
+          .setView([43.2557, -79.8711], 11);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+        }).addTo(map.current);
         markerLayer.current = L.layerGroup().addTo(map.current);
       }
+
       markerLayer.current.clearLayers();
+
       if (origin) {
-        const icon = L.divIcon({ className: "advisor-marker-shell", html: '<div class="advisor-origin">S</div>', iconSize: [38, 38], iconAnchor: [19, 19] });
-        L.marker([origin.latitude, origin.longitude], { icon }).bindTooltip(origin.label).addTo(markerLayer.current);
-      }
-      route.forEach((home, index) => {
-        if (!Number.isFinite(home.latitude) || !Number.isFinite(home.longitude)) return;
-        const isLocked = locked.has(jobId(home));
-        const title = isLocked ? `${home.name} is completed or active and cannot be removed` : `Remove ${home.name}`;
         const icon = L.divIcon({
           className: "advisor-marker-shell",
-          html: `<button class="advisor-stop ${isLocked ? "locked" : ""}" title="${title}">${index + 1}</button>`,
+          html: '<div class="advisor-origin">S</div>',
           iconSize: [38, 38],
           iconAnchor: [19, 19],
         });
-        const marker = L.marker([Number(home.latitude), Number(home.longitude)], { icon })
-          .bindTooltip(`${index + 1}. ${home.name} · ${isLocked ? "locked" : "click to remove"}`);
+        L.marker([origin.latitude, origin.longitude], { icon })
+          .bindTooltip(origin.label)
+          .addTo(markerLayer.current);
+      }
+
+      route.forEach((home, index) => {
+        if (!Number.isFinite(home.latitude) || !Number.isFinite(home.longitude)) return;
+        const isLocked = locked.has(jobId(home));
+        const icon = L.divIcon({
+          className: "advisor-marker-shell",
+          html: `<button class="advisor-stop ${isLocked ? "locked" : ""}" title="${
+            isLocked ? "Completed house locked" : `Remove ${home.name}`
+          }">${index + 1}</button>`,
+          iconSize: [38, 38],
+          iconAnchor: [19, 19],
+        });
+        const marker = L
+          .marker([Number(home.latitude), Number(home.longitude)], { icon })
+          .bindTooltip(`${index + 1}. ${home.name} · ${isLocked ? "completed and locked" : "click to remove"}`);
         if (!isLocked) marker.on("click", () => onRemove(home));
         marker.addTo(markerLayer.current);
       });
+
       const bounds = [
         ...(origin ? [[origin.latitude, origin.longitude] as [number, number]] : []),
-        ...route.flatMap(home => Number.isFinite(home.latitude) && Number.isFinite(home.longitude)
-          ? [[Number(home.latitude), Number(home.longitude)] as [number, number]]
-          : []),
+        ...route.flatMap(home =>
+          Number.isFinite(home.latitude) && Number.isFinite(home.longitude)
+            ? [[Number(home.latitude), Number(home.longitude)] as [number, number]]
+            : []),
       ];
       if (bounds.length) map.current.fitBounds(L.latLngBounds(bounds).pad(.2), { maxZoom: 15 });
       window.setTimeout(() => map.current?.invalidateSize(), 50);
     };
-    if (window.L) setup();
-    else {
+
+    if (window.L) {
+      setup();
+    } else {
       if (!document.querySelector("link[data-leaflet]")) {
         const link = document.createElement("link");
         link.rel = "stylesheet";
@@ -122,8 +199,12 @@ export function InteractiveRoutePreviewMap({ route, origin, capacity, lockedJobI
         document.body.appendChild(script);
       }
       script.addEventListener("load", setup);
-      return () => { cancelled = true; script?.removeEventListener("load", setup); };
+      return () => {
+        cancelled = true;
+        script?.removeEventListener("load", setup);
+      };
     }
+
     return () => { cancelled = true; };
   }, [routeKey, originKey, locked, onRemove]);
 
@@ -142,24 +223,28 @@ export function InteractiveRoutePreviewMap({ route, origin, capacity, lockedJobI
   }, [geometry]);
 
   const safeCapacity = Math.max(1, capacity || 1);
+
   return <section className="advisor-preview-map">
     <div className="advisor-preview-status">
-      <strong>{route.length}/{safeCapacity} houses</strong>
-      <span>{status}</span>
+      <div><strong>{route.length}/{safeCapacity} houses</strong><span>{status}</span></div>
+      <dl>
+        <div><dt>Distance</dt><dd>{formatDistance(metrics.distanceMeters)}</dd></div>
+        <div><dt>Driving</dt><dd>{formatDuration(metrics.durationSeconds)}</dd></div>
+      </dl>
     </div>
-    <div ref={node} className="advisor-preview-leaflet" aria-label="Clickable route preview" />
+    <div ref={node} className="advisor-preview-leaflet" aria-label="Synchronized canonical route preview" />
     <style jsx global>{`
       .advisor-preview-map{overflow:hidden;border:1px solid #dbe7e1;border-radius:22px;background:#fff}
       .advisor-preview-status{display:flex;justify-content:space-between;gap:16px;padding:13px 16px;border-bottom:1px solid #e4ece8}
-      .advisor-preview-status span{color:#64748b;font-size:12px}
-      .advisor-preview-leaflet{height:560px;min-height:420px}
+      .advisor-preview-status>div strong,.advisor-preview-status>div span{display:block}.advisor-preview-status>div span{margin-top:3px;color:#64748b;font-size:12px}
+      .advisor-preview-status dl{display:flex;gap:18px;margin:0}.advisor-preview-status dl div{display:grid;gap:2px}.advisor-preview-status dt{color:#64748b;font-size:9px;font-weight:900;text-transform:uppercase}.advisor-preview-status dd{margin:0;color:#173a2c;font-weight:950}
+      .advisor-preview-leaflet{height:520px;min-height:400px}
       .advisor-marker-shell{background:transparent;border:0}
       .advisor-stop,.advisor-origin{display:grid;place-items:center;width:36px;height:36px;border:3px solid #fff;border-radius:50%;box-shadow:0 7px 18px rgba(15,23,42,.28);font-weight:950}
-      .advisor-stop{background:#2563eb;color:#fff;cursor:pointer}
-      .advisor-stop:hover{background:#dc2626;transform:scale(1.08)}
+      .advisor-stop{background:#2563eb;color:#fff;cursor:pointer}.advisor-stop:hover{background:#dc2626;transform:scale(1.08)}
       .advisor-stop.locked{background:#16a34a;cursor:not-allowed}.advisor-stop.locked:hover{background:#16a34a;transform:none}
       .advisor-origin{background:#111827;color:#fff}
-      @media(max-width:800px){.advisor-preview-leaflet{height:430px}.advisor-preview-status{align-items:flex-start;flex-direction:column}}
+      @media(max-width:800px){.advisor-preview-leaflet{height:420px}.advisor-preview-status{align-items:flex-start;flex-direction:column}}
     `}</style>
   </section>;
 }

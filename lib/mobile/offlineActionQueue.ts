@@ -1,96 +1,71 @@
 "use client";
 
-import { changeEmployeeVisitStatus } from "@/lib/services/employeeVisitStatusService";
+import {
+  changeEmployeeVisitStatus,
+  reopenEmployeeCompletedVisit,
+  type EmployeeVisitStatus,
+} from "@/lib/services/employeeVisitStatusService";
 
 export type OfflineVisitAction = {
   id: string;
   type: "visit_status";
   visitId: string;
-  status: "scheduled" | "in_progress" | "completed" | "missed";
+  status: EmployeeVisitStatus;
   createdAt: string;
   attempts: number;
   lastError?: string;
 };
 
-const QUEUE_KEY = "damasio_mobile_offline_actions_v1";
-const MAX_ATTEMPTS = 8;
-
-function readQueue(): OfflineVisitAction[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const value = JSON.parse(window.localStorage.getItem(QUEUE_KEY) || "[]");
-    return Array.isArray(value) ? value : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeQueue(actions: OfflineVisitAction[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(QUEUE_KEY, JSON.stringify(actions.slice(-100)));
-}
-
-function isNetworkLikeError(error: unknown) {
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  return !navigator.onLine || ["failed to fetch", "network", "timeout", "temporarily", "connection"].some(token => message.includes(token));
-}
-
+// Operational Visit writes are never persisted in localStorage. Supabase remains
+// the only source of truth; a network failure is shown to the Employee and retried
+// only after the user explicitly performs the action again.
 export function getOfflineActionCount() {
-  return readQueue().filter(action => action.attempts < MAX_ATTEMPTS).length;
+  return 0;
 }
 
-export function queueVisitStatusAction(visitId: string, status: OfflineVisitAction["status"], error?: unknown) {
-  const queue = readQueue();
-  const existing = queue.find(action => action.type === "visit_status" && action.visitId === visitId);
-  const next: OfflineVisitAction = {
-    id: existing?.id || crypto.randomUUID(),
+export function queueVisitStatusAction(
+  visitId: string,
+  status: EmployeeVisitStatus,
+  error?: unknown,
+): OfflineVisitAction {
+  return {
+    id: crypto.randomUUID(),
     type: "visit_status",
     visitId,
     status,
-    createdAt: existing?.createdAt || new Date().toISOString(),
-    attempts: existing?.attempts || 0,
-    lastError: error instanceof Error ? error.message : undefined,
+    createdAt: new Date().toISOString(),
+    attempts: 1,
+    lastError: error instanceof Error ? error.message : "Offline operational writes are disabled.",
   };
-  writeQueue([...queue.filter(action => action.id !== next.id), next]);
-  window.dispatchEvent(new CustomEvent("damasio-offline-queue-change"));
-  return next;
 }
 
-export async function runVisitStatusOrQueue(visitId: string, status: OfflineVisitAction["status"]) {
-  try {
-    await changeEmployeeVisitStatus(visitId, status);
-    return { queued: false };
-  } catch (error) {
-    if (!isNetworkLikeError(error)) throw error;
-    queueVisitStatusAction(visitId, status, error);
-    return { queued: true };
+export async function runVisitStatusOrQueue(
+  visitId: string,
+  status: EmployeeVisitStatus,
+  reason?: string,
+) {
+  let resolvedReason = reason?.trim() || "";
+  if (status === "scheduled" && resolvedReason.length < 5) {
+    resolvedReason = window.prompt("Why are you resetting this Visit? A reason is required.")?.trim() || "";
+    if (resolvedReason.length < 5) throw new Error("Reset cancelled. A reason with at least 5 characters is required.");
   }
+  try {
+    await changeEmployeeVisitStatus(visitId, status, resolvedReason || undefined);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (status !== "scheduled" || !/completed.*reopen|requires reopen/i.test(message)) throw error;
+
+    const confirmation = window.prompt(
+      "This Visit is completed. Employee Reopen is allowed only for your own Visit today, within 15 minutes and before Task, feedback or financial processing. Type REOPEN to continue.",
+    );
+    if (confirmation?.trim().toUpperCase() !== "REOPEN") {
+      throw new Error("Completed Visit Reopen cancelled.");
+    }
+    await reopenEmployeeCompletedVisit(visitId, resolvedReason);
+  }
+  return { queued: false };
 }
 
 export async function flushOfflineActionQueue() {
-  const queue = readQueue();
-  if (!queue.length || typeof navigator !== "undefined" && !navigator.onLine) return { synced: 0, remaining: queue.length };
-  const remaining: OfflineVisitAction[] = [];
-  let synced = 0;
-
-  for (const action of queue) {
-    if (action.attempts >= MAX_ATTEMPTS) {
-      remaining.push(action);
-      continue;
-    }
-    try {
-      if (action.type === "visit_status") await changeEmployeeVisitStatus(action.visitId, action.status);
-      synced += 1;
-    } catch (error) {
-      remaining.push({
-        ...action,
-        attempts: action.attempts + 1,
-        lastError: error instanceof Error ? error.message : "Sync failed.",
-      });
-    }
-  }
-
-  writeQueue(remaining);
-  window.dispatchEvent(new CustomEvent("damasio-offline-queue-change"));
-  return { synced, remaining: remaining.length };
+  return { synced: 0, remaining: 0 };
 }
