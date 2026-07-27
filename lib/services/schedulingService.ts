@@ -8,6 +8,7 @@ import {
   type DispatchVisit,
   type SchedulingDispatchBoard,
 } from "@/lib/repositories/schedulingRepository";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { dayNameFromDate, type ServiceFrequency } from "@/lib/storage";
 import type { CanonicalRouteLead } from "@/lib/routes/canonicalRouteIdentity";
 
@@ -128,8 +129,34 @@ export async function rescheduleVisit(input: { visitId: string; crewId: string; 
   return board;
 }
 
+async function changeEmployeeVisitStatus(visitId: string, status: "in_progress" | "completed") {
+  const supabase = getSupabaseBrowserClient();
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Your Employee login expired. Sign in again.");
+
+  const response = await fetch("/api/mobile/employee/route", {
+    method: "PATCH",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      visitId,
+      action: status === "in_progress" ? "start" : "done",
+    }),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Visit could not be updated.");
+  invalidateQuery("scheduling:");
+  return result;
+}
+
 export async function changeVisitStatus(visitId: string, status: DispatchVisit["status"]) {
   if (!visitId) throw new Error("Choose a visit first.");
+  if (status === "in_progress" || status === "completed") {
+    return changeEmployeeVisitStatus(visitId, status);
+  }
   const board = await updateVisitDispatchStatus({ visitId, status });
   invalidateQuery("scheduling:");
   return board;
