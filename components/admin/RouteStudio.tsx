@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
 import { CustomerPropertyModal } from "@/components/property/CustomerPropertyModal";
+import { OfficialRoutePlanMap } from "@/components/admin/OfficialRoutePlanMap";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulingService";
 import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
@@ -411,12 +412,7 @@ export function RouteStudio() {
 
     {message && <div className="desktop-route-message">{message}</div>}
 
-    {mode === "view" && !employee && <EmployeeDirectory
-      employees={employees}
-      counts={employeeRouteCounts}
-      date={date}
-      onOpen={openEmployee}
-    />}
+    {mode === "view" && !employee && <OfficialRoutePlanMap />}
 
     {mode === "view" && employee && <section className="desktop-route-workspace">
       <MapCard title={`${employee.name} route`} count={visibleEmployeeRoute.length}>

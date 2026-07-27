@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AdminShell } from "@/components/admin/AdminShell";
+import { OfficialRoutePlanMap } from "@/components/admin/OfficialRoutePlanMap";
+import { OfficialRouteStatus } from "@/components/admin/OfficialRouteStatus";
 import { readRoadGeometry, saveRoadGeometry } from "@/lib/maps/clientMapCache";
 import {
   DAMASIO_CREWS,
@@ -68,10 +70,6 @@ export default function Admin() {
   }
 
   useEffect(() => {
-    seedDemoLeads();
-    seedDemoEstimates();
-    seedDemoExpenses();
-    seedDemoRequests();
     refresh();
     const onSync = () => refresh();
     window.addEventListener(DAMASIO_SYNC_EVENT, onSync as EventListener);
@@ -306,35 +304,7 @@ export default function Admin() {
       </section>
 
       <section className="studio-grid">
-        <article className="studio-panel route-map-panel">
-          <header>
-            <h2>{focusedRoute ? `${focusedRoute.crew} Route` : "Route Plan"}</h2>
-            <div className="studio-map-tools">
-              {focusedRoute && <button type="button" onClick={() => setSelectedCrew("")}>Back</button>}
-              <label><span>Calendar</span><input type="date" value={mapDate} onChange={(event) => { setMapDate(event.target.value); setSelectedCrew(""); }} /></label>
-              <Link href={`/admin/map?day=${encodeURIComponent(weekDayFromDate(mapDate))}${focusedRoute ? `&crew=${encodeURIComponent(focusedRoute.crew)}` : ""}`}>Full map</Link>
-            </div>
-          </header>
-          <div className={focusedRoute ? "studio-map route-focused real-map" : "studio-map real-map"} aria-label="Crew route preview">
-            <div ref={previewMapNode} className="studio-preview-leaflet" />
-            {focusedRoute ? (
-              <>
-                <aside className="studio-route-popover">
-                  <strong>{focusedRoute.crew}</strong>
-                  <small>{mapStatus}</small>
-                  <div className="studio-route-stop-list">
-                    {focusedRoute.jobs.map((job, index) => <Link href={`/admin/customers/${job.id}`} key={job.id}><b>{index + 1}</b><span>{job.name}</span></Link>)}
-                  </div>
-                  <Link className="studio-route-open" href={`/employee/route?crew=${encodeURIComponent(focusedRoute.crew)}&day=${encodeURIComponent(weekDayFromDate(mapDate))}`}>Open employee view</Link>
-                </aside>
-              </>
-            ) : activeRouteCrews.length ? (
-              <>
-                <div className="studio-map-hint">Crew markers sit on each first stop. Click one to load the road route.</div>
-              </>
-            ) : <b>No crews have saved routes for this day.</b>}
-          </div>
-        </article>
+        <OfficialRoutePlanMap />
 
         <article className="studio-panel route-timeline-panel">
           <header><h2>Employee Route Timeline</h2><Link href="/admin/routes">View routes</Link></header>
@@ -395,16 +365,7 @@ export default function Admin() {
           </div>
         </article>
 
-        <article className="studio-panel route-status-panel">
-          <header><h2>Route Status</h2><Link href="/admin/schedule">Dispatch</Link></header>
-          <div className="route-status-list">
-            {routeCrews.map((route) => (
-              <Link href="/admin/routes" key={route.crew}>
-                <strong>{route.crew}</strong><span>{route.jobs.length} jobs</span><div><i style={{ width: `${route.progress}%` }}></i></div><em>{route.progress}%</em>
-              </Link>
-            ))}
-          </div>
-        </article>
+        <OfficialRouteStatus />
 
         <article className="studio-panel recent-activity-panel">
           <header><h2>Recent Activity</h2><Link href="/admin/logs">Logs</Link></header>

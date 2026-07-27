@@ -22,19 +22,14 @@ type Props = {
 
 const HAMILTON: [number, number] = [43.2557, -79.8711];
 
-function visualState(lead: CanonicalRouteLead, isNext: boolean) {
-  if (lead.canonicalVisitId) {
-    if (lead.status === "completed") return { color: "#16a34a", label: "Completed" };
-    if (isNext) return { color: "#2563eb", label: "Next visit" };
-    return { color: "#64748b", label: "Pending" };
-  }
+function visualState(lead: CanonicalRouteLead, _isNext: boolean) {
+  const canonicalStatus = lead.canonicalVisitStatus;
+  if (canonicalStatus === "completed" || lead.status === "completed") return { color: "#16a34a", label: "Completed" };
+  if (canonicalStatus === "missed") return { color: "#eab308", label: "Skipped" };
 
   const session = getSessionForLead(lead.id);
-  const needsAttention = getEmployeeTasks().some(task => task.leadId === lead.id && task.status !== "resolved");
-  if (needsAttention) return { color: "#dc2626", label: "Needs attention" };
   if (session?.status === "skipped") return { color: "#eab308", label: "Skipped" };
-  if (lead.status === "completed" || session?.status === "finished") return { color: "#16a34a", label: "Completed" };
-  if (isNext) return { color: "#2563eb", label: "Next visit" };
+  if (session?.status === "finished") return { color: "#16a34a", label: "Completed" };
   return { color: "#64748b", label: "Pending" };
 }
 
@@ -58,7 +53,7 @@ export function EmployeeRouteMap({
   const [mapStatus, setMapStatus] = useState("Locating properties...");
   const [mapReady, setMapReady] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
-  const routeKey = route.map(lead => `${lead.id}:${lead.address}:${lead.routeOrder ?? ""}`).join("|");
+  const routeKey = route.map(lead => `${lead.id}:${lead.address}:${lead.routeOrder ?? ""}:${lead.canonicalVisitStatus || lead.status}`).join("|");
   const originKey = originPoint ? `${originPoint.latitude}:${originPoint.longitude}` : "";
 
   useEffect(() => {
@@ -76,7 +71,6 @@ export function EmployeeRouteMap({
           ? "Map ready"
           : "Locating new properties...");
 
-      if (routeId) return;
 
       const located = await Promise.all(route.map(async lead => {
         if (Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude)) return lead;
@@ -143,23 +137,12 @@ export function EmployeeRouteMap({
     loadCachedRouteGeometry(routeId)
       .then(cache => {
         if (cancelled) return;
-        if (cache?.status === "ready") {
+        if (cache?.status === "ready" && cache.geometry) {
           setGeometry(cache.geometry);
-          setMapStatus(cache.geometry ? "Driving route" : "Map ready");
-        } else if (cache?.status === "pending") {
-          setGeometry(null);
-          setMapStatus("Route update pending");
-        } else {
-          setGeometry(null);
-          setMapStatus("Properties mapped - saved route unavailable");
+          setMapStatus("Driving route");
         }
       })
-      .catch(() => {
-        if (!cancelled) {
-          setGeometry(null);
-          setMapStatus("Properties mapped - saved route unavailable");
-        }
-      });
+      .catch(() => { /* direct road calculation remains the fallback */ });
 
     return () => { cancelled = true; };
   }, [routeId]);
@@ -252,6 +235,7 @@ export function EmployeeRouteMap({
           iconAnchor: [active ? 20 : 17, active ? 20 : 17],
         });
         L.marker([point.latitude, point.longitude], { icon })
+          .bindTooltip(`${point.name} · ${point.label}`, { direction: "top" })
           .on("click", () => setSelectedId(point.id))
           .addTo(markerLayerRef.current);
       });

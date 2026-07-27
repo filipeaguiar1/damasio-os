@@ -374,7 +374,7 @@ export async function PATCH(request: NextRequest) {
     const { client, employee, userId, companyId } = await requireEmployee(request);
     const body = (await request.json()) as {
       visitId?: string;
-      action?: "start" | "done" | "note";
+      action?: "start" | "done" | "reset" | "skip" | "note";
       note?: string;
     };
     if (!body.visitId) throw new Error("Choose a visit first.");
@@ -410,19 +410,27 @@ export async function PATCH(request: NextRequest) {
     const now = new Date();
     const patch: Record<string, unknown> = {};
     if (body.action === "start") {
-      if (["completed", "cancelled"].includes(visit.status)) {
-        throw new Error("This visit can no longer be started.");
-      }
+      if (["completed", "cancelled", "missed"].includes(visit.status)) throw new Error("This visit can no longer be started.");
       patch.status = "in_progress";
       patch.started_at = visit.started_at || now.toISOString();
       patch.finished_at = null;
+      patch.duration_seconds = null;
     } else if (body.action === "done") {
-      if (visit.status === "cancelled") throw new Error("A cancelled visit cannot be completed.");
+      if (["cancelled", "missed"].includes(visit.status)) throw new Error("This visit cannot be completed.");
       const startedAt = visit.started_at ? new Date(visit.started_at).getTime() : now.getTime();
       patch.status = "completed";
       patch.started_at = visit.started_at || now.toISOString();
       patch.finished_at = now.toISOString();
       patch.duration_seconds = Math.max(0, Math.round((now.getTime() - startedAt) / 1000));
+    } else if (body.action === "reset") {
+      patch.status = "scheduled";
+      patch.started_at = null;
+      patch.finished_at = null;
+      patch.duration_seconds = null;
+    } else if (body.action === "skip") {
+      if (["completed", "cancelled"].includes(visit.status)) throw new Error("This visit can no longer be skipped.");
+      patch.status = "missed";
+      patch.finished_at = now.toISOString();
     } else {
       throw new Error("Choose a valid visit action.");
     }

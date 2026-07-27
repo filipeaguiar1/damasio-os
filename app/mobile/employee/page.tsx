@@ -33,7 +33,6 @@ import {
   restoreEmployeeSmartRoute,
   resetServiceSession,
   skipServiceSession,
-  seedDemoLeads,
   startServiceSession,
   updateEmployeeTaskStatus
 } from "@/lib/storage";
@@ -88,6 +87,8 @@ export default function MobileEmployeeApp(){
   const [crew,setCrew]=useState(profile.crew||"Crew A");
   const profilePhotoInput=useRef<HTMLInputElement|null>(null);
   const [mapContext,setMapContext]=useState<EmployeeRouteMapContext>({routeId:null,stops:[]});
+  const [routeStartAddress,setRouteStartAddress]=useState("");
+  const [defaultOriginPoint,setDefaultOriginPoint]=useState<{latitude:number;longitude:number;label:string}|null>(null);
   const [liveTasks,setLiveTasks]=useState<import("@/lib/storage").EmployeeTask[]>([]);
 
   async function refreshTasks(){
@@ -96,7 +97,6 @@ export default function MobileEmployeeApp(){
 
   function refresh(){
     try{
-      seedDemoLeads();
       const rows=getLeads();
       setLeads(rows);
       setError("");
@@ -113,12 +113,13 @@ export default function MobileEmployeeApp(){
     try{const result=await flushOfflineActionQueue();setOfflinePending(result.remaining);if(result.synced){refresh();setMessage(`${result.synced} offline action(s) synced.`)}}catch{/* field mode must stay usable even if background sync fails */}
   }
   useMobileRealtime(refresh);
-  useEffect(()=>{refresh();setOfflinePending(getOfflineActionCount());void syncOfflineQueue(); void loadEmployeeOperationalIdentity().then(identity=>setCrew(identity.crew)); const on=()=>refresh(); const queue=()=>setOfflinePending(getOfflineActionCount()); const online=()=>void syncOfflineQueue(); window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener); window.addEventListener("storage",on); window.addEventListener("online",online); window.addEventListener("damasio-offline-queue-change",queue as EventListener); const t=window.setInterval(()=>{setTick(v=>v+1);if(getOfflineActionCount())void syncOfflineQueue()},1000); return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);window.removeEventListener("online",online);window.removeEventListener("damasio-offline-queue-change",queue as EventListener);window.clearInterval(t)}},[]);
+  useEffect(()=>{refresh();setOfflinePending(getOfflineActionCount());void syncOfflineQueue(); void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setRouteStartAddress(identity.routeStartAddress||"")}); const on=()=>refresh(); const queue=()=>setOfflinePending(getOfflineActionCount()); const online=()=>void syncOfflineQueue(); window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener); window.addEventListener("storage",on); window.addEventListener("online",online); window.addEventListener("damasio-offline-queue-change",queue as EventListener); const t=window.setInterval(()=>{setTick(v=>v+1);if(getOfflineActionCount())void syncOfflineQueue()},1000); return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);window.removeEventListener("online",online);window.removeEventListener("damasio-offline-queue-change",queue as EventListener);window.clearInterval(t)}},[]);
 
   const todayKey=localDateKey(new Date());
   const selectedDay=dayNameFromDate(selectedDate);
   const localRoute=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&(l.scheduledDate===selectedDate||(selectedDate===todayKey&&l.serviceDay===selectedDay))).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,selectedDate,selectedDay,todayKey]);
   useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,selectedDate,routeReload]);
+  useEffect(()=>{let cancelled=false;if(!routeStartAddress){setDefaultOriginPoint(null);return()=>{cancelled=true}}void geocodeAddress(routeStartAddress).then(point=>{if(!cancelled)setDefaultOriginPoint({...point,label:`${profile.name||"Employee"} start`})}).catch(()=>{if(!cancelled)setDefaultOriginPoint(null)});return()=>{cancelled=true}},[routeStartAddress,profile.name]);
   const route=useMemo(()=>smartRouteActive&&!mapContext.routeId?localRoute:applyEmployeeRouteMapContext(localRoute,mapContext),[localRoute,mapContext,smartRouteActive]);
   const mapRoute=route;
   const dayOptions=useMemo(()=>Array.from({length:7},(_,index)=>{const date=new Date(`${weekStart}T12:00:00`);date.setDate(date.getDate()+index);return{key:localDateKey(date),weekday:date.toLocaleDateString("en-CA",{weekday:"short"}),day:date.getDate()}}),[weekStart]);
@@ -244,7 +245,7 @@ export default function MobileEmployeeApp(){
     if(!selected||busy)return;
     setBusy(true); setError("");
     try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"in_progress");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Service start saved offline. It will sync automatically.":"Service started and synchronized.")}else{startServiceSession(selected.id,profile.name,crew);setMessage("Service started and synchronized.")} setRouteReload(value=>value+1); refresh();}
-    catch{setError("Service could not be started. Please try again.")}
+    catch(error){setError(error instanceof Error?error.message:"Service could not be started. Please try again.")}
     finally{setBusy(false)}
   }
   async function finish(){
@@ -252,7 +253,7 @@ export default function MobileEmployeeApp(){
     if(!window.confirm("Finish this service and mark this house as Done?"))return;
     setBusy(true); setError("");
     try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"completed");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Completion saved offline. It will sync automatically.":"Done. Every device was updated.")}else{finishServiceSession(selected.id,comment);setMessage("Done. Every device was updated.")} setRouteReload(value=>value+1); refresh();}
-    catch{setError("Service could not be completed. Please try again.")}
+    catch(error){setError(error instanceof Error?error.message:"Service could not be completed. Please try again.")}
     finally{setBusy(false)}
   }
   async function reset(){
@@ -272,11 +273,14 @@ export default function MobileEmployeeApp(){
     Promise.all(files.map(f=>new Promise<string>((resolve,reject)=>{const reader=new FileReader(); reader.onload=()=>resolve(String(reader.result||"")); reader.onerror=()=>reject(new Error("read failed")); reader.readAsDataURL(f)}))).then(images=>setSkipPhotos(current=>[...current,...images].slice(0,5))).catch(()=>setError("Skip photo could not be added."));
     e.target.value="";
   }
-  function confirmSkip(){
+  async function confirmSkip(){
     if(!selected||busy)return;
     setBusy(true); setError("");
-    try{skipServiceSession(selected.id,skipComment,skipPhotos,profile.name,crew); setSkipOpen(false); refresh(); setMessage("House skipped. Admin and Dispatch were notified."); setTab("route")}
-    catch{setError("House could not be skipped.")}
+    try{
+      if(selected.canonicalVisitId){await runVisitStatusOrQueue(selected.canonicalVisitId,"missed");setOfflinePending(getOfflineActionCount())}
+      skipServiceSession(selected.id,skipComment,skipPhotos,profile.name,crew);
+      setSkipOpen(false);setRouteReload(value=>value+1);refresh();setMessage("House skipped. Admin and Dispatch were notified.");setTab("route")
+    }catch(error){setError(error instanceof Error?error.message:"House could not be skipped.")}
     finally{setBusy(false)}
   }
   function saveNote(){
@@ -335,7 +339,7 @@ export default function MobileEmployeeApp(){
           <div><strong>{lead.address}</strong><p>{lead.name}</p><em>{lead.service} · {lead.serviceFrequency||"weekly"}</em></div>
           <b className={lead.status==="completed"?"mobile-status done":getSessionForLead(lead.id)?.status==="skipped"?"mobile-status skipped":"mobile-status"}>{statusLabel(lead,getSessionForLead(lead.id))}</b>
         </button>)}
-      </section>:<EmployeeRouteMap route={mapRoute} routeId={smartRouteActive?undefined:(mapContext.routeId||undefined)} originPoint={smartRouteActive&&activeSmartState&&Number.isFinite(activeSmartState.originLatitude)&&Number.isFinite(activeSmartState.originLongitude)?{latitude:Number(activeSmartState.originLatitude),longitude:Number(activeSmartState.originLongitude),label:activeSmartState.originLabel}:null} onOpenVisit={openService}/>}
+      </section>:<EmployeeRouteMap route={mapRoute} routeId={smartRouteActive?undefined:(mapContext.routeId||undefined)} originPoint={smartRouteActive&&activeSmartState&&Number.isFinite(activeSmartState.originLatitude)&&Number.isFinite(activeSmartState.originLongitude)?{latitude:Number(activeSmartState.originLatitude),longitude:Number(activeSmartState.originLongitude),label:activeSmartState.originLabel}:defaultOriginPoint} onOpenVisit={openService}/>}
       {routeView==="list"&&nextStop&&<div className="employee-route-next-stack">{!routeStarted&&<button type="button" className="employee-start-route" onClick={startRoute}>Start Route <b>▶</b></button>}<a className="employee-next-directions" href={mapsHref(nextStop.address)} target="_blank" rel="noopener noreferrer"><span>Get directions to next</span><b>⌖</b></a></div>}
     </>}
 
