@@ -54,26 +54,36 @@ export function OfficialRouteStatus() {
     const timer = window.setInterval(() => void refresh(), 5000);
     const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
     document.addEventListener("visibilitychange", onVisible);
-    return () => { cancelled = true; window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
+
+  const publishedToday = useMemo(() => leads.filter(item =>
+    Boolean(item.canonicalVisitId)
+    && Boolean(item.canonicalRouteId)
+    && item.scheduledDate === date
+    && item.canonicalVisitStatus !== "cancelled"), [leads, date]);
 
   const rows = useMemo(() => employees.map(employee => {
     const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId };
-    const visits = leads.filter(item => item.canonicalVisitId && item.scheduledDate === date && belongsToCanonicalEmployee(item, identity));
+    const visits = publishedToday.filter(item => belongsToCanonicalEmployee(item, identity));
     const completed = visits.filter(item => item.canonicalVisitStatus === "completed" || item.status === "completed").length;
     const skipped = visits.filter(item => item.canonicalVisitStatus === "missed").length;
     const inProgress = visits.filter(item => item.canonicalVisitStatus === "in_progress").length;
     const pending = Math.max(0, visits.length - completed - skipped - inProgress);
     const progress = visits.length ? Math.round(completed / visits.length * 100) : 0;
     return { employee, visits, completed, skipped, inProgress, pending, progress };
-  }), [employees, leads, date]);
+  }), [employees, publishedToday]);
 
   return <article className="studio-panel route-status-panel">
     <header><h2>Route Status</h2><Link href="/admin/routes?tab=view">Route Plan</Link></header>
     <div className="route-status-list">
       {rows.map(row => <Link href="/admin/routes?tab=view" key={row.employee.id}>
         <strong>{row.employee.name}</strong>
-        <span>{row.visits.length}/{row.employee.dailyCapacity} capacity · {row.completed} completed · {row.pending} pending · {row.skipped} skipped{row.inProgress ? ` · ${row.inProgress} active` : ""}</span>
+        <span>{row.visits.length}/{row.employee.dailyCapacity} published stops · {row.completed} completed · {row.pending} pending · {row.skipped} skipped{row.inProgress ? ` · ${row.inProgress} active` : ""}</span>
         <div><i style={{ width: `${row.progress}%` }} /></div><em>{row.progress}%</em>
       </Link>)}
       {!rows.length && <div className="studio-empty">{message || "No active Employees found."}</div>}

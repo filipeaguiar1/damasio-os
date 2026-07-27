@@ -137,13 +137,13 @@ async function loadRoute(
   const customerIds = unique(visits.map((visit: any) => visit.customer_id));
   const jobIds = unique(visits.map((visit: any) => visit.job_id));
   const visitIds = unique(visits.map((visit: any) => visit.id));
-
   const empty = Promise.resolve({ data: [] as any[], error: null });
+
   const [propertiesResult, customersResult, jobsResult, notesResult] = await Promise.all([
     propertyIds.length
       ? service
         .from("properties")
-        .select("id,address_line1,city,province,postal_code,latitude,longitude")
+        .select("id,address_line1,city,province,postal_code")
         .in("id", propertyIds)
         .or(companyFilter(companyId))
       : empty,
@@ -190,8 +190,8 @@ async function loadRoute(
       city: property?.city || "",
       province: property?.province || "",
       postalCode: property?.postal_code || "",
-      latitude: Number.isFinite(property?.latitude) ? Number(property.latitude) : null,
-      longitude: Number.isFinite(property?.longitude) ? Number(property.longitude) : null,
+      latitude: null,
+      longitude: null,
       routeOrder: visit.route_order,
       status: visit.status,
       customerName: customer?.full_name || "Customer",
