@@ -7,6 +7,7 @@ import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
 import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, routeDateForWeekday, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
 import {runVisitStatusOrQueue} from "@/lib/mobile/offlineActionQueue";
+import type { CanonicalRouteLead } from "@/lib/routes/canonicalRouteIdentity";
 import {
   finishServiceSession,
   formatClock,
@@ -115,7 +116,7 @@ export default function EmployeeRoutePage(){
   const localRouteLeads=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&(l.scheduledDate===selectedDate||l.nextVisitDate===selectedDate||l.serviceDay===day)).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,day,selectedDate]);
   useEffect(()=>{let cancelled=false;if(!selectedDate||!crew)return;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[selectedDate,crew]);
   useEffect(()=>{let cancelled=false;if(!routeStartAddress){setRouteOrigin(null);return()=>{cancelled=true}}void fetch(`/api/map/geocode?address=${encodeURIComponent(routeStartAddress)}`,{cache:"no-store"}).then(response=>{if(!response.ok)throw new Error("not mapped");return response.json()}).then((point:{latitude:number;longitude:number})=>{if(!cancelled)setRouteOrigin({...point,label:`${profile.name||"Employee"} start`})}).catch(()=>{if(!cancelled)setRouteOrigin(null)});return()=>{cancelled=true}},[routeStartAddress,profile.name]);
-  const allRouteLeads=useMemo(()=>applyEmployeeRouteMapContext(localRouteLeads,mapContext),[localRouteLeads,mapContext]);
+  const allRouteLeads=useMemo(()=>applyEmployeeRouteMapContext(localRouteLeads,mapContext) as CanonicalRouteLead[],[localRouteLeads,mapContext]);
   const routeLeads=useMemo(()=>allRouteLeads.filter(l=>routeFilter==="all"?true:routeFilter==="open"?l.status!=="completed":routeFilter==="done"?l.status==="completed":true),[allRouteLeads,routeFilter]);
   const mapRouteLeads=routeLeads;
   const selected=useMemo(()=>allRouteLeads.find(l=>l.id===selectedId)||allRouteLeads[0]||null,[allRouteLeads,selectedId]);
@@ -328,11 +329,9 @@ export default function EmployeeRoutePage(){
         <div className="employee-web-map-route-list">
           {mapRouteLeads.map((lead,index)=>{
             const leadSession=getSessionForLead(lead.id);
-            const attention=tasks.some(task=>task.leadId===lead.id&&task.status!=="resolved");
-            const nextId=mapRouteLeads.find(item=>item.status!=="completed"&&getSessionForLead(item.id)?.status!=="skipped")?.id;
             const state=lead.canonicalVisitStatus==="missed"||leadSession?.status==="skipped"?"skipped":lead.canonicalVisitStatus==="completed"||lead.status==="completed"?"completed":"pending";
             return <button type="button" key={lead.id} className={`employee-web-map-route-item ${state}`} onClick={()=>openLead(lead)}>
-              <span>{index+1}</span><div><strong>{lead.address||"Not mapped"}</strong><small>{lead.service}</small></div><em>{state==="attention"?"Needs attention":state==="next"?"Next visit":state}</em>
+              <span>{index+1}</span><div><strong>{lead.address||"Not mapped"}</strong><small>{lead.service}</small></div><em>{state}</em>
             </button>;
           })}
           {mapRouteLeads.length===0&&<div className="employee-web-map-empty">No visits assigned to this route.</div>}
@@ -432,7 +431,7 @@ export default function EmployeeRoutePage(){
     </main>}
 
     <div className="bottom-actions">
-      {view==="details"?<button className="reset-btn" onClick={reset}>Reset House</button>:<button className="reset-btn" onClick={loadDemo}>Load Demo</button>}
+      {view==="details"&&<button className="reset-btn" onClick={reset}>Reset House</button>}
       {view==="details"?<button className="route-btn" onClick={()=>setView("route")}>Back Route</button>:<Link className="route-btn" href="/employee" style={{textAlign:"center"}}>Exit</Link>}
     </div>
   </div>
