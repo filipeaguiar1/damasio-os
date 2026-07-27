@@ -88,6 +88,7 @@ export function schedulingBoardToLeads(board: SchedulingDispatchBoard): RouteLea
       canonicalPropertyId: visit.propertyId || undefined,
       canonicalEmployeeId: visit.employeeId || undefined,
       canonicalCrewId: visit.crewId || undefined,
+      canonicalVisitStatus: visit.status,
       visitStartedAt: visit.startedAt || undefined,
       visitFinishedAt: visit.finishedAt || undefined,
       visitDurationSeconds: visit.durationSeconds ?? undefined,

@@ -339,6 +339,7 @@ export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRou
       service: stop.serviceName || lead?.service || "Property Service",
       scheduledDate: stop.scheduledDate || lead?.scheduledDate,
       canonicalVisitId: stop.visitId,
+      canonicalVisitStatus: stop.status as any,
       visitStartedAt: stop.startedAt || lead?.visitStartedAt,
       visitFinishedAt: stop.finishedAt || lead?.visitFinishedAt,
       visitDurationSeconds: stop.durationSeconds ?? lead?.visitDurationSeconds,
