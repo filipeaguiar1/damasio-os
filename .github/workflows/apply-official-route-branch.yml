@@ -27,9 +27,11 @@ jobs:
           node-version: 20
           cache: pnpm
       - name: Apply prepared patch
+        id: patch
         shell: bash
         run: |
-          python <<'RUNNER'
+          set +e
+          python <<'RUNNER' > /tmp/official-route-patch.log 2>&1
           from pathlib import Path
           workflow = Path('.github/workflows/agent-apply-official-route-map.yml').read_text().splitlines()
           start = next(i for i, line in enumerate(workflow) if "python <<'PY'" in line) + 1
@@ -37,6 +39,17 @@ jobs:
           script = '\n'.join(line[10:] if line.startswith('          ') else line for line in workflow[start:end])
           exec(compile(script, 'official-route-patch', 'exec'))
           RUNNER
+          status=$?
+          cat /tmp/official-route-patch.log
+          if [ "$status" -ne 0 ]; then
+            cp /tmp/official-route-patch.log docs/OFFICIAL_ROUTE_PATCH_ERROR.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add docs/OFFICIAL_ROUTE_PATCH_ERROR.txt
+            git commit -m "Record official route patch failure"
+            git push origin HEAD:work/official-route-map-no-demo
+            exit "$status"
+          fi
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Typecheck
