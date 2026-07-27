@@ -11,6 +11,7 @@ import {
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { dayNameFromDate, type ServiceFrequency } from "@/lib/storage";
 import type { CanonicalRouteLead } from "@/lib/routes/canonicalRouteIdentity";
+import { normalizeVisitExecutionState } from "@/lib/visits/executionState";
 
 export type RouteLead = CanonicalRouteLead;
 
@@ -65,36 +66,45 @@ export function schedulingBoardToLeads(board: SchedulingDispatchBoard): RouteLea
   // Route Plan and Route Status can show it in yellow and reschedule it.
   const visits: RouteLead[] = board.visits
     .filter(visit => visit.status !== "cancelled")
-    .map(visit => ({
-      id: visit.id,
-      createdAt: visit.createdAt,
-      name: visit.customerName || "Customer",
-      phone: "",
-      email: "",
-      address: visit.address || "Address missing",
-      service: visit.serviceName || "Property Service",
-      status: visit.status === "completed" ? "completed" : "booked",
-      subtotal: 0,
-      tax: 0,
-      total: 0,
-      scheduledDate: visit.scheduledDate,
-      nextVisitDate: visit.scheduledDate,
-      assignedCrew: visit.employeeName || visit.crewName || undefined,
-      serviceDay: dayNameFromDate(visit.scheduledDate),
-      routeOrder: visit.routeOrder ?? undefined,
-      photos: [],
-      canonicalVisitId: visit.id,
-      canonicalJobId: visit.jobId || undefined,
-      canonicalRouteId: visit.routeId || undefined,
-      canonicalCustomerId: visit.customerId || undefined,
-      canonicalPropertyId: visit.propertyId || undefined,
-      canonicalEmployeeId: visit.employeeId || undefined,
-      canonicalCrewId: visit.crewId || undefined,
-      canonicalVisitStatus: visit.status,
-      visitStartedAt: visit.startedAt || undefined,
-      visitFinishedAt: visit.finishedAt || undefined,
-      visitDurationSeconds: visit.durationSeconds ?? undefined,
-    }));
+    .map(visit => {
+      const execution = normalizeVisitExecutionState({
+        status: visit.status,
+        startedAt: visit.startedAt,
+        finishedAt: visit.finishedAt,
+        durationSeconds: visit.durationSeconds,
+      });
+
+      return {
+        id: visit.id,
+        createdAt: visit.createdAt,
+        name: visit.customerName || "Customer",
+        phone: "",
+        email: "",
+        address: visit.address || "Address missing",
+        service: visit.serviceName || "Property Service",
+        status: visit.status === "completed" ? "completed" : "booked",
+        subtotal: 0,
+        tax: 0,
+        total: 0,
+        scheduledDate: visit.scheduledDate,
+        nextVisitDate: visit.scheduledDate,
+        assignedCrew: visit.employeeName || visit.crewName || undefined,
+        serviceDay: dayNameFromDate(visit.scheduledDate),
+        routeOrder: visit.routeOrder ?? undefined,
+        photos: [],
+        canonicalVisitId: visit.id,
+        canonicalJobId: visit.jobId || undefined,
+        canonicalRouteId: visit.routeId || undefined,
+        canonicalCustomerId: visit.customerId || undefined,
+        canonicalPropertyId: visit.propertyId || undefined,
+        canonicalEmployeeId: visit.employeeId || undefined,
+        canonicalCrewId: visit.crewId || undefined,
+        canonicalVisitStatus: visit.status,
+        visitStartedAt: execution.startedAt,
+        visitFinishedAt: execution.finishedAt,
+        visitDurationSeconds: execution.durationSeconds,
+      };
+    });
 
   return [...jobs, ...assigned, ...visits];
 }
