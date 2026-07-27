@@ -1,0 +1,50 @@
+name: Apply Official Route Branch
+
+on:
+  push:
+    branches: [work/official-route-map-no-demo]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/official-route-map-no-demo
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Apply prepared patch
+        shell: bash
+        run: |
+          python <<'RUNNER'
+          from pathlib import Path
+          workflow = Path('.github/workflows/agent-apply-official-route-map.yml').read_text().splitlines()
+          start = next(i for i, line in enumerate(workflow) if "python <<'PY'" in line) + 1
+          end = next(i for i in range(start, len(workflow)) if workflow[i].strip() == 'PY')
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in workflow[start:end])
+          exec(compile(script, 'official-route-patch', 'exec'))
+          RUNNER
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Production build
+        run: pnpm build
+      - name: Commit validated changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app components lib
+          git commit -m "Complete official route maps and visit status colors"
+          git push origin HEAD:work/official-route-map-no-demo
