@@ -1,13 +1,12 @@
 "use client";
-import Link from "next/link";
 
-export function MobileAdminNav({active}:{active:"home"|"routes"|"tasks"|"alerts"|"more"}){
-  const items=[
-    ["home","/mobile/admin","⌂","Home"],
-    ["routes","/mobile/admin/routes","↗","Routes"],
-    ["tasks","/mobile/admin/tasks","✓","Returns"],
-    ["alerts","/mobile/admin/alerts","!","Alerts"],
-    ["more","/mobile/admin/more","•••","More"],
-  ] as const;
-  return <nav className="role-mobile-bottom" aria-label="Admin navigation">{items.map(([id,href,icon,label])=><Link className={active===id?"active":""} href={href} key={id}><i>{icon}</i><span>{label}</span></Link>)}</nav>
+export type MobileAdminNavSection = "home" | "routes" | "tasks" | "alerts" | "more";
+
+/**
+ * Admin mobile pages now use their page header and explicit back navigation.
+ * Keeping this compatibility component prevents older page imports from
+ * rendering the floating dock that obscured operational content.
+ */
+export function MobileAdminNav(_: { active: MobileAdminNavSection }) {
+  return null;
 }
