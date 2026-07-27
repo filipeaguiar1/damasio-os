@@ -1,0 +1,377 @@
+name: Apply Official Route Map Fixes
+
+on:
+  push:
+    branches: [work/official-route-map-no-demo]
+    paths:
+      - .github/workflows/agent-apply-official-route-map.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/official-route-map-no-demo
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Apply canonical route patches
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"Missing expected text in {path}: {old[:100]!r}")
+              p.write_text(text.replace(old, new, count))
+
+          def sub(path, pattern, replacement, count=1):
+              p = Path(path)
+              text = p.read_text()
+              updated, found = re.subn(pattern, replacement, text, count=count, flags=re.S)
+              if found != count:
+                  raise SystemExit(f"Expected {count} match(es) in {path}, found {found}: {pattern[:100]!r}")
+              p.write_text(updated)
+
+          # Preserve the real Supabase visit status, including missed/skipped.
+          replace(
+              "lib/services/schedulingService.ts",
+              "      canonicalCrewId: visit.crewId || undefined,\n      visitStartedAt: visit.startedAt || undefined,",
+              "      canonicalCrewId: visit.crewId || undefined,\n      canonicalVisitStatus: visit.status,\n      visitStartedAt: visit.startedAt || undefined,",
+          )
+          replace(
+              "lib/services/routeMapService.ts",
+              "      canonicalVisitId: stop.visitId,\n      visitStartedAt: stop.startedAt || lead?.visitStartedAt,",
+              "      canonicalVisitId: stop.visitId,\n      canonicalVisitStatus: stop.status as any,\n      visitStartedAt: stop.startedAt || lead?.visitStartedAt,",
+          )
+
+          # Map always geocodes houses, even when a route cache ID exists.
+          replace(
+              "components/mobile/EmployeeRouteMap.tsx",
+              '''function visualState(lead: CanonicalRouteLead, isNext: boolean) {
+  if (lead.canonicalVisitId) {
+    if (lead.status === "completed") return { color: "#16a34a", label: "Completed" };
+    if (isNext) return { color: "#2563eb", label: "Next visit" };
+    return { color: "#64748b", label: "Pending" };
+  }
+
+  const session = getSessionForLead(lead.id);
+  const needsAttention = getEmployeeTasks().some(task => task.leadId === lead.id && task.status !== "resolved");
+  if (needsAttention) return { color: "#dc2626", label: "Needs attention" };
+  if (session?.status === "skipped") return { color: "#eab308", label: "Skipped" };
+  if (lead.status === "completed" || session?.status === "finished") return { color: "#16a34a", label: "Completed" };
+  if (isNext) return { color: "#2563eb", label: "Next visit" };
+  return { color: "#64748b", label: "Pending" };
+}''',
+              '''function visualState(lead: CanonicalRouteLead, _isNext: boolean) {
+  const canonicalStatus = lead.canonicalVisitStatus;
+  if (canonicalStatus === "completed" || lead.status === "completed") return { color: "#16a34a", label: "Completed" };
+  if (canonicalStatus === "missed") return { color: "#eab308", label: "Skipped" };
+
+  const session = getSessionForLead(lead.id);
+  if (session?.status === "skipped") return { color: "#eab308", label: "Skipped" };
+  if (session?.status === "finished") return { color: "#16a34a", label: "Completed" };
+  return { color: "#64748b", label: "Pending" };
+}''',
+          )
+          replace(
+              "components/mobile/EmployeeRouteMap.tsx",
+              '  const routeKey = route.map(lead => `${lead.id}:${lead.address}:${lead.routeOrder ?? ""}`).join("|");',
+              '  const routeKey = route.map(lead => `${lead.id}:${lead.address}:${lead.routeOrder ?? ""}:${lead.canonicalVisitStatus || lead.status}`).join("|");',
+          )
+          replace("components/mobile/EmployeeRouteMap.tsx", "\n      if (routeId) return;\n", "\n")
+          sub(
+              "components/mobile/EmployeeRouteMap.tsx",
+              r'''  useEffect\(\(\) => \{\n    let cancelled = false;\n    if \(!routeId\) return \(\) => \{ cancelled = true; \};\n\n    loadCachedRouteGeometry\(routeId\).*?\n  \}, \[routeId\]\);''',
+              '''  useEffect(() => {
+    let cancelled = false;
+    if (!routeId) return () => { cancelled = true; };
+
+    loadCachedRouteGeometry(routeId)
+      .then(cache => {
+        if (cancelled) return;
+        if (cache?.status === "ready" && cache.geometry) {
+          setGeometry(cache.geometry);
+          setMapStatus("Driving route");
+        }
+      })
+      .catch(() => { /* direct road calculation remains the fallback */ });
+
+    return () => { cancelled = true; };
+  }, [routeId]);''',
+          )
+          replace(
+              "components/mobile/EmployeeRouteMap.tsx",
+              '''        L.marker([point.latitude, point.longitude], { icon })
+          .on("click", () => setSelectedId(point.id))
+          .addTo(markerLayerRef.current);''',
+              '''        L.marker([point.latitude, point.longitude], { icon })
+          .bindTooltip(`${point.name} · ${point.label}`, { direction: "top" })
+          .on("click", () => setSelectedId(point.id))
+          .addTo(markerLayerRef.current);''',
+          )
+
+          # Canonical endpoint supports start, done, reset and skip without the missing map RPC.
+          replace(
+              "app/api/mobile/employee/route/route.ts",
+              '      action?: "start" | "done" | "note";',
+              '      action?: "start" | "done" | "reset" | "skip" | "note";',
+          )
+          replace(
+              "app/api/mobile/employee/route/route.ts",
+              '''    if (body.action === "start") {
+      if (["completed", "cancelled"].includes(visit.status)) {
+        throw new Error("This visit can no longer be started.");
+      }
+      patch.status = "in_progress";
+      patch.started_at = visit.started_at || now.toISOString();
+      patch.finished_at = null;
+    } else if (body.action === "done") {
+      if (visit.status === "cancelled") throw new Error("A cancelled visit cannot be completed.");
+      const startedAt = visit.started_at ? new Date(visit.started_at).getTime() : now.getTime();
+      patch.status = "completed";
+      patch.started_at = visit.started_at || now.toISOString();
+      patch.finished_at = now.toISOString();
+      patch.duration_seconds = Math.max(0, Math.round((now.getTime() - startedAt) / 1000));
+    } else {
+      throw new Error("Choose a valid visit action.");
+    }''',
+              '''    if (body.action === "start") {
+      if (["completed", "cancelled", "missed"].includes(visit.status)) throw new Error("This visit can no longer be started.");
+      patch.status = "in_progress";
+      patch.started_at = visit.started_at || now.toISOString();
+      patch.finished_at = null;
+      patch.duration_seconds = null;
+    } else if (body.action === "done") {
+      if (["cancelled", "missed"].includes(visit.status)) throw new Error("This visit cannot be completed.");
+      const startedAt = visit.started_at ? new Date(visit.started_at).getTime() : now.getTime();
+      patch.status = "completed";
+      patch.started_at = visit.started_at || now.toISOString();
+      patch.finished_at = now.toISOString();
+      patch.duration_seconds = Math.max(0, Math.round((now.getTime() - startedAt) / 1000));
+    } else if (body.action === "reset") {
+      patch.status = "scheduled";
+      patch.started_at = null;
+      patch.finished_at = null;
+      patch.duration_seconds = null;
+    } else if (body.action === "skip") {
+      if (["completed", "cancelled"].includes(visit.status)) throw new Error("This visit can no longer be skipped.");
+      patch.status = "missed";
+      patch.finished_at = now.toISOString();
+    } else {
+      throw new Error("Choose a valid visit action.");
+    }''',
+          )
+
+          # Mobile: no demo seed, automatic official start point and canonical skip.
+          replace("app/mobile/employee/page.tsx", "  seedDemoLeads,\n", "")
+          replace("app/mobile/employee/page.tsx", "      seedDemoLeads();\n", "")
+          replace(
+              "app/mobile/employee/page.tsx",
+              '  const [mapContext,setMapContext]=useState<EmployeeRouteMapContext>({routeId:null,stops:[]});',
+              '  const [mapContext,setMapContext]=useState<EmployeeRouteMapContext>({routeId:null,stops:[]});\n  const [routeStartAddress,setRouteStartAddress]=useState("");\n  const [defaultOriginPoint,setDefaultOriginPoint]=useState<{latitude:number;longitude:number;label:string}|null>(null);',
+          )
+          replace(
+              "app/mobile/employee/page.tsx",
+              'void loadEmployeeOperationalIdentity().then(identity=>setCrew(identity.crew));',
+              'void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setRouteStartAddress(identity.routeStartAddress||"")});',
+          )
+          replace(
+              "app/mobile/employee/page.tsx",
+              '  useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,selectedDate,routeReload]);',
+              '  useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,selectedDate,routeReload]);\n  useEffect(()=>{let cancelled=false;if(!routeStartAddress){setDefaultOriginPoint(null);return()=>{cancelled=true}}void geocodeAddress(routeStartAddress).then(point=>{if(!cancelled)setDefaultOriginPoint({...point,label:`${profile.name||"Employee"} start`})}).catch(()=>{if(!cancelled)setDefaultOriginPoint(null)});return()=>{cancelled=true}},[routeStartAddress,profile.name]);',
+          )
+          sub(
+              "app/mobile/employee/page.tsx",
+              r'''  function confirmSkip\(\)\{.*?\n  \}''',
+              '''  async function confirmSkip(){
+    if(!selected||busy)return;
+    setBusy(true); setError("");
+    try{
+      if(selected.canonicalVisitId){await runVisitStatusOrQueue(selected.canonicalVisitId,"missed");setOfflinePending(getOfflineActionCount())}
+      skipServiceSession(selected.id,skipComment,skipPhotos,profile.name,crew);
+      setSkipOpen(false);setRouteReload(value=>value+1);refresh();setMessage("House skipped. Admin and Dispatch were notified.");setTab("route")
+    }catch(error){setError(error instanceof Error?error.message:"House could not be skipped.")}
+    finally{setBusy(false)}
+  }''',
+          )
+          replace(
+              "app/mobile/employee/page.tsx",
+              'catch{setError("Service could not be started. Please try again.")}',
+              'catch(error){setError(error instanceof Error?error.message:"Service could not be started. Please try again.")}',
+          )
+          replace(
+              "app/mobile/employee/page.tsx",
+              'catch{setError("Service could not be completed. Please try again.")}',
+              'catch(error){setError(error instanceof Error?error.message:"Service could not be completed. Please try again.")}',
+          )
+          replace(
+              "app/mobile/employee/page.tsx",
+              'originPoint={smartRouteActive&&activeSmartState&&Number.isFinite(activeSmartState.originLatitude)&&Number.isFinite(activeSmartState.originLongitude)?{latitude:Number(activeSmartState.originLatitude),longitude:Number(activeSmartState.originLongitude),label:activeSmartState.originLabel}:null}',
+              'originPoint={smartRouteActive&&activeSmartState&&Number.isFinite(activeSmartState.originLatitude)&&Number.isFinite(activeSmartState.originLongitude)?{latitude:Number(activeSmartState.originLatitude),longitude:Number(activeSmartState.originLongitude),label:activeSmartState.originLabel}:defaultOriginPoint}',
+          )
+
+          # Browser Employee route: canonical timer/actions, automatic origin and no demo buttons.
+          replace("app/employee/route/page.tsx", 'import {changeVisitStatus} from "@/lib/services/schedulingService";', 'import {runVisitStatusOrQueue} from "@/lib/mobile/offlineActionQueue";')
+          replace("app/employee/route/page.tsx", "  seedDemoLeads,\n", "")
+          replace("app/employee/route/page.tsx", "  seedEmployeeTasks,\n", "")
+          replace(
+              "app/employee/route/page.tsx",
+              '  const [mapContext,setMapContext]=useState<EmployeeRouteMapContext>({routeId:null,stops:[]});',
+              '  const [mapContext,setMapContext]=useState<EmployeeRouteMapContext>({routeId:null,stops:[]});\n  const [routeStartAddress,setRouteStartAddress]=useState("");\n  const [routeOrigin,setRouteOrigin]=useState<{latitude:number;longitude:number;label:string}|null>(null);',
+          )
+          replace(
+              "app/employee/route/page.tsx",
+              'void loadEmployeeOperationalIdentity().then(identity=>setCrew(identity.crew));',
+              'void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setRouteStartAddress(identity.routeStartAddress||"")});',
+          )
+          replace(
+              "app/employee/route/page.tsx",
+              '  useEffect(()=>{let cancelled=false;if(!selectedDate||!crew)return;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[selectedDate,crew]);',
+              '  useEffect(()=>{let cancelled=false;if(!selectedDate||!crew)return;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[selectedDate,crew]);\n  useEffect(()=>{let cancelled=false;if(!routeStartAddress){setRouteOrigin(null);return()=>{cancelled=true}}void fetch(`/api/map/geocode?address=${encodeURIComponent(routeStartAddress)}`,{cache:"no-store"}).then(response=>{if(!response.ok)throw new Error("not mapped");return response.json()}).then((point:{latitude:number;longitude:number})=>{if(!cancelled)setRouteOrigin({...point,label:`${profile.name||"Employee"} start`})}).catch(()=>{if(!cancelled)setRouteOrigin(null)});return()=>{cancelled=true}},[routeStartAddress,profile.name]);',
+          )
+          sub("app/employee/route/page.tsx", r'''\n  function loadDemo\(\)\{.*?\n  \}\n''', "\n")
+          replace(
+              "app/employee/route/page.tsx",
+              '''  const runningSeconds=useMemo(()=>{
+    if(!session)return 0;
+    if(session.durationSeconds)return session.durationSeconds;
+    if(session.startedAt&&session.status==="running"){
+      return Math.max(0,Math.round((Date.now()-new Date(session.startedAt).getTime())/1000));
+    }
+    return 0;
+  },[session,tick]);''',
+              '''  const runningSeconds=useMemo(()=>{
+    if(selected?.canonicalVisitId){
+      if(selected.visitDurationSeconds)return selected.visitDurationSeconds;
+      const started=selected.visitStartedAt?new Date(selected.visitStartedAt).getTime():0;
+      const finished=selected.visitFinishedAt?new Date(selected.visitFinishedAt).getTime():0;
+      if(started)return Math.max(0,Math.round(((finished||Date.now())-started)/1000));
+      return 0;
+    }
+    if(!session)return 0;
+    if(session.durationSeconds)return session.durationSeconds;
+    if(session.startedAt&&session.status==="running")return Math.max(0,Math.round((Date.now()-new Date(session.startedAt).getTime())/1000));
+    return 0;
+  },[session,tick,selected?.canonicalVisitId,selected?.visitDurationSeconds,selected?.visitStartedAt,selected?.visitFinishedAt]);''',
+          )
+          replace(
+              "app/employee/route/page.tsx",
+              'async function start(){if(!selected)return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"in_progress");else startServiceSession(selected.id,profile.name,crew);',
+              'async function start(){if(!selected)return;try{if(selected.canonicalVisitId)await runVisitStatusOrQueue(selected.canonicalVisitId,"in_progress");else startServiceSession(selected.id,profile.name,crew);',
+          )
+          replace(
+              "app/employee/route/page.tsx",
+              'async function finish(){if(!selected)return;if(!window.confirm("Complete this house and mark it as Done?"))return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"completed");',
+              'async function finish(){if(!selected)return;if(!window.confirm("Complete this house and mark it as Done?"))return;try{if(selected.canonicalVisitId)await runVisitStatusOrQueue(selected.canonicalVisitId,"completed");',
+          )
+          replace(
+              "app/employee/route/page.tsx",
+              'async function reset(){if(!selected)return;if(!window.confirm("Reset only this house? Status returns to Open across Admin, Dispatch and Employee Route."))return;try{if(selected.canonicalVisitId)await changeVisitStatus(selected.canonicalVisitId,"scheduled");',
+              'async function reset(){if(!selected)return;if(!window.confirm("Reset only this house? Status returns to Open across Admin, Dispatch and Employee Route."))return;try{if(selected.canonicalVisitId)await runVisitStatusOrQueue(selected.canonicalVisitId,"scheduled");',
+          )
+          replace("app/employee/route/page.tsx", '{openTasks.length===0&&tasks.length===0&&<button className="btn btn-primary" onClick={loadDemo}>Load Demo Tasks</button>}', "")
+          replace("app/employee/route/page.tsx", '<button className="btn btn-primary" onClick={loadDemo}>Load Demo Route</button>', "")
+          replace(
+              "app/employee/route/page.tsx",
+              'const state=attention?"attention":leadSession?.status==="skipped"?"skipped":lead.status==="completed"?"completed":lead.id===nextId?"next":"pending";',
+              'const state=lead.canonicalVisitStatus==="missed"||leadSession?.status==="skipped"?"skipped":lead.canonicalVisitStatus==="completed"||lead.status==="completed"?"completed":"pending";',
+          )
+          replace(
+              "app/employee/route/page.tsx",
+              '<EmployeeRouteMap route={mapRouteLeads} routeId={mapContext.routeId||undefined} onOpenVisit={openLead} desktop />',
+              '<EmployeeRouteMap route={mapRouteLeads} routeId={mapContext.routeId||undefined} originPoint={routeOrigin} onOpenVisit={openLead} desktop />',
+          )
+          replace(
+              "app/employee/route/page.tsx",
+              '''        <div className={session?.status==="running"?"timer-status running":session?.status==="finished"?"timer-status finished":"timer-status"}>{session?.status==="running"?"IN PROGRESS":session?.status==="finished"?"DONE":"NOT STARTED"}</div>
+        <div className="timer-big">{formatDuration(runningSeconds)}</div>
+        <div className="timer-grid">
+          <div className="timer-box"><div className="timer-label">Started</div><div className="timer-value">{formatClock(session?.startedAt)}</div></div>
+          <div className="timer-box"><div className="timer-label">Finished</div><div className="timer-value">{formatClock(session?.finishedAt)}</div></div>
+        </div>''',
+              '''        <div className={(selected.canonicalVisitStatus==="in_progress"||session?.status==="running")?"timer-status running":(selected.canonicalVisitStatus==="completed"||session?.status==="finished")?"timer-status finished":"timer-status"}>{selected.canonicalVisitStatus==="in_progress"||session?.status==="running"?"IN PROGRESS":selected.canonicalVisitStatus==="completed"||session?.status==="finished"?"DONE":selected.canonicalVisitStatus==="missed"?"SKIPPED":"NOT STARTED"}</div>
+        <div className="timer-big">{formatDuration(runningSeconds)}</div>
+        <div className="timer-grid">
+          <div className="timer-box"><div className="timer-label">Started</div><div className="timer-value">{formatClock(selected.canonicalVisitId?selected.visitStartedAt:session?.startedAt)}</div></div>
+          <div className="timer-box"><div className="timer-label">Finished</div><div className="timer-value">{formatClock(selected.canonicalVisitId?selected.visitFinishedAt:session?.finishedAt)}</div></div>
+        </div>''',
+          )
+          replace(
+              "app/employee/route/page.tsx",
+              '<button className="start-btn" onClick={start} disabled={session?.status==="running"}>Start</button>',
+              '<button className="start-btn" onClick={start} disabled={selected.canonicalVisitId?selected.canonicalVisitStatus==="in_progress"||selected.canonicalVisitStatus==="completed"||selected.canonicalVisitStatus==="missed":session?.status==="running"}>Start</button>',
+          )
+          replace(
+              "app/employee/route/page.tsx",
+              '<button className="finish-btn" onClick={finish} disabled={!session||session.status==="finished"}>Finish</button>',
+              '<button className="finish-btn" onClick={finish} disabled={selected.canonicalVisitId?selected.canonicalVisitStatus!=="in_progress":!session||session.status==="finished"}>Finish</button>',
+          )
+
+          # The administrator Route Plan opens the real worker map first.
+          replace(
+              "components/admin/RouteStudio.tsx",
+              'import { CustomerPropertyModal } from "@/components/property/CustomerPropertyModal";',
+              'import { CustomerPropertyModal } from "@/components/property/CustomerPropertyModal";\nimport { OfficialRoutePlanMap } from "@/components/admin/OfficialRoutePlanMap";',
+          )
+          replace(
+              "components/admin/RouteStudio.tsx",
+              '''    {mode === "view" && !employee && <EmployeeDirectory
+      employees={employees}
+      counts={employeeRouteCounts}
+      date={date}
+      onOpen={openEmployee}
+    />}''',
+              '    {mode === "view" && !employee && <OfficialRoutePlanMap />}',
+          )
+
+          # Dashboard uses only official route components; no Crew A/B/C or demo seeds.
+          replace(
+              "app/admin/page.tsx",
+              'import { AdminShell } from "@/components/admin/AdminShell";',
+              'import { AdminShell } from "@/components/admin/AdminShell";\nimport { OfficialRoutePlanMap } from "@/components/admin/OfficialRoutePlanMap";\nimport { OfficialRouteStatus } from "@/components/admin/OfficialRouteStatus";',
+          )
+          replace("app/admin/page.tsx", "    seedDemoLeads();\n    seedDemoEstimates();\n    seedDemoExpenses();\n    seedDemoRequests();\n", "")
+          sub(
+              "app/admin/page.tsx",
+              r'''        <article className="studio-panel route-map-panel">.*?</article>\n\n        <article className="studio-panel route-timeline-panel">''',
+              '''        <OfficialRoutePlanMap />
+
+        <article className="studio-panel route-timeline-panel">''',
+          )
+          sub(
+              "app/admin/page.tsx",
+              r'''        <article className="studio-panel route-status-panel">.*?</article>\n\n        <article className="studio-panel recent-activity-panel">''',
+              '''        <OfficialRouteStatus />
+
+        <article className="studio-panel recent-activity-panel">''',
+          )
+          PY
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Production build
+        run: pnpm build
+      - name: Commit validated changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app components lib
+          git commit -m "Complete official route maps and visit status colors"
+          git push origin HEAD:work/official-route-map-no-demo
