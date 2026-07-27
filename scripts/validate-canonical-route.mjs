@@ -11,6 +11,7 @@ const files = {
   advisorPanel: read("components/admin/RouteAdvisorPanel.tsx"),
   previewMap: read("components/admin/InteractiveRoutePreviewMap.tsx"),
   routeMapService: read("lib/services/routeMapService.ts"),
+  executionState: read("lib/visits/executionState.ts"),
   offlineQueue: read("lib/mobile/offlineActionQueue.ts"),
   studio: read("components/admin/RouteStudio.tsx"),
   officialMap: read("components/admin/OfficialRoutePlanMap.tsx"),
@@ -21,6 +22,7 @@ const files = {
   customerNav: read("components/mobile/MobileCustomerNav.tsx"),
   customerVisitModal: read("components/customer/CustomerServiceVisitModal.tsx"),
   migration: read("supabase/migrations/202607270003_completed_visit_reopen_guard.sql"),
+  executionMigration: read("supabase/migrations/202607270004_visit_execution_state_invariants.sql"),
 };
 
 const failures = [];
@@ -48,6 +50,7 @@ requireText("identity", "belongsToCanonicalEmployee", "Canonical Employee ID mat
 requireText("scheduling", "canonicalEmployeeId: visit.employeeId", "Visits are not mapped to canonical Employee IDs.");
 requireText("scheduling", "canonicalCustomerId: visit.customerId", "Visits are not mapped to canonical Customer IDs.");
 requireText("scheduling", "visit.status !== \"cancelled\"", "Skipped Visits are hidden instead of remaining available for Needs Reschedule.");
+requireText("scheduling", "normalizeVisitExecutionState", "Admin scheduling views do not normalize Visit execution state.");
 
 requireText("adminApi", "jobByProperty", "Build does not preserve one permanent Job per Property.");
 requireText("adminApi", "publish_canonical_route", "Legacy Smart/Publish writes do not use the canonical route transaction.");
@@ -59,12 +62,20 @@ rejectText("advisorApi", '.from("visits").insert', "Route Advisor still inserts 
 rejectText("advisorApi", '.from("visits").update', "Route Advisor still updates Visits through a parallel write path.");
 
 requireText("employeeApi", "transition_visit_execution", "Start, Done, Skip, Reset and Reopen do not share the canonical Visit transition RPC.");
+requireText("employeeApi", "fallbackVisitTransition", "Employee execution has no safe fallback while the canonical migration is pending.");
+requireText("employeeApi", "Start this Visit before finishing it.", "Employee API can still finish a Visit that was never started.");
 requireText("employeeApi", 'action?: "start" | "done" | "reset" | "skip" | "reopen"', "Employee Reopen action is missing.");
 requireText("employeeApi", '.eq("profile_id", user.id)', "Employee route identity is not resolved through canonical profile_id.");
 rejectText("employeeApi", '.ilike("email"', "Employee identity still falls back to email matching.");
 rejectText("employeeApi", "latitude,longitude", "Employee Route API still depends on optional Property coordinate columns instead of address geocoding fallback.");
 
+requireText("executionState", "normalizeVisitExecutionState", "Shared Visit execution normalization is missing.");
+requireText("executionState", 'status === "scheduled"', "Scheduled Visit timer cleanup is missing.");
+requireText("executionState", 'status === "completed"', "Completed Visit invariant validation is missing.");
 requireText("routeMapService", "canonicalVisitId", "Employee Route map does not synchronize by canonical Visit ID.");
+requireText("routeMapService", "id: stop.visitId", "Canonical Employee screens still retain a legacy Lead ID that can revive stale local timers.");
+requireText("routeMapService", "normalizeVisitExecutionState", "Employee Route does not normalize Visit execution state.");
+rejectText("routeMapService", "stop.startedAt || lead?.visitStartedAt", "Canonical Visit timestamps still fall back to legacy local data.");
 rejectText("routeMapService", "employeeNameMatches", "Employee Route still identifies a worker by display name.");
 rejectText("routeMapService", "normalizeAddress(candidate.address)", "Employee Route still identifies stops by address text.");
 rejectText("offlineQueue", "localStorage.setItem", "Operational Visit writes are still persisted in localStorage.");
@@ -103,6 +114,16 @@ for (const databaseGuard of [
   requireText("migration", databaseGuard, `Database route/Visit guard missing: ${databaseGuard}`);
 }
 
+for (const executionGuard of [
+  "visits_execution_state_invariants",
+  "enforce_visit_execution_state",
+  "Start this Visit before finishing it.",
+  "started_at = null",
+  "duration_seconds = null",
+]) {
+  requireText("executionMigration", executionGuard, `Visit execution invariant missing: ${executionGuard}`);
+}
+
 requireText("studio", "<OfficialRoutePlanMap date={date} onDateChange={setDate} />", "Dispatch View does not keep one controlled operational date.");
 requireText("studio", "operationalDateKey", "Dispatch still uses a UTC date key.");
 requireText("officialMap", "Select a worker to open the published route.", "Route Plan Employee overview is missing.");
@@ -136,4 +157,4 @@ if (failures.length) {
 
 console.log("Canonical Route validation passed.");
 console.log("Customer → Property → Job → Visit → Route → Employee/Crew IDs remain canonical.");
-console.log("Customer history, published routes and Employee execution now use the same Visit records.");
+console.log("Visit status, timer, Admin progress, Employee actions and Customer history share one normalized execution state.");

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { normalizeVisitExecutionState } from "@/lib/visits/executionState";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,8 @@ type EmployeeRow = {
   crew_id: string | null;
   active: boolean;
 };
+
+type VisitAction = "start" | "done" | "reset" | "skip" | "reopen";
 
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -52,6 +55,12 @@ function unique(values: Array<string | null | undefined>) {
 
 function missingMigration(message?: string) {
   return /transition_visit_execution|schema cache|could not find the function/i.test(message || "");
+}
+
+function elapsedSeconds(startedAt: string, finishedAt = new Date()) {
+  const started = new Date(startedAt).getTime();
+  if (!Number.isFinite(started)) return 0;
+  return Math.max(0, Math.round((finishedAt.getTime() - started) / 1000));
 }
 
 async function requireEmployee(request: NextRequest) {
@@ -181,6 +190,12 @@ async function loadRoute(
     const property = properties.get(visit.property_id) as any;
     const customer = customers.get(visit.customer_id) as any;
     const job = jobs.get(visit.job_id) as any;
+    const execution = normalizeVisitExecutionState({
+      status: visit.status,
+      startedAt: visit.started_at,
+      finishedAt: visit.finished_at,
+      durationSeconds: visit.duration_seconds,
+    });
     return {
       visitId: visit.id,
       jobId: visit.job_id,
@@ -197,9 +212,11 @@ async function loadRoute(
       customerName: customer?.full_name || "Customer",
       serviceName: job?.service_name || "Property Service",
       scheduledDate: visit.scheduled_date,
-      startedAt: visit.started_at,
-      finishedAt: visit.finished_at,
-      durationSeconds: visit.duration_seconds,
+      startedAt: execution.startedAt || null,
+      finishedAt: execution.finishedAt || null,
+      durationSeconds: execution.durationSeconds ?? null,
+      executionStateValid: execution.valid,
+      executionIssue: execution.issue || null,
       employeeNotes: notes.get(visit.id) || null,
     };
   });
@@ -219,6 +236,126 @@ async function loadRoute(
   };
 }
 
+async function fallbackVisitTransition(input: {
+  service: any;
+  employee: EmployeeRow;
+  userId: string;
+  companyId: string;
+  visitId: string;
+  action: VisitAction;
+  reason: string;
+}) {
+  const { service, employee, userId, companyId, visitId, action, reason } = input;
+  if (action === "reopen") {
+    throw new Error("Completed Visit Reopen requires Supabase migration 202607270003_completed_visit_reopen_guard.sql.");
+  }
+
+  const current = await service
+    .from("visits")
+    .select("id,status,scheduled_date,assigned_employee_id,crew_id,started_at,finished_at,duration_seconds")
+    .eq("id", visitId)
+    .or(companyFilter(companyId))
+    .maybeSingle();
+
+  if (current.error) throw new Error(current.error.message);
+  const visit = current.data;
+  if (!visit) throw new Error("Visit not found in this company.");
+
+  const assigned = visit.assigned_employee_id === employee.id
+    || (!visit.assigned_employee_id && Boolean(employee.crew_id) && visit.crew_id === employee.crew_id);
+  if (!assigned) throw new Error("This Visit is not assigned to the authenticated Employee.");
+  if (visit.scheduled_date !== torontoDateKey()) {
+    throw new Error("Employees can change execution only for today in America/Toronto.");
+  }
+
+  const previousStatus = String(visit.status);
+  const now = new Date();
+  const nowIso = now.toISOString();
+  let nextStatus = previousStatus;
+  let patch: Record<string, unknown>;
+  let auditAction = `visit.execution.${action}`;
+
+  if (action === "start") {
+    if (previousStatus !== "scheduled") throw new Error("Only an Open Visit can be started.");
+    nextStatus = "in_progress";
+    patch = { status: nextStatus, started_at: nowIso, finished_at: null, duration_seconds: null };
+  } else if (action === "done") {
+    if (previousStatus !== "in_progress" || !visit.started_at) {
+      throw new Error("Start this Visit before finishing it.");
+    }
+    nextStatus = "completed";
+    patch = {
+      status: nextStatus,
+      finished_at: nowIso,
+      duration_seconds: elapsedSeconds(visit.started_at, now),
+    };
+  } else if (action === "skip") {
+    if (!["scheduled", "in_progress"].includes(previousStatus)) {
+      throw new Error("Only an Open or active Visit can be skipped.");
+    }
+    nextStatus = "missed";
+    patch = {
+      status: nextStatus,
+      finished_at: nowIso,
+      duration_seconds: visit.started_at ? elapsedSeconds(visit.started_at, now) : null,
+    };
+  } else {
+    if (reason.length < 5) throw new Error("Reset requires a reason with at least 5 characters.");
+    if (previousStatus === "completed") {
+      throw new Error("Completed work requires the audited Reopen flow.");
+    }
+    if (previousStatus === "in_progress" && visit.started_at) {
+      const ageSeconds = elapsedSeconds(visit.started_at, now);
+      if (ageSeconds > 20 * 60) {
+        throw new Error("Employee Reset is limited to the first 20 minutes. Ask Admin after that window.");
+      }
+    } else if (previousStatus !== "scheduled") {
+      throw new Error("Reset is allowed only for an Open or active Visit.");
+    }
+    nextStatus = "scheduled";
+    patch = { status: nextStatus, started_at: null, finished_at: null, duration_seconds: null };
+    if (previousStatus === "scheduled") auditAction = "visit.execution.auto_repair";
+  }
+
+  const updated = await service
+    .from("visits")
+    .update(patch)
+    .eq("id", visitId)
+    .eq("status", previousStatus)
+    .select("id,status,scheduled_date,started_at,finished_at,duration_seconds,route_id,route_order")
+    .maybeSingle();
+
+  if (updated.error) throw new Error(updated.error.message);
+  if (!updated.data) throw new Error("This Visit changed on another device. Refresh and try again.");
+
+  const audit = await service.from("activity_log").insert({
+    organization_id: companyId,
+    company_id: companyId,
+    actor_profile_id: userId,
+    action: auditAction,
+    entity_type: "visit",
+    entity_id: visitId,
+    details: reason || `Employee ${action} transition.`,
+    metadata: {
+      visit_id: visitId,
+      previous_status: previousStatus,
+      next_status: nextStatus,
+      fallback_transition: true,
+    },
+  });
+  if (audit.error) console.error("employee-route-fallback-audit", audit.error);
+
+  console.warn("employee-route-transition-fallback", {
+    visitId,
+    action,
+    previousStatus,
+    nextStatus,
+    companyId,
+  });
+
+  return updated.data;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { service, employee, companyId, avatarUrl } = await requireEmployee(request);
@@ -235,6 +372,7 @@ export async function GET(request: NextRequest) {
       jobIds: unique(payload.stops.map((stop: any) => stop.jobId)),
       propertyIds: unique(payload.stops.map((stop: any) => stop.propertyId)),
       customerIds: unique(payload.stops.map((stop: any) => stop.customerId)),
+      executionIssueCount: payload.stops.filter((stop: any) => !stop.executionStateValid).length,
     });
 
     return NextResponse.json(payload);
@@ -249,7 +387,7 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { service, user, userId, companyId } = await requireEmployee(request);
+    const { service, user, employee, userId, companyId } = await requireEmployee(request);
     const body = await request.json() as {
       visitId?: string;
       action?: "start" | "done" | "reset" | "skip" | "reopen" | "note";
@@ -276,7 +414,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ visit: { id: visitId, employeeNotes: note || null } });
     }
 
-    const action = String(body.action || "");
+    const action = String(body.action || "") as VisitAction;
     if (!["start", "done", "reset", "skip", "reopen"].includes(action)) {
       throw new Error("Choose a valid canonical Visit action.");
     }
@@ -293,13 +431,20 @@ export async function PATCH(request: NextRequest) {
     });
 
     if (result.error) {
-      if (missingMigration(result.error.message)) {
-        throw new Error("Supabase migration 202607270003_completed_visit_reopen_guard.sql is pending or not confirmed.");
-      }
-      throw new Error(result.error.message);
+      if (!missingMigration(result.error.message)) throw new Error(result.error.message);
+      const visit = await fallbackVisitTransition({
+        service,
+        employee,
+        userId,
+        companyId,
+        visitId,
+        action,
+        reason,
+      });
+      return NextResponse.json({ visit, fallback: true });
     }
 
-    return NextResponse.json({ visit: result.data });
+    return NextResponse.json({ visit: result.data, fallback: false });
   } catch (error) {
     console.error("employee-route-patch", error);
     return NextResponse.json(

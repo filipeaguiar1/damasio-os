@@ -2,6 +2,7 @@ import { getRouteMapCache } from "@/lib/repositories/routeMapRepository";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { Lead } from "@/lib/storage";
 import type { CanonicalRouteLead, CanonicalVisitStatus } from "@/lib/routes/canonicalRouteIdentity";
+import { normalizeVisitExecutionState } from "@/lib/visits/executionState";
 
 export type EmployeeRouteMapContext = {
   routeId: string | null;
@@ -114,23 +115,32 @@ export async function loadEmployeeRouteMapContext(
 
   return {
     routeId: result.routeId || null,
-    stops: (result.stops || []).map(stop => ({
-      visitId: stop.visitId,
-      jobId: stop.jobId || null,
-      customerId: stop.customerId || null,
-      propertyId: stop.propertyId || null,
-      addressLine1: stop.addressLine1 || "",
-      latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : null,
-      longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : null,
-      routeOrder: stop.routeOrder ?? null,
-      status: stop.status || "scheduled",
-      customerName: stop.customerName || "Customer",
-      serviceName: stop.serviceName || "Property Service",
-      scheduledDate: stop.scheduledDate,
-      startedAt: stop.startedAt || undefined,
-      finishedAt: stop.finishedAt || undefined,
-      durationSeconds: stop.durationSeconds ?? undefined,
-    })),
+    stops: (result.stops || []).map(stop => {
+      const execution = normalizeVisitExecutionState({
+        status: stop.status,
+        startedAt: stop.startedAt,
+        finishedAt: stop.finishedAt,
+        durationSeconds: stop.durationSeconds,
+      });
+
+      return {
+        visitId: stop.visitId,
+        jobId: stop.jobId || null,
+        customerId: stop.customerId || null,
+        propertyId: stop.propertyId || null,
+        addressLine1: stop.addressLine1 || "",
+        latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : null,
+        longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : null,
+        routeOrder: stop.routeOrder ?? null,
+        status: stop.status || "scheduled",
+        customerName: stop.customerName || "Customer",
+        serviceName: stop.serviceName || "Property Service",
+        scheduledDate: stop.scheduledDate,
+        startedAt: execution.startedAt,
+        finishedAt: execution.finishedAt,
+        durationSeconds: execution.durationSeconds,
+      };
+    }),
   };
 }
 
@@ -169,7 +179,7 @@ export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRou
           total: 0,
           photos: [],
         }),
-        id: lead?.id || stop.visitId,
+        id: stop.visitId,
         name: stop.customerName || lead?.name || "Customer",
         address: stop.addressLine1 || lead?.address || "",
         service: stop.serviceName || lead?.service || "Property Service",
@@ -179,9 +189,9 @@ export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRou
         canonicalCustomerId: stop.customerId || canonicalLead?.canonicalCustomerId,
         canonicalPropertyId: stop.propertyId || canonicalLead?.canonicalPropertyId,
         canonicalVisitStatus: stop.status as CanonicalVisitStatus,
-        visitStartedAt: stop.startedAt || lead?.visitStartedAt,
-        visitFinishedAt: stop.finishedAt || lead?.visitFinishedAt,
-        visitDurationSeconds: stop.durationSeconds ?? lead?.visitDurationSeconds,
+        visitStartedAt: stop.startedAt,
+        visitFinishedAt: stop.finishedAt,
+        visitDurationSeconds: stop.durationSeconds,
         latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : undefined,
         longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : undefined,
         routeOrder: stop.routeOrder ?? undefined,
