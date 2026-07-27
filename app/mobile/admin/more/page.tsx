@@ -2,7 +2,6 @@
 import Link from "next/link";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { MobileBackButton } from "@/components/mobile/MobileBackButton";
-import { MobileAdminNav } from "@/components/mobile/MobileAdminNav";
 
 const groups = [
   ["Add Customer", "+", "/mobile/admin/add-customer"],
@@ -11,7 +10,7 @@ const groups = [
   ["Invoices", "$", "/mobile/admin/invoices"],
   ["Requests", "+", "/mobile/admin/requests"],
   ["Employees", "W", "/mobile/admin/employees"],
-  ["Finance", "$", "/mobile/admin/finance"],
+  ["Payments", "$", "/mobile/admin/finance"],
   ["Reports", "R", "/mobile/admin/reports"],
   ["Database", "DB", "/admin/database"],
   ["Settings", "*", "/mobile/admin/settings"],
@@ -32,7 +31,7 @@ export default function MobileAdminMore() {
         <section className="mobile-native-hero">
           <span>ADMIN TOOLS</span>
           <h1>Everything else, organized.</h1>
-          <p>Core mobile tools stay in the bottom navigation.</p>
+          <p>All company tools are available in one clean mobile workspace.</p>
         </section>
         <section className="mobile-more-grid">
           {groups.map(([label, icon, href]) => (
@@ -43,7 +42,6 @@ export default function MobileAdminMore() {
             </Link>
           ))}
         </section>
-        <MobileAdminNav active="more" />
       </main>
     </MobileRoleGuard>
   );
