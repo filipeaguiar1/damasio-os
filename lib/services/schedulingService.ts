@@ -61,8 +61,10 @@ export function schedulingBoardToLeads(board: SchedulingDispatchBoard): RouteLea
     photos: [],
   }));
 
+  // A skipped Visit is still a real dated Visit. Keep it visible so Admin,
+  // Route Plan and Route Status can show it in yellow and reschedule it.
   const visits: RouteLead[] = board.visits
-    .filter(visit => visit.status !== "cancelled" && visit.status !== "missed")
+    .filter(visit => visit.status !== "cancelled")
     .map(visit => ({
       id: visit.id,
       createdAt: visit.createdAt,
@@ -97,13 +99,21 @@ export function schedulingBoardToLeads(board: SchedulingDispatchBoard): RouteLea
   return [...jobs, ...assigned, ...visits];
 }
 
-export async function assignJobToCrew(jobId:string,crewId:string|null){if(!jobId)throw new Error("Choose a job first.");await assignJobCrew(jobId,crewId);invalidateQuery("scheduling:");}
+export async function assignJobToCrew(jobId: string, crewId: string | null) {
+  if (!jobId) throw new Error("Choose a job first.");
+  await assignJobCrew(jobId, crewId);
+  invalidateQuery("scheduling:");
+}
 
-export async function publishJobRoutePattern(input:{jobId:string;crewId:string;routeDate:string;routeOrder?:number}){
-  if(!input.jobId||!input.crewId||!input.routeDate)throw new Error("Job, crew and route date are required.");
-  const board=await scheduleJobOnRoute(input);
-  const savedVisit=board.visits.find(visit=>visit.jobId===input.jobId&&visit.crewId===input.crewId&&visit.scheduledDate===input.routeDate&&visit.status!=="cancelled");
-  if(!savedVisit)throw new Error("The route preview was generated, but the dated visit was not saved. Please try again.");
+export async function publishJobRoutePattern(input: { jobId: string; crewId: string; routeDate: string; routeOrder?: number }) {
+  if (!input.jobId || !input.crewId || !input.routeDate) throw new Error("Job, crew and route date are required.");
+  const board = await scheduleJobOnRoute(input);
+  const savedVisit = board.visits.find(visit =>
+    visit.jobId === input.jobId
+    && visit.crewId === input.crewId
+    && visit.scheduledDate === input.routeDate
+    && visit.status !== "cancelled");
+  if (!savedVisit) throw new Error("The route preview was generated, but the dated visit was not saved. Please try again.");
   invalidateQuery("scheduling:");
   return board;
 }
