@@ -15,6 +15,11 @@ const files = {
   studio: read("components/admin/RouteStudio.tsx"),
   officialMap: read("components/admin/OfficialRoutePlanMap.tsx"),
   employeeMap: read("components/mobile/EmployeeRouteMap.tsx"),
+  mobileAdminRoute: read("app/mobile/admin/routes/page.tsx"),
+  customerHistory: read("app/customer/history/page.tsx"),
+  customerMobile: read("app/mobile/customer/[section]/page.tsx"),
+  customerNav: read("components/mobile/MobileCustomerNav.tsx"),
+  customerVisitModal: read("components/customer/CustomerServiceVisitModal.tsx"),
   migration: read("supabase/migrations/202607270003_completed_visit_reopen_guard.sql"),
 };
 
@@ -55,8 +60,9 @@ rejectText("advisorApi", '.from("visits").update', "Route Advisor still updates 
 
 requireText("employeeApi", "transition_visit_execution", "Start, Done, Skip, Reset and Reopen do not share the canonical Visit transition RPC.");
 requireText("employeeApi", 'action?: "start" | "done" | "reset" | "skip" | "reopen"', "Employee Reopen action is missing.");
-requireText("employeeApi", ".eq(\"profile_id\", user.id)", "Employee route identity is not resolved through canonical profile_id.");
-rejectText("employeeApi", ".ilike(\"email\"", "Employee identity still falls back to email matching.");
+requireText("employeeApi", '.eq("profile_id", user.id)', "Employee route identity is not resolved through canonical profile_id.");
+rejectText("employeeApi", '.ilike("email"', "Employee identity still falls back to email matching.");
+rejectText("employeeApi", "latitude,longitude", "Employee Route API still depends on optional Property coordinate columns instead of address geocoding fallback.");
 
 requireText("routeMapService", "canonicalVisitId", "Employee Route map does not synchronize by canonical Visit ID.");
 rejectText("routeMapService", "employeeNameMatches", "Employee Route still identifies a worker by display name.");
@@ -99,14 +105,28 @@ for (const databaseGuard of [
 
 requireText("studio", "<OfficialRoutePlanMap date={date} onDateChange={setDate} />", "Dispatch View does not keep one controlled operational date.");
 requireText("studio", "operationalDateKey", "Dispatch still uses a UTC date key.");
-requireText("officialMap", "Select a worker to open the route.", "Route Plan Employee overview is missing.");
-requireText("officialMap", "onClick={() => setSelectedId(\"\")}", "Route Plan Back navigation is missing.");
+requireText("officialMap", "Select a worker to open the published route.", "Route Plan Employee overview is missing.");
+requireText("officialMap", 'onClick={() => setSelectedId("")}', "Route Plan Back navigation is missing.");
 requireText("officialMap", "originPoint={origin}", "Admin route view does not include the Employee starting point.");
 requireText("officialMap", "official-house-list", "Route Plan does not include the scrollable house list.");
+requireText("officialMap", "Boolean(item.canonicalRouteId)", "Admin Route Plan still shows assigned Visits that were never published.");
 requireText("employeeMap", "Calculating driving route", "Driving route geometry is not requested.");
 rejectText("studio", "assignedCrew === employee.name", "Route Plan still matches Employees by display name.");
 rejectText("studio", "assignedCrew===employee.name", "Route Plan still matches Employees by display name.");
 rejectText("employeeMap", "updateLead(", "Canonical map still writes coordinates to local Lead storage.");
+
+requireText("mobileAdminRoute", "belongsToCanonicalEmployee", "Mobile Admin routes do not use canonical Employee identity.");
+requireText("mobileAdminRoute", "item.canonicalRouteId", "Mobile Admin routes still show unpublished Employee work.");
+requireText("mobileAdminRoute", "operationalDateKey", "Mobile Admin routes still use a UTC day key.");
+rejectText("mobileAdminRoute", "assignedCrew===employee.name", "Mobile Admin routes still identify Employees by display name.");
+
+requireText("customerHistory", "CustomerServiceVisitModal", "Desktop Customer history does not open the shared completed-service detail.");
+requireText("customerHistory", "getPropertyPhotoHistory", "Desktop Customer history does not load Visit-linked photo history.");
+requireText("customerMobile", "CustomerServiceVisitModal", "Mobile Customer history does not open the shared completed-service detail.");
+requireText("customerMobile", "getPropertyPhotoHistory", "Mobile Customer history does not load Visit-linked photo history.");
+requireText("customerVisitModal", 'type Tab = "service" | "photos" | "property"', "Customer completed-service detail is missing standardized tabs.");
+requireText("customerVisitModal", "customer-visit-modal-close", "Customer completed-service detail has no accessible close control.");
+requireText("customerNav", "return null", "The floating Customer navigation is still rendered.");
 
 if (failures.length) {
   console.error("Canonical Route validation failed:");
@@ -116,4 +136,4 @@ if (failures.length) {
 
 console.log("Canonical Route validation passed.");
 console.log("Customer → Property → Job → Visit → Route → Employee/Crew IDs remain canonical.");
-console.log("Build, Route Advisor, Move, Publish, Smart Route and execution transitions are database-guarded.");
+console.log("Customer history, published routes and Employee execution now use the same Visit records.");

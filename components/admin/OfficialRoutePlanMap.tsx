@@ -21,7 +21,6 @@ type RouteEmployee = {
 
 type Origin = { latitude: number; longitude: number; label: string };
 type WorkerPoint = Origin & { id: string; name: string; count: number; index: number };
-
 type Props = { date?: string; onDateChange?: (date: string) => void };
 
 async function token() {
@@ -41,7 +40,10 @@ async function geocode(address: string) {
 export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Props = {}) {
   const [internalDate, setInternalDate] = useState(operationalDateKey());
   const date = controlledDate || internalDate;
-  const setDate = (next: string) => { if (!controlledDate) setInternalDate(next); onDateChange?.(next); };
+  const setDate = (next: string) => {
+    if (!controlledDate) setInternalDate(next);
+    onDateChange?.(next);
+  };
   const [employees, setEmployees] = useState<RouteEmployee[]>([]);
   const [leads, setLeads] = useState<RouteLead[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -71,10 +73,17 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
     const timer = window.setInterval(() => void refresh(), 5000);
     const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
     document.addEventListener("visibilitychange", onVisible);
-    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
-  const visits = useMemo(() => leads.filter(item => Boolean(item.canonicalVisitId) && item.scheduledDate === date), [leads, date]);
+  const visits = useMemo(() => leads.filter(item =>
+    Boolean(item.canonicalVisitId)
+    && Boolean(item.canonicalRouteId)
+    && item.scheduledDate === date
+    && item.canonicalVisitStatus !== "cancelled"), [leads, date]);
   const selectedEmployee = employees.find(item => item.id === selectedId) || null;
   const selectedIdentity = selectedEmployee ? { id: selectedEmployee.employeeId || selectedEmployee.id, crewId: selectedEmployee.crewId } : null;
   const selectedRoute = useMemo(() => selectedIdentity
@@ -100,18 +109,27 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
       try {
         const point = await geocode(address);
         return { ...point, label: `${employee.name} start`, id: employee.id, name: employee.name, count: counts.get(employee.id) || 0, index };
-      } catch { return null; }
-    })).then(points => { if (!cancelled) setWorkerPoints(points.filter((point): point is WorkerPoint => Boolean(point))); });
+      } catch {
+        return null;
+      }
+    })).then(points => {
+      if (!cancelled) setWorkerPoints(points.filter((point): point is WorkerPoint => Boolean(point)));
+    });
     return () => { cancelled = true; };
   }, [employees, visits, counts]);
 
   useEffect(() => {
     let cancelled = false;
     const startAddress = selectedEmployee?.routeStartAddress || selectedRoute[0]?.address || "";
-    if (!startAddress) { setOrigin(null); return () => { cancelled = true; }; }
+    if (!startAddress) {
+      setOrigin(null);
+      return () => { cancelled = true; };
+    }
     void geocode(startAddress).then(point => {
       if (!cancelled) setOrigin({ ...point, label: `${selectedEmployee?.name || "Employee"} start` });
-    }).catch(() => { if (!cancelled) setOrigin(null); });
+    }).catch(() => {
+      if (!cancelled) setOrigin(null);
+    });
     return () => { cancelled = true; };
   }, [selectedEmployee?.id, selectedEmployee?.routeStartAddress, selectedRoute[0]?.address]);
 
@@ -145,12 +163,25 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
     if (window.L) setup();
     else {
       if (!document.querySelector("link[data-leaflet]")) {
-        const link = document.createElement("link"); link.rel = "stylesheet"; link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"; link.dataset.leaflet = "true"; document.head.appendChild(link);
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+        link.dataset.leaflet = "true";
+        document.head.appendChild(link);
       }
       let script = document.querySelector("script[data-leaflet]") as HTMLScriptElement | null;
-      if (!script) { script = document.createElement("script"); script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"; script.async = true; script.dataset.leaflet = "true"; document.body.appendChild(script); }
+      if (!script) {
+        script = document.createElement("script");
+        script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+        script.async = true;
+        script.dataset.leaflet = "true";
+        document.body.appendChild(script);
+      }
       script.addEventListener("load", setup);
-      return () => { cancelled = true; script?.removeEventListener("load", setup); };
+      return () => {
+        cancelled = true;
+        script?.removeEventListener("load", setup);
+      };
     }
     return () => { cancelled = true; };
   }, [workerPoints, selectedEmployee?.id]);
@@ -168,7 +199,7 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
     {!selectedEmployee ? <div className="studio-map real-map official-route-overview">
       <div ref={mapNode} className="studio-preview-leaflet" />
       <aside className="studio-route-popover official-worker-list">
-        <strong>Employees</strong><small>Select a worker to open the route.</small>
+        <strong>Employees</strong><small>Select a worker to open the published route.</small>
         <div className="studio-route-stop-list">
           {employees.map((employee, index) => <button type="button" key={employee.id} onClick={() => setSelectedId(employee.id)}><b>{index + 1}</b><span>{employee.name}</span><em>{counts.get(employee.id) || 0}</em></button>)}
         </div>
@@ -176,10 +207,10 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
     </div> : <div className="official-route-focused">
       <EmployeeRouteMap route={selectedRoute} routeId={selectedRoute[0]?.canonicalRouteId} originPoint={origin} desktop actionLabel="Property profile" onOpenVisit={() => {}} />
       <aside className="studio-route-popover official-house-list">
-        <strong>{selectedEmployee.name}</strong><small>{selectedRoute.length} houses on {date}</small>
+        <strong>{selectedEmployee.name}</strong><small>{selectedRoute.length} published houses on {date}</small>
         <div className="studio-route-stop-list">
           {selectedRoute.map((home, index) => <div key={home.canonicalVisitId || home.id} className={home.canonicalVisitStatus || "scheduled"}><b>{home.routeOrder || index + 1}</b><span>{home.name}<small>{home.address}</small></span><em>{home.canonicalVisitStatus === "completed" ? "Done" : home.canonicalVisitStatus === "missed" ? "Skipped" : home.canonicalVisitStatus === "in_progress" ? "Active" : "Scheduled"}</em></div>)}
-          {!selectedRoute.length && <div className="studio-empty">No houses assigned for this date.</div>}
+          {!selectedRoute.length && <div className="studio-empty">No published houses for this Employee and date.</div>}
         </div>
       </aside>
     </div>}

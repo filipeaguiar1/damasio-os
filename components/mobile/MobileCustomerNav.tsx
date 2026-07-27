@@ -1,3 +1,10 @@
 "use client";
-import Link from "next/link";
-export function MobileCustomerNav({active}:{active:"home"|"services"|"request"|"billing"|"more"}){const items=[["home","/mobile/customer","⌂","Home"],["services","/mobile/customer/services","✦","Services"],["request","/mobile/customer/requests","＋","Request"],["billing","/mobile/customer/payments","$","Billing"],["more","/mobile/customer/more","•••","More"]] as const;return <nav className="role-mobile-bottom" aria-label="Customer navigation">{items.map(([id,href,icon,label])=><Link className={active===id?"active":""} href={href} key={id}><i>{icon}</i><span>{label}</span></Link>)}</nav>}
+
+/**
+ * Compatibility shell kept so existing customer pages do not need parallel
+ * navigation implementations. Customer navigation now lives in the page
+ * modules and headers, so no fixed element can cover mobile content.
+ */
+export function MobileCustomerNav(_props: { active: "home" | "services" | "request" | "billing" | "more" }) {
+  return null;
+}
