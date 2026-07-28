@@ -48,127 +48,44 @@ export type CreateCustomerPropertyInput = {
   subtotal?: number;
 };
 
-type RpcRecord = {
-  customer_id: string;
-  property_id: string;
-  full_name: string;
-  email: string | null;
-  phone: string | null;
-  customer_notes: string | null;
-  address_line1: string;
-  city: string;
-  province: string;
-  postal_code: string | null;
-  lot_size: CustomerPropertyRecord["lotSize"];
-  grass_height: CustomerPropertyRecord["grassHeight"];
-  gate: boolean;
-  dog: boolean;
-  irrigation: boolean;
-  access_notes: string | null;
-  property_notes: string | null;
-  official_photo_url: string | null;
-  created_at: string;
-};
+async function accessToken() {
+  const supabase = getSupabaseBrowserClient() as any;
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Your Admin session expired. Sign in again.");
+  return token;
+}
 
-type OwnershipRecord = {
-  customer_id: string;
-  acquisition_source: CustomerPropertyRecord["acquisitionSource"];
-  locked_by_platform: boolean;
-  offer_status: string | null;
-};
-
-function mapRecord(row: RpcRecord, ownership?: OwnershipRecord): CustomerPropertyRecord {
-  return {
-    customerId: row.customer_id,
-    propertyId: row.property_id,
-    fullName: row.full_name,
-    email: row.email,
-    phone: row.phone,
-    customerNotes: row.customer_notes,
-    addressLine1: row.address_line1,
-    city: row.city,
-    province: row.province,
-    postalCode: row.postal_code,
-    lotSize: row.lot_size,
-    grassHeight: row.grass_height,
-    gate: row.gate,
-    dog: row.dog,
-    irrigation: row.irrigation,
-    accessNotes: row.access_notes,
-    propertyNotes: row.property_notes,
-    officialPhotoUrl: row.official_photo_url,
-    acquisitionSource: ownership?.acquisition_source || "company_created",
-    lockedByPlatform: Boolean(ownership?.locked_by_platform),
-    offerStatus: ownership?.offer_status || null,
-    createdAt: row.created_at,
-  };
+async function customerApi(options?: RequestInit) {
+  const response = await fetch("/api/admin/customers", {
+    ...options,
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${await accessToken()}`,
+      ...(options?.headers || {}),
+    },
+    cache: "no-store",
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Customer operation failed.");
+  return result;
 }
 
 export async function listCustomerProperties(): Promise<CustomerPropertyRecord[]> {
-  const supabase = getSupabaseBrowserClient() as any;
-  const { data, error } = await supabase.rpc("get_customer_property_directory");
-  if (error) throw new Error(error.message);
-
-  const rows = (data || []) as RpcRecord[];
-  if (!rows.length) return [];
-
-  const ids = [...new Set(rows.map((row) => row.customer_id))];
-  const ownership = new Map<string, OwnershipRecord>();
-  const ownershipResult = await supabase
-    .from("customers")
-    .select("id,acquisition_source,platform_managed,offer_status")
-    .in("id", ids);
-
-  if (!ownershipResult.error) {
-    for (const row of ownershipResult.data || []) {
-      const source = (row.acquisition_source || "company_created") as CustomerPropertyRecord["acquisitionSource"];
-      ownership.set(row.id, {
-        customer_id: row.id,
-        acquisition_source: source,
-        locked_by_platform: row.platform_managed === true || source === "platform",
-        offer_status: row.offer_status || null,
-      });
-    }
-  }
-
-  return rows
-    .map((row) => mapRecord(row, ownership.get(row.customer_id)))
-    .filter((record) => record.acquisitionSource !== "platform" || record.offerStatus === "accepted");
+  const result = await customerApi();
+  return Array.isArray(result.records) ? result.records as CustomerPropertyRecord[] : [];
 }
 
 export async function createCustomerProperty(input: CreateCustomerPropertyInput): Promise<CustomerPropertyRecord> {
-  const supabase = getSupabaseBrowserClient();
-  const { data, error } = await supabase.rpc("create_customer_property" as never, {
-    p_full_name: input.fullName,
-    p_email: input.email || null,
-    p_phone: input.phone || null,
-    p_customer_notes: input.customerNotes || null,
-    p_address_line1: input.addressLine1,
-    p_city: input.city || "Hamilton",
-    p_province: input.province || "ON",
-    p_postal_code: input.postalCode || null,
-    p_lot_size: input.lotSize || null,
-    p_grass_height: input.grassHeight || null,
-    p_gate: Boolean(input.gate),
-    p_dog: Boolean(input.dog),
-    p_irrigation: Boolean(input.irrigation),
-    p_access_notes: input.accessNotes || null,
-    p_property_notes: input.propertyNotes || null,
-  } as never);
-  if (error) throw new Error(error.message);
-  const first = Array.isArray(data) ? data[0] : data;
-  if (!first) throw new Error("Customer was not created.");
-  return mapRecord(first as RpcRecord, {
-    customer_id: (first as RpcRecord).customer_id,
-    acquisition_source: "company_created",
-    locked_by_platform: false,
-    offer_status: null,
-  });
+  const result = await customerApi({ method: "POST", body: JSON.stringify(input) });
+  if (!result.record) throw new Error("Customer chain was created but could not be verified.");
+  return result.record as CustomerPropertyRecord;
 }
 
 export async function deleteCustomerRecords(customerIds:string[]):Promise<number>{
-  const supabase=getSupabaseBrowserClient();
-  const{data,error}=await supabase.rpc("archive_company_customers" as never,{p_customer_ids:customerIds} as never);
-  if(error)throw new Error(error.message);
-  return Number(data||0);
+  const result = await customerApi({
+    method: "DELETE",
+    body: JSON.stringify({ customerIds }),
+  });
+  return Number(result.removed || 0);
 }
