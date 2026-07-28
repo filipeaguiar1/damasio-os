@@ -8,6 +8,7 @@ import "./customer-mobile-overnight.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 import {AdminAccessFallback} from "@/components/master/AdminAccessFallback";
 import {CustomerLegacyDataGuard} from "@/components/customer/CustomerLegacyDataGuard";
+import {RouteAdvisorFeedbackNavigator} from "@/components/admin/RouteAdvisorFeedbackNavigator";
 
 export const metadata: Metadata = {
   title: "4Ever Seasons | Premium Property Care",
@@ -23,5 +24,5 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="en" data-season="summer"><body><SeasonThemeProvider><CustomerLegacyDataGuard/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
+  return <html lang="en" data-season="summer"><body><SeasonThemeProvider><CustomerLegacyDataGuard/><RouteAdvisorFeedbackNavigator/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
 }
