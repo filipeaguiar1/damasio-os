@@ -13,7 +13,6 @@ type WorkspaceUser={id:string;full_name:string;email:string;role:Role;phone?:str
 type CrewOption={id:string;name:string};
 const modules:ManagerModule[]=["customers","properties","quotes","jobs","schedule","dispatch","routes","employees","tasks","feedback","reports","finance","settings"];
 const defaultManagerPermissions=Object.fromEntries(modules.map(module=>[module,module==="finance"||module==="settings"?"none":"view"])) as ManagerPermissions;
-const demoUsers:WorkspaceUser[]=[{id:"demo-admin",full_name:"Filipe Damasio",email:"admin@damasioos.demo",role:"admin",active:true,created_at:new Date().toISOString()},{id:"demo-employee",full_name:"Field Employee",email:"employee@damasioos.demo",role:"employee",active:true,created_at:new Date().toISOString()},{id:"demo-customer",full_name:"Customer Demo",email:"customer@damasioos.demo",role:"customer",active:true,created_at:new Date().toISOString()}];
 
 async function api(path:string,options?:RequestInit){
   const client=getSupabaseBrowserClient() as any;const{data}=await client.auth.getSession();const token=data.session?.access_token;if(!token)throw new Error("Sign in with a real Admin account to manage people.");
@@ -23,7 +22,7 @@ async function api(path:string,options?:RequestInit){
 export default function UsersPage(){
   const[users,setUsers]=useState<WorkspaceUser[]>([]);const[crews,setCrews]=useState<CrewOption[]>([]);const[crewId,setCrewId]=useState("");const[fullName,setFullName]=useState("");const[email,setEmail]=useState("");const[phone,setPhone]=useState("");const[role,setRole]=useState<CreateRole>("employee");const[msg,setMsg]=useState("");const[managerPermissions,setManagerPermissions]=useState<ManagerPermissions>(defaultManagerPermissions);const[editing,setEditing]=useState("");const[busy,setBusy]=useState(false);
   const demo=Boolean(readDemoSession());
-  async function refresh(){if(demo){setUsers(demoUsers);setMsg("Demo mode uses sample people. Sign in with the real Admin account to invite real users.");return}setBusy(true);try{const result=await api("/api/admin/users");setUsers(result.users||[]);setCrews(result.crews||[]);setCrewId((current:string)=>current||result.crews?.[0]?.id||"");setMsg("")}catch(error){setMsg(error instanceof Error?error.message:"Users could not be loaded.")}finally{setBusy(false)}}
+  async function refresh(){if(demo){setUsers([]);setCrews([]);setMsg("User management is unavailable in Demo mode. Sign in with the real company Admin account to view or invite real users.");return}setBusy(true);try{const result=await api("/api/admin/users");setUsers(result.users||[]);setCrews(result.crews||[]);setCrewId((current:string)=>current||result.crews?.[0]?.id||"");setMsg("")}catch(error){setMsg(error instanceof Error?error.message:"Users could not be loaded.")}finally{setBusy(false)}}
   useEffect(()=>{void refresh()},[]);
   const counts=useMemo(()=>({admins:users.filter(user=>user.role==="admin").length,managers:users.filter(user=>user.role==="manager").length,employees:users.filter(user=>user.role==="employee").length,customers:users.filter(user=>user.role==="customer").length}),[users]);
   function setPermission(module:ManagerModule,level:AccessLevel){setManagerPermissions(current=>({...current,[module]:level}))}
