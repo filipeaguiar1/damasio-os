@@ -133,7 +133,7 @@ requireText("studio", "<OfficialRoutePlanMap date={date} onDateChange={setDate} 
 requireText("studio", "operationalDateKey", "Dispatch still uses a UTC date key.");
 rejectText("officialMap", "official-worker-list", "Route Plan still renders the redundant Employee list over the overview map.");
 requireText("officialMap", "mapRef.current?.remove()", "Route Plan does not destroy the old Leaflet instance before returning to overview.");
-requireText("officialMap", 'onClick={() => setSelectedId("")}', "Route Plan Back navigation is missing.");
+requireText("officialMap", 'setSelectedId("")', "Route Plan Back navigation is missing.");
 requireText("officialMap", "originPoint={origin}", "Admin route view does not include the Employee starting point.");
 requireText("officialMap", "houseScroll", "Route Plan does not include the scrollable house panel.");
 requireText("officialMap", "Boolean(item.canonicalRouteId)", "Admin Route Plan still shows assigned Visits that were never published.");
