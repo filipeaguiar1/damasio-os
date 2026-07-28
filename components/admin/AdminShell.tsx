@@ -69,7 +69,7 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
           ))}
         </nav>
         <Link href="/admin/alerts" onClick={openNotifications} className="studio-icon" aria-label="Notifications">N{unread > 0 && <b>{unread}</b>}</Link>
-        <Link href="/admin/settings" className="studio-user"><span>FD</span><div><strong>Mike Admin</strong><small>Administrator</small></div></Link>
+        <Link href="/admin/settings" className="studio-user"><span>AD</span><div><strong>Company Admin</strong><small>Administrator</small></div></Link>
         <button type="button" className="studio-signout" onClick={() => void signOutAccount()}>Sign out</button>
         <button type="button" className="studio-menu" onClick={() => setMobileMenuOpen(true)}>Menu</button>
       </header>
