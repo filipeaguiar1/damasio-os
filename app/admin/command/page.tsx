@@ -2,19 +2,39 @@
 import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
 import {AdminShell} from "@/components/admin/AdminShell";
-import {DAMASIO_CREWS,DAMASIO_SYNC_EVENT,Lead,ActivityLog,calculateVisitStatus,getActivityLogs,getEmployeeTasks,getExpenses,getInvoices,getLeads,getNotifications,getOperationsIntelligence,getPendingReviewCount,getSessions,getWorkflowEvents,seedDemoExpenses,seedDemoLeads,seedEmployeeTasks} from "@/lib/storage";
+import {DAMASIO_CREWS,DAMASIO_SYNC_EVENT,Lead,ActivityLog,calculateVisitStatus,getActivityLogs,getEmployeeTasks,getExpenses,getInvoices,getLeads,getNotifications,getOperationsIntelligence,getPendingReviewCount,getSessions,getWorkflowEvents} from "@/lib/storage";
+import {getSupabaseBrowserClient} from "@/lib/supabase/client";
 
-function money(n:number){return `$${n.toLocaleString(undefined,{maximumFractionDigits:0})}`}
+function money(n:number){return `$${n.toLocaleString("en-CA",{maximumFractionDigits:0})}`}
 function todayKey(){return new Date().toISOString().slice(0,10)}
 function serviceHref(id:string){return `/employee/property/${id}?admin=1`}
+
+type DemoCredentials={name:string;email:string;password:string};
 
 export default function Command(){
   const[leads,setLeads]=useState<Lead[]>([]);
   const[tick,setTick]=useState(0);
   const[selectedLog,setSelectedLog]=useState<ActivityLog|null>(null);
+  const[sandboxBusy,setSandboxBusy]=useState(false);
+  const[sandboxMessage,setSandboxMessage]=useState("");
+  const[sandboxCredentials,setSandboxCredentials]=useState<DemoCredentials|null>(null);
   function refresh(){setLeads(getLeads());setTick(v=>v+1)}
-  useEffect(()=>{seedDemoLeads();refresh();const on=()=>refresh();window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.addEventListener("storage",on);const t=setInterval(refresh,5000);return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);clearInterval(t)}},[]);
-  function seed(){seedDemoLeads(true);seedEmployeeTasks();seedDemoExpenses();refresh()}
+  useEffect(()=>{refresh();const on=()=>refresh();window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.addEventListener("storage",on);const t=setInterval(refresh,5000);return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);clearInterval(t)}},[]);
+
+  async function runSandbox(action:"create"|"remove"){
+    if(action==="remove"&&!window.confirm("Remove the temporary demo customers and worker from this company? Real records will not be touched."))return;
+    setSandboxBusy(true);setSandboxMessage("");
+    try{
+      const supabase=getSupabaseBrowserClient() as any;
+      const{data}=await supabase.auth.getSession();const token=data.session?.access_token;
+      if(!token)throw new Error("Your Admin session expired. Sign in again.");
+      const response=await fetch("/api/admin/demo-sandbox",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},body:JSON.stringify({action})});
+      const result=await response.json();if(!response.ok)throw new Error(result.error||"Demo sandbox operation failed.");
+      setSandboxMessage(result.message||"Demo sandbox updated.");
+      setSandboxCredentials(action==="create"?result.worker||null:null);
+    }catch(error){setSandboxMessage(error instanceof Error?error.message:"Demo sandbox operation failed.")}
+    finally{setSandboxBusy(false)}
+  }
 
   const data=useMemo(()=>{
     const today=todayKey();
@@ -40,8 +60,11 @@ export default function Command(){
   return <AdminShell active="Command">
     <div className="business-hero">
       <div><span className="eyebrow">4Ever Seasons V44</span><h1>Smart Operations Command Center</h1><p>One screen for today’s houses, live crews, overdue work, return visits, feedback and money.</p></div>
-      <div className="hero-actions"><button className="btn btn-white" onClick={seed}>Load Demo</button><Link className="btn btn-primary" href="/admin/routes?tab=build">Create Route</Link></div>
+      <div className="hero-actions"><button className="btn btn-white" disabled={sandboxBusy} onClick={()=>void runSandbox("create")}>{sandboxBusy?"Working…":"Create Demo Sandbox"}</button><button className="btn btn-outline" disabled={sandboxBusy} onClick={()=>void runSandbox("remove")}>Remove Demo</button><Link className="btn btn-primary" href="/admin/routes?tab=build">Create Route</Link></div>
     </div>
+
+    {sandboxMessage&&<div className="payment-message" role="status" style={{marginTop:16}}>{sandboxMessage}</div>}
+    {sandboxCredentials&&<section className="card" style={{marginTop:16}}><div className="table-head"><div><h2>Temporary Employee Login</h2><p className="section-intro">Save this password now. It is shown only after the sandbox is created.</p></div><Link href="/mobile/login" className="btn btn-primary">Open Mobile Login</Link></div><div className="form-grid"><div className="field"><label>Name</label><code className="input">{sandboxCredentials.name}</code></div><div className="field"><label>Email</label><code className="input">{sandboxCredentials.email}</code></div><div className="field"><label>Password</label><code className="input">{sandboxCredentials.password}</code></div></div><p className="section-intro" style={{marginTop:12}}>The 25 customers use public-location addresses and complete canonical Customer → Property → Quote → Job records. Assign them in Build, then publish a dated route through Route Advisor.</p></section>}
 
     <section className="business-metrics">
       <Link href="/admin/routes?tab=view" className="business-metric"><span>Today</span><strong>{data.todayJobs.length}</strong><small>{data.done.length} done · {data.running.length} running</small></Link>
