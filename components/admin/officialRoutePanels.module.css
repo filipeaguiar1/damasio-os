@@ -7,9 +7,12 @@
 .focusedRoute {
   position: relative;
   min-height: 560px;
+  isolation: isolate;
 }
 
 .housePanel {
+  position: absolute !important;
+  z-index: 1200 !important;
   top: 18px !important;
   right: 18px !important;
   bottom: 18px;
@@ -17,6 +20,13 @@
   max-height: none !important;
   overflow: hidden !important;
   grid-template-rows: auto auto minmax(0, 1fr);
+  pointer-events: auto;
+  background: #fff;
+  box-shadow: 0 22px 54px rgba(15, 39, 28, 0.24);
+}
+
+.focusedRoute :global(.route-customer-drawer) {
+  z-index: 1300 !important;
 }
 
 .houseScroll {
@@ -105,6 +115,7 @@
 
   .housePanel {
     position: relative !important;
+    z-index: 2 !important;
     inset: auto !important;
     width: 100% !important;
     max-height: 360px !important;

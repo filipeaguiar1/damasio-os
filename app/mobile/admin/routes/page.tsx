@@ -1,40 +1,357 @@
 "use client";
-import {useEffect,useMemo,useState} from "react";
-import {MobileRoleGuard} from "@/components/mobile/MobileRoleGuard";
-import {MobileBackButton} from "@/components/mobile/MobileBackButton";
-import {MobileAdminNav} from "@/components/mobile/MobileAdminNav";
-import {EmployeeRouteMap} from "@/components/mobile/EmployeeRouteMap";
-import {AddressAutocomplete} from "@/components/home/AddressAutocomplete";
-import {getSupabaseBrowserClient} from "@/lib/supabase/client";
-import {schedulingBoardToLeads,type RouteLead} from "@/lib/services/schedulingService";
-import type {SchedulingDispatchBoard} from "@/lib/repositories/schedulingRepository";
-import {belongsToCanonicalEmployee} from "@/lib/routes/canonicalRouteIdentity";
-import {operationalDateKey} from "@/lib/dates/operationalDate";
 
-type Mode="view"|"build"|"move";
-type RouteEmployee={id:string;employeeId:string;crewId:string;name:string;email:string;routeStartAddress:string|null};
-const today=()=>operationalDateKey();
-async function token(){const client=getSupabaseBrowserClient()as any;const{data}=await client.auth.getSession();const value=data.session?.access_token;if(!value)throw new Error("Your Admin session expired.");return value}
-async function routeApi(options?:RequestInit){const access=await token();const response=await fetch("/api/admin/routes",{...options,headers:{"content-type":"application/json",authorization:`Bearer ${access}`,...(options?.headers||{})},cache:"no-store"});const result=await response.json();if(!response.ok)throw new Error(result.error||"Route operation failed.");return result}
+import { useEffect, useMemo, useState } from "react";
+import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
+import { MobileBackButton } from "@/components/mobile/MobileBackButton";
+import { MobileAdminNav } from "@/components/mobile/MobileAdminNav";
+import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
+import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
+import { RouteAdvisorPanel } from "@/components/admin/RouteAdvisorPanel";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulingService";
+import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
+import { belongsToCanonicalEmployee } from "@/lib/routes/canonicalRouteIdentity";
+import { operationalDateKey } from "@/lib/dates/operationalDate";
 
-export default function MobileAdminRoutes(){
- const[leads,setLeads]=useState<RouteLead[]>([]),[employees,setEmployees]=useState<RouteEmployee[]>([]),[employeeId,setEmployeeId]=useState(""),[date,setDate]=useState(today()),[mode,setMode]=useState<Mode>("view"),[mapView,setMapView]=useState(true),[message,setMessage]=useState("Loading routes..."),[busy,setBusy]=useState(false);
- const[selected,setSelected]=useState<string[]>([]),[query,setQuery]=useState(""),[startAddress,setStartAddress]=useState(""),[draft,setDraft]=useState<RouteLead[]>([]),[targetEmployeeId,setTargetEmployeeId]=useState(""),[targetDate,setTargetDate]=useState(today());
- async function refresh(clearMessage=true){try{const result=await routeApi();const realEmployees:RouteEmployee[]=result.employees||[];setEmployees(realEmployees);setLeads(schedulingBoardToLeads((result.board||{})as SchedulingDispatchBoard));setEmployeeId(current=>realEmployees.some(item=>item.id===current)?current:realEmployees[0]?.id||"");setTargetEmployeeId(current=>realEmployees.some(item=>item.id===current)?current:realEmployees[1]?.id||realEmployees[0]?.id||"");if(clearMessage)setMessage(realEmployees.length?"":"No active Employees found.")}catch(error){setMessage(error instanceof Error?error.message:"Routes could not be loaded.")}}
- useEffect(()=>{void refresh();const timer=window.setInterval(()=>void refresh(false),10000);return()=>window.clearInterval(timer)},[]);
- const employee=employees.find(item=>item.id===employeeId)||null,targetEmployee=employees.find(item=>item.id===targetEmployeeId)||null;
- const route=useMemo(()=>{if(!employee)return[];const identity={id:employee.employeeId||employee.id,crewId:employee.crewId};return leads.filter(item=>item.canonicalVisitId&&item.canonicalRouteId&&item.scheduledDate===date&&belongsToCanonicalEmployee(item,identity)).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address))},[leads,employee,date]);
- const jobs=useMemo(()=>leads.filter(item=>!item.canonicalVisitId),[leads]);const candidates=jobs.filter(home=>`${home.name} ${home.address} ${home.assignedCrew||""}`.toLowerCase().includes(query.toLowerCase()));const selectedHomes=jobs.filter(home=>selected.includes(home.id));const done=route.filter(item=>item.status==="completed").length;
- function switchMode(next:Mode){setMode(next);setSelected([]);setDraft([]);setMessage("")}
- function toggle(id:string){setDraft([]);setSelected(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id])}
- function smartSelect(){const pool=candidates.filter(home=>!home.assignedCrew||home.canonicalCrewId===employee?.crewId);setSelected(pool.map(home=>home.id));setDraft([]);setMessage(`${pool.length} available houses selected.`)}
- async function buildPreview(){if(!employee||!selectedHomes.length){setMessage("Select an Employee and at least one house.");return}setBusy(true);setMessage("Mapping houses and calculating the smartest order...");try{const mapped=await Promise.all(selectedHomes.map(async home=>{if(Number.isFinite(home.latitude)&&Number.isFinite(home.longitude))return home;const response=await fetch(`/api/map/geocode?address=${encodeURIComponent(home.address)}`,{cache:"no-store"});return response.ok?{...home,...await response.json()as{latitude:number,longitude:number}}:home}));const located=mapped.filter(home=>Number.isFinite(home.latitude)&&Number.isFinite(home.longitude));let ordered=[...mapped].sort((a,b)=>a.address.localeCompare(b.address));if(located.length>1){let start:[number,number]=[Number(located[0].longitude),Number(located[0].latitude)];const origin=startAddress.trim()||employee.routeStartAddress||"";if(origin){const response=await fetch(`/api/map/geocode?address=${encodeURIComponent(origin)}`,{cache:"no-store"});if(response.ok){const point=await response.json()as{latitude:number,longitude:number};start=[point.longitude,point.latitude]}}const response=await fetch("/api/map/optimize",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({start,coordinates:located.map(home=>[Number(home.longitude),Number(home.latitude)])})});if(response.ok){const result=await response.json()as{order:number[]};ordered=[...result.order.map(index=>located[index]).filter(Boolean),...mapped.filter(home=>!located.some(item=>item.id===home.id))]}}setDraft(ordered);setMessage("Preview ready. Check the map and confirm.")}catch{setDraft([...selectedHomes].sort((a,b)=>a.address.localeCompare(b.address)));setMessage("Safe address order created for review.")}finally{setBusy(false)}}
- async function publish(){if(!employee||!draft.length){setMessage("Choose an Employee and generate the preview first.");return}if(!window.confirm(`Save and send ${draft.length} houses to ${employee.name} on ${date}?`))return;setBusy(true);try{const result=await routeApi({method:"POST",body:JSON.stringify({action:"smart",jobIds:draft.map(home=>home.canonicalJobId||home.id),employeeId:employee.employeeId,crewId:employee.crewId,routeDate:date})});setSelected([]);setDraft([]);setMode("view");await refresh(false);setMessage(`Route saved and verified. ${result.count} stop${result.count===1?"":"s"} were sent to ${result.employeeName||employee.name} for ${date}.`)}catch(error){setMessage(error instanceof Error?error.message:"Route could not be saved.")}finally{setBusy(false)}}
- async function moveHomes(){if(!targetEmployee||!selected.length){setMessage("Select houses and the destination Employee.");return}const homes=route.filter(home=>selected.includes(home.id));if(!homes.length){setMessage("Select houses from the current published route.");return}setBusy(true);try{const result=await routeApi({method:"POST",body:JSON.stringify({action:"move",jobIds:homes.map(home=>home.canonicalJobId||home.id),employeeId:targetEmployee.employeeId,crewId:targetEmployee.crewId,routeDate:targetDate})});setSelected([]);setMode("view");await refresh(false);setMessage(`${result.count} house${result.count===1?"":"s"} moved and verified for ${targetEmployee.name}.`)}catch(error){setMessage(error instanceof Error?error.message:"Houses could not be moved.")}finally{setBusy(false)}}
- return <MobileRoleGuard allowed={["admin","manager"]}><main className="mobile-app-shell role-mobile-shell mobile-native-subpage mobile-route-builder"><header className="role-mobile-topbar"><MobileBackButton fallback="/mobile/admin"/><div><strong>Routes</strong><span>Canonical Employee routes</span></div><button className="mobile-native-add mobile-native-check" onClick={()=>void refresh()} aria-label="Refresh">↻</button></header><section className="mobile-native-hero routes"><span>LIVE DATABASE</span><h1>{mode==="build"?"Build a route in seconds.":mode==="move"?"Move houses without rebuilding.":`${route.length} published stops for ${employee?.name||"Employee"}.`}</h1><p>{mode==="view"?`${done} completed · ${route.length-done} remaining`:"Select → preview → save → verify"}</p></section><nav className="mobile-route-modes"><button className={mode==="view"?"active":""} onClick={()=>switchMode("view")}>View</button><button className={mode==="build"?"active":""} onClick={()=>switchMode("build")}>＋ Build</button><button className={mode==="move"?"active":""} onClick={()=>switchMode("move")}>⇄ Move</button></nav><section className="mobile-route-pickers"><label><span>Employee</span><div><select value={employeeId} onChange={e=>{setEmployeeId(e.target.value);setSelected([]);setDraft([])}}>{employees.map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select><b>⌄</b></div></label><label><span>Day</span><div><input type="date" value={date} onChange={e=>{setDate(e.target.value);setSelected([]);setDraft([])}}/><b>⌄</b></div></label></section>{message&&<div className="mobile-native-message" role="status" aria-live="polite">{message}</div>}
- {mode==="view"&&<><div className="mobile-native-toggle"><button className={mapView?"active":""} onClick={()=>setMapView(true)}>Map</button><button className={!mapView?"active":""} onClick={()=>setMapView(false)}>List <b>{route.length}</b></button></div>{mapView?<EmployeeRouteMap route={route} actionLabel="Show in list" onOpenVisit={()=>setMapView(false)}/>:<RouteList homes={route} selected={selected} onToggle={toggle} selectable={false}/>}</>}
- {mode==="build"&&<><div className="mobile-native-search"><i>⌕</i><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search customer or address"/><button onClick={smartSelect}>Smart</button></div><div className="mobile-selection-head"><span>{selected.length} selected</span><button onClick={()=>setSelected(selected.length?[]:candidates.map(home=>home.id))}>{selected.length?"Clear":"Select all"}</button></div><RouteList homes={candidates} selected={selected} onToggle={toggle} selectable/><section className="mobile-route-origin"><label>Start address <small>Employee default or manual</small></label><AddressAutocomplete value={startAddress} onChange={value=>{setStartAddress(value);setDraft([])}} placeholder={employee?.routeStartAddress||"Employee location or manual address"} ariaLabel="Route start"/><button disabled={busy||!selected.length} onClick={()=>void buildPreview()}>{busy?"Optimizing…":"Generate Smart Route"}</button></section>{draft.length>0&&<section className="mobile-route-preview"><header><div><strong>Preview</strong><span>{draft.length} stops · {employee?.name}</span></div><button disabled={busy} onClick={()=>void publish()}>{busy?"Saving…":"Save & Send Route"}</button></header><EmployeeRouteMap route={draft} actionLabel="Select stop" onOpenVisit={()=>{}}/><RouteList homes={draft} selected={[]} onToggle={()=>{}} selectable={false}/></section>}</>}
- {mode==="move"&&<><p className="mobile-route-help">Select houses from {employee?.name} on {date}, then choose the destination.</p><RouteList homes={route} selected={selected} onToggle={toggle} selectable/><section className="mobile-move-panel"><label><span>Move to Employee</span><div><select value={targetEmployeeId} onChange={e=>setTargetEmployeeId(e.target.value)}>{employees.filter(item=>item.id!==employeeId).map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select><b>⌄</b></div></label><label><span>Move to day</span><div><input type="date" value={targetDate} onChange={e=>setTargetDate(e.target.value)}/><b>⌄</b></div></label><button disabled={busy||!selected.length} onClick={()=>void moveHomes()}>{busy?"Moving…":`Move ${selected.length} house${selected.length===1?"":"s"}`}</button></section></>}
- <MobileAdminNav active="routes"/></main></MobileRoleGuard>
+type Mode = "view" | "build" | "advisor" | "move";
+type RouteEmployee = {
+  id: string;
+  employeeId: string;
+  crewId: string;
+  name: string;
+  email: string;
+  routeStartAddress: string | null;
+};
+
+const today = () => operationalDateKey();
+
+async function token() {
+  const client = getSupabaseBrowserClient() as any;
+  const { data } = await client.auth.getSession();
+  const value = data.session?.access_token;
+  if (!value) throw new Error("Your Admin session expired.");
+  return value;
 }
-function RouteList({homes,selected,onToggle,selectable}:{homes:RouteLead[];selected:string[];onToggle:(id:string)=>void;selectable:boolean}){return <section className="mobile-native-route-list selectable">{homes.map((home,index)=><button className={selected.includes(home.id)?"selected":""} onClick={()=>selectable&&onToggle(home.id)} type="button" key={home.id}><b>{selectable?(selected.includes(home.id)?"✓":""):index+1}</b><div><strong>{home.name}</strong><span>{home.address}</span><small>{home.service} · {home.assignedCrew||"Unassigned"}</small></div><i className={home.status==="completed"?"done":""}>{home.status==="completed"?"Done":home.canonicalRouteId?home.assignedCrew||"Scheduled":"Not published"}</i></button>)}{!homes.length&&<div className="mobile-native-empty"><i>⌖</i><strong>No published houses found</strong><p>The Employee portal and Admin now use the same dated Route.</p></div>}</section>}
+
+async function routeApi(options?: RequestInit) {
+  const access = await token();
+  const response = await fetch("/api/admin/routes", {
+    ...options,
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${access}`,
+      ...(options?.headers || {}),
+    },
+    cache: "no-store",
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Route operation failed.");
+  return result;
+}
+
+export default function MobileAdminRoutes() {
+  const [leads, setLeads] = useState<RouteLead[]>([]);
+  const [employees, setEmployees] = useState<RouteEmployee[]>([]);
+  const [employeeId, setEmployeeId] = useState("");
+  const [date, setDate] = useState(today());
+  const [mode, setMode] = useState<Mode>("view");
+  const [mapView, setMapView] = useState(true);
+  const [message, setMessage] = useState("Loading routes...");
+  const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [startAddress, setStartAddress] = useState("");
+  const [draft, setDraft] = useState<RouteLead[]>([]);
+  const [targetEmployeeId, setTargetEmployeeId] = useState("");
+  const [targetDate, setTargetDate] = useState(today());
+
+  async function refresh(clearMessage = true) {
+    try {
+      const result = await routeApi();
+      const realEmployees: RouteEmployee[] = result.employees || [];
+      setEmployees(realEmployees);
+      setLeads(schedulingBoardToLeads((result.board || {}) as SchedulingDispatchBoard));
+      setEmployeeId(current => realEmployees.some(item => item.id === current)
+        ? current
+        : realEmployees[0]?.id || "");
+      setTargetEmployeeId(current => realEmployees.some(item => item.id === current)
+        ? current
+        : realEmployees[1]?.id || realEmployees[0]?.id || "");
+      if (clearMessage) setMessage(realEmployees.length ? "" : "No active Employees found.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Routes could not be loaded.");
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(false), 10_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const employee = employees.find(item => item.id === employeeId) || null;
+  const targetEmployee = employees.find(item => item.id === targetEmployeeId) || null;
+  const route = useMemo(() => {
+    if (!employee) return [];
+    const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId };
+    return leads
+      .filter(item => item.canonicalVisitId
+        && item.canonicalRouteId
+        && item.scheduledDate === date
+        && belongsToCanonicalEmployee(item, identity))
+      .sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999)
+        || a.address.localeCompare(b.address));
+  }, [leads, employee, date]);
+
+  const jobs = useMemo(() => leads.filter(item => !item.canonicalVisitId), [leads]);
+  const candidates = jobs.filter(home => `${home.name} ${home.address} ${home.assignedCrew || ""}`
+    .toLowerCase()
+    .includes(query.toLowerCase()));
+  const selectedHomes = jobs.filter(home => selected.includes(home.id));
+  const done = route.filter(item => item.canonicalVisitStatus === "completed" || item.status === "completed").length;
+
+  function switchMode(next: Mode) {
+    setMode(next);
+    setSelected([]);
+    setDraft([]);
+    setMessage("");
+    if (next === "view") void refresh(false);
+  }
+
+  function toggle(id: string) {
+    setDraft([]);
+    setSelected(current => current.includes(id)
+      ? current.filter(value => value !== id)
+      : [...current, id]);
+  }
+
+  function smartSelect() {
+    const pool = candidates.filter(home => !home.assignedCrew || home.canonicalCrewId === employee?.crewId);
+    setSelected(pool.map(home => home.id));
+    setDraft([]);
+    setMessage(`${pool.length} available houses selected.`);
+  }
+
+  async function buildPreview() {
+    if (!employee || !selectedHomes.length) {
+      setMessage("Select an Employee and at least one house.");
+      return;
+    }
+    setBusy(true);
+    setMessage("Mapping houses and calculating the smartest order...");
+    try {
+      const mapped = await Promise.all(selectedHomes.map(async home => {
+        if (Number.isFinite(home.latitude) && Number.isFinite(home.longitude)) return home;
+        const response = await fetch(`/api/map/geocode?address=${encodeURIComponent(home.address)}`, { cache: "no-store" });
+        return response.ok
+          ? { ...home, ...await response.json() as { latitude: number; longitude: number } }
+          : home;
+      }));
+      const located = mapped.filter(home => Number.isFinite(home.latitude) && Number.isFinite(home.longitude));
+      let ordered = [...mapped].sort((a, b) => a.address.localeCompare(b.address));
+      if (located.length > 1) {
+        let start: [number, number] = [Number(located[0].longitude), Number(located[0].latitude)];
+        const origin = startAddress.trim() || employee.routeStartAddress || "";
+        if (origin) {
+          const response = await fetch(`/api/map/geocode?address=${encodeURIComponent(origin)}`, { cache: "no-store" });
+          if (response.ok) {
+            const point = await response.json() as { latitude: number; longitude: number };
+            start = [point.longitude, point.latitude];
+          }
+        }
+        const response = await fetch("/api/map/optimize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            start,
+            coordinates: located.map(home => [Number(home.longitude), Number(home.latitude)]),
+          }),
+        });
+        if (response.ok) {
+          const result = await response.json() as { order: number[] };
+          ordered = [
+            ...result.order.map(index => located[index]).filter(Boolean),
+            ...mapped.filter(home => !located.some(item => item.id === home.id)),
+          ];
+        }
+      }
+      setDraft(ordered);
+      setMessage("Preview ready. Check the map and confirm.");
+    } catch {
+      setDraft([...selectedHomes].sort((a, b) => a.address.localeCompare(b.address)));
+      setMessage("Safe address order created for review.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function publish() {
+    if (!employee || !draft.length) {
+      setMessage("Choose an Employee and generate the preview first.");
+      return;
+    }
+    if (!window.confirm(`Save and send ${draft.length} houses to ${employee.name} on ${date}?`)) return;
+    setBusy(true);
+    try {
+      const result = await routeApi({
+        method: "POST",
+        body: JSON.stringify({
+          action: "smart",
+          jobIds: draft.map(home => home.canonicalJobId || home.id),
+          employeeId: employee.employeeId,
+          crewId: employee.crewId,
+          routeDate: date,
+        }),
+      });
+      setSelected([]);
+      setDraft([]);
+      setMode("view");
+      await refresh(false);
+      setMessage(`Route saved and verified. ${result.count} stop${result.count === 1 ? "" : "s"} were sent to ${result.employeeName || employee.name} for ${date}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Route could not be saved.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function moveHomes() {
+    if (!targetEmployee || !selected.length) {
+      setMessage("Select houses and the destination Employee.");
+      return;
+    }
+    const homes = route.filter(home => selected.includes(home.id));
+    if (!homes.length) {
+      setMessage("Select houses from the current published route.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await routeApi({
+        method: "POST",
+        body: JSON.stringify({
+          action: "move",
+          jobIds: homes.map(home => home.canonicalJobId || home.id),
+          employeeId: targetEmployee.employeeId,
+          crewId: targetEmployee.crewId,
+          routeDate: targetDate,
+        }),
+      });
+      setSelected([]);
+      setMode("view");
+      await refresh(false);
+      setMessage(`${result.count} house${result.count === 1 ? "" : "s"} moved and verified for ${targetEmployee.name}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Houses could not be moved.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const heroTitle = mode === "build"
+    ? "Build a route in seconds."
+    : mode === "advisor"
+      ? "Plan the strongest route with full control."
+      : mode === "move"
+        ? "Move houses without rebuilding."
+        : `${route.length} published stops for ${employee?.name || "Employee"}.`;
+
+  return <MobileRoleGuard allowed={["admin", "manager"]}>
+    <main className="mobile-app-shell role-mobile-shell mobile-native-subpage mobile-route-builder">
+      <header className="role-mobile-topbar">
+        <MobileBackButton fallback="/mobile/admin" />
+        <div><strong>Routes</strong><span>Canonical Employee routes</span></div>
+        <button className="mobile-native-add mobile-native-check" onClick={() => void refresh()} aria-label="Refresh">↻</button>
+      </header>
+
+      <section className="mobile-native-hero routes">
+        <span>LIVE DATABASE</span>
+        <h1>{heroTitle}</h1>
+        <p>{mode === "view"
+          ? `${done} completed · ${route.length - done} remaining`
+          : mode === "advisor"
+            ? "Recommend → review → reorder → publish"
+            : "Select → preview → save → verify"}</p>
+      </section>
+
+      <nav className="mobile-route-modes mobile-route-modes-four">
+        <button className={mode === "view" ? "active" : ""} onClick={() => switchMode("view")}>View</button>
+        <button className={mode === "build" ? "active" : ""} onClick={() => switchMode("build")}>＋ Build</button>
+        <button className={mode === "advisor" ? "active" : ""} onClick={() => switchMode("advisor")}>Advisor</button>
+        <button className={mode === "move" ? "active" : ""} onClick={() => switchMode("move")}>⇄ Move</button>
+      </nav>
+
+      {mode !== "advisor" && <section className="mobile-route-pickers">
+        <label><span>Employee</span><div><select value={employeeId} onChange={event => { setEmployeeId(event.target.value); setSelected([]); setDraft([]); }}>{employees.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><b>⌄</b></div></label>
+        <label><span>Day</span><div><input type="date" value={date} onChange={event => { setDate(event.target.value); setSelected([]); setDraft([]); }} /><b>⌄</b></div></label>
+      </section>}
+
+      {message && mode !== "advisor" && <div className="mobile-native-message" role="status" aria-live="polite">{message}</div>}
+
+      {mode === "view" && <>
+        <div className="mobile-native-toggle"><button className={mapView ? "active" : ""} onClick={() => setMapView(true)}>Map</button><button className={!mapView ? "active" : ""} onClick={() => setMapView(false)}>List <b>{route.length}</b></button></div>
+        {mapView
+          ? <EmployeeRouteMap route={route} actionLabel="Show in list" onOpenVisit={() => setMapView(false)} />
+          : <RouteList homes={route} selected={selected} onToggle={toggle} selectable={false} />}
+      </>}
+
+      {mode === "build" && <>
+        <div className="mobile-native-search"><i>⌕</i><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search customer or address" /><button onClick={smartSelect}>Smart</button></div>
+        <div className="mobile-selection-head"><span>{selected.length} selected</span><button onClick={() => setSelected(selected.length ? [] : candidates.map(home => home.id))}>{selected.length ? "Clear" : "Select all"}</button></div>
+        <RouteList homes={candidates} selected={selected} onToggle={toggle} selectable />
+        <section className="mobile-route-origin">
+          <label>Start address <small>Employee default or manual</small></label>
+          <AddressAutocomplete value={startAddress} onChange={value => { setStartAddress(value); setDraft([]); }} placeholder={employee?.routeStartAddress || "Employee location or manual address"} ariaLabel="Route start" />
+          <button disabled={busy || !selected.length} onClick={() => void buildPreview()}>{busy ? "Optimizing…" : "Generate Smart Route"}</button>
+        </section>
+        {draft.length > 0 && <section className="mobile-route-preview">
+          <header><div><strong>Preview</strong><span>{draft.length} stops · {employee?.name}</span></div><button disabled={busy} onClick={() => void publish()}>{busy ? "Saving…" : "Save & Send Route"}</button></header>
+          <EmployeeRouteMap route={draft} actionLabel="Select stop" onOpenVisit={() => {}} />
+          <RouteList homes={draft} selected={[]} onToggle={() => {}} selectable={false} />
+        </section>}
+      </>}
+
+      {mode === "advisor" && <section className="mobile-route-advisor">
+        <RouteAdvisorPanel />
+      </section>}
+
+      {mode === "move" && <>
+        <p className="mobile-route-help">Select houses from {employee?.name} on {date}, then choose the destination.</p>
+        <RouteList homes={route} selected={selected} onToggle={toggle} selectable />
+        <section className="mobile-move-panel">
+          <label><span>Move to Employee</span><div><select value={targetEmployeeId} onChange={event => setTargetEmployeeId(event.target.value)}>{employees.filter(item => item.id !== employeeId).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><b>⌄</b></div></label>
+          <label><span>Move to day</span><div><input type="date" value={targetDate} onChange={event => setTargetDate(event.target.value)} /><b>⌄</b></div></label>
+          <button disabled={busy || !selected.length} onClick={() => void moveHomes()}>{busy ? "Moving…" : `Move ${selected.length} house${selected.length === 1 ? "" : "s"}`}</button>
+        </section>
+      </>}
+
+      <style jsx global>{`
+        .mobile-route-modes-four{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+        .mobile-route-modes-four button{min-width:0;padding-left:6px!important;padding-right:6px!important}
+        .mobile-route-advisor{display:grid;min-width:0;margin-top:12px;padding-bottom:20px}
+        .mobile-route-advisor .advisor-shell{min-width:0;gap:12px}
+        .mobile-route-advisor .advisor-hero{padding:18px;border-radius:20px}
+        .mobile-route-advisor .advisor-hero h2{font-size:27px}
+        .mobile-route-advisor .advisor-controls,.mobile-route-advisor .advisor-house-picker,.mobile-route-advisor .advisor-main{min-width:0}
+      `}</style>
+
+      <MobileAdminNav active="routes" />
+    </main>
+  </MobileRoleGuard>;
+}
+
+function RouteList({ homes, selected, onToggle, selectable }: {
+  homes: RouteLead[];
+  selected: string[];
+  onToggle: (id: string) => void;
+  selectable: boolean;
+}) {
+  return <section className="mobile-native-route-list selectable">
+    {homes.map((home, index) => <button className={selected.includes(home.id) ? "selected" : ""} onClick={() => selectable && onToggle(home.id)} type="button" key={home.id}>
+      <b>{selectable ? (selected.includes(home.id) ? "✓" : "") : index + 1}</b>
+      <div><strong>{home.name}</strong><span>{home.address}</span><small>{home.service} · {home.assignedCrew || "Unassigned"}</small></div>
+      <i className={home.canonicalVisitStatus === "completed" || home.status === "completed" ? "done" : ""}>{home.canonicalVisitStatus === "completed" || home.status === "completed" ? "Done" : home.canonicalRouteId ? home.assignedCrew || "Scheduled" : "Not published"}</i>
+    </button>)}
+    {!homes.length && <div className="mobile-native-empty"><i>⌖</i><strong>No published houses found</strong><p>The Employee portal and Admin use the same dated Route.</p></div>}
+  </section>;
+}
