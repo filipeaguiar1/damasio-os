@@ -1,0 +1,117 @@
+.overviewMap {
+  position: relative;
+  min-height: 520px;
+  overflow: hidden;
+}
+
+.focusedRoute {
+  position: relative;
+  min-height: 560px;
+}
+
+.housePanel {
+  top: 18px !important;
+  right: 18px !important;
+  bottom: 18px;
+  width: min(310px, calc(100% - 36px)) !important;
+  max-height: none !important;
+  overflow: hidden !important;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.houseScroll {
+  min-height: 0;
+  max-height: none !important;
+  overflow-y: auto !important;
+}
+
+.statusList {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px 16px;
+}
+
+.statusRow {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid #dfe9e3;
+  border-radius: 13px;
+  background: #fff;
+  color: #173629;
+  text-decoration: none;
+  box-shadow: 0 7px 20px rgba(15, 39, 28, 0.04);
+}
+
+.statusRow:hover {
+  border-color: #b8d8c5;
+  background: #fbfdfb;
+}
+
+.statusHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+}
+
+.statusHeader strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statusHeader span {
+  flex: 0 0 auto;
+  color: #0b7046;
+  font-size: 20px;
+  font-weight: 950;
+  letter-spacing: -0.04em;
+}
+
+.statusTrack {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e7eeea;
+}
+
+.statusTrack i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #0b7046;
+  transition: width 0.2s ease;
+}
+
+.statusRow small {
+  color: #6c7c73;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+@media (max-width: 900px) {
+  .overviewMap {
+    min-height: 430px;
+  }
+
+  .focusedRoute {
+    min-height: 0;
+  }
+
+  .housePanel {
+    position: relative !important;
+    inset: auto !important;
+    width: 100% !important;
+    max-height: 360px !important;
+    margin-top: 12px;
+  }
+
+  .houseScroll {
+    max-height: 285px !important;
+  }
+}
