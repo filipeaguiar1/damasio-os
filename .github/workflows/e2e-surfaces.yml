@@ -1,0 +1,53 @@
+name: E2E Surfaces
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-surfaces-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      E2E_EMPLOYEE_EMAIL: ${{ secrets.E2E_EMPLOYEE_EMAIL }}
+      E2E_EMPLOYEE_PASSWORD: ${{ secrets.E2E_EMPLOYEE_PASSWORD }}
+      E2E_CUSTOMER_EMAIL: ${{ secrets.E2E_CUSTOMER_EMAIL }}
+      E2E_CUSTOMER_PASSWORD: ${{ secrets.E2E_CUSTOMER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright runner
+        run: npm install --no-save --no-package-lock @playwright/test@1.54.1
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build application
+        run: pnpm build
+      - name: Run desktop mobile and PWA QA
+        run: npx playwright test
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-surfaces-${{ github.run_id }}
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 14
