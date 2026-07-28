@@ -26,7 +26,10 @@ function companyFilter(companyId: string) {
 
 function rpcError(message?: string) {
   const value = message || "Canonical route operation failed.";
-  if (/publish_canonical_route|reopen_completed_visit|schema cache|could not find the function/i.test(value)) {
+  if (/publish_canonical_route_daily|schema cache|could not find the function/i.test(value)) {
+    return new Error("Supabase migration 202607280001_route_assignment_modes.sql is pending.");
+  }
+  if (/reopen_completed_visit/i.test(value)) {
     return new Error("Supabase migration 202607270003_completed_visit_reopen_guard.sql is pending or not confirmed.");
   }
   return new Error(value);
@@ -176,7 +179,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const result = await user.rpc("publish_canonical_route", {
+    const result = await user.rpc("publish_canonical_route_daily", {
       p_employee_id: employeeId,
       p_crew_id: crewId,
       p_route_date: routeDate,
