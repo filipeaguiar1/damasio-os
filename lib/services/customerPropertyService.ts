@@ -1,10 +1,8 @@
 import { createCustomerProperty, deleteCustomerRecords, listCustomerProperties, type CreateCustomerPropertyInput, type CustomerPropertyRecord } from "@/lib/repositories/customerPropertyRepository";
 import { createManualCustomer, getLeads, Lead, seedDemoLeads, setLeads } from "@/lib/storage";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
-import { createOperationQuote, updateOperationQuoteStatus } from "@/lib/repositories/operationsRepository";
 import { readDemoSession } from "@/lib/auth/demoAuth";
 
-// Keep local/demo records aligned with the canonical ownership fields used in production.
 function normalize(value: string | null | undefined) {
   return (value || "").trim().toLowerCase();
 }
@@ -52,18 +50,6 @@ function usesLocalDemoData(){
   return Boolean(readDemoSession()) || !isSupabaseConfigured();
 }
 
-function mergeDirectory(remote: CustomerPropertyRecord[], local: CustomerPropertyRecord[]) {
-  const seen = new Set<string>();
-  const merged: CustomerPropertyRecord[] = [];
-  [...remote, ...local].forEach((record) => {
-    const key = normalize(record.email) || normalize(record.addressLine1) || record.propertyId;
-    if (seen.has(key)) return;
-    seen.add(key);
-    merged.push(record);
-  });
-  return merged;
-}
-
 export async function getCustomerPropertyDirectory() {
   if(usesLocalDemoData()){
     seedDemoLeads();
@@ -85,9 +71,9 @@ export async function addCustomerWithProperty(input: CreateCustomerPropertyInput
       email: input.email || "",
       address: input.addressLine1,
       service: input.serviceName || "Weekly Lawn Care",
-      subtotal: 0,
-      tax: 0,
-      total: 0,
+      subtotal: input.subtotal || 0,
+      tax: Math.round((input.subtotal || 0) * 0.13 * 100) / 100,
+      total: Math.round((input.subtotal || 0) * 1.13 * 100) / 100,
       notes: input.customerNotes,
       propertyDetails: {
         lawnSize: input.lotSize || "small",
@@ -102,14 +88,7 @@ export async function addCustomerWithProperty(input: CreateCustomerPropertyInput
     return leadToCustomerPropertyRecord(lead);
   }
 
-  const record=await createCustomerProperty(input);
-  if(input.serviceName){
-    const board=await createOperationQuote({customerId:record.customerId,propertyId:record.propertyId,serviceName:input.serviceName,subtotal:input.subtotal||0,notes:`Admin-created customer · ${input.frequency||"one_time"}`});
-    const quote=board.quotes.find(item=>item.propertyId===record.propertyId&&item.status==="draft");
-    if(!quote)throw new Error("Customer and property were saved, but the service quote could not be created.");
-    await updateOperationQuoteStatus(quote.id,"approved");
-  }
-  return record;
+  return createCustomerProperty(input);
 }
 
 export async function deleteCustomers(customerIds:string[]){
@@ -119,9 +98,5 @@ export async function deleteCustomers(customerIds:string[]){
     setLeads(next);
     return before.length-next.length;
   }
-  try{return await deleteCustomerRecords(ids)}catch(error){
-    const message=error instanceof Error?error.message:"Customer removal failed.";
-    if(message.toLowerCase().includes("permission denied"))throw new Error("Your session cannot remove customers. Sign out, sign in with a real company Admin account, and try again after installing the pre-launch database migration.");
-    throw error;
-  }
+  return deleteCustomerRecords(ids);
 }
