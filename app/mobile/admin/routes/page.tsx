@@ -5,7 +5,6 @@ import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { MobileBackButton } from "@/components/mobile/MobileBackButton";
 import { MobileAdminNav } from "@/components/mobile/MobileAdminNav";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
-import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
 import { RouteAdvisorPanel } from "@/components/admin/RouteAdvisorPanel";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulingService";
@@ -14,6 +13,8 @@ import { belongsToCanonicalEmployee } from "@/lib/routes/canonicalRouteIdentity"
 import { operationalDateKey } from "@/lib/dates/operationalDate";
 
 type Mode = "view" | "build" | "advisor" | "move";
+type MoveMode = "temporary" | "permanent";
+type AdvisorHelp = "recommend" | "preview" | "publish" | null;
 type RouteEmployee = {
   id: string;
   employeeId: string;
@@ -24,6 +25,8 @@ type RouteEmployee = {
 };
 
 const today = () => operationalDateKey();
+const selectionId = (home: RouteLead) => home.canonicalVisitId || home.canonicalJobId || home.id;
+const jobId = (home: RouteLead) => home.canonicalJobId || home.id;
 
 async function token() {
   const client = getSupabaseBrowserClient() as any;
@@ -33,9 +36,9 @@ async function token() {
   return value;
 }
 
-async function routeApi(options?: RequestInit) {
+async function api(path: string, options?: RequestInit) {
   const access = await token();
-  const response = await fetch("/api/admin/routes", {
+  const response = await fetch(path, {
     ...options,
     headers: {
       "content-type": "application/json",
@@ -53,21 +56,20 @@ export default function MobileAdminRoutes() {
   const [leads, setLeads] = useState<RouteLead[]>([]);
   const [employees, setEmployees] = useState<RouteEmployee[]>([]);
   const [employeeId, setEmployeeId] = useState("");
+  const [targetEmployeeId, setTargetEmployeeId] = useState("");
   const [date, setDate] = useState(today());
   const [mode, setMode] = useState<Mode>("view");
+  const [moveMode, setMoveMode] = useState<MoveMode>("temporary");
   const [mapView, setMapView] = useState(true);
   const [message, setMessage] = useState("Loading routes...");
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
-  const [startAddress, setStartAddress] = useState("");
-  const [draft, setDraft] = useState<RouteLead[]>([]);
-  const [targetEmployeeId, setTargetEmployeeId] = useState("");
-  const [targetDate, setTargetDate] = useState(today());
+  const [advisorHelp, setAdvisorHelp] = useState<AdvisorHelp>(null);
 
   async function refresh(clearMessage = true) {
     try {
-      const result = await routeApi();
+      const result = await api("/api/admin/routes");
       const realEmployees: RouteEmployee[] = result.employees || [];
       setEmployees(realEmployees);
       setLeads(schedulingBoardToLeads((result.board || {}) as SchedulingDispatchBoard));
@@ -91,6 +93,7 @@ export default function MobileAdminRoutes() {
 
   const employee = employees.find(item => item.id === employeeId) || null;
   const targetEmployee = employees.find(item => item.id === targetEmployeeId) || null;
+
   const route = useMemo(() => {
     if (!employee) return [];
     const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId };
@@ -104,112 +107,49 @@ export default function MobileAdminRoutes() {
   }, [leads, employee, date]);
 
   const jobs = useMemo(() => leads.filter(item => !item.canonicalVisitId), [leads]);
-  const candidates = jobs.filter(home => `${home.name} ${home.address} ${home.assignedCrew || ""}`
-    .toLowerCase()
-    .includes(query.toLowerCase()));
-  const selectedHomes = jobs.filter(home => selected.includes(home.id));
+  const availableJobs = useMemo(() => jobs.filter(item => !item.canonicalCrewId), [jobs]);
+  const candidates = useMemo(() => availableJobs.filter(home =>
+    `${home.name} ${home.address} ${home.service}`.toLowerCase().includes(query.toLowerCase())),
+  [availableJobs, query]);
+  const movableRoute = useMemo(() => route.filter(item =>
+    (item.canonicalVisitStatus || item.status) === "scheduled"), [route]);
   const done = route.filter(item => item.canonicalVisitStatus === "completed" || item.status === "completed").length;
 
   function switchMode(next: Mode) {
     setMode(next);
     setSelected([]);
-    setDraft([]);
+    setQuery("");
     setMessage("");
+    setAdvisorHelp(null);
     if (next === "view") void refresh(false);
   }
 
   function toggle(id: string) {
-    setDraft([]);
     setSelected(current => current.includes(id)
       ? current.filter(value => value !== id)
       : [...current, id]);
   }
 
-  function smartSelect() {
-    const pool = candidates.filter(home => !home.assignedCrew || home.canonicalCrewId === employee?.crewId);
-    setSelected(pool.map(home => home.id));
-    setDraft([]);
-    setMessage(`${pool.length} available houses selected.`);
-  }
-
-  async function buildPreview() {
-    if (!employee || !selectedHomes.length) {
-      setMessage("Select an Employee and at least one house.");
+  async function assignJobs() {
+    if (!employee || !selected.length) {
+      setMessage("Select an Employee and at least one available customer.");
       return;
     }
     setBusy(true);
-    setMessage("Mapping houses and calculating the smartest order...");
     try {
-      const mapped = await Promise.all(selectedHomes.map(async home => {
-        if (Number.isFinite(home.latitude) && Number.isFinite(home.longitude)) return home;
-        const response = await fetch(`/api/map/geocode?address=${encodeURIComponent(home.address)}`, { cache: "no-store" });
-        return response.ok
-          ? { ...home, ...await response.json() as { latitude: number; longitude: number } }
-          : home;
-      }));
-      const located = mapped.filter(home => Number.isFinite(home.latitude) && Number.isFinite(home.longitude));
-      let ordered = [...mapped].sort((a, b) => a.address.localeCompare(b.address));
-      if (located.length > 1) {
-        let start: [number, number] = [Number(located[0].longitude), Number(located[0].latitude)];
-        const origin = startAddress.trim() || employee.routeStartAddress || "";
-        if (origin) {
-          const response = await fetch(`/api/map/geocode?address=${encodeURIComponent(origin)}`, { cache: "no-store" });
-          if (response.ok) {
-            const point = await response.json() as { latitude: number; longitude: number };
-            start = [point.longitude, point.latitude];
-          }
-        }
-        const response = await fetch("/api/map/optimize", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            start,
-            coordinates: located.map(home => [Number(home.longitude), Number(home.latitude)]),
-          }),
-        });
-        if (response.ok) {
-          const result = await response.json() as { order: number[] };
-          ordered = [
-            ...result.order.map(index => located[index]).filter(Boolean),
-            ...mapped.filter(home => !located.some(item => item.id === home.id)),
-          ];
-        }
-      }
-      setDraft(ordered);
-      setMessage("Preview ready. Check the map and confirm.");
-    } catch {
-      setDraft([...selectedHomes].sort((a, b) => a.address.localeCompare(b.address)));
-      setMessage("Safe address order created for review.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function publish() {
-    if (!employee || !draft.length) {
-      setMessage("Choose an Employee and generate the preview first.");
-      return;
-    }
-    if (!window.confirm(`Save and send ${draft.length} houses to ${employee.name} on ${date}?`)) return;
-    setBusy(true);
-    try {
-      const result = await routeApi({
+      const result = await api("/api/admin/routes", {
         method: "POST",
         body: JSON.stringify({
-          action: "smart",
-          jobIds: draft.map(home => home.canonicalJobId || home.id),
-          employeeId: employee.employeeId,
+          action: "assign",
+          jobIds: selected,
           crewId: employee.crewId,
-          routeDate: date,
         }),
       });
       setSelected([]);
-      setDraft([]);
-      setMode("view");
       await refresh(false);
-      setMessage(`Route saved and verified. ${result.count} stop${result.count === 1 ? "" : "s"} were sent to ${result.employeeName || employee.name} for ${date}.`);
+      setMessage(`${result.count} customer${result.count === 1 ? "" : "s"} permanently assigned to ${employee.name}. Route Advisor will choose dated Visits.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Route could not be saved.");
+      setMessage(error instanceof Error ? error.message : "Customers could not be assigned.");
     } finally {
       setBusy(false);
     }
@@ -217,30 +157,39 @@ export default function MobileAdminRoutes() {
 
   async function moveHomes() {
     if (!targetEmployee || !selected.length) {
-      setMessage("Select houses and the destination Employee.");
+      setMessage("Select scheduled houses and the destination Employee.");
       return;
     }
-    const homes = route.filter(home => selected.includes(home.id));
-    if (!homes.length) {
-      setMessage("Select houses from the current published route.");
+
+    const visits = movableRoute.filter(home => selected.includes(selectionId(home)));
+    if (!visits.length) {
+      setMessage("Only Scheduled Visits from the selected day can be moved.");
       return;
     }
+
+    const permanent = moveMode === "permanent";
+    const confirmed = window.confirm(permanent
+      ? `Permanently assign ${visits.length} house${visits.length === 1 ? "" : "s"} to ${targetEmployee.name}? Future Scheduled Visits will also move.`
+      : `Temporarily send ${visits.length} house${visits.length === 1 ? "" : "s"} to ${targetEmployee.name} for ${date}? Permanent ownership will not change.`);
+    if (!confirmed) return;
+
     setBusy(true);
     try {
-      const result = await routeApi({
+      const result = await api("/api/admin/route-assignment", {
         method: "POST",
         body: JSON.stringify({
-          action: "move",
-          jobIds: homes.map(home => home.canonicalJobId || home.id),
+          mode: moveMode,
+          visitIds: visits.map(home => home.canonicalVisitId || home.id),
           employeeId: targetEmployee.employeeId,
           crewId: targetEmployee.crewId,
-          routeDate: targetDate,
         }),
       });
       setSelected([]);
       setMode("view");
       await refresh(false);
-      setMessage(`${result.count} house${result.count === 1 ? "" : "s"} moved and verified for ${targetEmployee.name}.`);
+      setMessage(permanent
+        ? `${result.jobCount} permanent Job assignment${result.jobCount === 1 ? "" : "s"} moved to ${targetEmployee.name}.`
+        : `${result.selectedCount} Visit${result.selectedCount === 1 ? "" : "s"} temporarily sent to ${targetEmployee.name}; future work stays with the regular Employee.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Houses could not be moved.");
     } finally {
@@ -249,12 +198,18 @@ export default function MobileAdminRoutes() {
   }
 
   const heroTitle = mode === "build"
-    ? "Build a route in seconds."
-    : mode === "advisor"
-      ? "Plan the strongest route with full control."
-      : mode === "move"
-        ? "Move houses without rebuilding."
-        : `${route.length} published stops for ${employee?.name || "Employee"}.`;
+    ? "Assign new customers."
+    : mode === "move"
+      ? "Temporary or permanent move."
+      : `${route.length} published stops for ${employee?.name || "Employee"}.`;
+
+  const helpText = advisorHelp === "recommend"
+    ? "Recommendation compares distance, workload, capacity, due date and the regular Employee. It never publishes automatically."
+    : advisorHelp === "preview"
+      ? "Preview lets the Admin change Employee, date and house order before saving."
+      : advisorHelp === "publish"
+        ? "Publish creates or moves dated Visits only. Permanent Job ownership remains controlled by Build and Permanent Move."
+        : "";
 
   return <MobileRoleGuard allowed={["admin", "manager"]}>
     <main className="mobile-app-shell role-mobile-shell mobile-native-subpage mobile-route-builder">
@@ -264,15 +219,15 @@ export default function MobileAdminRoutes() {
         <button className="mobile-native-add mobile-native-check" onClick={() => void refresh()} aria-label="Refresh">↻</button>
       </header>
 
-      <section className="mobile-native-hero routes">
+      {mode !== "advisor" && <section className="mobile-native-hero routes">
         <span>LIVE DATABASE</span>
         <h1>{heroTitle}</h1>
         <p>{mode === "view"
           ? `${done} completed · ${route.length - done} remaining`
-          : mode === "advisor"
-            ? "Recommend → review → reorder → publish"
-            : "Select → preview → save → verify"}</p>
-      </section>
+          : mode === "build"
+            ? "Customer Job → permanent Employee"
+            : "Scheduled Visit → chosen Employee"}</p>
+      </section>}
 
       <nav className="mobile-route-modes mobile-route-modes-four">
         <button className={mode === "view" ? "active" : ""} onClick={() => switchMode("view")}>View</button>
@@ -281,9 +236,13 @@ export default function MobileAdminRoutes() {
         <button className={mode === "move" ? "active" : ""} onClick={() => switchMode("move")}>⇄ Move</button>
       </nav>
 
-      {mode !== "advisor" && <section className="mobile-route-pickers">
-        <label><span>Employee</span><div><select value={employeeId} onChange={event => { setEmployeeId(event.target.value); setSelected([]); setDraft([]); }}>{employees.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><b>⌄</b></div></label>
-        <label><span>Day</span><div><input type="date" value={date} onChange={event => { setDate(event.target.value); setSelected([]); setDraft([]); }} /><b>⌄</b></div></label>
+      {(mode === "view" || mode === "move") && <section className="mobile-route-pickers">
+        <label><span>{mode === "move" ? "From Employee" : "Employee"}</span><div><select value={employeeId} onChange={event => { setEmployeeId(event.target.value); setSelected([]); }}>{employees.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><b>⌄</b></div></label>
+        <label><span>Day</span><div><input type="date" value={date} onChange={event => { setDate(event.target.value); setSelected([]); }} /><b>⌄</b></div></label>
+      </section>}
+
+      {mode === "build" && <section className="mobile-route-pickers mobile-build-employee">
+        <label><span>Permanent Employee</span><div><select value={employeeId} onChange={event => { setEmployeeId(event.target.value); setSelected([]); }}>{employees.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><b>⌄</b></div></label>
       </section>}
 
       {message && mode !== "advisor" && <div className="mobile-native-message" role="status" aria-live="polite">{message}</div>}
@@ -292,47 +251,53 @@ export default function MobileAdminRoutes() {
         <div className="mobile-native-toggle"><button className={mapView ? "active" : ""} onClick={() => setMapView(true)}>Map</button><button className={!mapView ? "active" : ""} onClick={() => setMapView(false)}>List <b>{route.length}</b></button></div>
         {mapView
           ? <EmployeeRouteMap route={route} actionLabel="Show in list" onOpenVisit={() => setMapView(false)} />
-          : <RouteList homes={route} selected={selected} onToggle={toggle} selectable={false} />}
+          : <RouteList homes={route} selected={[]} onToggle={() => {}} selectable={false} />}
       </>}
 
       {mode === "build" && <>
-        <div className="mobile-native-search"><i>⌕</i><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search customer or address" /><button onClick={smartSelect}>Smart</button></div>
-        <div className="mobile-selection-head"><span>{selected.length} selected</span><button onClick={() => setSelected(selected.length ? [] : candidates.map(home => home.id))}>{selected.length ? "Clear" : "Select all"}</button></div>
+        <div className="mobile-native-search"><i>⌕</i><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search new customer or address" /></div>
+        <div className="mobile-selection-head"><span>{selected.length} selected</span><button onClick={() => setSelected(selected.length ? [] : candidates.map(jobId))}>{selected.length ? "Clear" : "Select all"}</button></div>
         <RouteList homes={candidates} selected={selected} onToggle={toggle} selectable />
-        <section className="mobile-route-origin">
-          <label>Start address <small>Employee default or manual</small></label>
-          <AddressAutocomplete value={startAddress} onChange={value => { setStartAddress(value); setDraft([]); }} placeholder={employee?.routeStartAddress || "Employee location or manual address"} ariaLabel="Route start" />
-          <button disabled={busy || !selected.length} onClick={() => void buildPreview()}>{busy ? "Optimizing…" : "Generate Smart Route"}</button>
+        <section className="mobile-build-assignment">
+          <div><small>PERMANENT ASSIGNMENT</small><strong>{employee?.name || "Choose Employee"}</strong><span>No date is created here. Advisor publishes the daily Visit later.</span></div>
+          <button disabled={busy || !employee || !selected.length} onClick={() => void assignJobs()}>{busy ? "Assigning…" : `Assign ${selected.length} customer${selected.length === 1 ? "" : "s"}`}</button>
         </section>
-        {draft.length > 0 && <section className="mobile-route-preview">
-          <header><div><strong>Preview</strong><span>{draft.length} stops · {employee?.name}</span></div><button disabled={busy} onClick={() => void publish()}>{busy ? "Saving…" : "Save & Send Route"}</button></header>
-          <EmployeeRouteMap route={draft} actionLabel="Select stop" onOpenVisit={() => {}} />
-          <RouteList homes={draft} selected={[]} onToggle={() => {}} selectable={false} />
-        </section>}
       </>}
 
       {mode === "advisor" && <section className="mobile-route-advisor">
+        <header className="mobile-advisor-header"><div><small>ROUTE ADVISOR</small><strong>Plan and review</strong></div><button type="button" onClick={() => setAdvisorHelp(advisorHelp ? null : "recommend")} aria-label="About Route Advisor">!</button></header>
+        <div className="mobile-advisor-help-tools">
+          <button type="button" onClick={() => setAdvisorHelp(advisorHelp === "recommend" ? null : "recommend")}>Recommend <i>!</i></button>
+          <button type="button" onClick={() => setAdvisorHelp(advisorHelp === "preview" ? null : "preview")}>Preview <i>!</i></button>
+          <button type="button" onClick={() => setAdvisorHelp(advisorHelp === "publish" ? null : "publish")}>Publish <i>!</i></button>
+        </div>
+        {advisorHelp && <div className="mobile-advisor-info">{helpText}</div>}
         <RouteAdvisorPanel />
       </section>}
 
       {mode === "move" && <>
-        <p className="mobile-route-help">Select houses from {employee?.name} on {date}, then choose the destination.</p>
-        <RouteList homes={route} selected={selected} onToggle={toggle} selectable />
+        <p className="mobile-route-help">Select Scheduled Visits from {employee?.name} on {date}. Active and completed houses stay locked.</p>
+        <RouteList homes={movableRoute} selected={selected} onToggle={toggle} selectable />
         <section className="mobile-move-panel">
           <label><span>Move to Employee</span><div><select value={targetEmployeeId} onChange={event => setTargetEmployeeId(event.target.value)}>{employees.filter(item => item.id !== employeeId).map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><b>⌄</b></div></label>
-          <label><span>Move to day</span><div><input type="date" value={targetDate} onChange={event => setTargetDate(event.target.value)} /><b>⌄</b></div></label>
-          <button disabled={busy || !selected.length} onClick={() => void moveHomes()}>{busy ? "Moving…" : `Move ${selected.length} house${selected.length === 1 ? "" : "s"}`}</button>
+          <div className="mobile-move-mode" role="group" aria-label="Move type">
+            <button type="button" className={moveMode === "temporary" ? "active" : ""} onClick={() => setMoveMode("temporary")}><strong>Temporary</strong><small>Only this dated Visit</small></button>
+            <button type="button" className={moveMode === "permanent" ? "active" : ""} onClick={() => setMoveMode("permanent")}><strong>Permanent</strong><small>Job and future Visits</small></button>
+          </div>
+          <div className="mobile-move-explanation">{moveMode === "temporary"
+            ? "The other Employee performs this service. The house remains permanently assigned to its regular Employee for future work."
+            : "The permanent Job owner changes, and future Scheduled Visits move too. Completed history never changes."}</div>
+          <button disabled={busy || !targetEmployee || !selected.length} onClick={() => void moveHomes()}>{busy ? "Moving…" : `${moveMode === "temporary" ? "Move temporarily" : "Move permanently"} (${selected.length})`}</button>
         </section>
       </>}
 
       <style jsx global>{`
         .mobile-route-modes-four{grid-template-columns:repeat(4,minmax(0,1fr))!important}
         .mobile-route-modes-four button{min-width:0;padding-left:6px!important;padding-right:6px!important}
-        .mobile-route-advisor{display:grid;min-width:0;margin-top:12px;padding-bottom:20px}
-        .mobile-route-advisor .advisor-shell{min-width:0;gap:12px}
-        .mobile-route-advisor .advisor-hero{padding:18px;border-radius:20px}
-        .mobile-route-advisor .advisor-hero h2{font-size:27px}
-        .mobile-route-advisor .advisor-controls,.mobile-route-advisor .advisor-house-picker,.mobile-route-advisor .advisor-main{min-width:0}
+        .mobile-build-employee{grid-template-columns:1fr!important}
+        .mobile-build-assignment{display:grid;gap:12px;margin:14px 0 18px;padding:16px;border:1px solid #d8e7df;border-radius:20px;background:#fff}.mobile-build-assignment div{display:grid;gap:4px}.mobile-build-assignment small{color:#0b7046;font-size:9px;font-weight:950;letter-spacing:.1em}.mobile-build-assignment strong{font-size:20px}.mobile-build-assignment span{color:#66776f;font-size:12px;line-height:1.45}.mobile-build-assignment>button,.mobile-move-panel>button{min-height:52px;border:0;border-radius:15px;background:#0b7046;color:#fff;font-weight:950}.mobile-build-assignment>button:disabled,.mobile-move-panel>button:disabled{opacity:.5}
+        .mobile-route-advisor{display:grid;min-width:0;gap:10px;margin-top:12px;padding-bottom:20px}.mobile-advisor-header{display:flex;align-items:center;justify-content:space-between;padding:13px 15px;border:1px solid #dbe7e1;border-radius:18px;background:#fff}.mobile-advisor-header small,.mobile-advisor-header strong{display:block}.mobile-advisor-header small{color:#0b7046;font-size:9px;font-weight:950;letter-spacing:.12em}.mobile-advisor-header strong{margin-top:2px;font-size:18px}.mobile-advisor-header>button,.mobile-advisor-help-tools i{display:grid;place-items:center;border:0;border-radius:999px;background:#e6f3eb;color:#0b7046;font-style:normal;font-weight:950}.mobile-advisor-header>button{width:32px;height:32px}.mobile-advisor-help-tools{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.mobile-advisor-help-tools button{display:flex;align-items:center;justify-content:center;gap:6px;min-height:38px;border:1px solid #dbe7e1;border-radius:12px;background:#fff;color:#274a3a;font-size:11px;font-weight:900}.mobile-advisor-help-tools i{width:18px;height:18px;font-size:10px}.mobile-advisor-info{padding:12px 14px;border-radius:14px;background:#edf8f1;color:#315445;font-size:12px;line-height:1.45}.mobile-route-advisor .advisor-shell{min-width:0;gap:10px}.mobile-route-advisor .advisor-hero{display:none!important}.mobile-route-advisor .advisor-controls{grid-template-columns:1fr!important;gap:9px;padding:12px;border-radius:17px}.mobile-route-advisor .advisor-layout{grid-template-columns:1fr!important;gap:10px}.mobile-route-advisor .advisor-house-picker{position:static!important;border-radius:17px}.mobile-route-advisor .advisor-house-list{max-height:390px}.mobile-route-advisor .advisor-house-list>button{grid-template-columns:30px minmax(0,1fr);padding:10px}.mobile-route-advisor .advisor-house-list>button>em{grid-column:2;text-align:left}.mobile-route-advisor .advisor-main>section{border-radius:17px}.mobile-route-advisor .advisor-empty-preview{padding:16px}.mobile-route-advisor .advisor-empty-preview h3{font-size:20px}.mobile-route-advisor .advisor-empty-preview p{font-size:11px}.mobile-route-advisor .advisor-recommendations button{grid-template-columns:30px minmax(0,1fr) 44px}.mobile-route-advisor .advisor-impact{grid-template-columns:repeat(2,1fr)!important}.mobile-route-advisor .advisor-manual-order h3{font-size:16px}.mobile-route-advisor .advisor-publish-bar{padding:14px}
+        .mobile-move-mode{display:grid;grid-template-columns:1fr 1fr;gap:8px}.mobile-move-mode button{display:grid;gap:3px;padding:12px;border:1px solid #d5e3dc;border-radius:14px;background:#fff;color:#355646;text-align:left}.mobile-move-mode button.active{border-color:#0b7046;background:#edf8f1;color:#0b7046}.mobile-move-mode strong{font-size:13px}.mobile-move-mode small{font-size:9px}.mobile-move-explanation{padding:12px;border-radius:13px;background:#f2f7f4;color:#5d7066;font-size:11px;line-height:1.45}
       `}</style>
 
       <MobileAdminNav active="routes" />
@@ -347,11 +312,15 @@ function RouteList({ homes, selected, onToggle, selectable }: {
   selectable: boolean;
 }) {
   return <section className="mobile-native-route-list selectable">
-    {homes.map((home, index) => <button className={selected.includes(home.id) ? "selected" : ""} onClick={() => selectable && onToggle(home.id)} type="button" key={home.id}>
-      <b>{selectable ? (selected.includes(home.id) ? "✓" : "") : index + 1}</b>
-      <div><strong>{home.name}</strong><span>{home.address}</span><small>{home.service} · {home.assignedCrew || "Unassigned"}</small></div>
-      <i className={home.canonicalVisitStatus === "completed" || home.status === "completed" ? "done" : ""}>{home.canonicalVisitStatus === "completed" || home.status === "completed" ? "Done" : home.canonicalRouteId ? home.assignedCrew || "Scheduled" : "Not published"}</i>
-    </button>)}
-    {!homes.length && <div className="mobile-native-empty"><i>⌖</i><strong>No published houses found</strong><p>The Employee portal and Admin use the same dated Route.</p></div>}
+    {homes.map((home, index) => {
+      const id = selectionId(home);
+      const complete = home.canonicalVisitStatus === "completed" || home.status === "completed";
+      return <button className={selected.includes(id) ? "selected" : ""} onClick={() => selectable && onToggle(id)} type="button" key={id}>
+        <b>{selectable ? (selected.includes(id) ? "✓" : "") : index + 1}</b>
+        <div><strong>{home.name}</strong><span>{home.address}</span><small>{home.service} · {home.assignedCrew || "Unassigned"}</small></div>
+        <i className={complete ? "done" : ""}>{complete ? "Done" : home.canonicalRouteId ? home.assignedCrew || "Scheduled" : "Available"}</i>
+      </button>;
+    })}
+    {!homes.length && <div className="mobile-native-empty"><i>⌖</i><strong>No houses found</strong><p>Only canonical Jobs and dated Visits appear here.</p></div>}
   </section>;
 }

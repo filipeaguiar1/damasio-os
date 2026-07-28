@@ -7,6 +7,7 @@ const files = {
   repository: read("lib/repositories/schedulingRepository.ts"),
   adminApi: read("app/api/admin/routes/route.ts"),
   advisorApi: read("app/api/admin/route-advisor/route.ts"),
+  assignmentApi: read("app/api/admin/route-assignment/route.ts"),
   employeeApi: read("app/api/mobile/employee/route/route.ts"),
   advisorPanel: read("components/admin/RouteAdvisorPanel.tsx"),
   previewMap: read("components/admin/InteractiveRoutePreviewMap.tsx"),
@@ -25,6 +26,8 @@ const files = {
   customerVisitModal: read("components/customer/CustomerServiceVisitModal.tsx"),
   migration: read("supabase/migrations/202607270003_completed_visit_reopen_guard.sql"),
   executionMigration: read("supabase/migrations/202607270004_visit_execution_state_invariants.sql"),
+  assignmentMigration: read("supabase/migrations/202607280001_route_assignment_modes.sql"),
+  dailyPublishCompatMigration: read("supabase/migrations/202607280002_route_daily_publish_compat.sql"),
 };
 
 const failures = [];
@@ -61,10 +64,14 @@ requireText("adminApi", "isDemoIdentity", "Operational routes can still create E
 requireText("adminApi", "Treat legacy Demo 02/04 assignments as unassigned", "Legacy demo Job assignments are still exposed as real work.");
 requireText("adminApi", "Legacy demo Visits are not operational work", "Legacy demo Visits can still appear in official routes.");
 
-requireText("advisorApi", "publish_canonical_route", "Route Advisor does not publish through the canonical transaction.");
+requireText("advisorApi", "publish_canonical_route_daily", "Route Advisor can still change permanent Job ownership during daily publication.");
 requireText("advisorApi", "reopen_completed_visit", "Route Advisor has no audited completed Visit Reopen.");
 rejectText("advisorApi", '.from("visits").insert', "Route Advisor still inserts Visits through a parallel write path.");
 rejectText("advisorApi", '.from("visits").update', "Route Advisor still updates Visits through a parallel write path.");
+
+requireText("assignmentApi", "move_canonical_visits", "Temporary and permanent moves do not share the canonical assignment RPC.");
+requireText("assignmentApi", 'mode?: "temporary" | "permanent"', "Move API does not explicitly separate temporary and permanent assignment.");
+rejectText("assignmentApi", '.from("visits").update', "Assignment API bypasses the canonical database transaction.");
 
 requireText("employeeApi", "transition_visit_execution", "Start, Done, Skip, Reset and Reopen do not share the canonical Visit transition RPC.");
 requireText("employeeApi", "fallbackVisitTransition", "Employee execution has no safe fallback while the canonical migration is pending.");
@@ -129,8 +136,25 @@ for (const executionGuard of [
   requireText("executionMigration", executionGuard, `Visit execution invariant missing: ${executionGuard}`);
 }
 
+for (const assignmentGuard of [
+  "visit_assignment_audit",
+  "publish_canonical_route_daily",
+  "move_canonical_visits",
+  "temporary",
+  "permanent",
+  "Only Scheduled Visits can be moved",
+  "assign_job_to_crew",
+]) {
+  requireText("assignmentMigration", assignmentGuard, `Permanent/temporary assignment guard missing: ${assignmentGuard}`);
+}
+requireText("assignmentMigration", "Admin published the reviewed daily route without changing permanent Job ownership.", "Daily route publication can silently change permanent Job ownership.");
+requireText("dailyPublishCompatMigration", "publish_canonical_route_daily", "Legacy route publishers are not redirected to dated Visit publication.");
+
 requireText("studio", "<OfficialRoutePlanMap date={date} onDateChange={setDate} />", "Dispatch View does not keep one controlled operational date.");
 requireText("studio", "operationalDateKey", "Dispatch still uses a UTC date key.");
+requireText("studio", 'type MoveMode = "temporary" | "permanent"', "Desktop Move does not separate temporary and permanent assignment.");
+requireText("studio", 'mode: moveMode', "Desktop Move does not send its assignment mode to the canonical API.");
+requireText("studio", "Build assigns the canonical Job", "Desktop Build does not explain permanent Job ownership.");
 rejectText("officialMap", "official-worker-list", "Route Plan still renders the redundant Employee list over the overview map.");
 requireText("officialMap", "mapRef.current?.remove()", "Route Plan does not destroy the old Leaflet instance before returning to overview.");
 requireText("officialMap", 'setSelectedId("")', "Route Plan Back navigation is missing.");
@@ -149,6 +173,13 @@ rejectText("employeeMap", "updateLead(", "Canonical map still writes coordinates
 requireText("mobileAdminRoute", "belongsToCanonicalEmployee", "Mobile Admin routes do not use canonical Employee identity.");
 requireText("mobileAdminRoute", "item.canonicalRouteId", "Mobile Admin routes still show unpublished Employee work.");
 requireText("mobileAdminRoute", "operationalDateKey", "Mobile Admin routes still use a UTC day key.");
+requireText("mobileAdminRoute", 'type MoveMode = "temporary" | "permanent"', "Mobile Move does not separate temporary and permanent assignment.");
+requireText("mobileAdminRoute", 'mode: moveMode', "Mobile Move does not send its assignment mode to the canonical API.");
+requireText("mobileAdminRoute", "Permanent Employee", "Mobile Build still behaves like a dated route builder.");
+requireText("mobileAdminRoute", ".mobile-route-advisor .advisor-hero{display:none!important}", "Mobile Route Advisor still renders the oversized desktop explanation hero.");
+requireText("mobileAdminRoute", "mobile-advisor-help-tools", "Mobile Route Advisor has no compact contextual help controls.");
+rejectText("mobileAdminRoute", "AddressAutocomplete", "Mobile Build still asks for a route origin instead of assigning the permanent Job owner.");
+rejectText("mobileAdminRoute", "Generate Smart Route", "Mobile Build still publishes daily routes instead of assigning Customer Jobs.");
 rejectText("mobileAdminRoute", "assignedCrew===employee.name", "Mobile Admin routes still identify Employees by display name.");
 
 requireText("customerHistory", "CustomerServiceVisitModal", "Desktop Customer history does not open the shared completed-service detail.");
@@ -167,4 +198,4 @@ if (failures.length) {
 
 console.log("Canonical Route validation passed.");
 console.log("Customer → Property → Job → Visit → Route → Employee/Crew IDs remain canonical.");
-console.log("Visit status, timer, Admin progress, Employee actions and Customer history share one normalized execution state.");
+console.log("Permanent Job ownership, dated Visit execution and actual completed-work history remain separated.");
