@@ -7,6 +7,7 @@ import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulin
 import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
 import { belongsToCanonicalEmployee } from "@/lib/routes/canonicalRouteIdentity";
 import { operationalDateKey } from "@/lib/dates/operationalDate";
+import styles from "./officialRoutePanels.module.css";
 
 declare global { interface Window { L?: any } }
 
@@ -134,6 +135,19 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
   }, [selectedEmployee?.id, selectedEmployee?.routeStartAddress, selectedRoute[0]?.address]);
 
   useEffect(() => {
+    if (!selectedEmployee) return;
+    mapRef.current?.remove();
+    mapRef.current = null;
+    layerRef.current = null;
+  }, [selectedEmployee?.id]);
+
+  useEffect(() => () => {
+    mapRef.current?.remove();
+    mapRef.current = null;
+    layerRef.current = null;
+  }, []);
+
+  useEffect(() => {
     if (selectedEmployee) return;
     let cancelled = false;
     const setup = () => {
@@ -196,19 +210,13 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
       </div>
     </header>
     {message && <div className="studio-empty">{message}</div>}
-    {!selectedEmployee ? <div className="studio-map real-map official-route-overview">
+    {!selectedEmployee ? <div className={`${styles.overviewMap} studio-map real-map official-route-overview`}>
       <div ref={mapNode} className="studio-preview-leaflet" />
-      <aside className="studio-route-popover official-worker-list">
-        <strong>Employees</strong><small>Select a worker to open the published route.</small>
-        <div className="studio-route-stop-list">
-          {employees.map((employee, index) => <button type="button" key={employee.id} onClick={() => setSelectedId(employee.id)}><b>{index + 1}</b><span>{employee.name}</span><em>{counts.get(employee.id) || 0}</em></button>)}
-        </div>
-      </aside>
-    </div> : <div className="official-route-focused">
+    </div> : <div className={`${styles.focusedRoute} official-route-focused`}>
       <EmployeeRouteMap route={selectedRoute} routeId={selectedRoute[0]?.canonicalRouteId} originPoint={origin} desktop actionLabel="Property profile" onOpenVisit={() => {}} />
-      <aside className="studio-route-popover official-house-list">
+      <aside className={`${styles.housePanel} studio-route-popover official-house-list`}>
         <strong>{selectedEmployee.name}</strong><small>{selectedRoute.length} published houses on {date}</small>
-        <div className="studio-route-stop-list">
+        <div className={`${styles.houseScroll} studio-route-stop-list`}>
           {selectedRoute.map((home, index) => <div key={home.canonicalVisitId || home.id} className={home.canonicalVisitStatus || "scheduled"}><b>{home.routeOrder || index + 1}</b><span>{home.name}<small>{home.address}</small></span><em>{home.canonicalVisitStatus === "completed" ? "Done" : home.canonicalVisitStatus === "missed" ? "Skipped" : home.canonicalVisitStatus === "in_progress" ? "Active" : "Scheduled"}</em></div>)}
           {!selectedRoute.length && <div className="studio-empty">No published houses for this Employee and date.</div>}
         </div>
