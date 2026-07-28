@@ -184,15 +184,21 @@ begin
     and active
   limit 1;
 
-  if v_company is null or v_role not in ('admin', 'manager', 'master') then
+  if v_company is null or v_role not in ('admin', 'manager') then
     raise exception 'Active company Admin access required';
   end if;
 
   return jsonb_build_object(
     'companyId', v_company,
-    'customersMissingCompany', (
-      select count(*) from public.customers
-      where coalesce(company_id, organization_id) is null
+    'customersWithoutProperty', (
+      select count(*)
+      from public.customers c
+      where coalesce(c.company_id, c.organization_id) = v_company
+        and not exists (
+          select 1 from public.properties p
+          where p.customer_id = c.id
+            and coalesce(p.company_id, p.organization_id) = v_company
+        )
     ),
     'propertiesWithoutCustomer', (
       select count(*) from public.properties
