@@ -13,18 +13,23 @@
 .housePanel {
   position: absolute !important;
   z-index: 1200 !important;
-  top: 18px !important;
+  top: 72px !important;
   right: 18px !important;
   bottom: auto !important;
   display: grid !important;
   width: min(300px, calc(100% - 36px)) !important;
   height: auto !important;
-  max-height: 340px !important;
+  max-height: none !important;
   overflow: hidden !important;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
   pointer-events: auto;
   background: #fff;
   box-shadow: 0 22px 54px rgba(15, 39, 28, 0.24);
+}
+
+.housePanel:has(:global(.route-client-row:nth-child(7))) {
+  max-height: calc(100% - 90px) !important;
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .focusedRoute :global(.route-customer-drawer) {
@@ -33,11 +38,16 @@
 
 .houseScroll {
   min-height: 0;
-  max-height: 240px !important;
-  overflow-y: auto !important;
+  max-height: none !important;
+  overflow-y: visible !important;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: #0b7046 #edf5f0;
+}
+
+.housePanel:has(:global(.route-client-row:nth-child(7))) .houseScroll {
+  max-height: 372px !important;
+  overflow-y: auto !important;
 }
 
 .housePanel :global(.route-client-row) {
@@ -149,12 +159,22 @@
     z-index: 2 !important;
     inset: auto !important;
     width: 100% !important;
-    max-height: 360px !important;
+    max-height: none !important;
     margin-top: 12px;
   }
 
   .houseScroll {
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+
+  .housePanel:has(:global(.route-client-row:nth-child(7))) {
+    max-height: 360px !important;
+  }
+
+  .housePanel:has(:global(.route-client-row:nth-child(7))) .houseScroll {
     max-height: 285px !important;
+    overflow-y: auto !important;
   }
 
   .housePanel :global(.route-client-row > span) {
