@@ -7,9 +7,9 @@ import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulin
 import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
 import { belongsToCanonicalEmployee } from "@/lib/routes/canonicalRouteIdentity";
 import { operationalDateKey } from "@/lib/dates/operationalDate";
+import styles from "./officialRoutePanels.module.css";
 
-type RouteEmployee = { id: string; employeeId: string | null; crewId: string; name: string; dailyCapacity: number };
-type AdminEmployee = { id: string; daily_route_capacity?: number | null };
+type RouteEmployee = { id: string; employeeId: string | null; crewId: string; name: string };
 
 async function token() {
   const supabase = getSupabaseBrowserClient() as any;
@@ -29,20 +29,14 @@ export function OfficialRouteStatus() {
       try {
         const accessToken = await token();
         if (!accessToken) throw new Error("Admin session required.");
-        const headers = { authorization: `Bearer ${accessToken}` };
-        const [routeResponse, employeeResponse] = await Promise.all([
-          fetch("/api/admin/routes", { headers, cache: "no-store" }),
-          fetch("/api/admin/users", { headers, cache: "no-store" }),
-        ]);
+        const routeResponse = await fetch("/api/admin/routes", {
+          headers: { authorization: `Bearer ${accessToken}` },
+          cache: "no-store",
+        });
         const routeResult = await routeResponse.json();
-        const employeeResult = await employeeResponse.json().catch(() => ({ users: [] }));
         if (!routeResponse.ok) throw new Error(routeResult.error || "Routes could not be loaded.");
         if (!cancelled) {
-          const profiles = new Map<string, AdminEmployee>((employeeResult.users || []).map((item: AdminEmployee) => [item.id, item]));
-          setEmployees((routeResult.employees || []).map((item: Omit<RouteEmployee, "dailyCapacity">) => ({
-            ...item,
-            dailyCapacity: Math.max(1, Number(profiles.get(item.id)?.daily_route_capacity || 16)),
-          })));
+          setEmployees(routeResult.employees || []);
           setLeads(schedulingBoardToLeads((routeResult.board || {}) as SchedulingDispatchBoard));
           setMessage("");
         }
@@ -71,22 +65,22 @@ export function OfficialRouteStatus() {
     const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId };
     const visits = publishedToday.filter(item => belongsToCanonicalEmployee(item, identity));
     const completed = visits.filter(item => item.canonicalVisitStatus === "completed" || item.status === "completed").length;
-    const skipped = visits.filter(item => item.canonicalVisitStatus === "missed").length;
-    const inProgress = visits.filter(item => item.canonicalVisitStatus === "in_progress").length;
-    const pending = Math.max(0, visits.length - completed - skipped - inProgress);
     const progress = visits.length ? Math.round(completed / visits.length * 100) : 0;
-    return { employee, visits, completed, skipped, inProgress, pending, progress };
-  }), [employees, publishedToday]);
+    return { employee, visits, completed, progress };
+  }).filter(row => row.visits.length > 0), [employees, publishedToday]);
 
   return <article className="studio-panel route-status-panel">
     <header><h2>Route Status</h2><Link href="/admin/routes?tab=view">Route Plan</Link></header>
-    <div className="route-status-list">
-      {rows.map(row => <Link href="/admin/routes?tab=view" key={row.employee.id}>
-        <strong>{row.employee.name}</strong>
-        <span>{row.visits.length}/{row.employee.dailyCapacity} published stops · {row.completed} completed · {row.pending} pending · {row.skipped} skipped{row.inProgress ? ` · ${row.inProgress} active` : ""}</span>
-        <div><i style={{ width: `${row.progress}%` }} /></div><em>{row.progress}%</em>
+    <div className={styles.statusList}>
+      {rows.map(row => <Link className={styles.statusRow} href="/admin/routes?tab=view" key={row.employee.id}>
+        <div className={styles.statusHeader}>
+          <strong>{row.employee.name}</strong>
+          <span>{row.completed}/{row.visits.length}</span>
+        </div>
+        <div className={styles.statusTrack}><i style={{ width: `${row.progress}%` }} /></div>
+        <small>{row.progress}% complete</small>
       </Link>)}
-      {!rows.length && <div className="studio-empty">{message || "No active Employees found."}</div>}
+      {!rows.length && <div className="studio-empty">{message || "No published routes for today."}</div>}
     </div>
   </article>;
 }

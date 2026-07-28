@@ -15,6 +15,8 @@ const files = {
   offlineQueue: read("lib/mobile/offlineActionQueue.ts"),
   studio: read("components/admin/RouteStudio.tsx"),
   officialMap: read("components/admin/OfficialRoutePlanMap.tsx"),
+  officialStatus: read("components/admin/OfficialRouteStatus.tsx"),
+  officialPanelsCss: read("components/admin/officialRoutePanels.module.css"),
   employeeMap: read("components/mobile/EmployeeRouteMap.tsx"),
   mobileAdminRoute: read("app/mobile/admin/routes/page.tsx"),
   customerHistory: read("app/customer/history/page.tsx"),
@@ -55,6 +57,9 @@ requireText("scheduling", "normalizeVisitExecutionState", "Admin scheduling view
 requireText("adminApi", "jobByProperty", "Build does not preserve one permanent Job per Property.");
 requireText("adminApi", "publish_canonical_route", "Legacy Smart/Publish writes do not use the canonical route transaction.");
 requireText("adminApi", "assign_job_to_crew", "Build assignment is not using the canonical Job/Crew RPC.");
+requireText("adminApi", "isDemoIdentity", "Operational routes can still create Employees from demo profiles.");
+requireText("adminApi", "Treat legacy Demo 02/04 assignments as unassigned", "Legacy demo Job assignments are still exposed as real work.");
+requireText("adminApi", "Legacy demo Visits are not operational work", "Legacy demo Visits can still appear in official routes.");
 
 requireText("advisorApi", "publish_canonical_route", "Route Advisor does not publish through the canonical transaction.");
 requireText("advisorApi", "reopen_completed_visit", "Route Advisor has no audited completed Visit Reopen.");
@@ -126,11 +131,16 @@ for (const executionGuard of [
 
 requireText("studio", "<OfficialRoutePlanMap date={date} onDateChange={setDate} />", "Dispatch View does not keep one controlled operational date.");
 requireText("studio", "operationalDateKey", "Dispatch still uses a UTC date key.");
-requireText("officialMap", "Select a worker to open the published route.", "Route Plan Employee overview is missing.");
+rejectText("officialMap", "official-worker-list", "Route Plan still renders the redundant Employee list over the overview map.");
+requireText("officialMap", "mapRef.current?.remove()", "Route Plan does not destroy the old Leaflet instance before returning to overview.");
 requireText("officialMap", 'onClick={() => setSelectedId("")}', "Route Plan Back navigation is missing.");
 requireText("officialMap", "originPoint={origin}", "Admin route view does not include the Employee starting point.");
-requireText("officialMap", "official-house-list", "Route Plan does not include the scrollable house list.");
+requireText("officialMap", "houseScroll", "Route Plan does not include the scrollable house panel.");
 requireText("officialMap", "Boolean(item.canonicalRouteId)", "Admin Route Plan still shows assigned Visits that were never published.");
+requireText("officialPanelsCss", "grid-template-rows: auto auto minmax(0, 1fr)", "The Employee house panel does not reserve a scrollable list area.");
+requireText("officialStatus", "{row.completed}/{row.visits.length}", "Route Status does not show completed houses over the real daily total.");
+rejectText("officialStatus", "dailyCapacity", "Route Status still compares work against Employee capacity instead of the published daily route.");
+requireText("officialStatus", ".filter(row => row.visits.length > 0)", "Route Status still renders Employees with no route for the day.");
 requireText("employeeMap", "Calculating driving route", "Driving route geometry is not requested.");
 rejectText("studio", "assignedCrew === employee.name", "Route Plan still matches Employees by display name.");
 rejectText("studio", "assignedCrew===employee.name", "Route Plan still matches Employees by display name.");
