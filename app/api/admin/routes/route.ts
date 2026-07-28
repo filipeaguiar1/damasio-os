@@ -35,6 +35,21 @@ function missingMigration(message?: string) {
   return /publish_canonical_route|schema cache|could not find the function/i.test(message || "");
 }
 
+function isDemoLabel(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return /^demo(?:[\s._+-]*\d+)?$/.test(normalized)
+    || /^demo(?:[._+-]?\d*)?@/.test(normalized)
+    || normalized.endsWith("@example.com");
+}
+
+function isDemoIdentity(profile: any, employee?: any) {
+  return isDemoLabel(profile?.full_name)
+    || isDemoLabel(profile?.email)
+    || isDemoLabel(employee?.full_name)
+    || isDemoLabel(employee?.email);
+}
+
 async function requireAdmin(request: NextRequest) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) throw new Error("Sign in as the company Admin.");
@@ -90,6 +105,9 @@ async function ensureEmployees(service: any, companyId: string) {
   const employees: any[] = [];
   for (const profile of profilesResult.data || []) {
     let employee = byProfile.get(profile.id);
+
+    // Old demo logins must never become operational Employees, Crews or Route markers.
+    if (isDemoIdentity(profile, employee)) continue;
 
     if (!employee) {
       const created = await service
@@ -226,9 +244,14 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
     for (const row of assignmentResult.data) {
       const id = row.id || row.jobId;
       if (!id) continue;
+      const crewName = row.crewName || row.crew_name || null;
+
+      // Treat legacy Demo 02/04 assignments as unassigned so a real Employee can take the Job.
+      if (isDemoLabel(crewName)) continue;
+
       assignments.set(id, {
         crewId: row.crewId || row.crew_id || null,
-        crewName: row.crewName || row.crew_name || null,
+        crewName,
         routeOrder: row.defaultRouteOrder ?? row.default_route_order ?? null,
         routeDate: row.recurrenceAnchorDate || row.recurrence_anchor_date || null,
       });
@@ -276,10 +299,14 @@ async function canonicalVisits(service: any, companyId: string) {
 
   if (result.error) throw new Error(result.error.message);
 
-  return (result.data || []).map((row: any) => {
+  return (result.data || []).flatMap((row: any) => {
     const employee = (Array.isArray(row.employees) ? row.employees[0] : row.employees)?.full_name || null;
+
+    // Legacy demo Visits are not operational work and must not reappear in Route Plan/Status.
+    if (isDemoLabel(employee)) return [];
+
     const property = Array.isArray(row.properties) ? row.properties[0] : row.properties;
-    return {
+    return [{
       id: row.id,
       jobId: row.job_id,
       routeId: row.route_id,
@@ -304,7 +331,7 @@ async function canonicalVisits(service: any, companyId: string) {
       finishedAt: row.finished_at,
       durationSeconds: row.duration_seconds,
       createdAt: row.created_at,
-    };
+    }];
   });
 }
 
