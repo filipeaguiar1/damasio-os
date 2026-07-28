@@ -163,6 +163,8 @@ function publishDaily(job, employee, routeDate) {
     scheduledDate: routeDate,
     routeOrder: currentCount + 1,
     status: "scheduled",
+    startedAt: null,
+    finishedAt: null,
   };
   database.visits.push(visit);
   return visit;
@@ -185,6 +187,23 @@ function permanentMove(job, destination, fromDate) {
     visit.crewId = destination.crewId;
     visit.assignedEmployeeId = destination.id;
   }
+}
+
+function startVisit(visit, employee) {
+  assertSameCompany(visit, employee);
+  assert.equal(visit.assignedEmployeeId, employee.id, "Wrong Employee attempted to start Visit");
+  assert.equal(visit.status, "scheduled", "Only Scheduled Visit can start");
+  visit.status = "in_progress";
+  visit.startedAt = "2026-07-28T13:00:00.000Z";
+}
+
+function completeVisit(visit, employee) {
+  assertSameCompany(visit, employee);
+  assert.equal(visit.assignedEmployeeId, employee.id, "Wrong Employee attempted to complete Visit");
+  assert.equal(visit.status, "in_progress", "Visit must start before completion");
+  assert.ok(visit.startedAt, "Completed Visit is missing started_at");
+  visit.status = "completed";
+  visit.finishedAt = "2026-07-28T13:45:00.000Z";
 }
 
 function employeeRoute(employee, routeDate) {
@@ -217,20 +236,46 @@ assert.equal(chain.job.permanentCrewId, pedro.crewId, "Daily publication changed
 
 assert.throws(() => publishDaily(chain.job, pedro, "2026-07-28"), /Duplicate active Visit/);
 assert.throws(() => publishDaily(chain.job, outsider, "2026-07-29"), /Cross-company/);
+assert.throws(() => completeVisit(firstVisit, pedro), /must start before completion/);
 
 temporaryMove(firstVisit, mauricio);
 assert.equal(employeeRoute(pedro, "2026-07-28").length, 0);
 assert.equal(employeeRoute(mauricio, "2026-07-28").length, 1);
 assert.equal(chain.job.permanentCrewId, pedro.crewId, "Temporary Move changed permanent Job ownership");
 
+startVisit(firstVisit, mauricio);
+completeVisit(firstVisit, mauricio);
+const completedExecutor = firstVisit.assignedEmployeeId;
+
 const nextVisit = publishDaily(chain.job, pedro, "2026-07-29");
 assert.equal(nextVisit.assignedEmployeeId, pedro.id, "Next occurrence did not return to permanent Employee");
 
-firstVisit.status = "completed";
 permanentMove(chain.job, mauricio, "2026-07-29");
 assert.equal(chain.job.permanentCrewId, mauricio.crewId);
 assert.equal(nextVisit.assignedEmployeeId, mauricio.id, "Future Scheduled Visit did not follow permanent move");
-assert.equal(firstVisit.assignedEmployeeId, mauricio.id, "Actual executor history changed unexpectedly before completion assertion");
+assert.equal(firstVisit.assignedEmployeeId, completedExecutor, "Permanent Move rewrote completed execution history");
+
+const bulkChains = Array.from({ length: 25 }, (_, index) =>
+  createCustomerChain(companyA, `BULK-${String(index + 1).padStart(2, "0")}`));
+
+for (const bulk of bulkChains.slice(0, 16)) {
+  assignPermanent(bulk.job, pedro);
+  publishDaily(bulk.job, pedro, "2026-07-30");
+}
+assert.equal(employeeRoute(pedro, "2026-07-30").length, 16);
+
+assignPermanent(bulkChains[16].job, pedro);
+assert.throws(
+  () => publishDaily(bulkChains[16].job, pedro, "2026-07-30"),
+  /capacity exceeded/,
+);
+publishDaily(bulkChains[16].job, mauricio, "2026-07-30");
+
+for (const bulk of bulkChains.slice(17)) {
+  assignPermanent(bulk.job, mauricio);
+  publishDaily(bulk.job, mauricio, "2026-07-30");
+}
+assert.equal(employeeRoute(mauricio, "2026-07-30").length, 9);
 
 const otherChain = createCustomerChain(companyB, "B-0001");
 assert.notEqual(chain.customer.id, otherChain.customer.id);
@@ -238,5 +283,5 @@ assert.notEqual(chain.customer.companyId, otherChain.customer.companyId);
 assert.equal(employeeRoute(outsider, "2026-07-28").length, 0, "Company isolation leaked another company's route");
 
 console.log("Canonical operational simulations passed.");
-console.log("Simulated Customer → Property → Quote → Job → Visit → Route → Employee.");
-console.log("Verified tenant isolation, duplicate blocking, capacity, daily publication, temporary move, permanent move and Employee visibility.");
+console.log("Simulated 25 Customer → Property → Quote → Job chains and dated Employee routes.");
+console.log("Verified tenant isolation, duplicate blocking, 16-stop capacity, publication, service Start/Done, temporary move, permanent move and Employee visibility.");
