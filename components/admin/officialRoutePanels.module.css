@@ -15,9 +15,11 @@
   z-index: 1200 !important;
   top: 18px !important;
   right: 18px !important;
-  bottom: 18px;
-  width: min(310px, calc(100% - 36px)) !important;
-  max-height: none !important;
+  bottom: auto !important;
+  display: grid !important;
+  width: min(300px, calc(100% - 36px)) !important;
+  height: auto !important;
+  max-height: 340px !important;
   overflow: hidden !important;
   grid-template-rows: auto auto minmax(0, 1fr);
   pointer-events: auto;
@@ -31,8 +33,37 @@
 
 .houseScroll {
   min-height: 0;
-  max-height: none !important;
+  max-height: 240px !important;
   overflow-y: auto !important;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #0b7046 #edf5f0;
+}
+
+.housePanel :global(.route-client-row) {
+  grid-template-columns: 28px minmax(0, 1fr) 68px;
+  gap: 8px;
+  min-height: 54px;
+  padding: 8px;
+}
+
+.housePanel :global(.route-client-row > span) {
+  min-width: 0;
+  max-width: 152px;
+}
+
+.housePanel :global(.route-client-row > span strong),
+.housePanel :global(.route-client-row > span small),
+.housePanel :global(.route-client-row > em) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.housePanel :global(.route-client-row > em) {
+  max-width: 68px;
+  text-align: right;
 }
 
 .statusList {
@@ -124,5 +155,9 @@
 
   .houseScroll {
     max-height: 285px !important;
+  }
+
+  .housePanel :global(.route-client-row > span) {
+    max-width: none;
   }
 }
