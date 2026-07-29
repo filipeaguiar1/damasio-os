@@ -8,7 +8,12 @@ function collectRuntimeFailures(page) {
   page.on('console', message => {
     if (message.type() === 'error') failures.push(`console: ${message.text()}`);
   });
-  page.on('requestfailed', request => failures.push(`request: ${request.method()} ${request.url()} ${request.failure()?.errorText || ''}`));
+  page.on('requestfailed', request => {
+    const errorText = request.failure()?.errorText || '';
+    const url = request.url();
+    const isExpectedNextNavigationAbort = errorText.includes('ERR_ABORTED') && url.includes('_rsc=');
+    if (!isExpectedNextNavigationAbort) failures.push(`request: ${request.method()} ${url} ${errorText}`);
+  });
   return failures;
 }
 
