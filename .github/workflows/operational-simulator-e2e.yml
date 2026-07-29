@@ -9,6 +9,7 @@ on:
       - "app/admin/performance/**"
       - "lib/simulator/**"
       - "scripts/patch-operational-simulator-photo.py"
+      - "scripts/patch-operational-simulator-activity.py"
       - "public/demo/simulation-lawn-after.svg"
       - ".github/workflows/operational-simulator-e2e.yml"
   workflow_dispatch:
@@ -38,15 +39,16 @@ jobs:
           ref: feature/25-30-homes-simulator-v1
           fetch-depth: 0
 
-      - name: Repair canonical private photo evidence
+      - name: Repair canonical simulator compatibility
         run: |
-          result=$(python scripts/patch-operational-simulator-photo.py)
-          echo "$result"
-          if [ "$result" = "changed" ]; then
+          photo_result=$(python scripts/patch-operational-simulator-photo.py)
+          activity_result=$(python scripts/patch-operational-simulator-activity.py)
+          echo "photo=$photo_result activity=$activity_result"
+          if [ "$photo_result" = "changed" ] || [ "$activity_result" = "changed" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/api/admin/operational-simulator/route.ts
-            git commit -m "Fix simulator private photo evidence"
+            git commit -m "Align simulator with canonical database permissions"
             git push origin HEAD:feature/25-30-homes-simulator-v1
           fi
 
