@@ -211,39 +211,22 @@ export async function getCustomerPaymentsVisitsPortal() {
   return normalizePaymentsPortal(data || emptyPaymentsPortal);
 }
 
-async function insertCustomerScoped(supabase: any, table: string, row: Record<string, unknown>) {
-  let result = await supabase.from(table).insert(row);
-  const missingCompanyColumn = result.error
-    && /could not find the ['"]company_id['"] column|company_id.*schema cache/i.test(String(result.error.message || ""));
-  if (missingCompanyColumn) {
-    const { company_id: _companyId, ...legacyRow } = row;
-    result = await supabase.from(table).insert(legacyRow);
-  }
-  if (result.error) throw new Error(result.error.message);
-}
-
-async function getCustomerFallbackIdentity(supabase: any, board: CustomerPortalBoard) {
-  if (!board.property?.propertyId || !board.property.customerId) {
-    throw new Error("Customer property not found for this account.");
-  }
-  const auth = await supabase.auth.getUser();
-  if (auth.error || !auth.data.user) throw new Error("Customer session expired.");
-  let companyId = auth.data.user.user_metadata?.company_id as string | undefined;
-  if (!companyId) {
-    const profile = await supabase
-      .from("profiles")
-      .select("company_id,organization_id")
-      .eq("id", auth.data.user.id)
-      .maybeSingle();
-    if (profile.error) throw new Error(profile.error.message);
-    companyId = profile.data?.company_id || profile.data?.organization_id;
-  }
-  if (!companyId) throw new Error("Customer account has no company identity.");
-  return {
-    companyId,
-    customerId: board.property.customerId,
-    propertyId: board.property.propertyId,
-  };
+async function callCustomerPortalAction(body: Record<string, unknown>) {
+  const supabase = getSupabaseBrowserClient() as any;
+  const session = await supabase.auth.getSession();
+  const accessToken = session.data.session?.access_token;
+  if (!accessToken) throw new Error("Customer session expired.");
+  const response = await fetch("/api/customer/portal-actions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Customer portal action failed.");
+  return getCustomerPortalBoard();
 }
 
 export async function createCustomerPortalRequest(input: { serviceName: string; message?: string }) {
@@ -254,22 +237,18 @@ export async function createCustomerPortalRequest(input: { serviceName: string; 
   });
   if (!rpc.error) return normalizeBoard(rpc.data || emptyBoard);
 
-  const missingRpc = rpc.error.code === "PGRST202"
-    || /could not find the function public\.create_customer_portal_request|schema cache/i.test(String(rpc.error.message || ""));
-  if (!missingRpc) throw new Error(rpc.error.message);
+  const fallbackAllowed = rpc.error.code === "PGRST202"
+    || /could not find the function public\.create_customer_portal_request|schema cache|permission denied/i.test(String(rpc.error.message || ""));
+  if (!fallbackAllowed) throw new Error(rpc.error.message);
 
   const board = await getCustomerPortalBoard();
-  const identity = await getCustomerFallbackIdentity(supabase, board);
-  await insertCustomerScoped(supabase, "service_requests", {
-    organization_id: identity.companyId,
-    company_id: identity.companyId,
-    customer_id: identity.customerId,
-    property_id: identity.propertyId,
-    service_name: input.serviceName.trim(),
-    message: input.message?.trim() || null,
-    status: "pending",
+  if (!board.property?.propertyId) throw new Error("Customer property not found for this account.");
+  return callCustomerPortalAction({
+    action: "request",
+    propertyId: board.property.propertyId,
+    serviceName: input.serviceName,
+    message: input.message || null,
   });
-  return getCustomerPortalBoard();
 }
 
 export async function submitCustomerPortalFeedback(input: { visitId?: string; taskId?: string; rating: number; comment?: string }) {
@@ -283,44 +262,15 @@ export async function submitCustomerPortalFeedback(input: { visitId?: string; ta
   const rpc = await supabase.rpc("submit_customer_portal_feedback", args);
   if (!rpc.error) return normalizeBoard(rpc.data || emptyBoard);
 
-  const missingRpc = rpc.error.code === "PGRST202"
-    || /could not find the function public\.submit_customer_portal_feedback|schema cache/i.test(String(rpc.error.message || ""));
-  if (!missingRpc) throw new Error(rpc.error.message);
+  const fallbackAllowed = rpc.error.code === "PGRST202"
+    || /could not find the function public\.submit_customer_portal_feedback|schema cache|permission denied/i.test(String(rpc.error.message || ""));
+  if (!fallbackAllowed) throw new Error(rpc.error.message);
 
-  const board = await getCustomerPortalBoard();
-  if (input.visitId && !board.visits.some(visit => visit.id === input.visitId)) {
-    throw new Error("Visit not found for this customer.");
-  }
-  if (input.taskId && !board.tasks.some(task => task.id === input.taskId)) {
-    throw new Error("Task not found for this customer.");
-  }
-  if (!input.visitId && !input.taskId) throw new Error("Choose a completed item first.");
-  const identity = await getCustomerFallbackIdentity(supabase, board);
-
-  await insertCustomerScoped(supabase, "feedback", {
-    organization_id: identity.companyId,
-    company_id: identity.companyId,
-    customer_id: identity.customerId,
-    property_id: identity.propertyId,
-    visit_id: input.visitId || null,
-    task_id: input.taskId || null,
+  return callCustomerPortalAction({
+    action: "feedback",
+    visitId: input.visitId || null,
+    taskId: input.taskId || null,
     rating: input.rating,
-    comment: input.comment?.trim() || null,
+    comment: input.comment || null,
   });
-
-  if (input.rating <= 3 && input.comment?.trim()) {
-    await insertCustomerScoped(supabase, "tasks", {
-      organization_id: identity.companyId,
-      company_id: identity.companyId,
-      customer_id: identity.customerId,
-      property_id: identity.propertyId,
-      source_visit_id: input.visitId || null,
-      title: "Customer feedback follow-up",
-      customer_issue: input.comment.trim(),
-      priority: "urgent",
-      status: "open",
-    });
-  }
-
-  return getCustomerPortalBoard();
 }
