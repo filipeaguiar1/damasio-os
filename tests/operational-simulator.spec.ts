@@ -13,15 +13,22 @@ test("admin creates two months, employee completes a house and customer reviews 
   await admin.goto("http://127.0.0.1:3000/admin/performance/simulator");
   await expect(admin.getByRole("heading", { name: "Financial & Operational Simulator" })).toBeVisible();
 
+  const create = admin.getByRole("button", { name: "Create 2-Month Simulation" });
   const remove = admin.getByRole("button", { name: "Remove Simulation" });
-  await admin.waitForTimeout(1500);
+  await expect.poll(async () => {
+    const createReady = await create.isEnabled().catch(() => false);
+    const removeReady = await remove.isEnabled().catch(() => false);
+    return createReady || removeReady;
+  }, { timeout: 30_000 }).toBe(true);
+
   if (await remove.isEnabled()) {
     admin.once("dialog", dialog => dialog.accept());
     await remove.click();
     await expect(admin.getByText(/simulation customers/i)).toBeVisible({ timeout: 60_000 });
+    await expect(create).toBeEnabled({ timeout: 30_000 });
   }
 
-  await admin.getByRole("button", { name: "Create 2-Month Simulation" }).click();
+  await create.click();
   const simulationMessage = admin.locator(".payment-message");
   await expect(simulationMessage).toBeVisible({ timeout: 180_000 });
   expect(await simulationMessage.innerText()).toMatch(/completed eight weeks of canonical lawn service/i);
