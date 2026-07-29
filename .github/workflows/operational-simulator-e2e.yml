@@ -11,6 +11,7 @@ on:
       - "scripts/patch-operational-simulator-photo.py"
       - "scripts/patch-operational-simulator-activity.py"
       - "scripts/patch-operational-simulator-payments.py"
+      - "scripts/patch-operational-simulator-feedback.py"
       - "public/demo/simulation-lawn-after.svg"
       - ".github/workflows/operational-simulator-e2e.yml"
   workflow_dispatch:
@@ -45,8 +46,9 @@ jobs:
           photo_result=$(python scripts/patch-operational-simulator-photo.py)
           activity_result=$(python scripts/patch-operational-simulator-activity.py)
           payment_result=$(python scripts/patch-operational-simulator-payments.py)
-          echo "photo=$photo_result activity=$activity_result payment=$payment_result"
-          if [ "$photo_result" = "changed" ] || [ "$activity_result" = "changed" ] || [ "$payment_result" = "changed" ]; then
+          feedback_result=$(python scripts/patch-operational-simulator-feedback.py)
+          echo "photo=$photo_result activity=$activity_result payment=$payment_result feedback=$feedback_result"
+          if [ "$photo_result" = "changed" ] || [ "$activity_result" = "changed" ] || [ "$payment_result" = "changed" ] || [ "$feedback_result" = "changed" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/api/admin/operational-simulator/route.ts
@@ -92,7 +94,7 @@ jobs:
 
           test.setTimeout(240_000);
 
-          test("admin creates two months and employee completes a live house", async ({ browser }) => {
+          test("admin creates two months, employee completes a house and customer reviews it", async ({ browser }) => {
             const adminContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
             const admin = await adminContext.newPage();
             await admin.goto("http://127.0.0.1:3000/login");
@@ -112,15 +114,19 @@ jobs:
             }
 
             await admin.getByRole("button", { name: "Create 2-Month Simulation" }).click();
-            await expect(admin.getByText(/completed eight weeks of canonical lawn service/i)).toBeVisible({ timeout: 180_000 });
+            const simulationMessage = admin.locator(".payment-message");
+            await expect(simulationMessage).toBeVisible({ timeout: 180_000 });
+            expect(await simulationMessage.innerText()).toMatch(/completed eight weeks of canonical lawn service/i);
             await expect(admin.getByText("480 completed visits", { exact: false })).toBeVisible();
             await expect(admin.getByText("120 invoices", { exact: false })).toBeVisible();
 
             const codes = admin.locator("code");
             const workerEmail = (await codes.nth(0).innerText()).trim();
             const workerPassword = (await codes.nth(1).innerText()).trim();
+            const customerEmail = (await codes.nth(4).innerText()).trim();
+            const customerPassword = (await codes.nth(5).innerText()).trim();
             expect(workerEmail).toContain("worker-1@4everseasons.test");
-            expect(workerPassword.length).toBeGreaterThan(12);
+            expect(customerEmail).toContain("customer-01@4everseasons.test");
 
             const employeeContext = await browser.newContext({ viewport: { width: 412, height: 915 } });
             const employee = await employeeContext.newPage();
@@ -138,12 +144,27 @@ jobs:
             employee.once("dialog", dialog => dialog.accept());
             await employee.getByRole("button", { name: "Finish" }).click();
             await expect(employee.getByText("Done", { exact: true })).toBeVisible({ timeout: 30_000 });
-
             await employee.screenshot({ path: "employee-live-route.png", fullPage: true });
+
+            const customerContext = await browser.newContext({ viewport: { width: 412, height: 915 } });
+            const customer = await customerContext.newPage();
+            await customer.goto("http://127.0.0.1:3000/login");
+            await customer.getByLabel("Email").fill(customerEmail);
+            await customer.getByLabel("Password").fill(customerPassword);
+            await customer.getByRole("button", { name: "Sign In" }).click();
+            await customer.waitForURL("**/customer", { timeout: 30_000 });
+            await customer.goto("http://127.0.0.1:3000/customer/feedback");
+            await expect(customer.getByRole("heading", { name: "Review completed services" })).toBeVisible({ timeout: 30_000 });
+            await customer.getByLabel("Comment").fill("Simulation customer confirmed the completed service and employee photo.");
+            await customer.getByRole("button", { name: "Submit Review" }).click();
+            await expect(customer.getByText(/Feedback saved/i)).toBeVisible({ timeout: 30_000 });
+            await customer.screenshot({ path: "customer-feedback.png", fullPage: true });
+
             await admin.reload();
             await expect(admin.getByText("Live Simulation Status")).toBeVisible();
             await admin.screenshot({ path: "operational-simulator.png", fullPage: true });
 
+            await customerContext.close();
             await employeeContext.close();
             await adminContext.close();
           });
@@ -158,5 +179,6 @@ jobs:
           path: |
             operational-simulator.png
             employee-live-route.png
+            customer-feedback.png
             /tmp/damasio-simulator-server.log
           if-no-files-found: ignore
