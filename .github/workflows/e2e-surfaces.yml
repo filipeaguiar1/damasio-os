@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: e2e-surfaces-${{ github.ref }}
@@ -31,51 +31,6 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v4
-      - name: Apply canonical Visit refresh repair
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('app/mobile/employee/page.tsx')
-          text = path.read_text()
-          anchor = '''  async function syncOfflineQueue(){
-            try{const result=await flushOfflineActionQueue();setOfflinePending(result.remaining);if(result.synced){refresh();setMessage(`${result.synced} offline action(s) synced.`)}}catch{/* field mode must stay usable even if background sync fails */}
-          }
-          '''
-          helper = anchor + '''
-          async function refreshAfterCanonicalVisitMutation(reloadCanonical:boolean){
-            if(reloadCanonical)setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));
-            refresh();
-          }
-          '''
-          if 'refreshAfterCanonicalVisitMutation' not in text:
-              if anchor not in text:
-                  raise SystemExit('sync anchor not found')
-              text = text.replace(anchor, helper, 1)
-
-          replacements = {
-          '''    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"in_progress");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Service start saved offline. It will sync automatically.":"Service started and synchronized.")}else{startServiceSession(selected.id,profile.name,crew);setMessage("Service started and synchronized.")} setRouteReload(value=>value+1); refresh();}''':
-          '''    try{let reloadCanonical=false;if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"in_progress");setOfflinePending(getOfflineActionCount());reloadCanonical=!result.queued;setMessage(result.queued?"Service start saved offline. It will sync automatically.":"Service started and synchronized.")}else{startServiceSession(selected.id,profile.name,crew);setMessage("Service started and synchronized.")} await refreshAfterCanonicalVisitMutation(reloadCanonical);}''',
-          '''    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"completed");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Completion saved offline. It will sync automatically.":"Done. Every device was updated.")}else{finishServiceSession(selected.id,comment);setMessage("Done. Every device was updated.")} setRouteReload(value=>value+1); refresh();}''':
-          '''    try{let reloadCanonical=false;if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"completed");setOfflinePending(getOfflineActionCount());reloadCanonical=!result.queued;setMessage(result.queued?"Completion saved offline. It will sync automatically.":"Done. Every device was updated.")}else{finishServiceSession(selected.id,comment);setMessage("Done. Every device was updated.")} await refreshAfterCanonicalVisitMutation(reloadCanonical);}''',
-          '''    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"scheduled");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Reset saved offline. It will sync automatically.":"House reset to Open on every device.")}else{resetServiceSession(selected.id);setMessage("House reset to Open on every device.")} setComment(""); setRouteReload(value=>value+1); refresh();}''':
-          '''    try{let reloadCanonical=false;if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"scheduled");setOfflinePending(getOfflineActionCount());reloadCanonical=!result.queued;setMessage(result.queued?"Reset saved offline. It will sync automatically.":"House reset to Open on every device.")}else{resetServiceSession(selected.id);setMessage("House reset to Open on every device.")} setComment(""); await refreshAfterCanonicalVisitMutation(reloadCanonical);}'''
-          }
-          for old, new in replacements.items():
-              if old in text:
-                  text = text.replace(old, new, 1)
-              elif new not in text:
-                  raise SystemExit('expected mutation block not found')
-          path.write_text(text)
-          PY
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/mobile/employee/page.tsx
-          if ! git diff --cached --quiet; then
-            git commit -m "fix: refresh canonical visit after employee actions"
-            git push origin HEAD:agent/overnight-e2e-qa
-          fi
       - uses: pnpm/action-setup@v4
         with:
           version: 9.15.4
