@@ -41,6 +41,8 @@ jobs:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_MANAGEMENT_ACCESS_TOKEN: ${{ secrets.SUPABASE_MANAGEMENT_ACCESS_TOKEN }}
       E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
       E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
       NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
@@ -71,6 +73,46 @@ jobs:
             git commit -m "Align simulator with canonical database permissions"
             git push origin HEAD:feature/25-30-homes-simulator-v1
           fi
+
+      - name: Apply Customer portal database contract
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          token = os.environ.get("SUPABASE_ACCESS_TOKEN") or os.environ.get("SUPABASE_MANAGEMENT_ACCESS_TOKEN")
+          if not token:
+              print("Supabase management token is not configured; migration remains committed for deployment.")
+              sys.exit(0)
+
+          project_url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
+          hostname = urllib.parse.urlparse(project_url).hostname or ""
+          project_ref = hostname.split(".")[0]
+          if not project_ref:
+              raise SystemExit("Could not resolve the Supabase project ref.")
+
+          query = Path("supabase/migrations/202607290001_customer_portal_action_contract.sql").read_text()
+          request = urllib.request.Request(
+              f"https://api.supabase.com/v1/projects/{project_ref}/database/query",
+              data=json.dumps({"query": query, "read_only": False}).encode(),
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=180) as response:
+                  print(f"Customer portal migration applied: HTTP {response.status}")
+          except urllib.error.HTTPError as error:
+              detail = error.read().decode(errors="replace")
+              raise SystemExit(f"Supabase migration failed: HTTP {error.code}: {detail[:1000]}")
+          PY
 
       - uses: pnpm/action-setup@v4
         with:
