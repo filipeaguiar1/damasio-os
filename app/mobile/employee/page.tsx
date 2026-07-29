@@ -109,6 +109,9 @@ export default function MobileEmployeeApp(){
     }
   }
 
+  const refreshRef=useRef(refresh);
+  refreshRef.current=refresh;
+
   async function syncOfflineQueue(){
     try{const result=await flushOfflineActionQueue();setOfflinePending(result.remaining);if(result.synced){refresh();setMessage(`${result.synced} offline action(s) synced.`)}}catch{/* field mode must stay usable even if background sync fails */}
   }
@@ -118,7 +121,7 @@ export default function MobileEmployeeApp(){
   }
 
   useMobileRealtime(refresh);
-  useEffect(()=>{refresh();setOfflinePending(getOfflineActionCount());void syncOfflineQueue(); void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setRouteStartAddress(identity.routeStartAddress||"")}); const on=()=>refresh(); const queue=()=>setOfflinePending(getOfflineActionCount()); const online=()=>void syncOfflineQueue(); window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener); window.addEventListener("storage",on); window.addEventListener("online",online); window.addEventListener("damasio-offline-queue-change",queue as EventListener); const t=window.setInterval(()=>{setTick(v=>v+1);if(getOfflineActionCount())void syncOfflineQueue()},1000); return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);window.removeEventListener("online",online);window.removeEventListener("damasio-offline-queue-change",queue as EventListener);window.clearInterval(t)}},[]);
+  useEffect(()=>{refresh();setOfflinePending(getOfflineActionCount());void syncOfflineQueue(); void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setRouteStartAddress(identity.routeStartAddress||"")}); const on=()=>refreshRef.current(); const queue=()=>setOfflinePending(getOfflineActionCount()); const online=()=>void syncOfflineQueue(); window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener); window.addEventListener("storage",on); window.addEventListener("online",online); window.addEventListener("damasio-offline-queue-change",queue as EventListener); const t=window.setInterval(()=>{setTick(v=>v+1);if(getOfflineActionCount())void syncOfflineQueue()},1000); return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);window.removeEventListener("online",online);window.removeEventListener("damasio-offline-queue-change",queue as EventListener);window.clearInterval(t)}},[]);
 
   const todayKey=localDateKey(new Date());
   const selectedDay=dayNameFromDate(selectedDate);
