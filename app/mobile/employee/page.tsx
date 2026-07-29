@@ -100,7 +100,7 @@ export default function MobileEmployeeApp(){
       const rows=getLeads();
       setLeads(rows);
       setError("");
-      setSelectedId(current=>current&&rows.some(row=>row.id===current)?current:(rows[0]?.id||""));
+      setSelectedId(current=>current&&rows.some(row=>row.id===current||row.canonicalVisitId===current)?current:(rows[0]?.id||""));
       setRouteReload(value=>value+1);
       void refreshTasks();
     }catch{
