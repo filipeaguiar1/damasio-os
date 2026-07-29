@@ -10,6 +10,7 @@ on:
       - "lib/simulator/**"
       - "scripts/patch-operational-simulator-photo.py"
       - "scripts/patch-operational-simulator-activity.py"
+      - "scripts/patch-operational-simulator-payments.py"
       - "public/demo/simulation-lawn-after.svg"
       - ".github/workflows/operational-simulator-e2e.yml"
   workflow_dispatch:
@@ -43,8 +44,9 @@ jobs:
         run: |
           photo_result=$(python scripts/patch-operational-simulator-photo.py)
           activity_result=$(python scripts/patch-operational-simulator-activity.py)
-          echo "photo=$photo_result activity=$activity_result"
-          if [ "$photo_result" = "changed" ] || [ "$activity_result" = "changed" ]; then
+          payment_result=$(python scripts/patch-operational-simulator-payments.py)
+          echo "photo=$photo_result activity=$activity_result payment=$payment_result"
+          if [ "$photo_result" = "changed" ] || [ "$activity_result" = "changed" ] || [ "$payment_result" = "changed" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/api/admin/operational-simulator/route.ts
