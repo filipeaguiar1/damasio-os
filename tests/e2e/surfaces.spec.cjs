@@ -275,7 +275,7 @@ test('employee canonical execution smoke', async ({ page }, testInfo) => {
   await page.getByRole('button', { name: /^list$/i }).click();
   await page.getByRole('button', { name: new RegExp(employeeExecutionServiceName, 'i') }).click();
   await expect(page.getByText(employeeExecutionServiceName)).toBeVisible();
-  await expect(page.getByText(/open/i)).toBeVisible();
+  await expect(page.locator('.mobile-status')).toHaveText('Open');
 
   await page.getByRole('button', { name: /^start$/i }).click();
   await expect(page.getByText(/service started and synchronized/i)).toBeVisible();
