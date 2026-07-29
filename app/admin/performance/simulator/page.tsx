@@ -54,6 +54,7 @@ function percent(value: number) {
 export default function OperationalSimulatorPage() {
   const [input, setInput] = useState<OperationalSimulationInput>(defaultOperationalSimulationInput);
   const [status, setStatus] = useState<ApiStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
   const [created, setCreated] = useState<CreateResponse | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -66,17 +67,25 @@ export default function OperationalSimulatorPage() {
   }
 
   async function loadStatus() {
+    setStatusLoading(true);
     try {
       const access = await token();
-      if (!access) return;
+      if (!access) {
+        setStatus(null);
+        return;
+      }
       const response = await fetch("/api/admin/operational-simulator", {
         headers: { authorization: `Bearer ${access}` },
         cache: "no-store",
       });
       const result = await response.json();
-      if (response.ok) setStatus(result.status);
-    } catch {
-      // Calculator remains available when live status cannot be loaded.
+      if (!response.ok) throw new Error(result.error || "Simulation status could not be loaded.");
+      setStatus(result.status);
+    } catch (error) {
+      setStatus(null);
+      setMessage(error instanceof Error ? error.message : "Simulation status could not be loaded.");
+    } finally {
+      setStatusLoading(false);
     }
   }
 
@@ -87,6 +96,7 @@ export default function OperationalSimulatorPage() {
   }
 
   async function run(action: "create" | "remove") {
+    if (statusLoading) return;
     if (action === "remove" && !window.confirm("Remove only the operational simulation records and temporary accounts?")) return;
     setBusy(true);
     setMessage("");
@@ -116,21 +126,21 @@ export default function OperationalSimulatorPage() {
         <div>
           <span className="eyebrow">Admin Only · Canonical Supabase</span>
           <h1>Financial & Operational Simulator</h1>
-          <p className="section-intro">Create two months of linked Customer → Property → Quote → Job → Route → Visit → Photo → Invoice → Payment → Feedback → Task data.</p>
+          <p className="section-intro">Create two months of linked Customer → Property → Quote → Job → Route → Visit → Photo → Paid Invoice → Feedback → Task data.</p>
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Link href="/admin/performance" className="btn btn-outline">Back to Reports</Link>
-          <button type="button" className="btn btn-primary" disabled={busy || Boolean(status?.exists)} onClick={() => void run("create")}>{busy ? "Working…" : "Create 2-Month Simulation"}</button>
-          <button type="button" className="btn btn-outline" disabled={busy || !status?.exists} onClick={() => void run("remove")}>Remove Simulation</button>
+          <button type="button" className="btn btn-primary" disabled={busy || statusLoading || Boolean(status?.exists)} onClick={() => void run("create")}>{busy ? "Working…" : statusLoading ? "Checking…" : "Create 2-Month Simulation"}</button>
+          <button type="button" className="btn btn-outline" disabled={busy || statusLoading || !status?.exists} onClick={() => void run("remove")}>Remove Simulation</button>
         </div>
       </div>
 
       {message && <div className="payment-message" role="status" style={{ marginTop: 16 }}>{message}</div>}
 
       <section className="business-metrics" style={{ marginTop: 20 }}>
-        <div className="business-metric"><span>Customers</span><strong>{status?.customerCount || input.customerCount}</strong><small>{input.customerCount / input.employeeCount} homes per worker</small></div>
-        <div className="business-metric"><span>Completed Visits</span><strong>{status?.completedVisits || preview.visits}</strong><small>{input.weeks} completed weeks</small></div>
-        <div className="business-metric"><span>Collected</span><strong>{cad(status?.collected || preview.customerTotal)}</strong><small>includes HST; no real Stripe activity</small></div>
+        <div className="business-metric"><span>Customers</span><strong>{status?.customerCount ?? input.customerCount}</strong><small>{input.customerCount / input.employeeCount} homes per worker</small></div>
+        <div className="business-metric"><span>Completed Visits</span><strong>{status?.completedVisits ?? preview.visits}</strong><small>{input.weeks} completed weeks</small></div>
+        <div className="business-metric"><span>Paid Invoices</span><strong>{cad(status?.collected ?? preview.customerTotal)}</strong><small>includes HST; no real Stripe activity</small></div>
         <div className="business-metric"><span>Operating Profit</span><strong>{cad(preview.operatingProfit)}</strong><small>{percent(preview.operatingMarginRate)} before income tax</small></div>
       </section>
 
@@ -193,7 +203,7 @@ export default function OperationalSimulatorPage() {
             </div>
             <div className="card"><strong>{created.featuredCustomer.name}</strong><p>Featured customer portal account</p><code>{created.featuredCustomer.email}</code><code>{created.featuredCustomer.password}</code></div>
           </div>
-          <p className="section-intro" style={{ marginTop: 12 }}>{created.operational.completedVisits} completed visits, {created.operational.photoCount} employee photos, {created.operational.invoiceCount} invoices, {created.operational.paymentCount} payments, {created.operational.feedbackCount} feedback records and {created.operational.taskCount} resolved follow-ups were created.</p>
+          <p className="section-intro" style={{ marginTop: 12 }}>{created.operational.completedVisits} completed visits, {created.operational.photoCount} employee photos and {created.operational.invoiceCount} paid invoices were created. Feedback and return visits are submitted through the Customer portal.</p>
         </section>
       )}
     </AdminShell>
