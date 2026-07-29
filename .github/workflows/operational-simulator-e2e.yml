@@ -11,23 +11,13 @@ on:
       - "lib/repositories/customerPortalRepository.ts"
       - "lib/simulator/**"
       - "supabase/migrations/202607290001_customer_portal_action_contract.sql"
-      - "scripts/patch-operational-simulator-photo.py"
-      - "scripts/patch-operational-simulator-activity.py"
-      - "scripts/patch-operational-simulator-payments.py"
-      - "scripts/patch-operational-simulator-feedback.py"
-      - "scripts/patch-operational-simulator-tasks.py"
-      - "scripts/patch-customer-feedback-fallback.py"
-      - "scripts/patch-customer-request-fallback.py"
-      - "scripts/patch-customer-portal-board-identity.py"
-      - "scripts/patch-customer-portal-legacy-company.py"
-      - "scripts/patch-customer-portal-server-actions.py"
       - "tests/operational-simulator.spec.ts"
       - "public/demo/simulation-lawn-after.svg"
       - ".github/workflows/operational-simulator-e2e.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: operational-simulator-v1
@@ -51,30 +41,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: feature/25-30-homes-simulator-v1
-          fetch-depth: 0
 
-      - name: Repair canonical simulator compatibility
-        run: |
-          photo_result=$(python scripts/patch-operational-simulator-photo.py)
-          activity_result=$(python scripts/patch-operational-simulator-activity.py)
-          payment_result=$(python scripts/patch-operational-simulator-payments.py)
-          feedback_result=$(python scripts/patch-operational-simulator-feedback.py)
-          task_result=$(python scripts/patch-operational-simulator-tasks.py)
-          customer_feedback_result=$(python scripts/patch-customer-feedback-fallback.py)
-          customer_request_result=$(python scripts/patch-customer-request-fallback.py)
-          board_identity_result=$(python scripts/patch-customer-portal-board-identity.py)
-          legacy_company_result=$(python scripts/patch-customer-portal-legacy-company.py)
-          server_actions_result=$(python scripts/patch-customer-portal-server-actions.py)
-          echo "photo=$photo_result activity=$activity_result payment=$payment_result feedback=$feedback_result task=$task_result customer_feedback=$customer_feedback_result customer_request=$customer_request_result board_identity=$board_identity_result legacy_company=$legacy_company_result server_actions=$server_actions_result"
-          if [ "$photo_result" = "changed" ] || [ "$activity_result" = "changed" ] || [ "$payment_result" = "changed" ] || [ "$feedback_result" = "changed" ] || [ "$task_result" = "changed" ] || [ "$customer_feedback_result" = "changed" ] || [ "$customer_request_result" = "changed" ] || [ "$board_identity_result" = "changed" ] || [ "$legacy_company_result" = "changed" ] || [ "$server_actions_result" = "changed" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add app/api/admin/operational-simulator/route.ts lib/repositories/customerPortalRepository.ts
-            git commit -m "Align simulator with canonical database permissions"
-            git push origin HEAD:feature/25-30-homes-simulator-v1
-          fi
-
-      - name: Apply Customer portal database contract
+      - name: Apply Customer portal database contract when authorized
         run: |
           python - <<'PY'
           import json
@@ -87,7 +55,7 @@ jobs:
 
           token = os.environ.get("SUPABASE_ACCESS_TOKEN") or os.environ.get("SUPABASE_MANAGEMENT_ACCESS_TOKEN")
           if not token:
-              print("Supabase management token is not configured; migration remains committed for deployment.")
+              print("Supabase management token is not configured; using the database's current migration state.")
               sys.exit(0)
 
           project_url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
