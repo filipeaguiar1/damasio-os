@@ -128,6 +128,33 @@ async function exceptionStatus(service: any, companyId: string) {
   };
 }
 
+async function cleanExceptionRecords(service: any, companyId: string) {
+  const customerIds = await simulationCustomerIds(service, companyId);
+  if (!customerIds.length) return { feedbackRemoved: 0, tasksRemoved: 0, requestsRemoved: 0 };
+
+  const [feedbackRows, taskRows, requestRows] = await Promise.all([
+    service.from("feedback").select("id").in("customer_id", customerIds),
+    service.from("tasks").select("id").in("customer_id", customerIds),
+    service.from("service_requests").select("id").in("customer_id", customerIds),
+  ]);
+  if (feedbackRows.error) throw new Error(`feedback: ${feedbackRows.error.message}`);
+  if (taskRows.error) throw new Error(`tasks: ${taskRows.error.message}`);
+  if (requestRows.error) throw new Error(`service_requests: ${requestRows.error.message}`);
+
+  const feedbackDelete = await service.from("feedback").delete().in("customer_id", customerIds);
+  if (feedbackDelete.error) throw new Error(`feedback cleanup: ${feedbackDelete.error.message}`);
+  const taskDelete = await service.from("tasks").delete().in("customer_id", customerIds);
+  if (taskDelete.error) throw new Error(`tasks cleanup: ${taskDelete.error.message}`);
+  const requestDelete = await service.from("service_requests").delete().in("customer_id", customerIds);
+  if (requestDelete.error) throw new Error(`service_requests cleanup: ${requestDelete.error.message}`);
+
+  return {
+    feedbackRemoved: (feedbackRows.data || []).length,
+    tasksRemoved: (taskRows.data || []).length,
+    requestsRemoved: (requestRows.data || []).length,
+  };
+}
+
 async function seedExceptionWeek(service: any, companyId: string) {
   const customerIds = await simulationCustomerIds(service, companyId);
   if (!customerIds.length) throw new Error("Create the two-month operational simulation first.");
@@ -201,5 +228,15 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Exception simulation failed." }, { status: 400 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { service, companyId } = await requireAdmin(request);
+    const removed = await cleanExceptionRecords(service, companyId);
+    return NextResponse.json({ cleaned: true, ...removed });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Exception cleanup failed." }, { status: 400 });
   }
 }
