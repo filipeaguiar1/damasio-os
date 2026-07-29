@@ -74,3 +74,5 @@ jobs:
           git add tests/e2e/surfaces.spec.cjs
           git commit -m "test: report actionable browser failures"
           git push origin HEAD:agent/overnight-e2e-qa
+
+# Triggered once for the dedicated repair branch.
