@@ -24,13 +24,25 @@ assert.equal(result.operatingProfit, 5807.06);
 assert.equal(result.costPerVisit, 27.9);
 assert.equal(result.profitPerVisit, 12.1);
 assert.equal(result.breakEvenCustomers, 21);
+assert.equal(result.weatherRescheduledVisits, 24);
+assert.equal(result.lateVisits, 38);
+assert.equal(result.serviceIssueVisits, 14);
+assert.equal(result.returnVisits, 7);
+assert.equal(result.exceptionLaborHours, 20.75);
+assert.equal(result.exceptionCost, 731.15);
+assert.equal(result.revenueAtRisk, 560);
+assert.equal(result.adjustedOperatingProfit, 5075.91);
+assert.equal(result.adjustedOperatingMarginRate, 0.2644);
 
 console.log(JSON.stringify({
   valid: true,
   visits: result.visits,
   invoices: result.invoices,
-  housesPerEmployeePerWeek: result.housesPerEmployeePerWeek,
-  requiredHousesPerDay: result.requiredHousesPerDay,
   operatingProfit: result.operatingProfit,
-  operatingMarginRate: result.operatingMarginRate,
+  weatherRescheduledVisits: result.weatherRescheduledVisits,
+  lateVisits: result.lateVisits,
+  serviceIssueVisits: result.serviceIssueVisits,
+  returnVisits: result.returnVisits,
+  exceptionCost: result.exceptionCost,
+  adjustedOperatingProfit: result.adjustedOperatingProfit,
 }, null, 2));
