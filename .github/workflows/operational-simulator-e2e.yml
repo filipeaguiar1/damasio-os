@@ -4,6 +4,15 @@ on:
   push:
     branches:
       - feature/25-30-homes-simulator-v1
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/api/admin/operational-simulator/**"
+      - "app/admin/performance/**"
+      - "lib/simulator/**"
+      - "public/demo/simulation-lawn-after.svg"
+      - ".github/workflows/operational-simulator-e2e.yml"
   workflow_dispatch:
 
 permissions:
