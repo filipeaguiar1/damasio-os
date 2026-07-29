@@ -139,7 +139,7 @@ export default function OperationalSimulatorPage() {
 
       <section className="business-metrics" style={{ marginTop: 20 }}>
         <div className="business-metric"><span>Customers</span><strong>{status?.customerCount ?? input.customerCount}</strong><small>{input.customerCount / input.employeeCount} homes per worker</small></div>
-        <div className="business-metric"><span>Completed Visits</span><strong>{status?.completedVisits ?? preview.visits}</strong><small>{input.weeks} completed weeks</small></div>
+        <div className="business-metric"><span>Completed Visits</span><strong>{status?.completedVisits ?? preview.visits}</strong><small>{status && status.completedVisits > preview.visits ? `${preview.visits} historical + ${status.completedVisits - preview.visits} live` : `${input.weeks} completed weeks`}</small></div>
         <div className="business-metric"><span>Paid Invoices</span><strong>{cad(status?.collected ?? preview.customerTotal)}</strong><small>includes HST; no real Stripe activity</small></div>
         <div className="business-metric"><span>Operating Profit</span><strong>{cad(preview.operatingProfit)}</strong><small>{percent(preview.operatingMarginRate)} before income tax</small></div>
       </section>
