@@ -1,4 +1,5 @@
 name: E2E Surfaces
+# One-time branch trigger; the final workflow removes all repository mutation logic.
 
 on:
   pull_request:
