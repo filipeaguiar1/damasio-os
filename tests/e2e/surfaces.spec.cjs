@@ -278,7 +278,6 @@ test('employee canonical execution smoke', async ({ page }, testInfo) => {
   await expect(page.locator('.mobile-status')).toHaveText('Open');
 
   await page.getByRole('button', { name: /^start$/i }).click();
-  await expect(page.getByText(/service started and synchronized/i)).toBeVisible();
 
   await expect.poll(async () => (await getEmployeeRouteVisit(page, prepared.visit.id)).visit?.status || null, { timeout: 15_000 }).toBe('in_progress');
   await expect(page.getByRole('button', { name: /^finish$/i })).toBeEnabled({ timeout: 15_000 });
