@@ -38,6 +38,10 @@ replacements = [
       const taskRows: Record<string, unknown>[] = [];
 ''',
     ),
+    (
+        '    service.from("invoices").select("id,status,total").in("customer_id", customerIds).or(companyFilter(companyId)),',
+        '    service.from("invoices").select("id,status,total").in("customer_id", customerIds),',
+    ),
 ]
 
 for old, new in replacements:
