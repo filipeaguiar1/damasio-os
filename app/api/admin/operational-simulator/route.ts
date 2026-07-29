@@ -604,12 +604,10 @@ async function removeSimulation(service: any, companyId: string) {
 
   if (visitIds.length) {
     await service.from("photos").delete().in("visit_id", visitIds);
-    await service.from("feedback").delete().in("visit_id", visitIds);
     await service.from("tasks").delete().in("source_visit_id", visitIds);
   }
   if (propertyIds.length) await service.from("photos").delete().in("property_id", propertyIds);
   if (customerIds.length) {
-    await service.from("feedback").delete().in("customer_id", customerIds);
     await service.from("tasks").delete().in("customer_id", customerIds);
     await service.from("invoices").delete().in("customer_id", customerIds);
     await service.from("visits").delete().in("customer_id", customerIds);
@@ -709,17 +707,8 @@ export async function POST(request: NextRequest) {
         if (update.error && !missingColumn(update.error.message)) throw new Error(update.error.message);
       }
 
-      const feedbackRows = customerRows.chains.map((chain, index) => ({
-        id: randomUUID(),
-        organization_id: companyId,
-        company_id: companyId,
-        customer_id: chain.customerId,
-        property_id: chain.propertyId,
-        visit_id: operations.lastVisits.get(chain.customerId),
-        rating: index % 10 === 0 ? 4 : 5,
-        comment: index % 10 === 0 ? "Good service; gate area needed a second pass." : "Service completed well and photo received.",
-      }));
-      await insertRowsWithFallback(service, "feedback", feedbackRows, ["company_id"]);
+      // Feedback is intentionally submitted by the temporary Customer through the canonical portal RPC.
+      const feedbackRows: Record<string, unknown>[] = [];
 
       const taskRows = customerRows.chains.filter((_, index) => index % 20 === 0).map((chain, index) => ({
         id: randomUUID(),
