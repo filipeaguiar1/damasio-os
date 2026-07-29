@@ -22,6 +22,14 @@ type ApiStatus = {
   paidInvoices: number;
   collected: number;
 };
+type ExceptionStatus = {
+  exists: boolean;
+  weatherRescheduledVisits: number;
+  lateVisits: number;
+  lowRatings: number;
+  openTasks: number;
+  returnRequests: number;
+};
 type CreateResponse = {
   message: string;
   result: OperationalSimulationResult;
@@ -54,6 +62,7 @@ function percent(value: number) {
 export default function OperationalSimulatorPage() {
   const [input, setInput] = useState<OperationalSimulationInput>(defaultOperationalSimulationInput);
   const [status, setStatus] = useState<ApiStatus | null>(null);
+  const [exceptions, setExceptions] = useState<ExceptionStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [created, setCreated] = useState<CreateResponse | null>(null);
   const [message, setMessage] = useState("");
@@ -72,17 +81,23 @@ export default function OperationalSimulatorPage() {
       const access = await token();
       if (!access) {
         setStatus(null);
+        setExceptions(null);
         return;
       }
-      const response = await fetch("/api/admin/operational-simulator", {
-        headers: { authorization: `Bearer ${access}` },
-        cache: "no-store",
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Simulation status could not be loaded.");
-      setStatus(result.status);
+      const headers = { authorization: `Bearer ${access}` };
+      const [coreResponse, exceptionResponse] = await Promise.all([
+        fetch("/api/admin/operational-simulator", { headers, cache: "no-store" }),
+        fetch("/api/admin/operational-simulator/exceptions", { headers, cache: "no-store" }),
+      ]);
+      const coreResult = await coreResponse.json();
+      const exceptionResult = await exceptionResponse.json();
+      if (!coreResponse.ok) throw new Error(coreResult.error || "Simulation status could not be loaded.");
+      if (!exceptionResponse.ok) throw new Error(exceptionResult.error || "Exception status could not be loaded.");
+      setStatus(coreResult.status);
+      setExceptions(exceptionResult.status);
     } catch (error) {
       setStatus(null);
+      setExceptions(null);
       setMessage(error instanceof Error ? error.message : "Simulation status could not be loaded.");
     } finally {
       setStatusLoading(false);
@@ -120,6 +135,31 @@ export default function OperationalSimulatorPage() {
     }
   }
 
+  async function runExceptions() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const access = await token();
+      if (!access) throw new Error("Your Admin session expired. Sign in again.");
+      const response = await fetch("/api/admin/operational-simulator/exceptions", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${access}` },
+        body: JSON.stringify({ action: "seed" }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Exception simulation failed.");
+      setMessage(result.message || "Exception week seeded.");
+      setExceptions(result.status);
+      await loadStatus();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Exception simulation failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const exceptionSeeded = Boolean((exceptions?.weatherRescheduledVisits || 0) + (exceptions?.lateVisits || 0));
+
   return (
     <AdminShell active="Performance">
       <div className="app-top">
@@ -131,6 +171,7 @@ export default function OperationalSimulatorPage() {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Link href="/admin/performance" className="btn btn-outline">Back to Reports</Link>
           <button type="button" className="btn btn-primary" disabled={busy || statusLoading || Boolean(status?.exists)} onClick={() => void run("create")}>{busy ? "Working…" : statusLoading ? "Checking…" : "Create 2-Month Simulation"}</button>
+          <button type="button" className="btn btn-outline" disabled={busy || statusLoading || !status?.exists || exceptionSeeded} onClick={() => void runExceptions()}>{exceptionSeeded ? "Exception Week Created" : "Run Exception Week"}</button>
           <button type="button" className="btn btn-outline" disabled={busy || statusLoading || !status?.exists} onClick={() => void run("remove")}>Remove Simulation</button>
         </div>
       </div>
@@ -141,7 +182,7 @@ export default function OperationalSimulatorPage() {
         <div className="business-metric"><span>Customers</span><strong>{status?.customerCount ?? input.customerCount}</strong><small>{input.customerCount / input.employeeCount} homes per worker</small></div>
         <div className="business-metric"><span>Completed Visits</span><strong>{status?.completedVisits ?? preview.visits}</strong><small>{status && status.completedVisits > preview.visits ? `${preview.visits} historical + ${status.completedVisits - preview.visits} live` : `${input.weeks} completed weeks`}</small></div>
         <div className="business-metric"><span>Paid Invoices</span><strong>{cad(status?.collected ?? preview.customerTotal)}</strong><small>includes HST; no real Stripe activity</small></div>
-        <div className="business-metric"><span>Operating Profit</span><strong>{cad(preview.operatingProfit)}</strong><small>{percent(preview.operatingMarginRate)} before income tax</small></div>
+        <div className="business-metric"><span>Adjusted Profit</span><strong>{cad(preview.adjustedOperatingProfit)}</strong><small>{percent(preview.adjustedOperatingMarginRate)} after modeled exceptions</small></div>
       </section>
 
       {status?.exists && (
@@ -152,6 +193,19 @@ export default function OperationalSimulatorPage() {
             <div className="field"><label>Today’s scheduled visits</label><strong className="input">{status.scheduledVisits}</strong></div>
             <div className="field"><label>Employee photos</label><strong className="input">{status.photos}</strong></div>
             <div className="field"><label>Paid invoices</label><strong className="input">{status.paidInvoices}</strong></div>
+          </div>
+        </section>
+      )}
+
+      {status?.exists && (
+        <section className="card" style={{ marginTop: 20 }}>
+          <div className="table-head"><div><h2>Live Exception Status</h2><p className="section-intro">Rain and delay are seeded by Admin. Low rating, follow-up Task and Return Visit are created through the Customer flow.</p></div></div>
+          <div className="form-grid">
+            <div className="field"><label>Rain-rescheduled visits</label><strong className="input">{exceptions?.weatherRescheduledVisits ?? 0}</strong></div>
+            <div className="field"><label>Late arrivals</label><strong className="input">{exceptions?.lateVisits ?? 0}</strong></div>
+            <div className="field"><label>Low ratings</label><strong className="input">{exceptions?.lowRatings ?? 0}</strong></div>
+            <div className="field"><label>Open follow-up tasks</label><strong className="input">{exceptions?.openTasks ?? 0}</strong></div>
+            <div className="field"><label>Return requests</label><strong className="input">{exceptions?.returnRequests ?? 0}</strong></div>
           </div>
         </section>
       )}
@@ -181,6 +235,17 @@ export default function OperationalSimulatorPage() {
           <p className="section-intro" style={{ marginTop: 12 }}>Average service: <strong>{preview.averageServiceMinutes.toFixed(1)} min</strong> · total with travel/clippings: <strong>{preview.averageTotalMinutes.toFixed(1)} min</strong>.</p>
         </section>
       </div>
+
+      <section className="card table-card" style={{ marginTop: 20 }}>
+        <div className="table-head"><div><h2>Exception Impact Model</h2><p className="section-intro">Expected impact across the same eight-week operation; the seeded exception week supplies real workflow examples.</p></div></div>
+        <div className="table-wrap"><table><tbody>
+          <tr><th>Rain-rescheduled visits</th><td>{preview.weatherRescheduledVisits}</td><th>Late arrivals</th><td>{preview.lateVisits}</td></tr>
+          <tr><th>Service issues</th><td>{preview.serviceIssueVisits}</td><th>Expected return visits</th><td>{preview.returnVisits}</td></tr>
+          <tr><th>Exception labour</th><td>{preview.exceptionLaborHours.toFixed(2)} hours</td><th>Customer credits</th><td>{cad(preview.customerCredits)}</td></tr>
+          <tr><th>Total exception cost</th><td><strong>{cad(preview.exceptionCost)}</strong></td><th>Revenue at risk</th><td>{cad(preview.revenueAtRisk)}</td></tr>
+          <tr><th>Base operating profit</th><td>{cad(preview.operatingProfit)}</td><th>Adjusted operating profit</th><td><strong>{cad(preview.adjustedOperatingProfit)}</strong></td></tr>
+        </tbody></table></div>
+      </section>
 
       <section className="card table-card" style={{ marginTop: 20 }}>
         <div className="table-head"><div><h2>Two-Month Result</h2><p className="section-intro">HST stays separate from operating revenue.</p></div></div>
