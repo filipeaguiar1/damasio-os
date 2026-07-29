@@ -118,9 +118,18 @@ export default function OperationalSimulatorPage() {
     try {
       const access = await token();
       if (!access) throw new Error("Your Admin session expired. Sign in again.");
+      const headers = { "content-type": "application/json", authorization: `Bearer ${access}` };
+      if (action === "remove") {
+        const cleanupResponse = await fetch("/api/admin/operational-simulator/exceptions", {
+          method: "DELETE",
+          headers,
+        });
+        const cleanupResult = await cleanupResponse.json();
+        if (!cleanupResponse.ok) throw new Error(cleanupResult.error || "Simulation feedback, Tasks and requests could not be removed.");
+      }
       const response = await fetch("/api/admin/operational-simulator", {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${access}` },
+        headers,
         body: JSON.stringify({ action, assumptions: input }),
       });
       const result = await response.json();
