@@ -3,7 +3,8 @@
 .auth-card > a,
 .auth-links a,
 .mobile-login-card > a {
-  min-height: 44px;
+  min-height: 48px;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -21,7 +22,8 @@
 
 @media (max-width: 900px) {
   .header-login {
-    min-width: 44px;
+    min-width: 48px;
+    min-height: 48px !important;
     padding-top: 12px;
     padding-bottom: 12px;
   }
