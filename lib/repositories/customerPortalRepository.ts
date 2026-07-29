@@ -211,6 +211,17 @@ export async function getCustomerPaymentsVisitsPortal() {
   return normalizePaymentsPortal(data || emptyPaymentsPortal);
 }
 
+async function insertCustomerScoped(supabase: any, table: string, row: Record<string, unknown>) {
+  let result = await supabase.from(table).insert(row);
+  const missingCompanyColumn = result.error
+    && /could not find the ['"]company_id['"] column|company_id.*schema cache/i.test(String(result.error.message || ""));
+  if (missingCompanyColumn) {
+    const { company_id: _companyId, ...legacyRow } = row;
+    result = await supabase.from(table).insert(legacyRow);
+  }
+  if (result.error) throw new Error(result.error.message);
+}
+
 async function getCustomerFallbackIdentity(supabase: any, board: CustomerPortalBoard) {
   if (!board.property?.propertyId || !board.property.customerId) {
     throw new Error("Customer property not found for this account.");
@@ -249,7 +260,7 @@ export async function createCustomerPortalRequest(input: { serviceName: string; 
 
   const board = await getCustomerPortalBoard();
   const identity = await getCustomerFallbackIdentity(supabase, board);
-  const request = await supabase.from("service_requests").insert({
+  await insertCustomerScoped(supabase, "service_requests", {
     organization_id: identity.companyId,
     company_id: identity.companyId,
     customer_id: identity.customerId,
@@ -258,7 +269,6 @@ export async function createCustomerPortalRequest(input: { serviceName: string; 
     message: input.message?.trim() || null,
     status: "pending",
   });
-  if (request.error) throw new Error(request.error.message);
   return getCustomerPortalBoard();
 }
 
@@ -287,7 +297,7 @@ export async function submitCustomerPortalFeedback(input: { visitId?: string; ta
   if (!input.visitId && !input.taskId) throw new Error("Choose a completed item first.");
   const identity = await getCustomerFallbackIdentity(supabase, board);
 
-  const feedback = await supabase.from("feedback").insert({
+  await insertCustomerScoped(supabase, "feedback", {
     organization_id: identity.companyId,
     company_id: identity.companyId,
     customer_id: identity.customerId,
@@ -297,10 +307,9 @@ export async function submitCustomerPortalFeedback(input: { visitId?: string; ta
     rating: input.rating,
     comment: input.comment?.trim() || null,
   });
-  if (feedback.error) throw new Error(feedback.error.message);
 
   if (input.rating <= 3 && input.comment?.trim()) {
-    const followUp = await supabase.from("tasks").insert({
+    await insertCustomerScoped(supabase, "tasks", {
       organization_id: identity.companyId,
       company_id: identity.companyId,
       customer_id: identity.customerId,
@@ -311,7 +320,6 @@ export async function submitCustomerPortalFeedback(input: { visitId?: string; ta
       priority: "urgent",
       status: "open",
     });
-    if (followUp.error) throw new Error(followUp.error.message);
   }
 
   return getCustomerPortalBoard();
