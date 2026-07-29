@@ -157,7 +157,8 @@ jobs:
             await customer.waitForURL("**/customer", { timeout: 30_000 });
             await customer.goto("http://127.0.0.1:3000/customer/feedback");
             await expect(customer.getByRole("heading", { name: "Review completed services" })).toBeVisible({ timeout: 30_000 });
-            await customer.getByLabel("Comment").fill("Simulation customer confirmed the completed service and employee photo.");
+            await expect(customer.locator("textarea").first()).toBeVisible({ timeout: 30_000 });
+            await customer.locator("textarea").first().fill("Simulation customer confirmed the completed service and employee photo.");
             await customer.getByRole("button", { name: "Submit Review" }).click();
             await expect(customer.getByText(/Feedback saved/i)).toBeVisible({ timeout: 30_000 });
 
