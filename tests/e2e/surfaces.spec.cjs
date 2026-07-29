@@ -196,7 +196,7 @@ async function ensureEmployeeExecutionVisit(employeeEmail) {
     route_order: routeOrder,
   });
 
-  return { employee, visit };
+  return { employee, property, visit };
 }
 
 async function signInMobile(page, email, password) {
@@ -273,7 +273,7 @@ test('employee canonical execution smoke', async ({ page }, testInfo) => {
   expect(visit.status).toBe('scheduled');
 
   await page.getByRole('button', { name: /^list$/i }).click();
-  await page.getByRole('button', { name: new RegExp(employeeExecutionServiceName, 'i') }).click();
+  await page.getByRole('button', { name: new RegExp(prepared.property.address_line1, 'i') }).click();
   await expect(page.getByText(employeeExecutionServiceName)).toBeVisible();
   await expect(page.locator('.mobile-status')).toHaveText('Open');
 
