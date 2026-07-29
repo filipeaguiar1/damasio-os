@@ -6,6 +6,11 @@ on:
       - feature/25-30-homes-simulator-v1
     paths:
       - ".github/workflows/patch-operational-simulator-photo.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/patch-operational-simulator-photo.yml"
 
 permissions:
   contents: write
