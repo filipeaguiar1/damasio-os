@@ -21,11 +21,13 @@
 }
 
 @media (max-width: 900px) {
-  .header-login {
+  .header .header-login,
+  .header a.header-login.btn {
     min-width: 48px;
     min-height: 48px !important;
-    padding-top: 12px;
-    padding-bottom: 12px;
+    height: 48px !important;
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
   }
 
   .auth-links a,
