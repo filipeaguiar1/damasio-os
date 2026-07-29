@@ -3,6 +3,8 @@ name: E2E Surfaces
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [agent/overnight-e2e-qa]
   workflow_dispatch:
 
 permissions:
