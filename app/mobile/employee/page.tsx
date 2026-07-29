@@ -112,6 +112,11 @@ export default function MobileEmployeeApp(){
   async function syncOfflineQueue(){
     try{const result=await flushOfflineActionQueue();setOfflinePending(result.remaining);if(result.synced){refresh();setMessage(`${result.synced} offline action(s) synced.`)}}catch{/* field mode must stay usable even if background sync fails */}
   }
+  async function refreshAfterCanonicalVisitMutation(reloadCanonical:boolean){
+    if(reloadCanonical)setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));
+    refresh();
+  }
+
   useMobileRealtime(refresh);
   useEffect(()=>{refresh();setOfflinePending(getOfflineActionCount());void syncOfflineQueue(); void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setRouteStartAddress(identity.routeStartAddress||"")}); const on=()=>refresh(); const queue=()=>setOfflinePending(getOfflineActionCount()); const online=()=>void syncOfflineQueue(); window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener); window.addEventListener("storage",on); window.addEventListener("online",online); window.addEventListener("damasio-offline-queue-change",queue as EventListener); const t=window.setInterval(()=>{setTick(v=>v+1);if(getOfflineActionCount())void syncOfflineQueue()},1000); return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);window.removeEventListener("online",online);window.removeEventListener("damasio-offline-queue-change",queue as EventListener);window.clearInterval(t)}},[]);
 
@@ -244,7 +249,7 @@ export default function MobileEmployeeApp(){
   async function start(){
     if(!selected||busy)return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"in_progress");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Service start saved offline. It will sync automatically.":"Service started and synchronized.")}else{startServiceSession(selected.id,profile.name,crew);setMessage("Service started and synchronized.")} setRouteReload(value=>value+1); refresh();}
+    try{let reloadCanonical=false;if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"in_progress");setOfflinePending(getOfflineActionCount());reloadCanonical=!result.queued;setMessage(result.queued?"Service start saved offline. It will sync automatically.":"Service started and synchronized.")}else{startServiceSession(selected.id,profile.name,crew);setMessage("Service started and synchronized.")} await refreshAfterCanonicalVisitMutation(reloadCanonical);}
     catch(error){setError(error instanceof Error?error.message:"Service could not be started. Please try again.")}
     finally{setBusy(false)}
   }
@@ -252,7 +257,7 @@ export default function MobileEmployeeApp(){
     if(!selected||busy)return;
     if(!window.confirm("Finish this service and mark this house as Done?"))return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"completed");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Completion saved offline. It will sync automatically.":"Done. Every device was updated.")}else{finishServiceSession(selected.id,comment);setMessage("Done. Every device was updated.")} setRouteReload(value=>value+1); refresh();}
+    try{let reloadCanonical=false;if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"completed");setOfflinePending(getOfflineActionCount());reloadCanonical=!result.queued;setMessage(result.queued?"Completion saved offline. It will sync automatically.":"Done. Every device was updated.")}else{finishServiceSession(selected.id,comment);setMessage("Done. Every device was updated.")} await refreshAfterCanonicalVisitMutation(reloadCanonical);}
     catch(error){setError(error instanceof Error?error.message:"Service could not be completed. Please try again.")}
     finally{setBusy(false)}
   }
@@ -260,7 +265,7 @@ export default function MobileEmployeeApp(){
     if(!selected||busy)return;
     if(!window.confirm("Reset this house? The timer will be cleared and the visit will return to Open."))return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"scheduled");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Reset saved offline. It will sync automatically.":"House reset to Open on every device.")}else{resetServiceSession(selected.id);setMessage("House reset to Open on every device.")} setComment(""); setRouteReload(value=>value+1); refresh();}
+    try{let reloadCanonical=false;if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"scheduled");setOfflinePending(getOfflineActionCount());reloadCanonical=!result.queued;setMessage(result.queued?"Reset saved offline. It will sync automatically.":"House reset to Open on every device.")}else{resetServiceSession(selected.id);setMessage("House reset to Open on every device.")} setComment(""); await refreshAfterCanonicalVisitMutation(reloadCanonical);}
     catch{setError("House could not be reset.")}
     finally{setBusy(false)}
   }
