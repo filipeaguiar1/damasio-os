@@ -551,7 +551,7 @@ async function simulationStatus(service: any, companyId: string) {
   const [visits, photos, invoices] = await Promise.all([
     service.from("visits").select("id,status").in("customer_id", customerIds).or(companyFilter(companyId)),
     propertyIds.length ? service.from("photos").select("id").in("property_id", propertyIds) : Promise.resolve({ data: [], error: null }),
-    service.from("invoices").select("id,status,total").in("customer_id", customerIds).or(companyFilter(companyId)),
+    service.from("invoices").select("id,status,total").in("customer_id", customerIds),
   ]);
   if (visits.error) throw new Error(visits.error.message);
   if (photos.error) throw new Error(photos.error.message);
