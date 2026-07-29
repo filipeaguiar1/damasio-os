@@ -1,8 +1,8 @@
 const { test, expect } = require('@playwright/test');
+const { randomUUID } = require('crypto');
 
 const publicRoutes = ['/', '/mobile', '/mobile/login', '/login'];
-const employeeExecutionVisitId = '5d717d5e-5540-41fd-b321-0ae309ceb93f';
-const employeeExecutionEmployeeId = '0b33be2e-000e-457c-b875-8138aa364529';
+const employeeExecutionServiceName = 'Weekly Lawn Care';
 
 function collectRuntimeFailures(page) {
   const failures = [];
@@ -84,29 +84,119 @@ const credentials = {
   customer: [process.env.E2E_CUSTOMER_EMAIL, process.env.E2E_CUSTOMER_PASSWORD],
 };
 
-async function resetEmployeeExecutionVisit() {
+function torontoDateKey() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Toronto',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function supabaseHeaders(prefer) {
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  return {
+    apikey: serviceKey,
+    authorization: `Bearer ${serviceKey}`,
+    'content-type': 'application/json',
+    ...(prefer ? { prefer } : {}),
+  };
+}
+
+async function supabaseRest(path, options = {}) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return null;
-
-  const response = await fetch(`${url}/rest/v1/visits?id=eq.${employeeExecutionVisitId}&select=id,status,assigned_employee_id`, {
-    method: 'PATCH',
-    headers: {
-      apikey: serviceKey,
-      authorization: `Bearer ${serviceKey}`,
-      'content-type': 'application/json',
-      prefer: 'return=representation',
-    },
-    body: JSON.stringify({
-      status: 'scheduled',
-      started_at: null,
-      finished_at: null,
-      duration_seconds: null,
-    }),
+  if (!url || !serviceKey) throw new Error('Supabase E2E service credentials are not configured.');
+  const response = await fetch(`${url}/rest/v1/${path}`, {
+    method: options.method || 'GET',
+    headers: supabaseHeaders(options.prefer),
+    body: options.body ? JSON.stringify(options.body) : undefined,
   });
-  const rows = await response.json();
-  if (!response.ok) throw new Error(rows.message || 'E2E Visit could not be reset.');
-  return rows[0] || null;
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!response.ok) throw new Error(data?.message || data?.hint || `${options.method || 'GET'} ${path} failed`);
+  return data;
+}
+
+async function insertOne(table, body) {
+  const rows = await supabaseRest(`${table}?select=*`, {
+    method: 'POST',
+    prefer: 'return=representation',
+    body,
+  });
+  return rows[0];
+}
+
+async function ensureEmployeeExecutionVisit(employeeEmail) {
+  const today = torontoDateKey();
+  const employees = await supabaseRest(
+    `employees?email=eq.${encodeURIComponent(employeeEmail)}&active=eq.true&select=id,crew_id,company_id,organization_id,email`,
+  );
+  const employee = employees[0];
+  if (!employee) throw new Error(`Employee E2E row was not found for ${employeeEmail}.`);
+
+  const companyId = employee.company_id || employee.organization_id;
+  if (!companyId) throw new Error('Employee E2E is not linked to a company.');
+
+  const suffix = randomUUID().slice(0, 8);
+  const customer = await insertOne('customers', {
+    organization_id: companyId,
+    full_name: `E2E Execution Customer ${suffix}`,
+    email: `employee-execution-${suffix}@example.invalid`,
+    phone: '+1 416 555 0199',
+  });
+  const property = await insertOne('properties', {
+    organization_id: companyId,
+    customer_id: customer.id,
+    address_line1: `E2E ${suffix} Test Street`,
+    city: 'Hamilton',
+    province: 'ON',
+    postal_code: 'L8P 1H6',
+    country: 'Canada',
+    lot_size: 'small',
+    grass_height: '3in',
+  });
+  const job = await insertOne('jobs', {
+    organization_id: companyId,
+    customer_id: customer.id,
+    property_id: property.id,
+    service_name: employeeExecutionServiceName,
+    frequency: 'weekly',
+    active: true,
+    next_visit_date: today,
+  });
+
+  const crewFilter = employee.crew_id ? `crew_id=eq.${employee.crew_id}` : 'crew_id=is.null';
+  const routes = await supabaseRest(
+    `routes?organization_id=eq.${companyId}&route_date=eq.${today}&${crewFilter}&select=id,crew_id,route_date&limit=1`,
+  );
+  const route = routes[0] || await insertOne('routes', {
+    organization_id: companyId,
+    crew_id: employee.crew_id,
+    route_date: today,
+    status: 'published',
+  });
+
+  const routeVisits = await supabaseRest(
+    `visits?route_id=eq.${route.id}&select=route_order&order=route_order.desc.nullslast&limit=1`,
+  );
+  const routeOrder = Number(routeVisits[0]?.route_order || 0) + 1;
+  const visit = await insertOne('visits', {
+    organization_id: companyId,
+    job_id: job.id,
+    route_id: route.id,
+    customer_id: customer.id,
+    property_id: property.id,
+    crew_id: employee.crew_id,
+    assigned_employee_id: employee.id,
+    scheduled_date: today,
+    status: 'scheduled',
+    route_order: routeOrder,
+  });
+
+  return { employee, visit };
 }
 
 async function signInMobile(page, email, password) {
@@ -163,42 +253,41 @@ test('employee canonical execution smoke', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chromium', 'Visit execution mutates shared E2E data and runs once.');
   const [email, password] = credentials.employee;
   test.skip(!email || !password, 'employee E2E credentials are not configured');
+  test.skip(!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY, 'Supabase E2E service credentials are not configured');
 
-  const preparedVisit = await resetEmployeeExecutionVisit();
-  if (preparedVisit) {
-    expect(preparedVisit.assigned_employee_id).toBe(employeeExecutionEmployeeId);
-    expect(preparedVisit.status).toBe('scheduled');
-  }
+  const prepared = await ensureEmployeeExecutionVisit(email);
+  expect(prepared.visit.status).toBe('scheduled');
+  expect(prepared.visit.assigned_employee_id).toBe(prepared.employee.id);
 
   const failures = collectRuntimeFailures(page);
   await signInMobile(page, email, password);
   await page.goto('/mobile/employee', { waitUntil: 'networkidle' });
   await expect(page.locator('main')).toBeVisible();
 
-  const routeState = await getEmployeeRouteVisit(page, employeeExecutionVisitId);
+  const routeState = await getEmployeeRouteVisit(page, prepared.visit.id);
 
-  expect(routeState.employeeId).toBe(employeeExecutionEmployeeId);
+  expect(routeState.employeeId).toBe(prepared.employee.id);
   const visit = routeState.visit;
-  expect(visit, `${employeeExecutionVisitId} must be visible in the Employee route`).toBeTruthy();
-  expect(visit.serviceName).toBe('Weekly Lawn Care');
+  expect(visit, `${prepared.visit.id} must be visible in the Employee route`).toBeTruthy();
+  expect(visit.serviceName).toBe(employeeExecutionServiceName);
   expect(visit.status).toBe('scheduled');
 
   await page.getByRole('button', { name: /^list$/i }).click();
-  await page.getByRole('button', { name: /weekly lawn care/i }).click();
-  await expect(page.getByText('Weekly Lawn Care')).toBeVisible();
+  await page.getByRole('button', { name: new RegExp(employeeExecutionServiceName, 'i') }).click();
+  await expect(page.getByText(employeeExecutionServiceName)).toBeVisible();
   await expect(page.getByText(/open/i)).toBeVisible();
 
   await page.getByRole('button', { name: /^start$/i }).click();
   await expect(page.getByText(/service started and synchronized/i)).toBeVisible();
 
-  await expect.poll(async () => (await getEmployeeRouteVisit(page, employeeExecutionVisitId)).visit?.status || null, { timeout: 15_000 }).toBe('in_progress');
+  await expect.poll(async () => (await getEmployeeRouteVisit(page, prepared.visit.id)).visit?.status || null, { timeout: 15_000 }).toBe('in_progress');
   await expect(page.getByRole('button', { name: /^finish$/i })).toBeEnabled({ timeout: 15_000 });
 
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: /^finish$/i }).click();
   await expect(page.getByText(/done\. every device was updated/i)).toBeVisible();
 
-  await expect.poll(async () => (await getEmployeeRouteVisit(page, employeeExecutionVisitId)).visit?.status || null, { timeout: 15_000 }).toBe('completed');
+  await expect.poll(async () => (await getEmployeeRouteVisit(page, prepared.visit.id)).visit?.status || null, { timeout: 15_000 }).toBe('completed');
 
   expect(failures, failures.join('\n')).toEqual([]);
 });
