@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Completed lawn service simulation</title>
+  <desc id="desc">A simple illustration representing an employee after-service photo.</desc>
+  <rect width="1200" height="800" fill="#dce9f5"/>
+  <rect y="470" width="1200" height="330" fill="#4d8f4b"/>
+  <path d="M0 610 Q150 540 300 610 T600 610 T900 610 T1200 610 V800 H0Z" fill="#3f7d3e"/>
+  <rect x="180" y="260" width="430" height="260" rx="8" fill="#f4efe4"/>
+  <polygon points="140,280 395,90 650,280" fill="#744d3b"/>
+  <rect x="330" y="360" width="120" height="160" fill="#8d674f"/>
+  <rect x="210" y="320" width="90" height="80" fill="#a8d5ef"/>
+  <rect x="490" y="320" width="90" height="80" fill="#a8d5ef"/>
+  <circle cx="950" cy="185" r="85" fill="#f3c760"/>
+  <text x="60" y="735" font-family="Arial, sans-serif" font-size="42" fill="#ffffff">4Ever Seasons · After Service Photo · Simulation</text>
+</svg>
