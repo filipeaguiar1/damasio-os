@@ -604,11 +604,9 @@ async function removeSimulation(service: any, companyId: string) {
 
   if (visitIds.length) {
     await service.from("photos").delete().in("visit_id", visitIds);
-    await service.from("tasks").delete().in("source_visit_id", visitIds);
   }
   if (propertyIds.length) await service.from("photos").delete().in("property_id", propertyIds);
   if (customerIds.length) {
-    await service.from("tasks").delete().in("customer_id", customerIds);
     await service.from("invoices").delete().in("customer_id", customerIds);
     await service.from("visits").delete().in("customer_id", customerIds);
   }
@@ -710,25 +708,8 @@ export async function POST(request: NextRequest) {
       // Feedback is intentionally submitted by the temporary Customer through the canonical portal RPC.
       const feedbackRows: Record<string, unknown>[] = [];
 
-      const taskRows = customerRows.chains.filter((_, index) => index % 20 === 0).map((chain, index) => ({
-        id: randomUUID(),
-        organization_id: companyId,
-        company_id: companyId,
-        customer_id: chain.customerId,
-        property_id: chain.propertyId,
-        source_visit_id: operations.lastVisits.get(chain.customerId),
-        assigned_employee_id: workers[chain.workerIndex].employeeId,
-        assigned_crew_id: workers[chain.workerIndex].crewId,
-        title: "Simulation quality follow-up",
-        customer_issue: "Gate edge required a quick second pass.",
-        priority: "normal",
-        status: "resolved",
-        scheduled_date: operations.simulationEnd,
-        assigned_at: `${operations.simulationEnd}T18:00:00.000Z`,
-        resolved_at: `${operations.simulationEnd}T19:00:00.000Z`,
-        completion_summary: `Resolved by ${workers[chain.workerIndex].name}. ${SIM_MARKER} #${index + 1}`,
-      }));
-      await insertRowsWithFallback(service, "tasks", taskRows, ["company_id"]);
+      // A real Return Visit Task is created later by the temporary Customer through create_customer_task.
+      const taskRows: Record<string, unknown>[] = [];
 
       // The canonical audit trail remains attached to the company records themselves:
       // Customer notes, Visit execution notes, private Photos, Payments, Feedback and resolved Tasks.
