@@ -111,20 +111,23 @@ async function exceptionStatus(service: any, companyId: string) {
   const visits = await completedVisits(service, companyId, customerIds);
   const [feedback, tasks, requests] = await Promise.all([
     service.from("feedback").select("id,rating").in("customer_id", customerIds),
-    service.from("tasks").select("id,status").in("customer_id", customerIds),
+    service.from("tasks").select("id,status,title").in("customer_id", customerIds),
     service.from("service_requests").select("id,status,service_name").in("customer_id", customerIds),
   ]);
   if (feedback.error) throw new Error(`feedback: ${feedback.error.message}`);
   if (tasks.error) throw new Error(`tasks: ${tasks.error.message}`);
   if (requests.error) throw new Error(`service_requests: ${requests.error.message}`);
 
+  const taskRows = tasks.data || [];
+  const serviceRequestRows = requests.data || [];
   return {
     exists: true,
     weatherRescheduledVisits: visits.filter(row => String(row.employee_notes || "").includes(RAIN_MARKER)).length,
     lateVisits: visits.filter(row => String(row.employee_notes || "").includes(LATE_MARKER)).length,
     lowRatings: (feedback.data || []).filter((row: any) => Number(row.rating) <= 3).length,
-    openTasks: (tasks.data || []).filter((row: any) => !["resolved", "closed", "done"].includes(String(row.status || "").toLowerCase())).length,
-    returnRequests: (requests.data || []).filter((row: any) => /return visit/i.test(String(row.service_name || ""))).length,
+    openTasks: taskRows.filter((row: any) => !["resolved", "closed", "done"].includes(String(row.status || "").toLowerCase())).length,
+    returnRequests: serviceRequestRows.filter((row: any) => /return visit/i.test(String(row.service_name || ""))).length
+      + taskRows.filter((row: any) => /customer return visit/i.test(String(row.title || ""))).length,
   };
 }
 
