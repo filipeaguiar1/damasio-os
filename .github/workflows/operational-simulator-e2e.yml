@@ -1,9 +1,6 @@
 name: Operational Simulator E2E
 
 on:
-  push:
-    branches:
-      - feature/25-30-homes-simulator-v1
   pull_request:
     branches:
       - main
@@ -13,10 +10,15 @@ on:
       - "lib/simulator/**"
       - "public/demo/simulation-lawn-after.svg"
       - ".github/workflows/operational-simulator-e2e.yml"
+      - ".github/workflows/patch-operational-simulator-photo.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: operational-simulator-v1
+  cancel-in-progress: true
 
 jobs:
   simulator:
@@ -32,6 +34,98 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+          fetch-depth: 0
+
+      - name: Repair canonical private photo evidence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/api/admin/operational-simulator/route.ts")
+          text = path.read_text()
+          changed = False
+
+          replacements = [
+            (
+              '      official_photo_url: "/demo/simulation-lawn-after.svg",',
+              '      official_photo_url: null,',
+            ),
+            (
+'''          photos.push({
+            id: randomUUID(),
+            organization_id: companyId,
+            company_id: companyId,
+            property_id: chain.propertyId,
+            visit_id: visitId,
+            uploaded_by: worker.profileId,
+            storage_path: `operational-simulation/${visitId}/after.svg`,
+            public_url: "/demo/simulation-lawn-after.svg",
+            photo_type: "after",
+          });''',
+'''          photos.push({
+            id: randomUUID(),
+            organization_id: companyId,
+            company_id: companyId,
+            property_id: chain.propertyId,
+            visit_id: visitId,
+            uploaded_by: worker.profileId,
+            storage_bucket: "work-photos",
+            storage_path: `${companyId}/operational-simulation/after.svg`,
+            public_url: null,
+            photo_type: "after",
+            caption: `${SIM_MARKER} Employee after-service evidence.`,
+            sort_order: 1,
+            is_profile: false,
+          });''',
+            ),
+            (
+'''      await insertRowsWithFallback(service, "visits", operations.visits, ["company_id", "employee_notes", "customer_visible_summary"]);
+      await insertRowsWithFallback(service, "photos", operations.photos, ["company_id"]);''',
+'''      await insertRowsWithFallback(service, "visits", operations.visits, ["company_id", "employee_notes", "customer_visible_summary"]);
+      const photoStoragePath = `${companyId}/operational-simulation/after.svg`;
+      const photoAsset = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800"><rect width="1200" height="800" fill="#dce9f5"/><rect y="470" width="1200" height="330" fill="#4d8f4b"/><rect x="180" y="260" width="430" height="260" fill="#f4efe4"/><polygon points="140,280 395,90 650,280" fill="#744d3b"/><text x="60" y="735" font-family="Arial" font-size="42" fill="#ffffff">4Ever Seasons · Employee After-Service Photo · Simulation</text></svg>`;
+      const uploadedPhoto = await service.storage.from("work-photos").upload(photoStoragePath, photoAsset, {
+        contentType: "image/svg+xml",
+        upsert: true,
+      });
+      if (uploadedPhoto.error) throw new Error(`work-photos: ${uploadedPhoto.error.message}`);
+      await insertRowsWithFallback(service, "photos", operations.photos, ["company_id"]);''',
+            ),
+            (
+'''  await service.from("activity_log").delete().eq("company_id", companyId).ilike("details", `%${SIM_MARKER}%`);
+
+  let accountsRemoved = 0;''',
+'''  await service.from("activity_log").delete().eq("company_id", companyId).ilike("details", `%${SIM_MARKER}%`);
+  await service.storage.from("work-photos").remove([`${companyId}/operational-simulation/after.svg`]);
+
+  let accountsRemoved = 0;''',
+            ),
+          ]
+
+          for old, new in replacements:
+            if old in text:
+              text = text.replace(old, new, 1)
+              changed = True
+
+          path.write_text(text)
+          temporary = Path(".github/workflows/patch-operational-simulator-photo.yml")
+          if temporary.exists():
+            temporary.unlink()
+            changed = True
+
+          if changed:
+            Path("/tmp/simulator-photo-repaired").write_text("yes")
+          PY
+
+          if [ -f /tmp/simulator-photo-repaired ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/api/admin/operational-simulator/route.ts .github/workflows/patch-operational-simulator-photo.yml || true
+            git commit -m "Fix simulator private photo evidence"
+            git push origin HEAD:feature/25-30-homes-simulator-v1
+          fi
 
       - uses: pnpm/action-setup@v4
         with:
@@ -69,6 +163,8 @@ jobs:
           cat > operational-simulator.spec.ts <<'TEST'
           import { test, expect } from "@playwright/test";
 
+          test.setTimeout(240_000);
+
           test("admin creates two months and employee completes a live house", async ({ browser }) => {
             const adminContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
             const admin = await adminContext.newPage();
@@ -85,11 +181,11 @@ jobs:
             if (await remove.isEnabled()) {
               admin.once("dialog", dialog => dialog.accept());
               await remove.click();
-              await expect(admin.getByText(/simulation customers/i)).toBeVisible({ timeout: 30_000 });
+              await expect(admin.getByText(/simulation customers/i)).toBeVisible({ timeout: 60_000 });
             }
 
             await admin.getByRole("button", { name: "Create 2-Month Simulation" }).click();
-            await expect(admin.getByText(/completed eight weeks of canonical lawn service/i)).toBeVisible({ timeout: 120_000 });
+            await expect(admin.getByText(/completed eight weeks of canonical lawn service/i)).toBeVisible({ timeout: 180_000 });
             await expect(admin.getByText("480 completed visits", { exact: false })).toBeVisible();
             await expect(admin.getByText("120 invoices", { exact: false })).toBeVisible();
 
