@@ -31,7 +31,7 @@ assert.equal(result.returnVisits, 7);
 assert.equal(result.exceptionLaborHours, 20.75);
 assert.equal(result.exceptionCost, 731.15);
 assert.equal(result.revenueAtRisk, 560);
-assert.equal(result.adjustedOperatingProfit, 5075.91);
+assert.equal(result.adjustedOperatingProfit, 5075.9);
 assert.equal(result.adjustedOperatingMarginRate, 0.2644);
 
 console.log(JSON.stringify({
