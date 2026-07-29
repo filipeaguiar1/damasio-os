@@ -138,9 +138,16 @@ async function seedExceptionWeek(service: any, companyId: string) {
     || visits.some(row => String(row.employee_notes || "").includes(LATE_MARKER));
   if (alreadySeeded) return exceptionStatus(service, companyId);
 
-  const rainAnchor = visits.find(row => Boolean(row.route_id));
-  if (!rainAnchor?.route_id) throw new Error("A historical Route is required for the rain scenario.");
-  const rainVisits = visits.filter(row => row.route_id === rainAnchor.route_id).slice(0, 8);
+  const routeGroups = new Map<string, VisitRow[]>();
+  for (const visit of visits) {
+    if (!visit.route_id) continue;
+    const group = routeGroups.get(visit.route_id) || [];
+    group.push(visit);
+    routeGroups.set(visit.route_id, group);
+  }
+  const rainVisits = [...routeGroups.values()].find(group => group.length >= 8)?.slice(0, 8) || [];
+  const rainAnchor = rainVisits[0];
+  if (!rainAnchor?.route_id) throw new Error("A historical eight-stop Route is required for the rain scenario.");
   const rainDate = addDays(rainAnchor.scheduled_date, 4);
 
   const routeUpdate = await service.from("routes")
