@@ -40,6 +40,8 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Install Playwright runner
+        run: pnpm add --save-dev --ignore-workspace-root-check --lockfile=false @playwright/test@1.54.1
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
       - name: Build application
