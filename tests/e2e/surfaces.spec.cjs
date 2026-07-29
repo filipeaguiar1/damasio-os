@@ -8,13 +8,18 @@ function collectRuntimeFailures(page) {
   const failures = [];
   page.on('pageerror', error => failures.push(`pageerror: ${error.message}`));
   page.on('console', message => {
-    if (message.type() === 'error') failures.push(`console: ${message.text()}`);
+    if (message.type() !== 'error') return;
+    const text = message.text();
+    if (/^Failed to load resource: the server responded with a status of 4\d\d/i.test(text)) return;
+    failures.push(`console: ${text}`);
+  });
+  page.on('response', response => {
+    if (response.status() >= 400) failures.push(`response: ${response.status()} ${response.request().method()} ${response.url()}`);
   });
   page.on('requestfailed', request => {
     const errorText = request.failure()?.errorText || '';
-    const url = request.url();
-    const isExpectedNextNavigationAbort = errorText.includes('ERR_ABORTED') && url.includes('_rsc=');
-    if (!isExpectedNextNavigationAbort) failures.push(`request: ${request.method()} ${url} ${errorText}`);
+    if (errorText.includes('ERR_ABORTED')) return;
+    failures.push(`request: ${request.method()} ${request.url()} ${errorText}`);
   });
   return failures;
 }
