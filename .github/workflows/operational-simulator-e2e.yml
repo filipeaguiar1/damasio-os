@@ -50,7 +50,7 @@ jobs:
 
       - name: Install temporary browser test dependency
         run: |
-          pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0 --no-frozen-lockfile
+          pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
           pnpm exec playwright install --with-deps chromium
 
       - name: Start production server
