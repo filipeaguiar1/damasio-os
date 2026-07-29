@@ -12,7 +12,6 @@ import {
 export const dynamic = "force-dynamic";
 
 const SIM_MARKER = "[OPERATIONAL_SIMULATION_V1]";
-const SIM_ACTION = "operational_simulation.created";
 const WORKER_NAMES = ["Pedro Simulation", "Lucas Simulation"] as const;
 const CITY_ROTATION = ["Hamilton", "Burlington", "Oakville"] as const;
 
@@ -629,7 +628,6 @@ async function removeSimulation(service: any, companyId: string) {
   }
   if (employeeIds.length) await service.from("employees").delete().in("id", employeeIds);
   if (crewIds.length) await service.from("crews").delete().in("id", crewIds);
-  await service.from("activity_log").delete().eq("company_id", companyId).ilike("details", `%${SIM_MARKER}%`);
   await service.storage.from("work-photos").remove([`${companyId}/operational-simulation/after.svg`]);
 
   let accountsRemoved = 0;
@@ -656,7 +654,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { service, companyId, actorId, actorName } = await requireAdmin(request);
+    const { service, companyId } = await requireAdmin(request);
     const body = await request.json() as { action?: "create" | "remove"; assumptions?: Partial<OperationalSimulationInput> };
 
     if (body.action === "remove") {
@@ -706,7 +704,6 @@ export async function POST(request: NextRequest) {
       });
       if (uploadedPhoto.error) throw new Error(`work-photos: ${uploadedPhoto.error.message}`);
       await insertRowsWithFallback(service, "photos", operations.photos, ["company_id"]);
-      await insertRowsWithFallback(service, "activity_log", operations.notes, ["company_id"]);
 
       const billing = createBillingRows(companyId, runId, input, customerRows.chains, operations.simulationStart);
       await insertRowsWithFallback(service, "invoices", billing.invoices, ["company_id"]);
@@ -749,17 +746,8 @@ export async function POST(request: NextRequest) {
       }));
       await insertRowsWithFallback(service, "tasks", taskRows, ["company_id"]);
 
-      const audit = await service.from("activity_log").insert({
-        id: randomUUID(),
-        organization_id: companyId,
-        company_id: companyId,
-        actor_profile_id: actorId,
-        action: SIM_ACTION,
-        entity_type: "operational_simulation",
-        entity_id: randomUUID(),
-        details: `${SIM_MARKER} ${actorName || "Márcio"} created ${input.customerCount} customers, ${workers.length} workers, ${input.weeks} completed weeks, paid invoices, employee photos, feedback, resolved tasks and today's live routes.`,
-      });
-      if (audit.error) throw new Error(audit.error.message);
+      // The canonical audit trail remains attached to the company records themselves:
+      // Customer notes, Visit execution notes, private Photos, Payments, Feedback and resolved Tasks.
 
       return NextResponse.json({
         created: true,
