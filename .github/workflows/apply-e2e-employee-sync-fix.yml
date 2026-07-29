@@ -1,6 +1,8 @@
 name: Apply verified Employee sync repair
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches:
       - agent/overnight-e2e-qa
