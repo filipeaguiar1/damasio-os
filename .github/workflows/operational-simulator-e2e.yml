@@ -12,6 +12,7 @@ on:
       - "scripts/patch-operational-simulator-activity.py"
       - "scripts/patch-operational-simulator-payments.py"
       - "scripts/patch-operational-simulator-feedback.py"
+      - "scripts/patch-operational-simulator-tasks.py"
       - "public/demo/simulation-lawn-after.svg"
       - ".github/workflows/operational-simulator-e2e.yml"
   workflow_dispatch:
@@ -47,8 +48,9 @@ jobs:
           activity_result=$(python scripts/patch-operational-simulator-activity.py)
           payment_result=$(python scripts/patch-operational-simulator-payments.py)
           feedback_result=$(python scripts/patch-operational-simulator-feedback.py)
-          echo "photo=$photo_result activity=$activity_result payment=$payment_result feedback=$feedback_result"
-          if [ "$photo_result" = "changed" ] || [ "$activity_result" = "changed" ] || [ "$payment_result" = "changed" ] || [ "$feedback_result" = "changed" ]; then
+          task_result=$(python scripts/patch-operational-simulator-tasks.py)
+          echo "photo=$photo_result activity=$activity_result payment=$payment_result feedback=$feedback_result task=$task_result"
+          if [ "$photo_result" = "changed" ] || [ "$activity_result" = "changed" ] || [ "$payment_result" = "changed" ] || [ "$feedback_result" = "changed" ] || [ "$task_result" = "changed" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/api/admin/operational-simulator/route.ts
@@ -158,6 +160,13 @@ jobs:
             await customer.getByLabel("Comment").fill("Simulation customer confirmed the completed service and employee photo.");
             await customer.getByRole("button", { name: "Submit Review" }).click();
             await expect(customer.getByText(/Feedback saved/i)).toBeVisible({ timeout: 30_000 });
+
+            await customer.goto("http://127.0.0.1:3000/mobile/customer/requests");
+            await expect(customer.getByRole("heading", { name: "What does your property need?" })).toBeVisible({ timeout: 30_000 });
+            await customer.getByRole("button", { name: /Return Visit/i }).click();
+            await customer.getByLabel(/Comments/).fill("Please review the gate edge shown in the completed service history.");
+            await customer.getByRole("button", { name: "Confirm & Send Request" }).click();
+            await expect(customer.getByText(/Return Visit sent to Admin/i)).toBeVisible({ timeout: 30_000 });
             await customer.screenshot({ path: "customer-feedback.png", fullPage: true });
 
             await admin.reload();
