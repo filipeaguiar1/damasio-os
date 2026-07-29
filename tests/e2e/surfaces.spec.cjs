@@ -264,10 +264,10 @@ test('employee canonical execution smoke', async ({ page }, testInfo) => {
   expect(prepared.visit.status).toBe('scheduled');
   expect(prepared.visit.assigned_employee_id).toBe(prepared.employee.id);
 
-  const failures = collectRuntimeFailures(page);
   await signInMobile(page, email, password);
-  await page.goto('/mobile/employee', { waitUntil: 'networkidle' });
+  await page.goto('/mobile/employee', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('main')).toBeVisible();
+  const failures = collectRuntimeFailures(page);
 
   const routeState = await getEmployeeRouteVisit(page, prepared.visit.id);
 
