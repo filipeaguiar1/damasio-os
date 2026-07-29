@@ -193,6 +193,14 @@ function normalizePaymentsPortal(data: unknown): CustomerPaymentsVisitsPortal {
   };
 }
 
+function canUseCustomerPortalApiFallback(error: { code?: string; message?: string } | null | undefined) {
+  const message = String(error?.message || "");
+  return error?.code === "PGRST202"
+    || error?.code === "42501"
+    || error?.code === "42703"
+    || /could not find the function public\.(create_customer_portal_request|submit_customer_portal_feedback)|schema cache|permission denied|column .*company_id.*does not exist/i.test(message);
+}
+
 async function rpcBoard(name: string, args?: Record<string, unknown>) {
   const supabase = getSupabaseBrowserClient();
   const { data, error } = await supabase.rpc(name as never, (args || {}) as never);
@@ -236,10 +244,7 @@ export async function createCustomerPortalRequest(input: { serviceName: string; 
     p_message: input.message || null,
   });
   if (!rpc.error) return normalizeBoard(rpc.data || emptyBoard);
-
-  const fallbackAllowed = rpc.error.code === "PGRST202"
-    || /could not find the function public\.create_customer_portal_request|schema cache|permission denied/i.test(String(rpc.error.message || ""));
-  if (!fallbackAllowed) throw new Error(rpc.error.message);
+  if (!canUseCustomerPortalApiFallback(rpc.error)) throw new Error(rpc.error.message);
 
   const board = await getCustomerPortalBoard();
   if (!board.property?.propertyId) throw new Error("Customer property not found for this account.");
@@ -261,10 +266,7 @@ export async function submitCustomerPortalFeedback(input: { visitId?: string; ta
   };
   const rpc = await supabase.rpc("submit_customer_portal_feedback", args);
   if (!rpc.error) return normalizeBoard(rpc.data || emptyBoard);
-
-  const fallbackAllowed = rpc.error.code === "PGRST202"
-    || /could not find the function public\.submit_customer_portal_feedback|schema cache|permission denied/i.test(String(rpc.error.message || ""));
-  if (!fallbackAllowed) throw new Error(rpc.error.message);
+  if (!canUseCustomerPortalApiFallback(rpc.error)) throw new Error(rpc.error.message);
 
   return callCustomerPortalAction({
     action: "feedback",
