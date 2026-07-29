@@ -6,9 +6,11 @@ on:
       - main
     paths:
       - "app/api/admin/operational-simulator/**"
+      - "app/api/customer/portal-actions/**"
       - "app/admin/performance/**"
       - "lib/repositories/customerPortalRepository.ts"
       - "lib/simulator/**"
+      - "supabase/migrations/202607290001_customer_portal_action_contract.sql"
       - "scripts/patch-operational-simulator-photo.py"
       - "scripts/patch-operational-simulator-activity.py"
       - "scripts/patch-operational-simulator-payments.py"
@@ -18,6 +20,7 @@ on:
       - "scripts/patch-customer-request-fallback.py"
       - "scripts/patch-customer-portal-board-identity.py"
       - "scripts/patch-customer-portal-legacy-company.py"
+      - "scripts/patch-customer-portal-server-actions.py"
       - "tests/operational-simulator.spec.ts"
       - "public/demo/simulation-lawn-after.svg"
       - ".github/workflows/operational-simulator-e2e.yml"
@@ -59,8 +62,9 @@ jobs:
           customer_request_result=$(python scripts/patch-customer-request-fallback.py)
           board_identity_result=$(python scripts/patch-customer-portal-board-identity.py)
           legacy_company_result=$(python scripts/patch-customer-portal-legacy-company.py)
-          echo "photo=$photo_result activity=$activity_result payment=$payment_result feedback=$feedback_result task=$task_result customer_feedback=$customer_feedback_result customer_request=$customer_request_result board_identity=$board_identity_result legacy_company=$legacy_company_result"
-          if [ "$photo_result" = "changed" ] || [ "$activity_result" = "changed" ] || [ "$payment_result" = "changed" ] || [ "$feedback_result" = "changed" ] || [ "$task_result" = "changed" ] || [ "$customer_feedback_result" = "changed" ] || [ "$customer_request_result" = "changed" ] || [ "$board_identity_result" = "changed" ] || [ "$legacy_company_result" = "changed" ]; then
+          server_actions_result=$(python scripts/patch-customer-portal-server-actions.py)
+          echo "photo=$photo_result activity=$activity_result payment=$payment_result feedback=$feedback_result task=$task_result customer_feedback=$customer_feedback_result customer_request=$customer_request_result board_identity=$board_identity_result legacy_company=$legacy_company_result server_actions=$server_actions_result"
+          if [ "$photo_result" = "changed" ] || [ "$activity_result" = "changed" ] || [ "$payment_result" = "changed" ] || [ "$feedback_result" = "changed" ] || [ "$task_result" = "changed" ] || [ "$customer_feedback_result" = "changed" ] || [ "$customer_request_result" = "changed" ] || [ "$board_identity_result" = "changed" ] || [ "$legacy_company_result" = "changed" ] || [ "$server_actions_result" = "changed" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/api/admin/operational-simulator/route.ts lib/repositories/customerPortalRepository.ts
