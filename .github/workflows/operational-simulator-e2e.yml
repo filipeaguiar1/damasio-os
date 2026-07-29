@@ -1,0 +1,130 @@
+name: Operational Simulator E2E
+
+on:
+  push:
+    branches:
+      - feature/25-30-homes-simulator-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  simulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript and production build
+        run: pnpm build
+
+      - name: Install temporary browser test dependency
+        run: |
+          pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0 --no-frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+
+      - name: Start production server
+        run: |
+          pnpm start > /tmp/damasio-simulator-server.log 2>&1 &
+          echo $! > /tmp/damasio-simulator-server.pid
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/damasio-simulator-server.log
+          exit 1
+
+      - name: Run full two-month operational simulation
+        run: |
+          cat > operational-simulator.spec.ts <<'TEST'
+          import { test, expect } from "@playwright/test";
+
+          test("admin creates two months and employee completes a live house", async ({ browser }) => {
+            const adminContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+            const admin = await adminContext.newPage();
+            await admin.goto("http://127.0.0.1:3000/login");
+            await admin.getByLabel("Email").fill(process.env.E2E_ADMIN_EMAIL!);
+            await admin.getByLabel("Password").fill(process.env.E2E_ADMIN_PASSWORD!);
+            await admin.getByRole("button", { name: "Sign In" }).click();
+            await admin.waitForTimeout(1500);
+            await admin.goto("http://127.0.0.1:3000/admin/performance/simulator");
+            await expect(admin.getByRole("heading", { name: "Financial & Operational Simulator" })).toBeVisible();
+
+            const remove = admin.getByRole("button", { name: "Remove Simulation" });
+            await admin.waitForTimeout(1500);
+            if (await remove.isEnabled()) {
+              admin.once("dialog", dialog => dialog.accept());
+              await remove.click();
+              await expect(admin.getByText(/simulation customers/i)).toBeVisible({ timeout: 30_000 });
+            }
+
+            await admin.getByRole("button", { name: "Create 2-Month Simulation" }).click();
+            await expect(admin.getByText(/completed eight weeks of canonical lawn service/i)).toBeVisible({ timeout: 120_000 });
+            await expect(admin.getByText("480 completed visits", { exact: false })).toBeVisible();
+            await expect(admin.getByText("120 invoices", { exact: false })).toBeVisible();
+
+            const codes = admin.locator("code");
+            const workerEmail = (await codes.nth(0).innerText()).trim();
+            const workerPassword = (await codes.nth(1).innerText()).trim();
+            expect(workerEmail).toContain("worker-1@4everseasons.test");
+            expect(workerPassword.length).toBeGreaterThan(12);
+
+            const employeeContext = await browser.newContext({ viewport: { width: 412, height: 915 } });
+            const employee = await employeeContext.newPage();
+            await employee.goto("http://127.0.0.1:3000/login");
+            await employee.getByLabel("Email").fill(workerEmail);
+            await employee.getByLabel("Password").fill(workerPassword);
+            await employee.getByRole("button", { name: "Sign In" }).click();
+            await employee.waitForURL("**/employee", { timeout: 30_000 });
+            await employee.goto("http://127.0.0.1:3000/employee/route");
+            await expect(employee.locator(".route-list-item").first()).toBeVisible({ timeout: 30_000 });
+            await employee.locator(".route-list-item").first().click();
+            await expect(employee.getByRole("button", { name: "Start" })).toBeEnabled();
+            await employee.getByRole("button", { name: "Start" }).click();
+            await expect(employee.getByText("IN PROGRESS", { exact: true })).toBeVisible({ timeout: 30_000 });
+            employee.once("dialog", dialog => dialog.accept());
+            await employee.getByRole("button", { name: "Finish" }).click();
+            await expect(employee.getByText("Done", { exact: true })).toBeVisible({ timeout: 30_000 });
+
+            await employee.screenshot({ path: "employee-live-route.png", fullPage: true });
+            await admin.reload();
+            await expect(admin.getByText("Live Simulation Status")).toBeVisible();
+            await admin.screenshot({ path: "operational-simulator.png", fullPage: true });
+
+            await employeeContext.close();
+            await adminContext.close();
+          });
+          TEST
+          pnpm exec playwright test operational-simulator.spec.ts --reporter=line --workers=1
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: operational-simulator-e2e
+          path: |
+            operational-simulator.png
+            employee-live-route.png
+            /tmp/damasio-simulator-server.log
+          if-no-files-found: ignore
