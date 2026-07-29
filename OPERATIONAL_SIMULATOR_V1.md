@@ -6,7 +6,8 @@
 - Base: `main`
 - PR #39 and `agent/overnight-e2e-qa` are not used or modified.
 - Simulation records are restricted to the authenticated company and marked with `[OPERATIONAL_SIMULATION_V1]`.
-- No Stripe API is called. Payments are explicit simulation records only.
+- No Stripe API is called and no real card is charged.
+- Simulated settlement is represented canonically by paid Invoices; the protected `payments` ledger remains reserved for real provider-confirmed events.
 
 ## Canonical scenario
 
@@ -19,12 +20,12 @@ The default scenario creates:
 - 2 temporary Employees, each owning 30 homes per week
 - 64 historical published Routes across eight weeks
 - 480 completed Visits with valid Start/Finish timestamps and durations
-- 480 Employee after-service Photo records
-- 120 paid Invoices and 120 simulated Payments
-- 60 Feedback records
-- 3 resolved follow-up Tasks
-- 2 live Routes for today with 4 scheduled Visits per Employee for Start → Done testing
+- 480 private Employee after-service Photo records
+- 120 paid Invoices representing two monthly settlements per Customer
+- 2 live Routes for today with 4 scheduled Visits per Employee
 - 1 temporary Customer portal login
+- Customer feedback submitted through the canonical portal
+- A Return Visit request submitted by the Customer and delivered to Admin
 
 ## Operating assumptions
 
@@ -46,7 +47,7 @@ The default scenario creates:
 
 - Revenue before HST: CAD 19,200.00
 - HST: CAD 2,496.00
-- Total customer payments: CAD 21,696.00
+- Total paid Invoice value: CAD 21,696.00
 - Operating cost: CAD 13,392.94
 - Operating profit: CAD 5,807.06
 - Operating margin: 30.25%
@@ -61,8 +62,11 @@ The dedicated workflow performs:
 1. TypeScript and production build.
 2. Admin login to the isolated E2E company.
 3. Full simulation creation through the Admin UI.
-4. Verification of completed Visits and paid Invoices.
+4. Verification of 480 completed Visits and 120 paid Invoices.
 5. Temporary Employee login.
 6. Opening today’s canonical Route.
 7. Start → In Progress → Finish → Done on the same Visit.
-8. Admin and Employee screenshots.
+8. Temporary Customer login.
+9. Feedback submission for the completed service.
+10. Return Visit request submission to Admin.
+11. Admin, Employee and Customer screenshots.
