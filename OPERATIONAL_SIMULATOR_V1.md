@@ -94,7 +94,7 @@ Default modeled impact:
 - Customer credits: CAD 140.00
 - Total exception cost: CAD 731.15
 - Revenue at risk: CAD 560.00
-- Adjusted operating profit: CAD 5,075.91
+- Adjusted operating profit: CAD 5,075.90
 - Adjusted operating margin: 26.44%
 
 ## Validation
