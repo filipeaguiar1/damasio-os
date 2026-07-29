@@ -33,7 +33,7 @@ test("admin creates two months, employee completes a house and customer reviews 
   await expect(simulationMessage).toBeVisible({ timeout: 180_000 });
   expect(await simulationMessage.innerText()).toMatch(/completed eight weeks of canonical lawn service/i);
   await expect(admin.getByText("480 completed visits", { exact: false })).toBeVisible();
-  await expect(admin.getByText("120 invoices", { exact: false })).toBeVisible();
+  await expect(admin.getByText(/120 paid invoices/i)).toBeVisible();
 
   const codes = admin.locator("code");
   const workerEmail = (await codes.nth(0).innerText()).trim();
