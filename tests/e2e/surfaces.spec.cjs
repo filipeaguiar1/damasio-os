@@ -1,6 +1,8 @@
 const { test, expect } = require('@playwright/test');
 
 const publicRoutes = ['/', '/mobile', '/mobile/login', '/login'];
+const employeeExecutionVisitId = '5d717d5e-5540-41fd-b321-0ae309ceb93f';
+const employeeExecutionEmployeeId = '0b33be2e-000e-457c-b875-8138aa364529';
 
 function collectRuntimeFailures(page) {
   const failures = [];
@@ -82,17 +84,121 @@ const credentials = {
   customer: [process.env.E2E_CUSTOMER_EMAIL, process.env.E2E_CUSTOMER_PASSWORD],
 };
 
+async function resetEmployeeExecutionVisit() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) return null;
+
+  const response = await fetch(`${url}/rest/v1/visits?id=eq.${employeeExecutionVisitId}&select=id,status,assigned_employee_id`, {
+    method: 'PATCH',
+    headers: {
+      apikey: serviceKey,
+      authorization: `Bearer ${serviceKey}`,
+      'content-type': 'application/json',
+      prefer: 'return=representation',
+    },
+    body: JSON.stringify({
+      status: 'scheduled',
+      started_at: null,
+      finished_at: null,
+      duration_seconds: null,
+    }),
+  });
+  const rows = await response.json();
+  if (!response.ok) throw new Error(rows.message || 'E2E Visit could not be reset.');
+  return rows[0] || null;
+}
+
+async function signInMobile(page, email, password) {
+  await page.goto('/mobile/login', { waitUntil: 'networkidle' });
+  await page.getByLabel('Email').fill(email);
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: /sign in securely/i }).click();
+  await page.waitForURL(url => !url.pathname.endsWith('/mobile/login'), { timeout: 20_000 });
+}
+
+async function getEmployeeRouteVisit(page, visitId) {
+  return page.evaluate(async targetVisitId => {
+    const storageKey = Object.keys(localStorage).find(key => key.startsWith('sb-') && key.endsWith('-auth-token'));
+    if (!storageKey) throw new Error('Supabase session was not found.');
+    const stored = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    const session = stored.currentSession || stored;
+    const token = session?.access_token;
+    if (!token) throw new Error('Supabase access token was not found.');
+
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Toronto',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    const today = `${values.year}-${values.month}-${values.day}`;
+
+    const response = await fetch(`/api/mobile/employee/route?date=${encodeURIComponent(today)}`, {
+      headers: { authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Employee route could not be loaded.');
+    return {
+      employeeId: payload.employee?.id || null,
+      visit: (payload.stops || []).find(stop => stop.visitId === targetVisitId) || null,
+    };
+  }, visitId);
+}
+
 for (const [role, [email, password]] of Object.entries(credentials)) {
   test(`${role} canonical authenticated smoke`, async ({ page }) => {
     test.skip(!email || !password, `${role} E2E credentials are not configured`);
     const failures = collectRuntimeFailures(page);
-    await page.goto('/mobile/login', { waitUntil: 'networkidle' });
-    await page.getByLabel('Email').fill(email);
-    await page.getByLabel('Password').fill(password);
-    await page.getByRole('button', { name: /sign in securely/i }).click();
-    await page.waitForURL(url => !url.pathname.endsWith('/mobile/login'), { timeout: 20_000 });
+    await signInMobile(page, email, password);
     await expect(page.locator('main')).toBeVisible();
     await assertNoHorizontalOverflow(page);
     expect(failures, failures.join('\n')).toEqual([]);
   });
 }
+
+test('employee canonical execution smoke', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'Visit execution mutates shared E2E data and runs once.');
+  const [email, password] = credentials.employee;
+  test.skip(!email || !password, 'employee E2E credentials are not configured');
+
+  const preparedVisit = await resetEmployeeExecutionVisit();
+  if (preparedVisit) {
+    expect(preparedVisit.assigned_employee_id).toBe(employeeExecutionEmployeeId);
+    expect(preparedVisit.status).toBe('scheduled');
+  }
+
+  const failures = collectRuntimeFailures(page);
+  await signInMobile(page, email, password);
+  await page.goto('/mobile/employee', { waitUntil: 'networkidle' });
+  await expect(page.locator('main')).toBeVisible();
+
+  const routeState = await getEmployeeRouteVisit(page, employeeExecutionVisitId);
+
+  expect(routeState.employeeId).toBe(employeeExecutionEmployeeId);
+  const visit = routeState.visit;
+  expect(visit, `${employeeExecutionVisitId} must be visible in the Employee route`).toBeTruthy();
+  expect(visit.serviceName).toBe('Weekly Lawn Care');
+  expect(visit.status).toBe('scheduled');
+
+  await page.getByRole('button', { name: /^list$/i }).click();
+  await page.getByRole('button', { name: /weekly lawn care/i }).click();
+  await expect(page.getByText('Weekly Lawn Care')).toBeVisible();
+  await expect(page.getByText(/open/i)).toBeVisible();
+
+  await page.getByRole('button', { name: /^start$/i }).click();
+  await expect(page.getByText(/service started and synchronized/i)).toBeVisible();
+
+  await expect.poll(async () => (await getEmployeeRouteVisit(page, employeeExecutionVisitId)).visit?.status || null, { timeout: 15_000 }).toBe('in_progress');
+  await expect(page.getByRole('button', { name: /^finish$/i })).toBeEnabled({ timeout: 15_000 });
+
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: /^finish$/i }).click();
+  await expect(page.getByText(/done\. every device was updated/i)).toBeVisible();
+
+  await expect.poll(async () => (await getEmployeeRouteVisit(page, employeeExecutionVisitId)).visit?.status || null, { timeout: 15_000 }).toBe('completed');
+
+  expect(failures, failures.join('\n')).toEqual([]);
+});
