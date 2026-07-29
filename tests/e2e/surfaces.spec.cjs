@@ -4,6 +4,13 @@ const { randomUUID } = require('crypto');
 const publicRoutes = ['/', '/mobile', '/mobile/login', '/login'];
 const employeeExecutionServiceName = 'Weekly Lawn Care';
 
+function isExpectedOptional404(response) {
+  if (response.status() !== 404) return false;
+  const url = response.url();
+  return url.includes('/rest/v1/route_map_cache?')
+    || (url.includes('/api/map/geocode?address=E2E%20') && url.includes('%20Test%20Street'));
+}
+
 function collectRuntimeFailures(page) {
   const failures = [];
   page.on('pageerror', error => failures.push(`pageerror: ${error.message}`));
@@ -14,7 +21,7 @@ function collectRuntimeFailures(page) {
     failures.push(`console: ${text}`);
   });
   page.on('response', response => {
-    if (response.status() >= 400) failures.push(`response: ${response.status()} ${response.request().method()} ${response.url()}`);
+    if (response.status() >= 400 && !isExpectedOptional404(response)) failures.push(`response: ${response.status()} ${response.request().method()} ${response.url()}`);
   });
   page.on('requestfailed', request => {
     const errorText = request.failure()?.errorText || '';
