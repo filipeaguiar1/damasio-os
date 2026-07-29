@@ -1,9 +1,8 @@
 name: Diagnose E2E Visit execution state
 
 on:
-  push:
-    branches:
-      - agent/overnight-e2e-qa
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
