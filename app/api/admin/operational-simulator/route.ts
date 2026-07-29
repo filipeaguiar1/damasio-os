@@ -597,9 +597,6 @@ async function removeSimulation(service: any, companyId: string) {
   if (visits.error) throw new Error(visits.error.message);
   const visitIds = (visits.data || []).map((row: any) => String(row.id));
   const routeIds = [...new Set((visits.data || []).map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];
-  const invoices = customerIds.length ? await service.from("invoices").select("id").in("customer_id", customerIds) : { data: [], error: null };
-  if (invoices.error) throw new Error(invoices.error.message);
-  const invoiceIds = (invoices.data || []).map((row: any) => String(row.id));
   const employees = profileIds.length ? await service.from("employees").select("id,crew_id").in("profile_id", profileIds) : { data: [], error: null };
   if (employees.error) throw new Error(employees.error.message);
   const employeeIds = (employees.data || []).map((row: any) => String(row.id));
@@ -611,11 +608,9 @@ async function removeSimulation(service: any, companyId: string) {
     await service.from("tasks").delete().in("source_visit_id", visitIds);
   }
   if (propertyIds.length) await service.from("photos").delete().in("property_id", propertyIds);
-  if (invoiceIds.length) await service.from("payments").delete().in("invoice_id", invoiceIds);
   if (customerIds.length) {
     await service.from("feedback").delete().in("customer_id", customerIds);
     await service.from("tasks").delete().in("customer_id", customerIds);
-    await service.from("payments").delete().in("customer_id", customerIds);
     await service.from("invoices").delete().in("customer_id", customerIds);
     await service.from("visits").delete().in("customer_id", customerIds);
   }
@@ -707,7 +702,7 @@ export async function POST(request: NextRequest) {
 
       const billing = createBillingRows(companyId, runId, input, customerRows.chains, operations.simulationStart);
       await insertRowsWithFallback(service, "invoices", billing.invoices, ["company_id"]);
-      await insertRowsWithFallback(service, "payments", billing.payments, ["company_id"]);
+      // Paid invoice status is the canonical simulated settlement. No Stripe or protected payments-table write occurs.
 
       for (const [jobId, invoiceId] of billing.invoiceIdsByJob) {
         const update = await service.from("jobs").update({ invoice_id: invoiceId }).eq("id", jobId);
