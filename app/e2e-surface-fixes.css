@@ -1,0 +1,37 @@
+/* Narrow E2E surface hardening: keep visual design while meeting mobile tap targets. */
+.header-login,
+.auth-card > a,
+.auth-links a,
+.mobile-login-card > a {
+  min-height: 48px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-card > a,
+.auth-links a,
+.mobile-login-card > a {
+  padding: 10px 12px;
+}
+
+.auth-links a {
+  flex: 1 1 0;
+}
+
+@media (max-width: 900px) {
+  .header .header-login,
+  .header a.header-login.btn {
+    min-width: 48px;
+    min-height: 48px !important;
+    height: 48px !important;
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+  }
+
+  .auth-links a,
+  .mobile-login-card > a {
+    width: 100%;
+  }
+}

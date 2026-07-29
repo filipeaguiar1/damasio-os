@@ -5,6 +5,7 @@ import "./customer-profile-media.css";
 import "./role-profile-media.css";
 import "./role-mobile-system.css";
 import "./customer-mobile-overnight.css";
+import "./e2e-surface-fixes.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 import {AdminAccessFallback} from "@/components/master/AdminAccessFallback";
 import {CustomerLegacyDataGuard} from "@/components/customer/CustomerLegacyDataGuard";
