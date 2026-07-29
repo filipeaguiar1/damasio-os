@@ -26,6 +26,14 @@ export type OperationalSimulationInput = {
   smallMinutes: number;
   mediumMinutes: number;
   largeMinutes: number;
+  weatherRescheduleShare: number;
+  lateVisitShare: number;
+  serviceIssueShare: number;
+  returnVisitShare: number;
+  weatherAdminMinutes: number;
+  lateMinutes: number;
+  returnVisitMinutes: number;
+  customerCreditPerIssue: number;
 };
 
 export type OperationalSimulationResult = {
@@ -58,6 +66,18 @@ export type OperationalSimulationResult = {
   profitPerVisit: number;
   breakEvenVisits: number;
   breakEvenCustomers: number;
+  weatherRescheduledVisits: number;
+  lateVisits: number;
+  serviceIssueVisits: number;
+  returnVisits: number;
+  exceptionLaborHours: number;
+  exceptionLaborCost: number;
+  exceptionDirectCost: number;
+  customerCredits: number;
+  exceptionCost: number;
+  revenueAtRisk: number;
+  adjustedOperatingProfit: number;
+  adjustedOperatingMarginRate: number;
 };
 
 export const defaultOperationalSimulationInput: OperationalSimulationInput = {
@@ -88,6 +108,14 @@ export const defaultOperationalSimulationInput: OperationalSimulationInput = {
   smallMinutes: 20,
   mediumMinutes: 30,
   largeMinutes: 40,
+  weatherRescheduleShare: 0.05,
+  lateVisitShare: 0.08,
+  serviceIssueShare: 0.03,
+  returnVisitShare: 0.50,
+  weatherAdminMinutes: 10,
+  lateMinutes: 20,
+  returnVisitMinutes: 30,
+  customerCreditPerIssue: 10,
 };
 
 function money(value: number) {
@@ -138,6 +166,14 @@ export function normalizeOperationalSimulationInput(
     smallMinutes: positive(Number(partial.smallMinutes), base.smallMinutes),
     mediumMinutes: positive(Number(partial.mediumMinutes), base.mediumMinutes),
     largeMinutes: positive(Number(partial.largeMinutes), base.largeMinutes),
+    weatherRescheduleShare: boundedRate(Number(partial.weatherRescheduleShare), base.weatherRescheduleShare),
+    lateVisitShare: boundedRate(Number(partial.lateVisitShare), base.lateVisitShare),
+    serviceIssueShare: boundedRate(Number(partial.serviceIssueShare), base.serviceIssueShare),
+    returnVisitShare: boundedRate(Number(partial.returnVisitShare), base.returnVisitShare),
+    weatherAdminMinutes: Math.max(0, Number(partial.weatherAdminMinutes ?? base.weatherAdminMinutes)),
+    lateMinutes: Math.max(0, Number(partial.lateMinutes ?? base.lateMinutes)),
+    returnVisitMinutes: Math.max(0, Number(partial.returnVisitMinutes ?? base.returnVisitMinutes)),
+    customerCreditPerIssue: Math.max(0, Number(partial.customerCreditPerIssue ?? base.customerCreditPerIssue)),
   } satisfies OperationalSimulationInput;
 
   const shareTotal = normalized.smallShare + normalized.mediumShare + normalized.largeShare;
@@ -158,8 +194,7 @@ export function calculateOperationalSimulation(
   partial: Partial<OperationalSimulationInput> = {},
 ): OperationalSimulationResult {
   const input = normalizeOperationalSimulationInput(partial);
-  const averageServiceMinutes =
-    input.smallShare * input.smallMinutes
+  const averageServiceMinutes = input.smallShare * input.smallMinutes
     + input.mediumShare * input.mediumMinutes
     + input.largeShare * input.largeMinutes;
   const averageTotalMinutes = averageServiceMinutes
@@ -213,6 +248,21 @@ export function calculateOperationalSimulation(
   const breakEvenVisits = Math.ceil(fixedCost / contributionPerVisit);
   const breakEvenCustomers = Math.ceil(breakEvenVisits / input.weeks);
 
+  const weatherRescheduledVisits = Math.round(visits * input.weatherRescheduleShare);
+  const lateVisits = Math.round(visits * input.lateVisitShare);
+  const serviceIssueVisits = Math.round(visits * input.serviceIssueShare);
+  const returnVisits = Math.round(serviceIssueVisits * input.returnVisitShare);
+  const exceptionLaborHours = weatherRescheduledVisits * input.weatherAdminMinutes / 60
+    + lateVisits * input.lateMinutes / 60
+    + returnVisits * (input.returnVisitMinutes + input.travelMinutesPerVisit) / 60;
+  const exceptionLaborCost = exceptionLaborHours * effectiveHourlyCost;
+  const exceptionDirectCost = returnVisits * (input.fuelCostPerVisit + input.equipmentCostPerVisit);
+  const customerCredits = serviceIssueVisits * input.customerCreditPerIssue;
+  const exceptionCost = exceptionLaborCost + exceptionDirectCost + customerCredits;
+  const revenueAtRisk = serviceIssueVisits * input.weeklyPrice;
+  const adjustedOperatingProfit = operatingProfit - exceptionCost;
+  const adjustedOperatingMarginRate = subtotalRevenue ? adjustedOperatingProfit / subtotalRevenue : 0;
+
   return {
     input,
     visits,
@@ -243,6 +293,18 @@ export function calculateOperationalSimulation(
     profitPerVisit: money(profitPerVisit),
     breakEvenVisits,
     breakEvenCustomers,
+    weatherRescheduledVisits,
+    lateVisits,
+    serviceIssueVisits,
+    returnVisits,
+    exceptionLaborHours: rate(exceptionLaborHours),
+    exceptionLaborCost: money(exceptionLaborCost),
+    exceptionDirectCost: money(exceptionDirectCost),
+    customerCredits: money(customerCredits),
+    exceptionCost: money(exceptionCost),
+    revenueAtRisk: money(revenueAtRisk),
+    adjustedOperatingProfit: money(adjustedOperatingProfit),
+    adjustedOperatingMarginRate: rate(adjustedOperatingMarginRate),
   };
 }
 
