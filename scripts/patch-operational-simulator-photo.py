@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Idempotent compatibility guard for the canonical private photo schema.
 route_path = Path("app/api/admin/operational-simulator/route.ts")
 text = route_path.read_text()
 changed = False
