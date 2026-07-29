@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test.setTimeout(240_000);
 
-test("admin creates two months, employee completes a house and customer reviews it", async ({ browser }) => {
+test("admin runs exception week, employee completes a house and customer triggers recovery", async ({ browser }) => {
   const adminContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const admin = await adminContext.newPage();
   await admin.goto("http://127.0.0.1:3000/login");
@@ -43,6 +43,11 @@ test("admin creates two months, employee completes a house and customer reviews 
   expect(workerEmail).toContain("worker-1@4everseasons.test");
   expect(customerEmail).toContain("customer-01@4everseasons.test");
 
+  await admin.getByRole("button", { name: "Run Exception Week" }).click();
+  await expect(simulationMessage).toContainText(/Exception week seeded/i, { timeout: 60_000 });
+  await expect(admin.getByText("Rain-rescheduled visits").locator("..").getByText("8", { exact: true })).toBeVisible();
+  await expect(admin.getByText("Late arrivals").locator("..").getByText("1", { exact: true })).toBeVisible();
+
   const employeeContext = await browser.newContext({ viewport: { width: 412, height: 915 } });
   const employee = await employeeContext.newPage();
   await employee.goto("http://127.0.0.1:3000/login");
@@ -72,7 +77,8 @@ test("admin creates two months, employee completes a house and customer reviews 
   await customer.goto("http://127.0.0.1:3000/customer/feedback");
   await expect(customer.getByRole("heading", { name: "Review completed services" })).toBeVisible({ timeout: 30_000 });
   await expect(customer.locator("textarea").first()).toBeVisible({ timeout: 30_000 });
-  await customer.locator("textarea").first().fill("Simulation customer confirmed the completed service and employee photo.");
+  await customer.locator(".star-button").nth(1).click();
+  await customer.locator("textarea").first().fill("The gate edge was missed. Please send the crew back to correct it.");
   await customer.getByRole("button", { name: "Submit Review" }).click();
   const feedbackNotice = customer.locator(".notice");
   await expect(feedbackNotice).toBeVisible({ timeout: 30_000 });
@@ -84,13 +90,16 @@ test("admin creates two months, employee completes a house and customer reviews 
   await customer.goto("http://127.0.0.1:3000/mobile/customer/requests");
   await expect(customer.getByRole("heading", { name: "What does your property need?" })).toBeVisible({ timeout: 30_000 });
   await customer.getByRole("button", { name: /Return Visit/i }).click();
-  await customer.getByLabel(/Comments/).fill("Please review the gate edge shown in the completed service history.");
+  await customer.getByLabel(/Comments/).fill("Please review and correct the gate edge from the completed service.");
   await customer.getByRole("button", { name: "Confirm & Send Request" }).click();
   await expect(customer.getByText(/Return Visit sent to Admin/i)).toBeVisible({ timeout: 30_000 });
   await customer.screenshot({ path: "customer-feedback.png", fullPage: true });
 
   await admin.reload();
-  await expect(admin.getByText("Live Simulation Status")).toBeVisible();
+  await expect(admin.getByText("Live Exception Status")).toBeVisible();
+  await expect(admin.getByText("Low ratings").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(admin.getByText("Open follow-up tasks").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(admin.getByText("Return requests").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });
   await admin.screenshot({ path: "operational-simulator.png", fullPage: true });
 
   await customerContext.close();
