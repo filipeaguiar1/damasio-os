@@ -45,8 +45,9 @@ test("admin runs exception week, employee completes a house and customer trigger
 
   await admin.getByRole("button", { name: "Run Exception Week" }).click();
   await expect(simulationMessage).toContainText(/Exception week seeded/i, { timeout: 60_000 });
-  await expect(admin.getByText("Rain-rescheduled visits").locator("..").getByText("8", { exact: true })).toBeVisible();
-  await expect(admin.getByText("Late arrivals").locator("..").getByText("1", { exact: true })).toBeVisible();
+  const liveExceptions = admin.getByRole("heading", { name: "Live Exception Status" }).locator("xpath=ancestor::section");
+  await expect(liveExceptions.getByText("Rain-rescheduled visits").locator("..").getByText("8", { exact: true })).toBeVisible();
+  await expect(liveExceptions.getByText("Late arrivals").locator("..").getByText("1", { exact: true })).toBeVisible();
 
   const employeeContext = await browser.newContext({ viewport: { width: 412, height: 915 } });
   const employee = await employeeContext.newPage();
@@ -96,10 +97,10 @@ test("admin runs exception week, employee completes a house and customer trigger
   await customer.screenshot({ path: "customer-feedback.png", fullPage: true });
 
   await admin.reload();
-  await expect(admin.getByText("Live Exception Status")).toBeVisible();
-  await expect(admin.getByText("Low ratings").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });
-  await expect(admin.getByText("Open follow-up tasks").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });
-  await expect(admin.getByText("Return requests").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(liveExceptions).toBeVisible();
+  await expect(liveExceptions.getByText("Low ratings").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(liveExceptions.getByText("Open follow-up tasks").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(liveExceptions.getByText("Return requests").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });
   await admin.screenshot({ path: "operational-simulator.png", fullPage: true });
 
   await customerContext.close();
