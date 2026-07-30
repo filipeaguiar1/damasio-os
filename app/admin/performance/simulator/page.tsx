@@ -59,6 +59,30 @@ function percent(value: number) {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function delay(milliseconds: number) {
+  return new Promise(resolve => window.setTimeout(resolve, milliseconds));
+}
+
+async function loadJsonWithRetry(
+  path: string,
+  headers: Record<string, string>,
+  fallbackMessage: string,
+) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(path, { headers, cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || fallbackMessage);
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 2) await delay(500 * (attempt + 1));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(fallbackMessage);
+}
+
 export default function OperationalSimulatorPage() {
   const [input, setInput] = useState<OperationalSimulationInput>(defaultOperationalSimulationInput);
   const [status, setStatus] = useState<ApiStatus | null>(null);
@@ -85,16 +109,24 @@ export default function OperationalSimulatorPage() {
         return;
       }
       const headers = { authorization: `Bearer ${access}` };
-      const [coreResponse, exceptionResponse] = await Promise.all([
-        fetch("/api/admin/operational-simulator", { headers, cache: "no-store" }),
-        fetch("/api/admin/operational-simulator/exceptions", { headers, cache: "no-store" }),
-      ]);
-      const coreResult = await coreResponse.json();
-      const exceptionResult = await exceptionResponse.json();
-      if (!coreResponse.ok) throw new Error(coreResult.error || "Simulation status could not be loaded.");
-      if (!exceptionResponse.ok) throw new Error(exceptionResult.error || "Exception status could not be loaded.");
+      const coreResult = await loadJsonWithRetry(
+        "/api/admin/operational-simulator",
+        headers,
+        "Simulation status could not be loaded.",
+      );
       setStatus(coreResult.status);
-      setExceptions(exceptionResult.status);
+
+      try {
+        const exceptionResult = await loadJsonWithRetry(
+          "/api/admin/operational-simulator/exceptions",
+          headers,
+          "Exception status could not be loaded.",
+        );
+        setExceptions(exceptionResult.status);
+      } catch (error) {
+        setExceptions(null);
+        setMessage(error instanceof Error ? error.message : "Exception status could not be loaded.");
+      }
     } catch (error) {
       setStatus(null);
       setExceptions(null);
@@ -111,7 +143,7 @@ export default function OperationalSimulatorPage() {
   }
 
   async function run(action: "create" | "remove") {
-    if (statusLoading) return;
+    if (statusLoading || !status) return;
     if (action === "remove" && !window.confirm("Remove only the operational simulation records and temporary accounts?")) return;
     setBusy(true);
     setMessage("");
@@ -179,7 +211,7 @@ export default function OperationalSimulatorPage() {
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <Link href="/admin/performance" className="btn btn-outline">Back to Reports</Link>
-          <button type="button" className="btn btn-primary" disabled={busy || statusLoading || Boolean(status?.exists)} onClick={() => void run("create")}>{busy ? "Working…" : statusLoading ? "Checking…" : "Create 2-Month Simulation"}</button>
+          <button type="button" className="btn btn-primary" disabled={busy || statusLoading || !status || status.exists} onClick={() => void run("create")}>{busy ? "Working…" : statusLoading ? "Checking…" : "Create 2-Month Simulation"}</button>
           <button type="button" className="btn btn-outline" disabled={busy || statusLoading || !status?.exists || exceptionSeeded} onClick={() => void runExceptions()}>{exceptionSeeded ? "Exception Week Created" : "Run Exception Week"}</button>
           <button type="button" className="btn btn-outline" disabled={busy || statusLoading || !status?.exists} onClick={() => void run("remove")}>Remove Simulation</button>
         </div>
