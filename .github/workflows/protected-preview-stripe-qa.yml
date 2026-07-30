@@ -20,9 +20,10 @@ concurrency:
 jobs:
   stripe:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     env:
-      BASE_URL: https://damasio-os-h1mc-git-feature-25-30-homes-simulator-v1-damaio-os.vercel.app
+      BASE_URL: https://damasio-os-h1mc-1yzjnz75w-damaio-os.vercel.app
+      TARGET_COMMIT: af9cbb7c68af720830a871755802fdb9e1a4fd12
       VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
 
     steps:
@@ -38,65 +39,55 @@ jobs:
             exit 1
           fi
 
-      - name: Wait for matching Vercel preview
+      - name: Verify immutable Vercel preview
         run: |
           set -euo pipefail
-          expected_sha=$(git rev-parse HEAD)
-          matched=""
+          status=$(curl --silent --show-error \
+            --output /tmp/stripe-readiness.json \
+            --write-out "%{http_code}" \
+            --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+            "$BASE_URL/api/stripe/readiness")
 
-          for attempt in $(seq 1 120); do
-            status=$(curl --silent --show-error --location \
-              --output /tmp/stripe-readiness.json \
-              --write-out "%{http_code}" \
-              --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
-              --header "x-vercel-set-bypass-cookie: true" \
-              "$BASE_URL/api/stripe/readiness")
-
-            if [ "$status" = "200" ]; then
-              deployed_sha=$(node -e "const v=require('/tmp/stripe-readiness.json');process.stdout.write(v.commitSha||'')")
-              stripe_mode=$(node -e "const v=require('/tmp/stripe-readiness.json');process.stdout.write(v.mode||'')")
-              configured=$(node -e "const v=require('/tmp/stripe-readiness.json');process.stdout.write(String(Boolean(v.configured)))")
-              webhook=$(node -e "const v=require('/tmp/stripe-readiness.json');process.stdout.write(String(Boolean(v.webhookConfigured)))")
-              echo "Preview commit: ${deployed_sha:-unknown}; Stripe mode: ${stripe_mode:-unknown}; configured: $configured; webhook: $webhook"
-
-              if [ "$deployed_sha" = "$expected_sha" ]; then
-                if [ "$stripe_mode" != "test" ] || [ "$configured" != "true" ] || [ "$webhook" != "true" ]; then
-                  echo "Matching preview is not ready for safe Stripe test-mode QA."
-                  cat /tmp/stripe-readiness.json
-                  exit 1
-                fi
-                matched="yes"
-                break
-              fi
-            fi
-
-            sleep 5
-          done
-
-          if [ "$matched" != "yes" ]; then
-            echo "Protected preview did not reach commit $expected_sha."
-            cat /tmp/stripe-readiness.json 2>/dev/null || true
+          if [ "$status" != "200" ]; then
+            echo "Protected preview readiness failed with HTTP $status."
+            head -c 1000 /tmp/stripe-readiness.json || true
             exit 1
           fi
+
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const value = JSON.parse(fs.readFileSync('/tmp/stripe-readiness.json', 'utf8'));
+          if (value.commitSha !== process.env.TARGET_COMMIT) throw new Error('Immutable preview commit does not match the QA target.');
+          if (value.branch !== 'feature/25-30-homes-simulator-v1') throw new Error('Preview branch does not match PR #40.');
+          if (value.environment !== 'preview') throw new Error('Stripe QA target is not a Preview deployment.');
+          if (value.mode !== 'test' || !value.testPaymentsAllowed) throw new Error('Stripe is not safely configured in test mode.');
+          if (!value.configured || !value.webhookConfigured) throw new Error('Stripe, webhook, Supabase, or bypass configuration is incomplete.');
+          console.log({
+            commit: value.commitSha,
+            branch: value.branch,
+            environment: value.environment,
+            stripeMode: value.mode,
+            configured: value.configured,
+            webhookConfigured: value.webhookConfigured,
+          });
+          NODE
 
       - name: Run canonical Stripe lifecycle QA
         run: |
           set -euo pipefail
-          expected_sha=$(git rev-parse HEAD)
-
-          status=$(curl --silent --show-error --location \
+          status=$(curl --silent --show-error \
             --request POST \
             --output stripe-qa-result.json \
             --write-out "%{http_code}" \
             --header "content-type: application/json" \
             --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
             --header "x-damasio-qa-secret: $VERCEL_AUTOMATION_BYPASS_SECRET" \
-            --data "{\"commit\":\"$expected_sha\"}" \
+            --data "{\"commit\":\"$TARGET_COMMIT\"}" \
             "$BASE_URL/api/internal/preview-stripe-qa")
 
           if [ "$status" != "200" ]; then
             echo "Stripe QA request failed with HTTP $status."
-            cat stripe-qa-result.json
+            head -c 2000 stripe-qa-result.json || true
             exit 1
           fi
 
@@ -104,6 +95,7 @@ jobs:
           const fs = require('node:fs');
           const result = JSON.parse(fs.readFileSync('stripe-qa-result.json', 'utf8'));
           if (!result.passed) throw new Error(result.error || 'Stripe QA did not pass.');
+          if (result.commit !== process.env.TARGET_COMMIT) throw new Error('Stripe QA response came from the wrong deployment.');
           if (result.stripeMode !== 'test') throw new Error('Stripe QA was not in test mode.');
           if (result.invoice?.status !== 'paid') throw new Error('QA invoice was not paid.');
           if (result.payment?.status !== 'paid') throw new Error('Canonical Payment was not paid.');
