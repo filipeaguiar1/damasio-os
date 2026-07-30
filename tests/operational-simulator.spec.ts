@@ -81,14 +81,15 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
     "/admin",
     "/admin/customers",
     "/admin/properties",
-    "/admin/quotes",
-    "/admin/jobs",
-    "/admin/schedule",
-    "/admin/dispatch",
+    "/admin/estimates",
+    "/admin/operations",
     "/admin/routes?tab=view",
-    "/admin/payments",
+    "/admin/finance",
+    "/admin/invoices",
+    "/admin/tasks",
     "/admin/performance/simulator",
   ]) {
+    console.log(`QA_ADMIN_PATH: ${path}`);
     await admin.goto(`${baseURL}${path}`);
     await assertHealthy(admin, `Admin ${path}`);
   }
@@ -140,6 +141,7 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   await expect(customerMobile.getByText(/Return Visit sent to Admin/i)).toBeVisible({ timeout: 30_000 });
 
   for (const path of ["/mobile/customer", "/mobile/customer/payments", "/mobile/customer/requests", "/customer/feedback"]) {
+    console.log(`QA_CUSTOMER_MOBILE_PATH: ${path}`);
     await customerMobile.goto(`${baseURL}${path}`);
     await assertHealthy(customerMobile, `Customer mobile ${path}`, true);
   }
@@ -151,6 +153,7 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   await signIn(customerDesktop, customerEmail, customerPassword);
   await customerDesktop.waitForURL("**/customer", { timeout: 30_000 });
   for (const path of ["/customer", "/customer/payments", "/customer/invoices", "/customer/feedback"]) {
+    console.log(`QA_CUSTOMER_DESKTOP_PATH: ${path}`);
     await customerDesktop.goto(`${baseURL}${path}`);
     await assertHealthy(customerDesktop, `Customer desktop ${path}`);
   }
