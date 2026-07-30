@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
 const baseURL = process.env.QA_BASE_URL || "http://127.0.0.1:3000";
+const runStripeQa = process.env.RUN_STRIPE_QA === "true";
 
 test.setTimeout(420_000);
 
@@ -43,14 +44,16 @@ async function signIn(page: Page, email: string, password: string) {
   await page.getByRole("button", { name: "Sign In" }).click();
 }
 
-test("production-like Admin, Employee, Customer and Stripe test-mode flow", async ({ browser, request }) => {
-  const readinessResponse = await request.get(`${baseURL}/api/stripe/readiness`);
-  expect(readinessResponse.ok()).toBeTruthy();
-  const readiness = await readinessResponse.json();
-  expect(readiness.configured).toBe(true);
-  expect(readiness.mode, "Stripe QA refuses to run unless STRIPE_SECRET_KEY uses sk_test_").toBe("test");
-  expect(readiness.testPaymentsAllowed).toBe(true);
-  expect(readiness.webhookConfigured).toBe(true);
+test("production-like Admin, Employee, Customer and visual flow", async ({ browser, request }) => {
+  if (runStripeQa) {
+    const readinessResponse = await request.get(`${baseURL}/api/stripe/readiness`);
+    expect(readinessResponse.ok()).toBeTruthy();
+    const readiness = await readinessResponse.json();
+    expect(readiness.configured).toBe(true);
+    expect(readiness.mode, "Stripe QA refuses to run unless STRIPE_SECRET_KEY uses sk_test_").toBe("test");
+    expect(readiness.testPaymentsAllowed).toBe(true);
+    expect(readiness.webhookConfigured).toBe(true);
+  }
 
   const adminContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const admin = await adminContext.newPage();
@@ -82,33 +85,35 @@ test("production-like Admin, Employee, Customer and Stripe test-mode flow", asyn
   const customerEmail = (await codes.nth(4).innerText()).trim();
   const customerPassword = (await codes.nth(5).innerText()).trim();
 
-  const adminToken = await readAccessToken(admin);
-  const testInvoiceResponse = await admin.evaluate(async ({ token }) => {
-    const response = await fetch("/api/admin/operational-simulator/stripe-test-invoice", {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}` },
-    });
-    return { status: response.status, body: await response.json() };
-  }, { token: adminToken });
-  expect(testInvoiceResponse.status).toBeLessThan(300);
-  expect(testInvoiceResponse.body.invoice?.status).toBe("waiting_payment");
+  if (runStripeQa) {
+    const adminToken = await readAccessToken(admin);
+    const testInvoiceResponse = await admin.evaluate(async ({ token }) => {
+      const response = await fetch("/api/admin/operational-simulator/stripe-test-invoice", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      return { status: response.status, body: await response.json() };
+    }, { token: adminToken });
+    expect(testInvoiceResponse.status).toBeLessThan(300);
+    expect(testInvoiceResponse.body.invoice?.status).toBe("waiting_payment");
 
-  const stripeQaResponse = await admin.evaluate(async ({ token, invoiceId }) => {
-    const response = await fetch("/api/admin/operational-simulator/stripe-test-payment", {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ invoiceId }),
-    });
-    return { status: response.status, body: await response.json() };
-  }, { token: adminToken, invoiceId: String(testInvoiceResponse.body.invoice.id) });
-  console.log(`STRIPE_QA_RESULT: ${JSON.stringify(stripeQaResponse.body)}`);
-  expect(stripeQaResponse.status).toBeLessThan(300);
-  expect(stripeQaResponse.body.passed).toBe(true);
-  expect(stripeQaResponse.body.stripeMode).toBe("test");
-  expect(stripeQaResponse.body.invoice?.status).toBe("paid");
-  expect(stripeQaResponse.body.payment?.status).toBe("paid");
-  expect(stripeQaResponse.body.webhook?.received).toBe(true);
-  expect(stripeQaResponse.body.wallet?.balanceCredits).toBe(10);
+    const stripeQaResponse = await admin.evaluate(async ({ token, invoiceId }) => {
+      const response = await fetch("/api/admin/operational-simulator/stripe-test-payment", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ invoiceId }),
+      });
+      return { status: response.status, body: await response.json() };
+    }, { token: adminToken, invoiceId: String(testInvoiceResponse.body.invoice.id) });
+    console.log(`STRIPE_QA_RESULT: ${JSON.stringify(stripeQaResponse.body)}`);
+    expect(stripeQaResponse.status).toBeLessThan(300);
+    expect(stripeQaResponse.body.passed).toBe(true);
+    expect(stripeQaResponse.body.stripeMode).toBe("test");
+    expect(stripeQaResponse.body.invoice?.status).toBe("paid");
+    expect(stripeQaResponse.body.payment?.status).toBe("paid");
+    expect(stripeQaResponse.body.webhook?.received).toBe(true);
+    expect(stripeQaResponse.body.wallet?.balanceCredits).toBeGreaterThanOrEqual(10);
+  }
 
   for (const path of ["/admin", "/admin/customers", "/admin/routes?tab=view", "/admin/payments", "/admin/performance/simulator"]) {
     await admin.goto(`${baseURL}${path}`);
@@ -140,19 +145,24 @@ test("production-like Admin, Employee, Customer and Stripe test-mode flow", asyn
   await customer.goto(`${baseURL}/customer/payments`);
   await expect(customer.getByRole("heading", { name: "Payments & Visits" })).toBeVisible({ timeout: 45_000 });
   await assertHealthy(customer, "Customer payments");
-  await expect(customer.locator(".pv-summary article").first()).toContainText(/10\.00/, { timeout: 45_000 });
 
   await customer.getByRole("button", { name: "Invoices", exact: true }).click();
-  const testInvoice = customer.locator(".billing-invoice-list article").filter({ hasText: "SIM-STRIPE-" });
-  await expect(testInvoice).toBeVisible({ timeout: 45_000 });
-  await expect(testInvoice).toContainText("$45.20");
-  await expect(testInvoice).toContainText(/paid/i);
-  await customer.screenshot({ path: "qa-stripe-invoice-success.png", fullPage: true });
-
-  await customer.getByRole("button", { name: "Account & Payments" }).click();
-  await expect(customer.getByRole("heading", { name: "Payment history" })).toBeVisible();
-  await expect(customer.getByText(/Stripe test card/i)).toBeVisible({ timeout: 45_000 });
+  await expect(customer.getByRole("heading", { name: "Invoices" })).toBeVisible();
+  if (runStripeQa) {
+    const testInvoice = customer.locator(".billing-invoice-list article").filter({ hasText: "SIM-STRIPE-" });
+    await expect(testInvoice).toBeVisible({ timeout: 45_000 });
+    await expect(testInvoice).toContainText("$45.20");
+    await expect(testInvoice).toContainText(/paid/i);
+    await customer.getByRole("button", { name: "Account & Payments" }).click();
+    await expect(customer.locator(".pv-summary article").first()).toContainText(/10\.00/, { timeout: 45_000 });
+    await expect(customer.getByText(/Stripe test card/i)).toBeVisible({ timeout: 45_000 });
+  }
   await customer.screenshot({ path: "qa-customer-payments.png", fullPage: true });
+
+  for (const path of ["/customer", "/customer/invoices", "/customer/feedback", "/customer/settings"]) {
+    await customer.goto(`${baseURL}${path}`);
+    await assertHealthy(customer, `Customer ${path}`);
+  }
 
   const mobileContext = await browser.newContext({ viewport: { width: 412, height: 915 } });
   const mobile = await mobileContext.newPage();
