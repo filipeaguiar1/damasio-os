@@ -52,15 +52,19 @@ jobs:
           management_token="${SUPABASE_ACCESS_TOKEN:-${SUPABASE_MANAGEMENT_ACCESS_TOKEN:-}}"
           database_password="${SUPABASE_DB_PASSWORD:-${SUPABASE_DATABASE_PASSWORD:-${DB_PASSWORD:-}}}"
           if [ -z "$management_token" ] && [ -z "$database_password" ]; then
-            echo "No Supabase management token or database password is configured for the migration."
-            exit 1
+            echo "No Supabase migration credential is configured; the QA will test the database's current permission state."
           fi
 
-      - name: Apply trusted Stripe ledger permissions
+      - name: Apply trusted Stripe ledger permissions when authorized
         run: |
           set -euo pipefail
           management_token="${SUPABASE_ACCESS_TOKEN:-${SUPABASE_MANAGEMENT_ACCESS_TOKEN:-}}"
           database_password="${SUPABASE_DB_PASSWORD:-${SUPABASE_DATABASE_PASSWORD:-${DB_PASSWORD:-}}}"
+          if [ -z "$management_token" ] && [ -z "$database_password" ]; then
+            echo "Skipping automatic migration because no management token or database password is configured."
+            exit 0
+          fi
+
           project_ref=$(python - <<'PY'
           import os
           import urllib.parse
