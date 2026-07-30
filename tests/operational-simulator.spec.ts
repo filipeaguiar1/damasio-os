@@ -16,6 +16,7 @@ function watchErrors(page: Page, label: string) {
 
 async function assertHealthy(page: Page, label: string, mobile = false) {
   await page.waitForLoadState("domcontentloaded");
+  await page.waitForTimeout(750);
   await expect(page.locator("body")).not.toContainText(/Application error|Internal Server Error|Page crashed|404: This page could not be found|Page not found/i);
   await expect(page.locator("[data-nextjs-dialog], .nextjs-container-errors-header")).toHaveCount(0);
   const layout = await page.evaluate(() => ({
