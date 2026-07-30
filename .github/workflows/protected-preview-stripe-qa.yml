@@ -1,0 +1,141 @@
+name: Protected Preview Stripe QA
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/api/internal/preview-stripe-qa/**"
+      - "app/api/stripe/readiness/**"
+      - ".github/workflows/protected-preview-stripe-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: protected-preview-stripe-qa
+  cancel-in-progress: true
+
+jobs:
+  stripe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_URL: https://damasio-os-h1mc-git-feature-25-30-homes-simulator-v1-damaio-os.vercel.app
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+
+      - name: Validate protected preview configuration
+        run: |
+          set -euo pipefail
+          if [ -z "${VERCEL_AUTOMATION_BYPASS_SECRET:-}" ]; then
+            echo "VERCEL_AUTOMATION_BYPASS_SECRET is not configured in GitHub Actions secrets."
+            exit 1
+          fi
+
+      - name: Wait for matching Vercel preview
+        run: |
+          set -euo pipefail
+          expected_sha=$(git rev-parse HEAD)
+          matched=""
+
+          for attempt in $(seq 1 120); do
+            status=$(curl --silent --show-error --location \
+              --output /tmp/stripe-readiness.json \
+              --write-out "%{http_code}" \
+              --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+              --header "x-vercel-set-bypass-cookie: true" \
+              "$BASE_URL/api/stripe/readiness")
+
+            if [ "$status" = "200" ]; then
+              deployed_sha=$(node -e "const v=require('/tmp/stripe-readiness.json');process.stdout.write(v.commitSha||'')")
+              stripe_mode=$(node -e "const v=require('/tmp/stripe-readiness.json');process.stdout.write(v.mode||'')")
+              configured=$(node -e "const v=require('/tmp/stripe-readiness.json');process.stdout.write(String(Boolean(v.configured)))")
+              webhook=$(node -e "const v=require('/tmp/stripe-readiness.json');process.stdout.write(String(Boolean(v.webhookConfigured)))")
+              echo "Preview commit: ${deployed_sha:-unknown}; Stripe mode: ${stripe_mode:-unknown}; configured: $configured; webhook: $webhook"
+
+              if [ "$deployed_sha" = "$expected_sha" ]; then
+                if [ "$stripe_mode" != "test" ] || [ "$configured" != "true" ] || [ "$webhook" != "true" ]; then
+                  echo "Matching preview is not ready for safe Stripe test-mode QA."
+                  cat /tmp/stripe-readiness.json
+                  exit 1
+                fi
+                matched="yes"
+                break
+              fi
+            fi
+
+            sleep 5
+          done
+
+          if [ "$matched" != "yes" ]; then
+            echo "Protected preview did not reach commit $expected_sha."
+            cat /tmp/stripe-readiness.json 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: Run canonical Stripe lifecycle QA
+        run: |
+          set -euo pipefail
+          expected_sha=$(git rev-parse HEAD)
+
+          status=$(curl --silent --show-error --location \
+            --request POST \
+            --output stripe-qa-result.json \
+            --write-out "%{http_code}" \
+            --header "content-type: application/json" \
+            --header "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+            --header "x-damasio-qa-secret: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+            --data "{\"commit\":\"$expected_sha\"}" \
+            "$BASE_URL/api/internal/preview-stripe-qa")
+
+          if [ "$status" != "200" ]; then
+            echo "Stripe QA request failed with HTTP $status."
+            cat stripe-qa-result.json
+            exit 1
+          fi
+
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const result = JSON.parse(fs.readFileSync('stripe-qa-result.json', 'utf8'));
+          if (!result.passed) throw new Error(result.error || 'Stripe QA did not pass.');
+          if (result.stripeMode !== 'test') throw new Error('Stripe QA was not in test mode.');
+          if (result.invoice?.status !== 'paid') throw new Error('QA invoice was not paid.');
+          if (result.payment?.status !== 'paid') throw new Error('Canonical Payment was not paid.');
+          if (!result.payout?.id || result.payout?.status !== 'pending_feedback') throw new Error('Canonical payout item was not created in the expected hold state.');
+          if (!result.webhook?.received || result.webhook?.ledger?.status !== 'processed') throw new Error('Signed webhook was not fully processed.');
+          if (result.wallet?.transactionType !== 'topup') throw new Error('Wallet top-up transaction was not created.');
+          if (Number(result.wallet?.amountCredits || 0) !== 10) throw new Error('Wallet test top-up amount was not CAD 10.');
+          if (Number(result.wallet?.balanceCredits || 0) < 10) throw new Error('Wallet balance was not credited.');
+          if (result.wallet?.depositInvoice?.status !== 'paid') throw new Error('Wallet deposit invoice was not finalized.');
+
+          const summary = {
+            passed: true,
+            commit: result.commit,
+            stripeMode: result.stripeMode,
+            invoiceStatus: result.invoice.status,
+            paymentStatus: result.payment.status,
+            payoutStatus: result.payout.status,
+            webhookStatus: result.webhook.ledger.status,
+            walletTransactionType: result.wallet.transactionType,
+            walletTopUpCredits: result.wallet.amountCredits,
+            walletDepositInvoiceStatus: result.wallet.depositInvoice.status,
+          };
+          fs.writeFileSync('stripe-qa-summary.json', JSON.stringify(summary, null, 2));
+          console.log(summary);
+          NODE
+
+          rm -f stripe-qa-result.json
+
+      - name: Upload sanitized Stripe QA summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protected-preview-stripe-qa
+          path: stripe-qa-summary.json
+          if-no-files-found: ignore
