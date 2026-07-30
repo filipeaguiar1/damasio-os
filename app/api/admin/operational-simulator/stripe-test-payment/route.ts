@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { POST as processStripeWebhook } from "@/app/api/stripe/webhook/route";
 
 export const dynamic = "force-dynamic";
 
@@ -112,11 +113,12 @@ export async function POST(request: NextRequest) {
       type: "payment_intent.succeeded",
     });
     const signature = stripe.webhooks.generateTestHeaderString({ payload: eventPayload, secret: webhookSecret });
-    const webhookResponse = await fetch(`${request.nextUrl.origin}/api/stripe/webhook`, {
+    const webhookRequest = new NextRequest(new URL("/api/stripe/webhook", request.url), {
       method: "POST",
       headers: { "content-type": "application/json", "stripe-signature": signature },
       body: eventPayload,
     });
+    const webhookResponse = await processStripeWebhook(webhookRequest);
     const webhookBody = await webhookResponse.json().catch(() => ({}));
     if (!webhookResponse.ok) throw new Error(`Canonical Stripe webhook failed: ${webhookBody.error || webhookResponse.status}.`);
 
