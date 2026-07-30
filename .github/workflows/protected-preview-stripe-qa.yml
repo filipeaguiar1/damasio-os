@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: protected-preview-stripe-qa
@@ -20,103 +21,54 @@ concurrency:
 jobs:
   stripe:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feature/25-30-homes-simulator-v1
 
-      - uses: pnpm/action-setup@v4
+      - name: Create short-lived GitHub OIDC token
+        id: oidc
+        uses: actions/github-script@v7
         with:
-          version: 9.15.4
+          script: |
+            const token = await core.getIDToken();
+            core.setSecret(token);
+            core.setOutput('token', token);
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install protected-preview browser
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
-          pnpm exec playwright install --with-deps chromium
-
-      - name: Authenticate to protected preview and run Stripe QA
+      - name: Run Stripe QA inside protected Vercel preview
         env:
           BASE_URL: https://damasio-os-h1mc-git-feature-25-30-homes-simulator-v1-damaio-os.vercel.app
-          VERCEL_SHARE: 0md6VfURPNuJCbWgkNCvBcFoS4p5dGtf
           QA_TOKEN: preview-stripe-qa-20260729-4ever-seasons
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
         run: |
+          set -euo pipefail
+
+          curl --fail-with-body --silent --show-error \
+            -H "x-vercel-trusted-oidc-idp-token: $OIDC_TOKEN" \
+            -H "x-vercel-set-bypass-cookie: true" \
+            "$BASE_URL/api/stripe/readiness" > readiness.json
+
+          cat readiness.json
+          deployed_sha=$(node -e "const value=require('./readiness.json');if(!value.commitSha)throw new Error('Missing deployed commit');if(value.mode!=='test')throw new Error('Stripe is not in test mode');if(!value.webhookConfigured)throw new Error('Webhook is not configured');process.stdout.write(value.commitSha)")
+          echo "Testing protected preview commit $deployed_sha"
+
+          curl --fail-with-body --silent --show-error \
+            -H "x-vercel-trusted-oidc-idp-token: $OIDC_TOKEN" \
+            -H "x-vercel-set-bypass-cookie: true" \
+            "$BASE_URL/api/internal/preview-stripe-qa?token=$QA_TOKEN&commit=$deployed_sha" \
+            > stripe-qa-result.json
+
+          cat stripe-qa-result.json
           node - <<'NODE'
-          const fs = require('node:fs');
-          const { chromium } = require('@playwright/test');
-
-          const baseUrl = process.env.BASE_URL;
-          const share = process.env.VERCEL_SHARE;
-          const qaToken = process.env.QA_TOKEN;
-          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-          (async () => {
-            const browser = await chromium.launch({ headless: true });
-            const context = await browser.newContext();
-            const page = await context.newPage();
-            page.setDefaultNavigationTimeout(120_000);
-
-            await page.goto(`${baseUrl}/?_vercel_share=${share}`, { waitUntil: 'domcontentloaded' });
-            await sleep(1500);
-
-            let readiness = null;
-            for (let attempt = 1; attempt <= 30; attempt += 1) {
-              const response = await page.goto(
-                `${baseUrl}/api/stripe/readiness?_vercel_share=${share}`,
-                { waitUntil: 'domcontentloaded' },
-              );
-              const text = await page.locator('body').innerText().catch(() => '');
-              try {
-                readiness = JSON.parse(text);
-              } catch {
-                console.log(`Preview access attempt ${attempt}: HTTP ${response?.status()}; URL ${page.url()}`);
-                await sleep(3000);
-                continue;
-              }
-              if (readiness.commitSha && readiness.mode === 'test' && readiness.webhookConfigured) break;
-              console.log(`Preview not ready: commit ${readiness.commitSha || 'unknown'}; Stripe ${readiness.mode || 'unknown'}`);
-              readiness = null;
-              await sleep(3000);
-            }
-
-            if (!readiness?.commitSha) throw new Error('Protected preview did not provide a deployed commit.');
-            if (readiness.mode !== 'test' || !readiness.webhookConfigured) {
-              throw new Error('Protected preview is not ready for safe Stripe test-mode QA.');
-            }
-            console.log(`Testing deployed preview commit ${readiness.commitSha} in Stripe test mode.`);
-
-            const qaUrl = `${baseUrl}/api/internal/preview-stripe-qa?token=${encodeURIComponent(qaToken)}&commit=${readiness.commitSha}&_vercel_share=${share}`;
-            const qaResponse = await page.goto(qaUrl, { waitUntil: 'domcontentloaded', timeout: 180_000 });
-            const qaText = await page.locator('body').innerText();
-            fs.writeFileSync('stripe-qa-result.json', qaText);
-
-            let result;
-            try {
-              result = JSON.parse(qaText);
-            } catch {
-              throw new Error(`Stripe QA returned non-JSON HTTP ${qaResponse?.status()}: ${qaText.slice(0, 500)}`);
-            }
-            console.log(JSON.stringify(result, null, 2));
-
-            if (!result.passed) throw new Error(result.error || 'Stripe QA did not pass.');
-            if (result.stripeMode !== 'test') throw new Error('Stripe QA was not in test mode.');
-            if (result.invoice?.status !== 'paid') throw new Error('QA invoice was not paid.');
-            if (result.payment?.status !== 'paid') throw new Error('Canonical payment was not paid.');
-            if (!result.webhook?.received) throw new Error('Signed webhook was not processed.');
-            if (Number(result.wallet?.balanceCredits || 0) < 10) throw new Error('Wallet test credit was not added.');
-
-            console.log('Protected preview Stripe QA passed.');
-            await browser.close();
-          })().catch(error => {
-            console.error(error);
-            process.exit(1);
-          });
+          const result = require('./stripe-qa-result.json');
+          if (!result.passed) throw new Error(result.error || 'Stripe QA did not pass.');
+          if (result.stripeMode !== 'test') throw new Error('Stripe QA was not in test mode.');
+          if (result.invoice?.status !== 'paid') throw new Error('QA invoice was not paid.');
+          if (result.payment?.status !== 'paid') throw new Error('Canonical payment was not paid.');
+          if (!result.webhook?.received) throw new Error('Signed webhook was not processed.');
+          if (Number(result.wallet?.balanceCredits || 0) < 10) throw new Error('Wallet test credit was not added.');
+          console.log('Protected preview Stripe QA passed.');
           NODE
 
       - name: Upload Stripe QA result
@@ -124,5 +76,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: protected-preview-stripe-qa
-          path: stripe-qa-result.json
+          path: |
+            readiness.json
+            stripe-qa-result.json
           if-no-files-found: ignore
