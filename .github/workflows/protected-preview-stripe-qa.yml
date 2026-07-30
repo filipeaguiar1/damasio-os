@@ -7,6 +7,7 @@ on:
     paths:
       - "app/api/internal/preview-stripe-qa/**"
       - "app/api/stripe/readiness/**"
+      - "supabase/migrations/202607300001_stripe_service_role_ledger_permissions.sql"
       - ".github/workflows/protected-preview-stripe-qa.yml"
   workflow_dispatch:
 
@@ -25,6 +26,9 @@ jobs:
       BASE_URL: https://damasio-os-h1mc-1yzjnz75w-damaio-os.vercel.app
       TARGET_COMMIT: af9cbb7c68af720830a871755802fdb9e1a4fd12
       VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_MANAGEMENT_ACCESS_TOKEN: ${{ secrets.SUPABASE_MANAGEMENT_ACCESS_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +42,50 @@ jobs:
             echo "VERCEL_AUTOMATION_BYPASS_SECRET is not configured in GitHub Actions secrets."
             exit 1
           fi
+          if [ -z "${NEXT_PUBLIC_SUPABASE_URL:-}" ]; then
+            echo "NEXT_PUBLIC_SUPABASE_URL is not configured in GitHub Actions secrets."
+            exit 1
+          fi
+          if [ -z "${SUPABASE_ACCESS_TOKEN:-${SUPABASE_MANAGEMENT_ACCESS_TOKEN:-}}" ]; then
+            echo "A Supabase management token is required to apply the Stripe ledger permission migration."
+            exit 1
+          fi
+
+      - name: Apply trusted Stripe ledger permissions
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          token = os.environ.get("SUPABASE_ACCESS_TOKEN") or os.environ.get("SUPABASE_MANAGEMENT_ACCESS_TOKEN")
+          project_url = os.environ["NEXT_PUBLIC_SUPABASE_URL"]
+          hostname = urllib.parse.urlparse(project_url).hostname or ""
+          project_ref = hostname.split(".")[0]
+          if not project_ref:
+              raise SystemExit("Could not resolve the Supabase project ref.")
+
+          query = Path("supabase/migrations/202607300001_stripe_service_role_ledger_permissions.sql").read_text()
+          request = urllib.request.Request(
+              f"https://api.supabase.com/v1/projects/{project_ref}/database/query",
+              data=json.dumps({"query": query, "read_only": False}).encode(),
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=180) as response:
+                  print(f"Stripe ledger permission migration applied: HTTP {response.status}")
+          except urllib.error.HTTPError as error:
+              detail = error.read().decode(errors="replace")
+              raise SystemExit(f"Stripe ledger permission migration failed: HTTP {error.code}: {detail[:1000]}")
+          PY
 
       - name: Verify immutable Vercel preview
         run: |
