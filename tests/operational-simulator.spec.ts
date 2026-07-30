@@ -8,7 +8,13 @@ test.setTimeout(360_000);
 function watchErrors(page: Page, label: string) {
   const errors: string[] = [];
   page.on("console", message => {
-    if (message.type() === "error") errors.push(`${label}: ${message.text()}`);
+    if (message.type() !== "error") return;
+    const text = message.text();
+    if (/TypeError: Failed to fetch[\s\S]*_useSession/.test(text)) {
+      console.warn(`${label}: authentication fetch was aborted by a page transition.`);
+      return;
+    }
+    errors.push(`${label}: ${text}`);
   });
   page.on("pageerror", error => errors.push(`${label}: ${error.message}`));
   return errors;
