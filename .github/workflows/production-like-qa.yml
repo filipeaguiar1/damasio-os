@@ -1,9 +1,9 @@
 name: Production-Like Stripe and Visual QA
 
 on:
-  push:
+  pull_request:
     branches:
-      - feature/25-30-homes-simulator-v1
+      - main
     paths:
       - "app/**"
       - "components/**"
@@ -30,6 +30,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
 
       - uses: pnpm/action-setup@v4
         with:
@@ -51,13 +53,14 @@ jobs:
 
       - name: Wait for matching Vercel preview
         run: |
+          expected_sha=$(git rev-parse HEAD)
           matched=""
           for attempt in $(seq 1 120); do
             if curl --fail --silent --show-error "$QA_BASE_URL/api/stripe/readiness" > /tmp/stripe-readiness.json; then
               deployed_sha=$(node -e "const fs=require('fs');const value=JSON.parse(fs.readFileSync('/tmp/stripe-readiness.json','utf8'));process.stdout.write(value.commitSha||'')")
               mode=$(node -e "const fs=require('fs');const value=JSON.parse(fs.readFileSync('/tmp/stripe-readiness.json','utf8'));process.stdout.write(value.mode||'')")
               echo "Preview commit: ${deployed_sha:-unknown}; Stripe mode: ${mode:-unknown}"
-              if [ "$deployed_sha" = "$GITHUB_SHA" ]; then
+              if [ "$deployed_sha" = "$expected_sha" ]; then
                 matched="yes"
                 break
               fi
@@ -65,7 +68,7 @@ jobs:
             sleep 5
           done
           if [ "$matched" != "yes" ]; then
-            echo "The Vercel preview did not reach commit $GITHUB_SHA in time."
+            echo "The Vercel preview did not reach commit $expected_sha in time."
             cat /tmp/stripe-readiness.json 2>/dev/null || true
             exit 1
           fi
