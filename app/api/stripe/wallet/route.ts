@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { stripeReturnOrigin } from "@/lib/stripe/checkoutOrigin";
 
 export const dynamic = "force-dynamic";
 
@@ -13,13 +14,12 @@ function configured() {
     url: process.env.NEXT_PUBLIC_SUPABASE_URL,
     serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
     stripeKey: process.env.STRIPE_SECRET_KEY,
-    siteUrl: process.env.NEXT_PUBLIC_SITE_URL,
   };
 }
 
 async function authenticatedCustomer(request: NextRequest, url: string, serviceKey: string) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) return { error: failure("Sign in before using wallet credits.", 401) };
+  if (!token) return { error: failure("Sign in before using your account balance.", 401) };
 
   const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
   const { data: auth, error: authError } = await db.auth.getUser(token);
@@ -45,15 +45,15 @@ async function authenticatedCustomer(request: NextRequest, url: string, serviceK
 
 export async function GET(request: NextRequest) {
   const { url, serviceKey } = configured();
-  if (!url || !serviceKey) return failure("Wallet credits are not available yet.", 503);
+  if (!url || !serviceKey) return failure("Account balance is not available yet.", 503);
   const context = await authenticatedCustomer(request, url, serviceKey);
   if ("error" in context) return context.error;
 
   const { data: wallet, error: walletError } = await context.db.from("customer_wallets").select("balance_cents,updated_at").eq("customer_id", context.customer.id).maybeSingle();
-  if (walletError) return failure("Could not load wallet balance. Run the wallet migration first.", 500);
+  if (walletError) return failure("Could not load account balance. Run the wallet migration first.", 500);
 
   const { data: transactions, error: transactionError } = await context.db.from("customer_wallet_transactions").select("id,transaction_type,amount_cents,balance_after_cents,description,created_at").eq("customer_id", context.customer.id).order("created_at", { ascending: false }).limit(20);
-  if (transactionError) return failure("Could not load wallet history.", 500);
+  if (transactionError) return failure("Could not load account history.", 500);
 
   return NextResponse.json({
     balanceCredits: Number(wallet?.balance_cents || 0) / 100,
@@ -71,14 +71,14 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { url, serviceKey, stripeKey, siteUrl } = configured();
-    if (!url || !serviceKey || !stripeKey || !siteUrl) return failure("Wallet credit checkout is not configured yet.", 503);
+    const { url, serviceKey, stripeKey } = configured();
+    if (!url || !serviceKey || !stripeKey) return failure("Account deposit checkout is not configured yet.", 503);
     const context = await authenticatedCustomer(request, url, serviceKey);
     if ("error" in context) return context.error;
 
     const body = (await request.json()) as { credits?: number; returnPath?: string };
     const credits = Number(body.credits);
-    if (!Number.isInteger(credits) || credits < 5 || credits > 1000) return failure("Choose a whole credit total between 5 and 1000.", 400);
+    if (!Number.isInteger(credits) || credits < 5 || credits > 1000) return failure("Choose a whole CAD amount between 5 and 1,000.", 400);
 
     const returnPath = body.returnPath === "/customer/payments" ? "/customer/payments" : "/mobile/customer/payments";
     const amountCents = credits * 100;
@@ -91,20 +91,21 @@ export async function POST(request: NextRequest) {
       credits: String(credits),
       amountCents: String(amountCents),
     };
+    const origin = stripeReturnOrigin(request);
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: context.customer.email || context.auth.email || undefined,
-      line_items: [{ quantity: 1, price_data: { currency: "cad", unit_amount: amountCents, product_data: { name: `${credits} Damasio OS credits`, description: "1 credit equals 1 CAD dollar and can be used for services or tips." } } }],
+      line_items: [{ quantity: 1, price_data: { currency: "cad", unit_amount: amountCents, product_data: { name: "4Ever Seasons account credit", description: `CAD ${credits.toFixed(2)} in account credit for services or optional tips.` } } }],
       metadata,
       payment_intent_data: { metadata },
-      success_url: `${siteUrl}${returnPath}?wallet_topup=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}${returnPath}?wallet_topup=cancelled`,
+      success_url: `${origin}${returnPath}?wallet_topup=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}${returnPath}?wallet_topup=cancelled`,
     });
 
     return NextResponse.json({ url: session.url });
   } catch (error) {
-    console.error("Stripe wallet checkout failed", error);
-    return failure(error instanceof Error ? error.message : "Could not start wallet credit checkout.", 500);
+    console.error("Stripe account deposit checkout failed", error);
+    return failure(error instanceof Error ? error.message : "Could not start account deposit checkout.", 500);
   }
 }
