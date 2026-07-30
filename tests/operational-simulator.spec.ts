@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
 const baseURL = "http://127.0.0.1:3000";
+const torontoContext = { timezoneId: "America/Toronto" } as const;
 
 test.setTimeout(360_000);
 
@@ -33,7 +34,7 @@ async function signIn(page: Page, email: string, password: string) {
 }
 
 test("production-like Admin, Employee and Customer recovery flow", async ({ browser }) => {
-  const adminContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const adminContext = await browser.newContext({ ...torontoContext, viewport: { width: 1440, height: 1000 } });
   const admin = await adminContext.newPage();
   const adminErrors = watchErrors(admin, "Admin");
   await signIn(admin, process.env.E2E_ADMIN_EMAIL!, process.env.E2E_ADMIN_PASSWORD!);
@@ -95,7 +96,7 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   }
   await admin.screenshot({ path: "operational-simulator.png", fullPage: true });
 
-  const employeeContext = await browser.newContext({ viewport: { width: 412, height: 915 } });
+  const employeeContext = await browser.newContext({ ...torontoContext, viewport: { width: 412, height: 915 } });
   const employee = await employeeContext.newPage();
   const employeeErrors = watchErrors(employee, "Employee");
   await signIn(employee, workerEmail, workerPassword);
@@ -113,7 +114,7 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   await expect(employee.getByText("Done", { exact: true })).toBeVisible({ timeout: 30_000 });
   await employee.screenshot({ path: "employee-live-route.png", fullPage: true });
 
-  const customerMobileContext = await browser.newContext({ viewport: { width: 412, height: 915 } });
+  const customerMobileContext = await browser.newContext({ ...torontoContext, viewport: { width: 412, height: 915 } });
   const customerMobile = await customerMobileContext.newPage();
   const customerMobileErrors = watchErrors(customerMobile, "Customer mobile");
   await signIn(customerMobile, customerEmail, customerPassword);
@@ -147,7 +148,7 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   }
   await customerMobile.screenshot({ path: "customer-feedback.png", fullPage: true });
 
-  const customerDesktopContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const customerDesktopContext = await browser.newContext({ ...torontoContext, viewport: { width: 1440, height: 1000 } });
   const customerDesktop = await customerDesktopContext.newPage();
   const customerDesktopErrors = watchErrors(customerDesktop, "Customer desktop");
   await signIn(customerDesktop, customerEmail, customerPassword);
