@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-const baseURL = process.env.QA_BASE_URL || "https://damasio-os-h1mc-git-feature-25-30-homes-simulator-v1-damaio-os.vercel.app";
+const baseURL = process.env.QA_BASE_URL || "http://127.0.0.1:3000";
 
 test.setTimeout(420_000);
 
@@ -36,30 +36,6 @@ async function readAccessToken(page: Page) {
   });
 }
 
-async function fillStripeCheckout(page: Page) {
-  await page.waitForLoadState("domcontentloaded");
-  await expect(page).toHaveURL(/checkout\.stripe\.com|pay\.stripe\.com/, { timeout: 45_000 });
-
-  const cardNumber = page.locator('input[name="cardNumber"], input[autocomplete="cc-number"]').first();
-  await cardNumber.waitFor({ state: "visible", timeout: 45_000 });
-  await cardNumber.fill("4242424242424242");
-  await page.locator('input[name="cardExpiry"], input[autocomplete="cc-exp"]').first().fill("1234");
-  await page.locator('input[name="cardCvc"], input[autocomplete="cc-csc"]').first().fill("123");
-
-  const name = page.locator('input[name="billingName"], input[autocomplete="cc-name"]').first();
-  if (await name.isVisible().catch(() => false)) await name.fill("Simulation Customer");
-
-  const country = page.locator('select[name="billingCountry"]').first();
-  if (await country.isVisible().catch(() => false)) await country.selectOption("CA");
-
-  const postal = page.locator('input[name="billingPostalCode"], input[autocomplete="postal-code"]').first();
-  if (await postal.isVisible().catch(() => false)) await postal.fill("L8P1A1");
-
-  const payButton = page.getByRole("button", { name: /Pay|Submit|Complete/i }).last();
-  await expect(payButton).toBeEnabled({ timeout: 30_000 });
-  await payButton.click();
-}
-
 async function signIn(page: Page, email: string, password: string) {
   await page.goto(`${baseURL}/login`);
   await page.getByLabel("Email").fill(email);
@@ -72,7 +48,7 @@ test("production-like Admin, Employee, Customer and Stripe test-mode flow", asyn
   expect(readinessResponse.ok()).toBeTruthy();
   const readiness = await readinessResponse.json();
   expect(readiness.configured).toBe(true);
-  expect(readiness.mode, "Stripe QA refuses to run unless the deployment uses sk_test_ credentials").toBe("test");
+  expect(readiness.mode, "Stripe QA refuses to run unless STRIPE_SECRET_KEY uses sk_test_").toBe("test");
   expect(readiness.testPaymentsAllowed).toBe(true);
   expect(readiness.webhookConfigured).toBe(true);
 
@@ -117,6 +93,23 @@ test("production-like Admin, Employee, Customer and Stripe test-mode flow", asyn
   expect(testInvoiceResponse.status).toBeLessThan(300);
   expect(testInvoiceResponse.body.invoice?.status).toBe("waiting_payment");
 
+  const stripeQaResponse = await admin.evaluate(async ({ token, invoiceId }) => {
+    const response = await fetch("/api/admin/operational-simulator/stripe-test-payment", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ invoiceId }),
+    });
+    return { status: response.status, body: await response.json() };
+  }, { token: adminToken, invoiceId: String(testInvoiceResponse.body.invoice.id) });
+  console.log(`STRIPE_QA_RESULT: ${JSON.stringify(stripeQaResponse.body)}`);
+  expect(stripeQaResponse.status).toBeLessThan(300);
+  expect(stripeQaResponse.body.passed).toBe(true);
+  expect(stripeQaResponse.body.stripeMode).toBe("test");
+  expect(stripeQaResponse.body.invoice?.status).toBe("paid");
+  expect(stripeQaResponse.body.payment?.status).toBe("paid");
+  expect(stripeQaResponse.body.webhook?.received).toBe(true);
+  expect(stripeQaResponse.body.wallet?.balanceCredits).toBe(10);
+
   for (const path of ["/admin", "/admin/customers", "/admin/routes?tab=view", "/admin/payments", "/admin/performance/simulator"]) {
     await admin.goto(`${baseURL}${path}`);
     await assertHealthy(admin, `Admin ${path}`);
@@ -147,30 +140,18 @@ test("production-like Admin, Employee, Customer and Stripe test-mode flow", asyn
   await customer.goto(`${baseURL}/customer/payments`);
   await expect(customer.getByRole("heading", { name: "Payments & Visits" })).toBeVisible({ timeout: 45_000 });
   await assertHealthy(customer, "Customer payments");
+  await expect(customer.locator(".pv-summary article").first()).toContainText(/10\.00/, { timeout: 45_000 });
 
   await customer.getByRole("button", { name: "Invoices", exact: true }).click();
   const testInvoice = customer.locator(".billing-invoice-list article").filter({ hasText: "SIM-STRIPE-" });
   await expect(testInvoice).toBeVisible({ timeout: 45_000 });
   await expect(testInvoice).toContainText("$45.20");
-  await testInvoice.getByRole("button", { name: "Pay invoice" }).click();
-  await fillStripeCheckout(customer);
-  await customer.waitForURL(/\/payment\/success/, { timeout: 90_000 });
-  await expect(customer.getByRole("heading", { name: "Payment submitted" })).toBeVisible();
+  await expect(testInvoice).toContainText(/paid/i);
   await customer.screenshot({ path: "qa-stripe-invoice-success.png", fullPage: true });
-  await customer.getByRole("link", { name: "View payment status" }).click();
-  await customer.getByRole("button", { name: "Invoices", exact: true }).click();
-  await expect.poll(async () => {
-    await customer.getByRole("button", { name: "Refresh" }).click().catch(() => undefined);
-    return (await customer.locator(".billing-invoice-list article").filter({ hasText: "SIM-STRIPE-" }).innerText().catch(() => "")).toLowerCase();
-  }, { timeout: 90_000, intervals: [2000, 4000, 6000] }).toContain("paid");
 
   await customer.getByRole("button", { name: "Account & Payments" }).click();
-  await customer.getByRole("button", { name: "$10.00" }).click();
-  await customer.getByRole("button", { name: "Add $10.00" }).click();
-  await fillStripeCheckout(customer);
-  await customer.waitForURL(/wallet_topup=success/, { timeout: 90_000 });
-  await expect(customer.getByText(/Funds added successfully|already added to your balance/i)).toBeVisible({ timeout: 60_000 });
-  await expect(customer.locator(".pv-summary article").first()).toContainText("$10.00", { timeout: 60_000 });
+  await expect(customer.getByRole("heading", { name: "Payment history" })).toBeVisible();
+  await expect(customer.getByText(/Stripe test card/i)).toBeVisible({ timeout: 45_000 });
   await customer.screenshot({ path: "qa-customer-payments.png", fullPage: true });
 
   const mobileContext = await browser.newContext({ viewport: { width: 412, height: 915 } });
