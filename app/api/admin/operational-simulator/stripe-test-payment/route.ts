@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
       customerId: customer.id,
       qaMode: "production_like_test",
     };
+    const transferGroup = `invoice-${invoice.id}`;
     const invoiceIntent = await stripe.paymentIntents.create({
       amount: amountCents,
       currency: "cad",
@@ -93,7 +94,7 @@ export async function POST(request: NextRequest) {
       payment_method_types: ["card"],
       confirm: true,
       metadata: invoiceMetadata,
-      transfer_group: `invoice-${invoice.id}`,
+      transfer_group: transferGroup,
       description: `4Ever Seasons Stripe QA invoice ${invoice.invoice_number}`,
     }, { idempotencyKey: `qa-invoice-${invoice.id}-${amountCents}` });
     if (invoiceIntent.status !== "succeeded") throw new Error(`Stripe QA invoice PaymentIntent ended as ${invoiceIntent.status}.`);
@@ -173,7 +174,7 @@ export async function POST(request: NextRequest) {
     const [paidInvoice, payment, payout] = await Promise.all([
       service.from("invoices").select("id,status,stripe_payment_intent_id").eq("id", invoice.id).maybeSingle(),
       service.from("payments").select("id,status,amount").eq("stripe_payment_intent_id", invoiceIntent.id).maybeSingle(),
-      service.from("company_payout_items").select("id,status,amount_total").eq("stripe_payment_intent_id", invoiceIntent.id).maybeSingle(),
+      service.from("company_payout_items").select("id,status,amount_total").eq("stripe_transfer_group", transferGroup).maybeSingle(),
     ]);
     if (paidInvoice.error || payment.error || payout.error) throw new Error(paidInvoice.error?.message || payment.error?.message || payout.error?.message);
     if (paidInvoice.data?.status !== "paid" || payment.data?.status !== "paid") throw new Error("Canonical invoice/payment records were not finalized.");
