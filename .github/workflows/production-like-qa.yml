@@ -24,9 +24,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      QA_BASE_URL: https://damasio-os-h1mc-git-feature-25-30-homes-simulator-v1-damaio-os.vercel.app
+      QA_BASE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET }}
       E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
       E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      VERCEL_ENV: preview
 
     steps:
       - uses: actions/checkout@v4
@@ -42,36 +51,51 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      - name: Verify isolated QA configuration
+        run: |
+          node - <<'NODE'
+          const required = [
+            "NEXT_PUBLIC_SUPABASE_URL",
+            "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "STRIPE_SECRET_KEY",
+            "STRIPE_WEBHOOK_SECRET",
+            "E2E_ADMIN_EMAIL",
+            "E2E_ADMIN_PASSWORD",
+          ];
+          const missing = required.filter(key => !process.env[key]);
+          if (missing.length) throw new Error(`Missing GitHub Actions secrets: ${missing.join(", ")}`);
+          if (!process.env.STRIPE_SECRET_KEY.startsWith("sk_test_")) {
+            throw new Error("STRIPE_SECRET_KEY must be a Stripe test-mode key. Live charges are refused.");
+          }
+          console.log("Isolated Supabase and Stripe test-mode configuration is available.");
+          NODE
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Install temporary Playwright package
         run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
 
+      - name: TypeScript and production build
+        run: pnpm build
+
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Wait for matching Vercel preview
+      - name: Start isolated production server
         run: |
-          expected_sha=$(git rev-parse HEAD)
-          matched=""
-          for attempt in $(seq 1 120); do
-            if curl --fail --silent --show-error "$QA_BASE_URL/api/stripe/readiness" > /tmp/stripe-readiness.json; then
-              deployed_sha=$(node -e "const fs=require('fs');const value=JSON.parse(fs.readFileSync('/tmp/stripe-readiness.json','utf8'));process.stdout.write(value.commitSha||'')")
-              mode=$(node -e "const fs=require('fs');const value=JSON.parse(fs.readFileSync('/tmp/stripe-readiness.json','utf8'));process.stdout.write(value.mode||'')")
-              echo "Preview commit: ${deployed_sha:-unknown}; Stripe mode: ${mode:-unknown}"
-              if [ "$deployed_sha" = "$expected_sha" ]; then
-                matched="yes"
-                break
-              fi
+          pnpm start > /tmp/production-like-qa-server.log 2>&1 &
+          echo $! > /tmp/production-like-qa-server.pid
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent http://127.0.0.1:3000/api/stripe/readiness > /tmp/stripe-readiness.json; then
+              cat /tmp/stripe-readiness.json
+              exit 0
             fi
-            sleep 5
+            sleep 1
           done
-          if [ "$matched" != "yes" ]; then
-            echo "The Vercel preview did not reach commit $expected_sha in time."
-            cat /tmp/stripe-readiness.json 2>/dev/null || true
-            exit 1
-          fi
+          cat /tmp/production-like-qa-server.log
+          exit 1
 
       - name: Run production-like QA
         run: pnpm exec playwright test tests/production-like-qa.spec.ts --reporter=line --workers=1
@@ -88,4 +112,5 @@ jobs:
             qa-customer-payments.png
             qa-customer-mobile.png
             test-results/**
+            /tmp/production-like-qa-server.log
           if-no-files-found: ignore
