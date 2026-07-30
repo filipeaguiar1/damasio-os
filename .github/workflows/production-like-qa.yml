@@ -1,0 +1,88 @@
+name: Production-Like Stripe and Visual QA
+
+on:
+  push:
+    branches:
+      - feature/25-30-homes-simulator-v1
+    paths:
+      - "app/**"
+      - "components/**"
+      - "lib/**"
+      - "tests/production-like-qa.spec.ts"
+      - ".github/workflows/production-like-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-like-qa-v1
+  cancel-in-progress: true
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      QA_BASE_URL: https://damasio-os-h1mc-git-feature-25-30-homes-simulator-v1-damaio-os.vercel.app
+      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install temporary Playwright package
+        run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Wait for matching Vercel preview
+        run: |
+          matched=""
+          for attempt in $(seq 1 120); do
+            if curl --fail --silent --show-error "$QA_BASE_URL/api/stripe/readiness" > /tmp/stripe-readiness.json; then
+              deployed_sha=$(node -e "const fs=require('fs');const value=JSON.parse(fs.readFileSync('/tmp/stripe-readiness.json','utf8'));process.stdout.write(value.commitSha||'')")
+              mode=$(node -e "const fs=require('fs');const value=JSON.parse(fs.readFileSync('/tmp/stripe-readiness.json','utf8'));process.stdout.write(value.mode||'')")
+              echo "Preview commit: ${deployed_sha:-unknown}; Stripe mode: ${mode:-unknown}"
+              if [ "$deployed_sha" = "$GITHUB_SHA" ]; then
+                matched="yes"
+                break
+              fi
+            fi
+            sleep 5
+          done
+          if [ "$matched" != "yes" ]; then
+            echo "The Vercel preview did not reach commit $GITHUB_SHA in time."
+            cat /tmp/stripe-readiness.json 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: Run production-like QA
+        run: pnpm exec playwright test tests/production-like-qa.spec.ts --reporter=line --workers=1
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-like-qa
+          path: |
+            qa-admin-simulator.png
+            qa-employee-route.png
+            qa-stripe-invoice-success.png
+            qa-customer-payments.png
+            qa-customer-mobile.png
+            test-results/**
+          if-no-files-found: ignore
