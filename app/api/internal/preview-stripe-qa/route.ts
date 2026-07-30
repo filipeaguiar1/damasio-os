@@ -7,6 +7,7 @@ import { POST as processStripeWebhook } from "@/app/api/stripe/webhook/route";
 export const dynamic = "force-dynamic";
 
 const QA_TOKEN = "preview-stripe-qa-20260729-4ever-seasons";
+const QA_BRANCH = "feature/25-30-homes-simulator-v1";
 
 function fail(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
     const commit = process.env.VERCEL_GIT_COMMIT_SHA || "local";
 
     if (process.env.VERCEL_ENV !== "preview") return fail("Preview-only QA route.", 403);
-    if (!request.nextUrl.hostname.includes("git-feature-25-30-homes-simulator-v1")) return fail("Wrong preview branch.", 403);
+    if (process.env.VERCEL_GIT_COMMIT_REF !== QA_BRANCH) return fail("Wrong preview branch.", 403);
     if (request.nextUrl.searchParams.get("token") !== QA_TOKEN) return fail("Invalid QA token.", 403);
     if (request.nextUrl.searchParams.get("commit") !== commit) return fail("Preview commit does not match.", 409);
     if (!stripeKey.startsWith("sk_test_")) return fail("Stripe is not in test mode.", 409);
