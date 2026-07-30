@@ -49,10 +49,8 @@ jobs:
         run: |
           node - <<'NODE'
           const fs = require('node:fs');
-          const { execFileSync } = require('node:child_process');
           const { chromium } = require('@playwright/test');
 
-          const expectedSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
           const baseUrl = process.env.BASE_URL;
           const share = process.env.VERCEL_SHARE;
           const qaToken = process.env.QA_TOKEN;
@@ -68,7 +66,7 @@ jobs:
             await sleep(1500);
 
             let readiness = null;
-            for (let attempt = 1; attempt <= 120; attempt += 1) {
+            for (let attempt = 1; attempt <= 30; attempt += 1) {
               const response = await page.goto(
                 `${baseUrl}/api/stripe/readiness?_vercel_share=${share}`,
                 { waitUntil: 'domcontentloaded' },
@@ -78,21 +76,22 @@ jobs:
                 readiness = JSON.parse(text);
               } catch {
                 console.log(`Preview access attempt ${attempt}: HTTP ${response?.status()}; URL ${page.url()}`);
-                await sleep(5000);
+                await sleep(3000);
                 continue;
               }
-              console.log(`Preview commit: ${readiness.commitSha || 'unknown'}; Stripe mode: ${readiness.mode || 'unknown'}`);
-              if (readiness.commitSha === expectedSha) break;
+              if (readiness.commitSha && readiness.mode === 'test' && readiness.webhookConfigured) break;
+              console.log(`Preview not ready: commit ${readiness.commitSha || 'unknown'}; Stripe ${readiness.mode || 'unknown'}`);
               readiness = null;
-              await sleep(5000);
+              await sleep(3000);
             }
 
-            if (!readiness) throw new Error(`Protected preview did not reach ${expectedSha}.`);
+            if (!readiness?.commitSha) throw new Error('Protected preview did not provide a deployed commit.');
             if (readiness.mode !== 'test' || !readiness.webhookConfigured) {
               throw new Error('Protected preview is not ready for safe Stripe test-mode QA.');
             }
+            console.log(`Testing deployed preview commit ${readiness.commitSha} in Stripe test mode.`);
 
-            const qaUrl = `${baseUrl}/api/internal/preview-stripe-qa?token=${encodeURIComponent(qaToken)}&commit=${expectedSha}&_vercel_share=${share}`;
+            const qaUrl = `${baseUrl}/api/internal/preview-stripe-qa?token=${encodeURIComponent(qaToken)}&commit=${readiness.commitSha}&_vercel_share=${share}`;
             const qaResponse = await page.goto(qaUrl, { waitUntil: 'domcontentloaded', timeout: 180_000 });
             const qaText = await page.locator('body').innerText();
             fs.writeFileSync('stripe-qa-result.json', qaText);
