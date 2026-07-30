@@ -1,0 +1,88 @@
+name: Protected Preview Stripe QA
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/api/internal/preview-stripe-qa/**"
+      - "app/api/stripe/**"
+      - ".github/workflows/protected-preview-stripe-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: protected-preview-stripe-qa
+  cancel-in-progress: true
+
+jobs:
+  stripe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+
+      - name: Authenticate to protected preview and run Stripe QA
+        env:
+          BASE_URL: https://damasio-os-h1mc-git-feature-25-30-homes-simulator-v1-damaio-os.vercel.app
+          VERCEL_SHARE: 0md6VfURPNuJCbWgkNCvBcFoS4p5dGtf
+          QA_TOKEN: preview-stripe-qa-20260729-4ever-seasons
+        run: |
+          set -euo pipefail
+          expected_sha=$(git rev-parse HEAD)
+          cookie_jar=/tmp/vercel-preview-cookies.txt
+
+          curl --fail --silent --show-error --location \
+            --cookie-jar "$cookie_jar" --cookie "$cookie_jar" \
+            "$BASE_URL/?_vercel_share=$VERCEL_SHARE" >/dev/null
+
+          matched=""
+          for attempt in $(seq 1 120); do
+            if curl --fail --silent --show-error --location \
+              --cookie-jar "$cookie_jar" --cookie "$cookie_jar" \
+              "$BASE_URL/api/stripe/readiness?_vercel_share=$VERCEL_SHARE" > /tmp/readiness.json; then
+              deployed_sha=$(node -e "const v=require('/tmp/readiness.json');process.stdout.write(v.commitSha||'')")
+              stripe_mode=$(node -e "const v=require('/tmp/readiness.json');process.stdout.write(v.mode||'')")
+              echo "Preview commit: ${deployed_sha:-unknown}; Stripe mode: ${stripe_mode:-unknown}"
+              if [ "$deployed_sha" = "$expected_sha" ]; then
+                matched="yes"
+                break
+              fi
+            fi
+            sleep 5
+          done
+
+          if [ "$matched" != "yes" ]; then
+            echo "Protected preview did not reach $expected_sha."
+            cat /tmp/readiness.json 2>/dev/null || true
+            exit 1
+          fi
+
+          curl --fail --silent --show-error --location \
+            --cookie-jar "$cookie_jar" --cookie "$cookie_jar" \
+            "$BASE_URL/api/internal/preview-stripe-qa?token=$QA_TOKEN&commit=$expected_sha&_vercel_share=$VERCEL_SHARE" \
+            > stripe-qa-result.json
+
+          cat stripe-qa-result.json
+          node - <<'NODE'
+          const result = require('./stripe-qa-result.json');
+          if (!result.passed) throw new Error(result.error || 'Stripe QA did not pass.');
+          if (result.stripeMode !== 'test') throw new Error('Stripe QA was not in test mode.');
+          if (result.invoice?.status !== 'paid') throw new Error('QA invoice was not paid.');
+          if (result.payment?.status !== 'paid') throw new Error('Canonical payment was not paid.');
+          if (!result.webhook?.received) throw new Error('Signed webhook was not processed.');
+          if (Number(result.wallet?.balanceCredits || 0) < 10) throw new Error('Wallet test credit was not added.');
+          console.log('Protected preview Stripe QA passed.');
+          NODE
+
+      - name: Upload Stripe QA result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protected-preview-stripe-qa
+          path: stripe-qa-result.json
+          if-no-files-found: ignore
