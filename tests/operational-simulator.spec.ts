@@ -14,7 +14,14 @@ function watchErrors(page: Page, label: string) {
       console.warn(`${label}: authentication fetch was aborted by a page transition.`);
       return;
     }
+    if (/Failed to load resource: the server responded with a status of \d{3}/i.test(text)) return;
     errors.push(`${label}: ${text}`);
+  });
+  page.on("response", response => {
+    if (response.status() < 400) return;
+    const url = response.url();
+    if (!url.startsWith(baseURL) || /\/favicon\.ico(?:\?|$)/.test(url)) return;
+    errors.push(`${label}: HTTP ${response.status()} ${url}`);
   });
   page.on("pageerror", error => errors.push(`${label}: ${error.message}`));
   return errors;
