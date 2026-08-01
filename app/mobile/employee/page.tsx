@@ -287,7 +287,7 @@ export default function MobileEmployeeApp(){
     if(!selected||busy)return;
     setBusy(true); setError("");
     try{
-      if(selected.canonicalVisitId){await runVisitStatusOrQueue(selected.canonicalVisitId,"cancelled");setOfflinePending(getOfflineActionCount())}
+      if(selected.canonicalVisitId){await runVisitStatusOrQueue(selected.canonicalVisitId,"missed");setOfflinePending(getOfflineActionCount())}
       skipServiceSession(selected.id,skipComment,skipPhotos,profile.name,crew);
       setSkipOpen(false);setRouteReload(value=>value+1);refresh();setMessage("House skipped. Admin and Dispatch were notified.");setTab("route")
     }catch(error){setError(error instanceof Error?error.message:"House could not be skipped.")}
