@@ -8,7 +8,7 @@ export type OperationalEmployee = {
   routeStartAddress: string | null;
 };
 
-export const OPERATIONAL_EMPLOYEE_DIRECTORY_SOURCE = "profiles+employees" as const;
+export const OPERATIONAL_EMPLOYEE_DIRECTORY_SOURCE = "active-real-profile+employee" as const;
 
 function companyFilter(companyId: string) {
   return `company_id.eq.${companyId},organization_id.eq.${companyId}`;
@@ -17,8 +17,9 @@ function companyFilter(companyId: string) {
 function isDemoLabel(value?: string | null) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return false;
-  return /^demo(?:[\s._+-]*\d+)?$/.test(normalized)
-    || /^demo(?:[._+-]?\d*)?@/.test(normalized)
+  return normalized.startsWith("demo")
+    || normalized.includes("sandbox-")
+    || normalized.endsWith("@4everseasons.test")
     || normalized.endsWith("@example.com");
 }
 
@@ -37,21 +38,21 @@ async function ensureCrew(service: any, companyId: string, profile: any, employe
     .insert({
       company_id: companyId,
       organization_id: companyId,
-      name: employee.full_name || profile?.full_name || "Employee route",
+      name: profile?.full_name || employee.full_name || "Employee route",
       active: true,
     })
     .select("id")
     .single();
-
   if (crew.error) throw new Error(crew.error.message);
 
   const linked = await service
     .from("employees")
     .update({ crew_id: crew.data.id })
-    .eq("id", employee.id);
-
+    .eq("id", employee.id)
+    .select("id,profile_id,crew_id,full_name,email,address_line1,route_start_address,active")
+    .single();
   if (linked.error) throw new Error(linked.error.message);
-  return { ...employee, crew_id: crew.data.id };
+  return linked.data;
 }
 
 async function createEmployeeFromProfile(service: any, companyId: string, profile: any) {
@@ -66,26 +67,53 @@ async function createEmployeeFromProfile(service: any, companyId: string, profil
       address_line1: profile.address_line1,
       route_start_address: profile.route_start_address || profile.address_line1,
       active: true,
-      invite_status: profile.invite_status || "sent",
+      invite_status: profile.invite_status || "accepted",
     })
     .select("id,profile_id,crew_id,full_name,email,address_line1,route_start_address,active")
     .single();
-
   if (created.error) throw new Error(created.error.message);
   return created.data;
 }
 
+async function linkEmployeeByEmail(service: any, companyId: string, profile: any) {
+  const email = String(profile.email || "").trim();
+  if (!email) return null;
+
+  const result = await service
+    .from("employees")
+    .select("id,profile_id,crew_id,full_name,email,address_line1,route_start_address,active")
+    .ilike("email", email)
+    .eq("active", true)
+    .or(companyFilter(companyId))
+    .limit(1)
+    .maybeSingle();
+  if (result.error) throw new Error(result.error.message);
+  if (!result.data || isDemoIdentity(profile, result.data)) return null;
+
+  if (result.data.profile_id !== profile.id) {
+    const linked = await service
+      .from("employees")
+      .update({ profile_id: profile.id })
+      .eq("id", result.data.id)
+      .select("id,profile_id,crew_id,full_name,email,address_line1,route_start_address,active")
+      .single();
+    if (linked.error) throw new Error(linked.error.message);
+    return linked.data;
+  }
+  return result.data;
+}
+
 function toOperationalEmployee(profile: any, employee: any): OperationalEmployee {
   return {
-    id: profile?.id || employee.id,
-    profileId: profile?.id || employee.profile_id || null,
+    id: profile.id,
+    profileId: profile.id,
     employeeId: employee.id,
     crewId: employee.crew_id,
-    name: profile?.full_name || employee.full_name || "Employee",
-    email: profile?.email || employee.email || "",
+    name: profile.full_name || employee.full_name || "Employee",
+    email: profile.email || employee.email || "",
     routeStartAddress:
-      profile?.route_start_address
-      || profile?.address_line1
+      profile.route_start_address
+      || profile.address_line1
       || employee.route_start_address
       || employee.address_line1
       || null,
@@ -101,50 +129,35 @@ export async function listOperationalCompanyEmployees(
       .from("profiles")
       .select("id,role,full_name,email,address_line1,route_start_address,active,invite_status")
       .eq("role", "employee")
+      .eq("active", true)
       .or(companyFilter(companyId)),
     service
       .from("employees")
       .select("id,profile_id,crew_id,full_name,email,address_line1,route_start_address,active")
+      .eq("active", true)
       .or(companyFilter(companyId)),
   ]);
 
   if (profilesResult.error) throw new Error(profilesResult.error.message);
   if (employeeResult.error) throw new Error(employeeResult.error.message);
 
-  const profiles: any[] = profilesResult.data || [];
-  const employeeRows: any[] = employeeResult.data || [];
-  const profilesById = new Map<string, any>(
-    profiles.map((profile: any) => [String(profile.id), profile] as [string, any]),
-  );
+  const profiles: any[] = (profilesResult.data || []).filter((profile: any) => !isDemoIdentity(profile));
   const employeesByProfile = new Map<string, any>();
-  for (const employee of employeeRows) {
-    if (employee.profile_id) employeesByProfile.set(String(employee.profile_id), employee);
+  for (const employee of employeeResult.data || []) {
+    if (employee.profile_id && !isDemoIdentity(undefined, employee)) {
+      employeesByProfile.set(String(employee.profile_id), employee);
+    }
   }
 
   const directory: OperationalEmployee[] = [];
-  const includedEmployeeIds = new Set<string>();
-
   for (const profile of profiles) {
-    if (!profile.active || isDemoIdentity(profile)) continue;
-
     let employee = employeesByProfile.get(String(profile.id));
+    if (!employee) employee = await linkEmployeeByEmail(service, companyId, profile);
     if (!employee) employee = await createEmployeeFromProfile(service, companyId, profile);
     if (!employee.active || isDemoIdentity(profile, employee)) continue;
 
     employee = await ensureCrew(service, companyId, profile, employee);
     directory.push(toOperationalEmployee(profile, employee));
-    includedEmployeeIds.add(String(employee.id));
-  }
-
-  for (const row of employeeRows) {
-    if (!row.active || includedEmployeeIds.has(String(row.id))) continue;
-    const profile: any = row.profile_id ? profilesById.get(String(row.profile_id)) : null;
-    if (profile && (!profile.active || profile.role !== "employee")) continue;
-    if (isDemoIdentity(profile, row)) continue;
-
-    const employee = await ensureCrew(service, companyId, profile, row);
-    directory.push(toOperationalEmployee(profile, employee));
-    includedEmployeeIds.add(String(employee.id));
   }
 
   return directory.sort((left, right) =>

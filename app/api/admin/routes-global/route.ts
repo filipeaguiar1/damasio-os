@@ -13,16 +13,6 @@ function serviceClient() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
 }
 
-function userClient(token: string) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) throw new Error("Supabase browser access is not configured.");
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  }) as any;
-}
-
 async function companyContext(request: NextRequest) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) throw new Error("Sign in as the company Admin.");
@@ -36,7 +26,7 @@ async function companyContext(request: NextRequest) {
   }
   const companyId = profile.company_id || profile.organization_id;
   if (!companyId) throw new Error("Your Admin profile is not linked to a company.");
-  return { service, user: userClient(token), companyId };
+  return { service, companyId: String(companyId) };
 }
 
 async function ensureCustomerJobs(service: any, companyId: string) {
@@ -53,6 +43,7 @@ async function ensureCustomerJobs(service: any, companyId: string) {
       frequency: "one_time",
       active: true,
       next_visit_date: null,
+      default_crew_id: null,
     }).select("id,customer_id,property_id,quote_id,service_name,frequency,next_visit_date,recurrence_anchor_date,default_route_order,company_id,organization_id,active,created_at").single();
     if (inserted.error || !inserted.data) throw new Error(inserted.error?.message || "Missing customer Job could not be repaired.");
     context.jobs.push(inserted.data as OperationalJob);
@@ -61,16 +52,26 @@ async function ensureCustomerJobs(service: any, companyId: string) {
   return context;
 }
 
-async function canonicalJobs(service: any, user: any, companyId: string) {
+async function canonicalJobs(service: any, companyId: string) {
   const context = await ensureCustomerJobs(service, companyId);
-  const assignmentResult = await user.rpc("get_company_dispatch_jobs");
-  const assignments = new Map<string, any>();
-  if (!assignmentResult.error && Array.isArray(assignmentResult.data)) {
-    for (const row of assignmentResult.data) {
-      const id = row.id || row.jobId;
-      if (id) assignments.set(String(id), row);
-    }
-  }
+  const jobIds = context.jobs.map(job => job.id);
+  const ownershipResult = jobIds.length
+    ? await service
+      .from("jobs")
+      .select("id,default_crew_id,recurrence_anchor_date,default_route_order")
+      .in("id", jobIds)
+      .eq("active", true)
+    : { data: [], error: null };
+  if (ownershipResult.error) throw new Error(ownershipResult.error.message);
+
+  const ownership = new Map((ownershipResult.data || []).map((row: any) => [String(row.id), row]));
+  const crewIds = [...new Set((ownershipResult.data || []).map((row: any) => row.default_crew_id).filter(Boolean))] as string[];
+  const crewResult = crewIds.length
+    ? await service.from("crews").select("id,name,active").in("id", crewIds)
+    : { data: [], error: null };
+  if (crewResult.error) throw new Error(crewResult.error.message);
+  const crewNames = new Map((crewResult.data || []).map((row: any) => [String(row.id), String(row.name || "Employee")]));
+
   const customers = new Map(context.customers.map(customer => [customer.id, customer]));
   const properties = new Map(context.properties.map(property => [property.id, property]));
   return {
@@ -78,7 +79,8 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
     jobs: context.jobs.map(job => {
       const customer = customers.get(job.customer_id);
       const property = properties.get(job.property_id);
-      const assignment = assignments.get(job.id);
+      const owner: any = ownership.get(job.id);
+      const crewId = owner?.default_crew_id || null;
       return {
         id: job.id,
         serviceName: job.service_name || "Property Service",
@@ -91,10 +93,10 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
         propertyId: job.property_id,
         customerId: job.customer_id,
         quoteId: job.quote_id,
-        crewId: assignment?.crewId || assignment?.crew_id || null,
-        crewName: assignment?.crewName || assignment?.crew_name || null,
-        recurrenceAnchorDate: assignment?.recurrenceAnchorDate || assignment?.recurrence_anchor_date || job.recurrence_anchor_date || null,
-        defaultRouteOrder: assignment?.defaultRouteOrder ?? assignment?.default_route_order ?? job.default_route_order ?? null,
+        crewId,
+        crewName: crewId ? crewNames.get(String(crewId)) || "Assigned Employee" : null,
+        recurrenceAnchorDate: owner?.recurrence_anchor_date || job.recurrence_anchor_date || null,
+        defaultRouteOrder: owner?.default_route_order ?? job.default_route_order ?? null,
         createdAt: job.created_at,
       };
     }),
@@ -103,7 +105,7 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const [{ service, user, companyId }, legacyResponse] = await Promise.all([
+    const [{ service, companyId }, legacyResponse] = await Promise.all([
       companyContext(request),
       legacyGet(request),
     ]);
@@ -112,7 +114,7 @@ export async function GET(request: NextRequest) {
 
     const [employees, customerJobs] = await Promise.all([
       listOperationalCompanyEmployees(service, companyId),
-      canonicalJobs(service, user, companyId),
+      canonicalJobs(service, companyId),
     ]);
     const employeeIds = new Set(employees.map(employee => employee.employeeId));
     const crewIds = new Set(employees.map(employee => employee.crewId));
@@ -132,13 +134,16 @@ export async function GET(request: NextRequest) {
       companyId,
       employeeCount: employees.length,
       jobCount: customerJobs.jobs.length,
+      unassignedJobCount: unscheduledJobs.length,
+      assignedJobCount: assignedJobs.length,
       repairedCustomerCount: customerJobs.repairedCustomerIds.length,
     });
 
     return NextResponse.json({
       ...payload,
       employees,
-      employeeDirectorySource: "profiles+employees",
+      employeeDirectorySource: "active-real-profile+employee",
+      permanentOwnershipSource: "jobs.default_crew_id",
       customerDirectorySource: "canonical-company-customer-directory",
       repairedCustomerIds: customerJobs.repairedCustomerIds,
       health: { ...(payload.health || {}), healthy: issues.length === 0, issueCount: issues.length, issues },
@@ -150,6 +155,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    console.error("admin-routes-global", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Operational records could not be loaded." }, { status: 401 });
   }
 }

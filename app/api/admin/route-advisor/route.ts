@@ -28,10 +28,10 @@ function companyFilter(companyId: string) {
 function rpcError(message?: string) {
   const value = message || "Canonical route operation failed.";
   if (/publish_canonical_route_daily|schema cache|could not find the function/i.test(value)) {
-    return new Error("Supabase migration 202607280001_route_assignment_modes.sql is pending.");
+    return new Error("The canonical daily-route database function is unavailable.");
   }
   if (/reopen_completed_visit/i.test(value)) {
-    return new Error("Supabase migration 202607270003_completed_visit_reopen_guard.sql is pending or not confirmed.");
+    return new Error("The completed Visit reopen function is unavailable.");
   }
   return new Error(value);
 }
@@ -49,69 +49,39 @@ async function requireAdmin(request: NextRequest) {
     .select("id,role,active,company_id,organization_id")
     .eq("id", auth.user.id)
     .single();
-
   if (error || !profile?.active || !["admin", "manager"].includes(profile.role)) {
     throw new Error("Only an active company Admin can publish or reopen Visits.");
   }
 
   const companyId = profile.company_id || profile.organization_id;
   if (!companyId) throw new Error("Your Admin profile is not linked to a company.");
-
   return { service, user: userClient(token), companyId: String(companyId) };
 }
 
-async function sourceVisitIdsForMove(
-  service: any,
-  companyId: string,
-  input?: {
-    employeeId?: string;
-    crewId?: string;
-    routeDate?: string;
-    jobIds?: string[];
-  },
-) {
-  const jobIds = [...new Set((input?.jobIds || []).map(String).filter(Boolean))];
-  if (!input?.routeDate || !jobIds.length) return [] as string[];
-
-  let query = service
-    .from("visits")
-    .select("id,job_id,status,assigned_employee_id,crew_id,scheduled_date")
-    .eq("scheduled_date", input.routeDate)
-    .in("job_id", jobIds)
-    .neq("status", "cancelled")
+async function requirePermanentOwnership(input: {
+  service: any;
+  companyId: string;
+  crewId: string;
+  jobIds: string[];
+}) {
+  const { service, companyId, crewId, jobIds } = input;
+  const result = await service
+    .from("jobs")
+    .select("id,default_crew_id,active")
+    .in("id", jobIds)
+    .eq("active", true)
     .or(companyFilter(companyId));
-
-  if (input.employeeId && input.crewId) {
-    query = query.or(`assigned_employee_id.eq.${input.employeeId},crew_id.eq.${input.crewId}`);
-  } else if (input.employeeId) {
-    query = query.eq("assigned_employee_id", input.employeeId);
-  } else if (input.crewId) {
-    query = query.eq("crew_id", input.crewId);
-  }
-
-  const result = await query;
   if (result.error) throw new Error(result.error.message);
 
   const rows = result.data || [];
-  if (rows.some((visit: any) => ["completed", "in_progress"].includes(visit.status))) {
-    throw new Error("Completed or active Visits cannot be moved.");
+  if (rows.length !== jobIds.length) {
+    throw new Error("One or more selected houses are not active Jobs in this company.");
   }
 
-  const byJob = new Map<string, any[]>();
-  for (const visit of rows) {
-    const current = byJob.get(visit.job_id) || [];
-    current.push(visit);
-    byJob.set(visit.job_id, current);
+  const invalid = rows.filter((job: any) => job.default_crew_id !== crewId);
+  if (invalid.length) {
+    throw new Error(`${invalid.length} selected house${invalid.length === 1 ? " is" : "s are"} not permanently assigned to this Employee. Return to Build.`);
   }
-
-  for (const jobId of jobIds) {
-    const matches = byJob.get(jobId) || [];
-    if (matches.length !== 1) {
-      throw new Error(`Move requires exactly one canonical Visit for Job ${jobId} on ${input.routeDate}.`);
-    }
-  }
-
-  return jobIds.map(jobId => byJob.get(jobId)![0].id as string);
 }
 
 export async function POST(request: NextRequest) {
@@ -127,12 +97,6 @@ export async function POST(request: NextRequest) {
       visitId?: string;
       reopenReason?: string;
       confirmReopen?: boolean;
-      removeFrom?: {
-        employeeId?: string;
-        crewId?: string;
-        routeDate?: string;
-        jobIds?: string[];
-      };
     };
 
     if (body.action === "reopen") {
@@ -157,39 +121,18 @@ export async function POST(request: NextRequest) {
 
     if (!employeeId || !crewId) throw new Error("Choose a canonical Employee and Crew.");
     if (!routeDate) throw new Error("Choose a route date.");
-    if (!orderedJobIds.length) throw new Error("Keep at least one house in the route preview.");
+    if (!orderedJobIds.length) throw new Error("Keep at least one house in the route.");
 
     await requireCanonicalRouteEmployee({ service, companyId, employeeId, crewId });
-
-    const moveSourceIds = await sourceVisitIdsForMove(service, companyId, body.removeFrom);
-    const sourceVisitIds = [...new Set([
-      ...(body.sourceVisitIds || []).map(String).filter(Boolean),
-      ...moveSourceIds,
-    ])];
-
-    if (sourceVisitIds.length) {
-      const sourceCheck = await service
-        .from("visits")
-        .select("id,status,job_id")
-        .in("id", sourceVisitIds)
-        .or(companyFilter(companyId));
-      if (sourceCheck.error) throw new Error(sourceCheck.error.message);
-      if ((sourceCheck.data || []).length !== sourceVisitIds.length) {
-        throw new Error("One or more source Visits are not canonical for this company.");
-      }
-      if ((sourceCheck.data || []).some((visit: any) => !["scheduled", "missed"].includes(visit.status))) {
-        throw new Error("Only Scheduled or Needs Reschedule Visits can be moved.");
-      }
-    }
+    await requirePermanentOwnership({ service, companyId, crewId, jobIds: orderedJobIds });
 
     const result = await user.rpc("publish_canonical_route_daily", {
       p_employee_id: employeeId,
       p_crew_id: crewId,
       p_route_date: routeDate,
       p_ordered_job_ids: orderedJobIds,
-      p_source_visit_ids: sourceVisitIds,
+      p_source_visit_ids: [...new Set((body.sourceVisitIds || []).map(String).filter(Boolean))],
     });
-
     if (result.error) throw rpcError(result.error.message);
 
     const verified = await enforcePublishedRouteEmployee({
@@ -202,9 +145,14 @@ export async function POST(request: NextRequest) {
       preferredRouteId: result.data?.routeId || null,
     });
 
-    console.info("admin-route-assignment-verified", {
+    if (verified.count !== orderedJobIds.length || verified.employeeId !== employeeId) {
+      throw new Error("The published route did not match the selected Employee and was rejected.");
+    }
+
+    console.info("admin-route-owner-published", {
       companyId,
-      employeeId: verified.employeeId,
+      employeeId,
+      crewId,
       routeDate,
       routeId: verified.routeId,
       count: verified.count,
@@ -216,6 +164,7 @@ export async function POST(request: NextRequest) {
       ...verified,
       count: orderedJobIds.length,
       assignmentVerified: true,
+      permanentOwnershipVerified: true,
     });
   } catch (error) {
     console.error("admin-route-advisor-post", error);
