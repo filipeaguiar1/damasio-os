@@ -25,14 +25,15 @@ async function requireCustomer(request: NextRequest) {
   if (authError || !auth.user) throw new Error("Your session expired. Sign in again.");
 
   let customer = null;
-  const byProfile = await client.from("customers").select("id,profile_id,email,service_payment_method,tip_payment_method,archived_at").eq("profile_id", auth.user.id).is("archived_at", null).limit(1).maybeSingle();
+  const fields = "id,profile_id,email,service_payment_method,tip_payment_method,archived_at";
+  const byProfile = await client.from("customers").select(fields).eq("profile_id", auth.user.id).is("archived_at", null).limit(1).maybeSingle();
   if (!byProfile.error) customer = byProfile.data;
   if (!customer && auth.user.user_metadata?.customer_id) {
-    const byMetadata = await client.from("customers").select("id,profile_id,email,service_payment_method,tip_payment_method,archived_at").eq("id", auth.user.user_metadata.customer_id).is("archived_at", null).maybeSingle();
+    const byMetadata = await client.from("customers").select(fields).eq("id", auth.user.user_metadata.customer_id).is("archived_at", null).maybeSingle();
     if (!byMetadata.error) customer = byMetadata.data;
   }
   if (!customer && auth.user.email) {
-    const byEmail = await client.from("customers").select("id,profile_id,email,service_payment_method,tip_payment_method,archived_at").ilike("email", auth.user.email.trim()).is("archived_at", null).limit(1).maybeSingle();
+    const byEmail = await client.from("customers").select(fields).ilike("email", auth.user.email.trim()).is("archived_at", null).limit(1).maybeSingle();
     if (!byEmail.error) customer = byEmail.data;
   }
   if (!customer) throw new Error("Customer account is not linked yet.");
@@ -62,7 +63,6 @@ export async function PATCH(request: NextRequest) {
     const { data, error } = await client.from("customers").update({
       service_payment_method: body.servicePaymentMethod,
       tip_payment_method: body.tipPaymentMethod,
-      updated_at: new Date().toISOString(),
     }).eq("id", customer.id).select("service_payment_method,tip_payment_method").single();
     if (error) throw new Error(error.message);
     return NextResponse.json({ saved: true, ...response(data) });
