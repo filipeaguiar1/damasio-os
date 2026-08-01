@@ -237,6 +237,24 @@ export async function loadEmployeeDatabaseSmartRouteState(
   return row ? smartRouteStateFrom(row) : null;
 }
 
+export async function optimizeEmployeeRoadRoute(params: {
+  routeId: string;
+  origin: { label: string; latitude: number; longitude: number };
+  stops: Array<{ id: string; latitude: number; longitude: number }>;
+  alternative?: number;
+}) {
+  const token = await accessToken();
+  if (!token) throw new Error("Your Employee login expired. Sign in again.");
+  const response = await fetch("/api/mobile/employee/smart-route", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action: "optimize", ...params }),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Road Smart Route could not be calculated.");
+  return result as { orderedIds: string[]; distanceMeters: number; durationSeconds: number; alternative: number };
+}
+
 export async function applyEmployeeDatabaseSmartRoute(params: {
   routeId: string;
   originalOrder: string[];
@@ -244,20 +262,16 @@ export async function applyEmployeeDatabaseSmartRoute(params: {
   origin: { label: string; latitude: number; longitude: number };
   expectedVersion?: number | null;
 }) {
-  if (!isSupabaseConfigured()) throw new Error("Database route mode is not configured.");
-  const supabase = getSupabaseBrowserClient() as any;
-  const { data, error } = await supabase.rpc("apply_employee_smart_route", {
-    p_route_id: params.routeId,
-    p_original_order: params.originalOrder,
-    p_applied_order: params.appliedOrder,
-    p_origin_label: params.origin.label,
-    p_origin_latitude: params.origin.latitude,
-    p_origin_longitude: params.origin.longitude,
-    p_expected_version: params.expectedVersion ?? null,
+  const token = await accessToken();
+  if (!token) throw new Error("Your Employee login expired. Sign in again.");
+  const response = await fetch("/api/mobile/employee/smart-route", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action: "apply", routeId: params.routeId, originalOrder: params.originalOrder, appliedOrder: params.appliedOrder, origin: params.origin }),
   });
-  if (error) throw new Error(error.message);
-  const row = Array.isArray(data) ? data[0] : null;
-  return Number(row?.route_version || 0);
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Smart Route could not be applied.");
+  return Number(result.count || 0);
 }
 
 export async function restoreEmployeeDatabaseSmartRoute(
