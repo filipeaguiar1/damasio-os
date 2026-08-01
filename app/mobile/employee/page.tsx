@@ -7,7 +7,7 @@ import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
-import { applyEmployeeDatabaseSmartRoute, applyEmployeeRouteMapContext, loadEmployeeDatabaseSmartRouteState, loadEmployeeRouteMapContext, restoreEmployeeDatabaseSmartRoute, type EmployeeDatabaseSmartRouteState, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
+import { applyEmployeeDatabaseSmartRoute, applyEmployeeRouteMapContext, loadEmployeeDatabaseSmartRouteState, loadEmployeeRouteMapContext, optimizeEmployeeRoadRoute, restoreEmployeeDatabaseSmartRoute, type EmployeeDatabaseSmartRouteState, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
 import {uploadVisitServicePhotos} from "@/lib/services/propertyPhotoService";
 import {isSupabaseConfigured} from "@/lib/supabase/client";
 import {
@@ -61,6 +61,7 @@ export default function MobileEmployeeApp(){
   const [smartPreview,setSmartPreview]=useState<Lead[]>([]);
   const [smartOriginPoint,setSmartOriginPoint]=useState<{latitude:number;longitude:number;label:string}|null>(null);
   const [smartPreparing,setSmartPreparing]=useState(false);
+  const [smartRoadMetrics,setSmartRoadMetrics]=useState<{distance:number;time:number}|null>(null);
   const [smartRouteActive,setSmartRouteActive]=useState(false);
   const [activeSmartState,setActiveSmartState]=useState<(ReturnType<typeof getEmployeeSmartRouteState>|EmployeeDatabaseSmartRouteState)>(null);
   const [routeStarted,setRouteStarted]=useState(false);
@@ -154,7 +155,7 @@ export default function MobileEmployeeApp(){
   const lastCompleted=useMemo(()=>[...route].reverse().find(lead=>lead.status==="completed")||null,[route]);
   useEffect(()=>{let cancelled=false;async function syncSmartState(){setSmartSelected(current=>current.filter(id=>smartCandidates.some(lead=>lead.id===id)));try{const databaseState=await loadEmployeeDatabaseSmartRouteState(mapContext.routeId);if(cancelled)return;if(databaseState?.active){setSmartRouteActive(true);setActiveSmartState(databaseState);return}}catch(error){if(!cancelled)setError(error instanceof Error?error.message:"Smart Route state could not be loaded.")}if(cancelled)return;const smartState=getEmployeeSmartRouteState(crew,selectedDate);setSmartRouteActive(Boolean(smartState?.active));setActiveSmartState(smartState);setRouteStarted(Boolean(getEmployeeRouteRunState(crew,selectedDate)?.active))}void syncSmartState();return()=>{cancelled=true}},[smartCandidates,crew,selectedDate,routeReload,mapContext.routeId]);
 
-  function clearSmartPreview(){setSmartPreview([]);setSmartOriginPoint(null);setSmartAlternative(0)}
+  function clearSmartPreview(){setSmartPreview([]);setSmartOriginPoint(null);setSmartRoadMetrics(null);setSmartAlternative(0)}
   function toggleSmartStop(id:string){setSmartSelected(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);clearSmartPreview()}
   function smartOriginValue(){if(smartOrigin==="last")return lastCompleted?.address||"";if(smartOrigin==="profile")return profileDraft.defaultAddress||"";if(smartOrigin==="manual")return manualOrigin.trim();return "Current location"}
   async function geocodeAddress(address:string){
@@ -210,8 +211,12 @@ export default function MobileEmployeeApp(){
     try{
       const origin=await resolveSmartOrigin();
       const located=await Promise.all(chosen.map(ensureCoordinates));
-      const ordered=buildSmartOrder(located,origin,nextAlternative);
-      setSmartAlternative(nextAlternative);setSmartOriginPoint(origin);setSmartPreview(ordered);setMessage(nextAlternative?"Another route is ready. Review it before applying.":"Preview ready. Review the map before applying this route.");
+      if(!mapContext.routeId)throw new Error("Publish the Admin route before using road Smart Route.");
+      const optimized=await optimizeEmployeeRoadRoute({routeId:mapContext.routeId,origin,stops:located.map(lead=>({id:lead.canonicalVisitId||lead.id,latitude:Number(lead.latitude),longitude:Number(lead.longitude)})),alternative:nextAlternative});
+      const byVisit=new Map(located.map(lead=>[lead.canonicalVisitId||lead.id,lead]));
+      const ordered=optimized.orderedIds.map(id=>byVisit.get(id)).filter(Boolean) as Lead[];
+      if(ordered.length!==located.length)throw new Error("The road optimizer did not return every selected stop.");
+      setSmartAlternative(nextAlternative);setSmartOriginPoint(origin);setSmartPreview(ordered);setSmartRoadMetrics({distance:optimized.distanceMeters/1000,time:Math.max(1,Math.round(optimized.durationSeconds/60))});setMessage(nextAlternative?"A genuinely different road route is ready. Review it before applying.":"Road-based preview ready. Review the map before applying this route.");
     }catch(cause){setError(cause instanceof Error?cause.message:"Smart Route could not be prepared.")}finally{setSmartPreparing(false)}
   }
   function tryAnotherSmartRoute(){void prepareSmartRoute(smartAlternative+1)}
@@ -244,7 +249,7 @@ export default function MobileEmployeeApp(){
     }catch(error){setError(error instanceof Error?error.message:"Original route could not be restored.")}finally{setBusy(false)}
   }
 
-  const smartMetrics=useMemo(()=>{if(!smartPreview.length||!smartOriginPoint)return null;const points=[smartOriginPoint,...smartPreview.map(lead=>({latitude:Number(lead.latitude),longitude:Number(lead.longitude)}))];let km=0;for(let index=1;index<points.length;index++){const a=points[index-1],b=points[index];const toRad=(value:number)=>value*Math.PI/180;const dLat=toRad(b.latitude-a.latitude);const dLon=toRad(b.longitude-a.longitude);const x=Math.sin(dLat/2)**2+Math.cos(toRad(a.latitude))*Math.cos(toRad(b.latitude))*Math.sin(dLon/2)**2;km+=6371*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}const roadKm=km*1.22;return{distance:roadKm,time:Math.max(1,Math.round(roadKm/35*60))}},[smartPreview,smartOriginPoint]);
+  const smartMetrics=smartRoadMetrics;
   function startRoute(){const state=startEmployeeRoute(crew,selectedDate);setRouteStarted(Boolean(state.active));setMessage("Route started.")}
 
   function openService(lead:Lead){setSelectedId(lead.id); setComment(getSessionForLead(lead.id)?.completionComment||""); setContractOpen(true); setTab("service"); setMessage("")}
