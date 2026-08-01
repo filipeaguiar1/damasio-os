@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
-import { MobileBackButton } from "@/components/mobile/MobileBackButton";
 import { MobileCustomerNav } from "@/components/mobile/MobileCustomerNav";
 import { loadCustomerPortal } from "@/lib/services/customerPortalService";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -58,7 +57,7 @@ export default function MobileCustomerApp() {
   ];
 
   return <MobileRoleGuard allowed={["customer"]}><main className="mobile-app-shell role-mobile-shell role-customer-mobile">
-    <header className="role-mobile-topbar"><MobileBackButton/><div><strong>My home</strong><span>{board.property?.customerName || "Customer portal"}</span></div><Link href="/mobile/customer/account" className="role-mobile-avatar role-mobile-profile-avatar" aria-label="Open customer profile">{avatarUrl?<img src={avatarUrl} alt="Customer profile"/>:customerInitials}</Link></header>
+    <header className="role-mobile-topbar"><div><strong>My home</strong><span>{board.property?.customerName || "Customer portal"}</span></div><Link href="/mobile/customer/account" className="role-mobile-avatar role-mobile-profile-avatar" aria-label="Open customer profile">{avatarUrl?<img src={avatarUrl} alt="Customer profile"/>:customerInitials}</Link></header>
     {error&&<p className="mobile-message mobile-error" role="alert">{error}</p>}
     <section className="mobile-hero-card compact role-customer-hero"><span className="role-mobile-eyebrow">PRIMARY PROPERTY</span>{loading?<><h1>Loading your account...</h1><p>Connecting your customer and property records.</p></>:board.property?<><div className="role-customer-status"><i>✓</i><span><strong>{nextVisit?"Service scheduled":"Property connected"}</strong><small>{nextVisit?.serviceName||"Customer account active"}</small></span></div><p>{board.property.address}, {board.property.city}</p><div className="role-next-visit"><span>Next visit</span><strong>{nextVisit?.scheduledDate||"To be confirmed"}</strong><small>{nextVisit?`Status · ${nextVisit.status}`:"No visit scheduled"}</small></div></>:<><h1>Property not connected.</h1><p>Your quote information has not been linked to this login yet.</p><Link className="role-mobile-hero-link" href="/mobile/customer/property">Check property <span>→</span></Link></>}</section>
     <section className="mobile-stats-card"><Link href="/mobile/customer/services"><span>Services</span><strong>{board.visits.length}</strong><small>connected</small></Link><Link href="/mobile/customer/estimates"><span>Estimates</span><strong>{board.quotes.length}</strong><small>quotes</small></Link><Link href="/mobile/customer/invoices"><span>Invoices</span><strong>→</strong><small>billing</small></Link><Link href="/mobile/customer/issues"><span>Tasks</span><strong>{openTasks}</strong><small>follow-up</small></Link></section>
