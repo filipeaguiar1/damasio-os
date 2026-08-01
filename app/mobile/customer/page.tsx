@@ -53,7 +53,7 @@ export default function MobileCustomerApp() {
     { href: "/mobile/customer/estimates", icon: "▤", label: "Estimates" },
     { href: "/mobile/customer/invoices", icon: "≡", label: "Invoices" },
     { href: "/mobile/customer/payments", icon: "$", label: "Payments" },
-    { href: "/mobile/customer/feedback", icon: "★", label: "Feedback" },
+    { href: "/customer/feedback", icon: "★", label: "Feedback" },
     { href: "/mobile/customer/property", icon: "⌂", label: "My Property" },
   ];
 
