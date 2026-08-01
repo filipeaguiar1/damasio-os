@@ -14,12 +14,25 @@ type LiveRequest = {
   message: string | null;
   status: string;
   priority: string | null;
+  scheduledDate: string | null;
   customerId: string | null;
   customerName: string;
   phone: string | null;
   email: string | null;
   address: string;
   createdAt: string | null;
+};
+
+type RequestSummary = {
+  pendingTaskCount: number;
+  pendingServiceRequestCount: number;
+  pendingTotal: number;
+};
+
+const EMPTY_SUMMARY: RequestSummary = {
+  pendingTaskCount: 0,
+  pendingServiceRequestCount: 0,
+  pendingTotal: 0,
 };
 
 async function accessToken() {
@@ -35,6 +48,7 @@ function label(value: string) {
 
 export default function MobileAdminRequests() {
   const [requests, setRequests] = useState<LiveRequest[]>([]);
+  const [summary, setSummary] = useState<RequestSummary>(EMPTY_SUMMARY);
   const [message, setMessage] = useState("Loading customer requests...");
   const [loading, setLoading] = useState(true);
 
@@ -49,6 +63,7 @@ export default function MobileAdminRequests() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Customer requests could not be loaded.");
       setRequests(result.requests || []);
+      setSummary(result.summary || EMPTY_SUMMARY);
       setMessage("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Customer requests could not be loaded.");
@@ -59,11 +74,21 @@ export default function MobileAdminRequests() {
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(true), 15_000);
-    return () => window.clearInterval(timer);
+    const client = getSupabaseBrowserClient() as any;
+    const channel = client
+      .channel("mobile-admin-customer-inbox")
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => void refresh(true))
+      .on("postgres_changes", { event: "*", schema: "public", table: "service_requests" }, () => void refresh(true))
+      .subscribe();
+    const timer = window.setInterval(() => void refresh(true), 5_000);
+    const focus = () => void refresh(true);
+    window.addEventListener("focus", focus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", focus);
+      void client.removeChannel(channel);
+    };
   }, []);
-
-  const pending = requests.filter(item => ["pending", "open"].includes(item.status)).length;
 
   return <MobileRoleGuard allowed={["admin", "manager"]}>
     <main className="mobile-app-shell role-mobile-shell mobile-native-subpage">
@@ -75,8 +100,8 @@ export default function MobileAdminRequests() {
 
       <section className="mobile-native-hero requests">
         <span>LIVE DATABASE</span>
-        <h1>{pending} request{pending === 1 ? "" : "s"} need review.</h1>
-        <p>Requests sent by customers appear here automatically.</p>
+        <h1>{summary.pendingTaskCount} task{summary.pendingTaskCount === 1 ? "" : "s"} pending.</h1>
+        <p>{summary.pendingServiceRequestCount} service request{summary.pendingServiceRequestCount === 1 ? "" : "s"} also need review. New customer activity appears automatically.</p>
       </section>
 
       {message && <div className="mobile-native-message" role="status">{message}</div>}
@@ -84,7 +109,7 @@ export default function MobileAdminRequests() {
       <section className="customer-native-list admin-live-request-list">
         {requests.length ? requests.map(item => <article key={`${item.kind}-${item.id}`}>
           <div className="admin-live-request-card">
-            <i className={["pending", "open"].includes(item.status) ? "pending" : "done"}>{item.kind === "customer_task" ? "↺" : "+"}</i>
+            <i className={["pending", "open", "assigned", "in_progress"].includes(item.status) ? "pending" : "done"}>{item.kind === "customer_task" ? "↺" : "+"}</i>
             <div>
               <strong>{item.serviceName}</strong>
               <span>{item.customerName}</span>
