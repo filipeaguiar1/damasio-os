@@ -49,7 +49,7 @@ async function loadServiceRequests(service: any, companyId: string) {
     .select("id,customer_id,property_id,service_name,message,status,created_at,company_id,organization_id")
     .or(companyFilter(companyId))
     .order("created_at", { ascending: false })
-    .limit(200);
+    .limit(300);
 
   if (result.error && missingColumn(result.error.message, "company_id")) {
     result = await service
@@ -57,44 +57,33 @@ async function loadServiceRequests(service: any, companyId: string) {
       .select("id,customer_id,property_id,service_name,message,status,created_at,organization_id")
       .eq("organization_id", companyId)
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(300);
   }
   if (result.error) throw new Error(result.error.message);
   return (result.data || []).map((row: any) => ({ ...row, kind: "service_request" }));
 }
 
 async function loadCustomerTasks(service: any, companyId: string) {
-  let events = await service
-    .from("task_events")
-    .select("task_id,details,created_at")
-    .eq("event_type", "created")
-    .eq("company_id", companyId)
-    .eq("details->>source", "customer")
-    .order("created_at", { ascending: false })
-    .limit(200);
-
-  if (events.error && (missingColumn(events.error.message) || /task_events/i.test(events.error.message))) {
-    return [] as any[];
-  }
-  if (events.error) throw new Error(events.error.message);
-
-  const ids = [...new Set((events.data || []).map((row: any) => row.task_id).filter(Boolean))];
-  if (!ids.length) return [] as any[];
-
+  // Tasks are the canonical source. Do not require task_events: older customer
+  // tasks and valid tasks created by other supported flows may not have a
+  // matching creation event, but Admin must still see them immediately.
   let tasks = await service
     .from("tasks")
-    .select("id,customer_id,property_id,title,customer_issue,status,priority,created_at,company_id,organization_id")
-    .in("id", ids)
-    .or(companyFilter(companyId));
+    .select("id,customer_id,property_id,title,customer_issue,status,priority,scheduled_date,created_at,company_id,organization_id")
+    .or(companyFilter(companyId))
+    .order("created_at", { ascending: false })
+    .limit(300);
 
   if (tasks.error && missingColumn(tasks.error.message, "company_id")) {
     tasks = await service
       .from("tasks")
-      .select("id,customer_id,property_id,title,customer_issue,status,priority,created_at,organization_id")
-      .in("id", ids)
-      .eq("organization_id", companyId);
+      .select("id,customer_id,property_id,title,customer_issue,status,priority,scheduled_date,created_at,organization_id")
+      .eq("organization_id", companyId)
+      .order("created_at", { ascending: false })
+      .limit(300);
   }
   if (tasks.error) throw new Error(tasks.error.message);
+
   return (tasks.data || []).map((row: any) => ({
     ...row,
     kind: "customer_task",
@@ -142,6 +131,7 @@ export async function GET(request: NextRequest) {
         message: row.message || null,
         status: String(row.status || "pending"),
         priority: row.priority || null,
+        scheduledDate: row.scheduled_date || null,
         customerId: row.customer_id || null,
         customerName: customer?.full_name || "Customer",
         email: customer?.email || null,
@@ -154,7 +144,28 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    return NextResponse.json({ requests });
+    const openStatuses = new Set(["pending", "open", "assigned", "in_progress"]);
+    const pendingTasks = requests.filter(item => item.kind === "customer_task" && openStatuses.has(item.status));
+    const pendingServiceRequests = requests.filter(item => item.kind === "service_request" && openStatuses.has(item.status));
+
+    console.info("admin-service-requests-ok", {
+      companyId,
+      requestCount: requests.length,
+      pendingTaskCount: pendingTasks.length,
+      pendingServiceRequestCount: pendingServiceRequests.length,
+      customerTaskIds: pendingTasks.map(item => item.id),
+    });
+
+    return NextResponse.json({
+      requests,
+      summary: {
+        pendingTaskCount: pendingTasks.length,
+        pendingServiceRequestCount: pendingServiceRequests.length,
+        pendingTotal: pendingTasks.length + pendingServiceRequests.length,
+      },
+    }, {
+      headers: { "cache-control": "private, no-store, max-age=0" },
+    });
   } catch (error) {
     console.error("admin-service-requests", error);
     return NextResponse.json(
