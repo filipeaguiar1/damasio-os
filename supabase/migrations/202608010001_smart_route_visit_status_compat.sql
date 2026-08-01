@@ -1,4 +1,6 @@
 -- Smart Route compatibility for production databases whose visit_status enum has no `missed` value.
+-- The Employee Skip UI keeps using the canonical `skip` action; this migration only prevents
+-- Smart Route apply/restore queries from casting an unavailable enum literal.
 -- The existing PL/pgSQL functions parse the enum literal at execution time. Recreate their
 -- stored definitions with status text comparison so both older and newer schemas work.
 do $$
