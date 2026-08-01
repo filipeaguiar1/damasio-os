@@ -83,7 +83,7 @@ export async function loadEmployeeRouteMapContext(
   const token = await accessToken();
   if (!token) return emptyContext;
 
-  const response = await fetch(`/api/mobile/employee/route?date=${encodeURIComponent(routeDate)}`, {
+  const response = await fetch(`/api/mobile/employee/today-route?date=${encodeURIComponent(routeDate)}`, {
     headers: { authorization: `Bearer ${token}` },
     cache: "no-store",
   });
