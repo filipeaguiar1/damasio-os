@@ -5,6 +5,7 @@ import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { MobileBackButton } from "@/components/mobile/MobileBackButton";
 import { MobileCustomerNav } from "@/components/mobile/MobileCustomerNav";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { signOutAccount } from "@/lib/auth/signOut";
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -118,7 +119,8 @@ export default function CustomerAccountPage() {
       <label>Full name<input value={fullName} onChange={(event)=>setFullName(event.target.value)} /></label>
       <label>Email<input value={email} disabled readOnly /></label>
       <label>Phone<input value={phone} onChange={(event)=>setPhone(event.target.value)} /></label>
-      <button className="customer-profile-save" disabled={busy||fullName.trim().length<2} onClick={()=>void save()}>{busy?"Saving...":"Save profile"}</button>
+      <button type="button" className="customer-profile-save" disabled={busy||fullName.trim().length<2} onClick={()=>void save()}>{busy?"Saving...":"Save profile"}</button>
+      <button type="button" disabled={busy} onClick={()=>void signOutAccount("/mobile/login")} style={{minHeight:52,borderRadius:15,border:"1px solid #fecaca",background:"#fff7f7",color:"#b91c1c",fontWeight:900,fontSize:15,cursor:"pointer"}}>Sign Out</button>
       <p className="customer-profile-note">Email is locked to preserve account identity. Property address and service specifications are controlled by Admin or Master.</p>
     </section>
     <MobileCustomerNav active="more"/>
