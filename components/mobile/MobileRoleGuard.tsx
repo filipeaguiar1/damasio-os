@@ -4,7 +4,7 @@ import {useRouter} from "next/navigation";
 import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
 
 type Role="master"|"admin"|"manager"|"employee"|"customer";
-function roleHome(role:Role){if(role==="master")return"/master";if(role==="admin"||role==="manager")return"/mobile/admin";if(role==="employee")return"/mobile/employee/today";return"/mobile/customer"}
+function roleHome(role:Role){if(role==="master")return"/master";if(role==="admin"||role==="manager")return"/mobile/admin";if(role==="employee")return"/mobile/employee";return"/mobile/customer"}
 
 const LEGACY_LOCAL_KEYS=[
   "damasio_os_session","damasio_os_leads","damasio_os_expenses","damasio_os_invoices","damasio_os_daily_checklists","damasio_os_notifications","damasio_os_customer_recommendations","damasio_os_recurrences","damasio_os_estimates","damasio_os_service_sessions","damasio_os_employee_tasks","damasio_os_activity_log","damasio_os_workflow_events","damasio_os_service_requests","damasio_os_customer_payment_profile","damasio_os_crews","damasio_os_users","damasio_os_routes","damasio_os_fuel","damasio_os_gas","damasio_os_demo_loaded"
