@@ -1,4 +1,6 @@
 "use client";
+
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { PortalShell } from "@/components/admin/PortalShell";
 import { addCustomerFeedback, addCustomerServiceRequest, loadCustomerPortal } from "@/lib/services/customerPortalService";
@@ -7,8 +9,14 @@ import { useCustomerWallet } from "@/lib/hooks/useCustomerWallet";
 import type { CustomerPortalBoard, CustomerPortalVisit } from "@/lib/repositories/customerPortalRepository";
 
 const emptyBoard: CustomerPortalBoard = { property: null, visits: [], tasks: [], requests: [], quotes: [], feedback: [] };
-const tipOptions = [5, 10, 20];
-function dateLabel(date?: string | null) { return date ? new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }) : "Date not recorded"; }
+const tipOptions = [5, 10, 15, 20];
+type TipMethod = "account_balance" | "stripe";
+
+function dateLabel(date?: string | null) {
+  return date
+    ? new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+    : "Date not recorded";
+}
 
 export default function FeedbackPage() {
   const [board, setBoard] = useState<CustomerPortalBoard>(emptyBoard);
@@ -16,44 +24,151 @@ export default function FeedbackPage() {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [tipAmount, setTipAmount] = useState("");
+  const [tipMethod, setTipMethod] = useState<TipMethod>("account_balance");
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
   const tips = useCustomerTips();
   const wallet = useCustomerWallet();
-  const completed = useMemo(() => board.visits.filter((v) => v.status === "completed"), [board.visits]);
-  const waiting = completed.filter((v) => !board.feedback.some((f) => f.visitId === v.id));
-  const current: CustomerPortalVisit | null = completed.find((v) => v.id === selected) || waiting[0] || completed[0] || null;
+
+  const completed = useMemo(() => board.visits.filter((visit) => visit.status === "completed"), [board.visits]);
+  const waiting = useMemo(() => completed.filter((visit) => !board.feedback.some((feedback) => feedback.visitId === visit.id)), [board.feedback, completed]);
+  const current: CustomerPortalVisit | null = completed.find((visit) => visit.id === selected) || waiting[0] || completed[0] || null;
+  const currentDone = Boolean(current && board.feedback.some((feedback) => feedback.visitId === current.id));
   const tip = Number(tipAmount);
   const validTip = Number.isFinite(tip) && tip >= 1 && tip <= 500;
-  useEffect(() => { loadCustomerPortal().then(setBoard).catch((e) => setMessage(e.message)); }, []);
+  const insufficientBalance = tipMethod === "account_balance" && validTip && wallet.balanceCredits < tip;
+
+  useEffect(() => {
+    loadCustomerPortal()
+      .then(setBoard)
+      .catch((error) => setMessage(error instanceof Error ? error.message : "Feedback could not be loaded."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  function openVisit(visit: CustomerPortalVisit) {
+    setSelected(visit.id);
+    setRating(5);
+    setComment("");
+    setTipAmount("");
+    setTipMethod("account_balance");
+    setMessage("");
+    tips.clearMessage();
+  }
 
   async function submit() {
-    if (!current) { setMessage("No completed service waiting for feedback."); return; }
-    try { const updated = await addCustomerFeedback({ visitId: current.id, rating, comment }); setBoard(updated); setComment(""); setSelected(current.id); setMessage("Feedback saved. You may now leave an optional tip below."); }
-    catch (e) { setMessage(e instanceof Error ? e.message : "Feedback failed."); }
+    if (!current) {
+      setMessage("Choose a completed service first.");
+      return;
+    }
+    try {
+      const updated = await addCustomerFeedback({ visitId: current.id, rating, comment });
+      setBoard(updated);
+      setMessage("Thank you. Your feedback was saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Feedback failed.");
+    }
   }
 
-  async function payWalletTip() {
-    if (!current || !validTip) return;
-    const balance = await tips.sendWalletTip(tip, `Tip for ${current.serviceName} visit ${current.id}`);
-    if (balance !== null) await wallet.reload();
-  }
-
-  function payCardTip() {
-    if (!current || !validTip) return;
-    void tips.sendTip(tip, `Tip for ${current.serviceName} visit ${current.id}`);
+  async function payTip() {
+    if (!current || !validTip) {
+      setMessage("Choose a tip between $1 and $500.");
+      return;
+    }
+    const note = `Tip for ${current.serviceName} visit ${current.id}`;
+    if (tipMethod === "account_balance") {
+      if (wallet.balanceCredits < tip) {
+        setMessage("Your account balance is too low. Add funds or pay securely with Stripe.");
+        return;
+      }
+      const balance = await tips.sendWalletTip(tip, note);
+      if (balance !== null) await wallet.reload();
+      return;
+    }
+    void tips.sendTip(tip, note, "/customer/feedback");
   }
 
   async function requestReturnVisit() {
-    if (!current) { setMessage("Choose a completed service first."); return; }
-    try { const updated = await addCustomerServiceRequest({ serviceName: "Return Visit", message: comment || `Return visit requested for ${current.serviceName} at ${current.address || "property"}.` }); setBoard(updated); setMessage("Return visit requested. Admin will review it."); }
-    catch (e) { setMessage(e instanceof Error ? e.message : "Request failed."); }
+    if (!current) {
+      setMessage("Choose a completed service first.");
+      return;
+    }
+    try {
+      const updated = await addCustomerServiceRequest({
+        serviceName: "Return Visit",
+        message: comment || `Return visit requested for ${current.serviceName} at ${current.address || "property"}.`,
+      });
+      setBoard(updated);
+      setMessage("Return visit requested. Admin will review it.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Request failed.");
+    }
   }
-  function everythingOk() { setMessage("Thank you. This visit was marked as OK by the customer."); }
+
   const visibleMessage = message || tips.message || wallet.message;
 
   return <PortalShell type="Customer" active="Feedback">
-    <div className="neo-hero customer-hero"><div><span className="eyebrow">Feedback Center · Supabase</span><h1>Review completed services</h1><p>Review the completed service and optionally thank the team using wallet credits or a card.</p></div></div>
-    {visibleMessage && <div className="notice" style={{ marginBottom: 18 }}>{visibleMessage}</div>}
-    {!current ? <div className="card profile-card"><h2>No completed service yet</h2><p>When a crew completes a service, it will appear here.</p></div> : <div className="feedback-clean-layout"><aside className="card feedback-service-list"><div className="table-head"><div><h2>Services</h2><p className="section-intro">Select a completed visit.</p></div><span className="pill">{waiting.length} pending</span></div><div className="feedback-list-stack">{completed.map((v) => { const done = board.feedback.some((f) => f.visitId === v.id); return <button key={v.id} className={current.id === v.id ? "feedback-list-item active" : "feedback-list-item"} onClick={() => { setSelected(v.id); setMessage(""); setTipAmount(""); }}><span className={done ? "review-mark done" : "review-mark"}>{done ? "✓" : ""}</span><span><strong>{v.serviceName}</strong><small>{v.address}</small><small>{dateLabel(v.scheduledDate)}</small></span></button>; })}</div></aside><section className="card profile-card feedback-panel"><div className="table-head"><div><span className="eyebrow">Selected service</span><h2>{current.serviceName}</h2><p><strong>{current.address}</strong></p></div></div><div className="detail-grid"><div className="detail-box"><div className="detail-label">Date</div><div className="detail-value">{dateLabel(current.scheduledDate)}</div></div><div className="detail-box"><div className="detail-label">Done by</div><div className="detail-value">{current.crewName || "Crew"}</div></div><div className="detail-box"><div className="detail-label">Status</div><div className="detail-value">{current.status}</div></div></div><h2>Your feedback</h2><div className="field"><label>Rating</label><div className="star-row">{[1, 2, 3, 4, 5].map((n) => <button type="button" key={n} className={n <= rating ? "star-button active" : "star-button"} onClick={() => setRating(n)}>★</button>)}</div></div><div className="field"><label>Comment</label><textarea className="input" style={{ minHeight: 110 }} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Anything we should know?" /></div><div className="row wrap"><button className="btn btn-primary" onClick={submit}>Submit Review</button><button className="btn btn-outline" onClick={requestReturnVisit}>Request Return Visit</button><button className="btn btn-outline" onClick={everythingOk}>Everything OK</button></div><div className="billing-panel" style={{ marginTop: 24 }}><header><div><span className="billing-kicker">Optional tip</span><h2>Thank the service team</h2><p>Use your wallet balance or pay directly by card.</p></div></header><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{tipOptions.map((amount) => <button key={amount} className={tip === amount ? "btn btn-primary" : "btn btn-outline"} type="button" onClick={() => setTipAmount(String(amount))}>${amount}</button>)}<input aria-label="Custom tip amount" type="number" min={1} max={500} step="0.01" placeholder="Custom" value={tipAmount} onChange={(event) => setTipAmount(event.target.value)} style={{ width: 120 }} /></div><div className="row wrap" style={{ marginTop: 12 }}><button className="btn btn-outline" type="button" disabled={!validTip || tips.payingWallet || wallet.balanceCredits < tip} onClick={() => void payWalletTip()}>{tips.payingWallet ? "Paying..." : `Use balance (${wallet.balanceCredits.toFixed(0)} credits)`}</button><button className="btn btn-primary" type="button" disabled={!validTip || tips.opening} onClick={payCardTip}>{tips.opening ? "Opening Stripe..." : "Pay directly by card"}</button></div></div></section></div>}
+    <div className="feedback-experience-hero">
+      <div><span>YOUR EXPERIENCE</span><h1>Review completed services</h1><p>Open a completed visit, tell us how it went, and optionally thank the crew with a tip.</p></div>
+      <div className="feedback-hero-count"><strong>{waiting.length}</strong><span>waiting for feedback</span></div>
+    </div>
+
+    {visibleMessage && <div className="feedback-status-message" role="status">{visibleMessage}</div>}
+
+    {loading ? <div className="feedback-empty-state"><i>…</i><h2>Loading completed services</h2></div> : !current ? <div className="feedback-empty-state"><i>✓</i><h2>No completed service yet</h2><p>When a crew completes a service, it will appear here.</p></div> : <div className="feedback-experience-layout">
+      <aside className="feedback-visit-list">
+        <header><div><span>COMPLETED VISITS</span><h2>Choose a service</h2></div><b>{waiting.length} pending</b></header>
+        <div>{completed.map((visit) => {
+          const done = board.feedback.some((feedback) => feedback.visitId === visit.id);
+          return <button key={visit.id} type="button" className={current.id === visit.id ? "active" : ""} onClick={() => openVisit(visit)}>
+            <i className={done ? "done" : ""}>{done ? "✓" : "★"}</i>
+            <span><strong>{visit.serviceName}</strong><small>{visit.address || "Property"}</small><small>{dateLabel(visit.scheduledDate)}</small></span>
+            <em>{done ? "Reviewed" : "Review"}</em>
+          </button>;
+        })}</div>
+      </aside>
+
+      <section className="feedback-review-card">
+        <header className="feedback-service-head">
+          <div><span>SERVICE COMPLETED</span><h2>{current.serviceName}</h2><p>{current.address || "Property"}</p></div>
+          <div><strong>{dateLabel(current.scheduledDate)}</strong><small>{current.crewName || "Service crew"}</small></div>
+        </header>
+
+        <section className="feedback-question-card">
+          <span>HOW DID IT GO?</span>
+          <h2>Did you like the service?</h2>
+          <div className="feedback-sentiment-grid">
+            <button type="button" className={rating >= 4 ? "active" : ""} onClick={() => setRating(5)}><i>✓</i><strong>Yes, I liked it</strong><small>Everything looked great</small></button>
+            <button type="button" className={rating < 4 ? "active issue" : ""} onClick={() => setRating(2)}><i>!</i><strong>It needs attention</strong><small>Tell us what happened</small></button>
+          </div>
+          <div className="feedback-rating-row" aria-label="Service rating">{[1, 2, 3, 4, 5].map((value) => <button type="button" key={value} className={value <= rating ? "active" : ""} onClick={() => setRating(value)} aria-label={`${value} star${value === 1 ? "" : "s"}`}>★</button>)}</div>
+          <label className="feedback-comment-field"><span>Comment <small>optional</small></span><textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Tell us what the crew did well or what needs attention." /></label>
+          <div className="feedback-review-actions">
+            <button className="feedback-primary-action" type="button" onClick={() => void submit()}>{currentDone ? "Update Review" : "Submit Review"}</button>
+            <button className="feedback-secondary-action" type="button" onClick={() => void requestReturnVisit()}>Request Return Visit</button>
+          </div>
+        </section>
+
+        <section className="feedback-tip-card">
+          <header><div><span>OPTIONAL TIP</span><h2>Thank the service team</h2><p>No tip is required. Choose an amount only when you want to.</p></div><i>♥</i></header>
+          <div className="feedback-tip-options">{tipOptions.map((amount) => <button key={amount} type="button" className={tip === amount ? "active" : ""} onClick={() => setTipAmount(String(amount))}><strong>${amount}</strong><small>CAD</small></button>)}</div>
+          <label className="feedback-custom-tip"><span>Custom amount</span><div><b>$</b><input aria-label="Custom tip amount" type="number" min={1} max={500} step="0.01" placeholder="Enter amount" value={tipAmount} onChange={(event) => setTipAmount(event.target.value)} /></div></label>
+
+          <div className="feedback-payment-methods">
+            <button type="button" className={tipMethod === "account_balance" ? "active" : ""} onClick={() => setTipMethod("account_balance")}>
+              <i>$</i><span><strong>Account balance</strong><small>{wallet.loading ? "Loading balance…" : `$${wallet.balanceCredits.toFixed(2)} available`}</small></span><b>{tipMethod === "account_balance" ? "✓" : ""}</b>
+            </button>
+            <button type="button" className={tipMethod === "stripe" ? "active" : ""} onClick={() => setTipMethod("stripe")}>
+              <i>▣</i><span><strong>Card with Stripe</strong><small>Secure checkout</small></span><b>{tipMethod === "stripe" ? "✓" : ""}</b>
+            </button>
+          </div>
+
+          {insufficientBalance && <div className="feedback-balance-warning"><div><strong>Not enough account balance</strong><span>Add funds or select Stripe to continue.</span></div><Link href="/mobile/customer/payments">Add funds</Link></div>}
+
+          <button className="feedback-tip-submit" type="button" disabled={!validTip || tips.opening || tips.payingWallet || insufficientBalance} onClick={() => void payTip()}>
+            {tips.opening ? "Opening Stripe…" : tips.payingWallet ? "Sending tip…" : validTip ? `Send $${tip.toFixed(2)} tip` : "Choose a tip amount"}
+          </button>
+        </section>
+      </section>
+    </div>}
   </PortalShell>;
 }
