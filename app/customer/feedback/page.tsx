@@ -63,7 +63,7 @@ export default function FeedbackPage() {
     try {
       const updated = await addCustomerFeedback({ visitId: current.id, rating, comment });
       setBoard(updated);
-      setMessage("Thank you. Your feedback was saved.");
+      setMessage("Feedback saved. Thank you for reviewing your service.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Feedback failed.");
     }
