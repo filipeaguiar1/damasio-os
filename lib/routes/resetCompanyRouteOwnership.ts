@@ -54,10 +54,13 @@ export async function resetCompanyRouteOwnership(
     unassignedJobCount = (cleared.data || []).length;
   }
 
+  // The production visit_status enum uses scheduled/on_the_way/in_progress/completed/cancelled.
+  // Legacy "missed" behavior is represented through the newer migration only and cannot be
+  // included in a PostgREST enum filter against this project.
   const removableVisits = await service
     .from("visits")
     .select("id,route_id,status")
-    .in("status", ["scheduled", "missed", "on_the_way", "cancelled"])
+    .in("status", ["scheduled", "on_the_way", "cancelled"])
     .or(companyFilter(companyId));
   if (removableVisits.error) throw new Error(removableVisits.error.message);
 
