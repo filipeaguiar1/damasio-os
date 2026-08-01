@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { enforcePublishedRouteEmployee, requireCanonicalRouteEmployee } from "@/lib/routes/routeAssignmentIntegrity";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,7 @@ async function requireAdmin(request: NextRequest) {
   const companyId = profile.company_id || profile.organization_id;
   if (!companyId) throw new Error("Your Admin profile is not linked to a company.");
 
-  return { service, user: userClient(token), companyId };
+  return { service, user: userClient(token), companyId: String(companyId) };
 }
 
 async function sourceVisitIdsForMove(
@@ -158,6 +159,8 @@ export async function POST(request: NextRequest) {
     if (!routeDate) throw new Error("Choose a route date.");
     if (!orderedJobIds.length) throw new Error("Keep at least one house in the route preview.");
 
+    await requireCanonicalRouteEmployee({ service, companyId, employeeId, crewId });
+
     const moveSourceIds = await sourceVisitIdsForMove(service, companyId, body.removeFrom);
     const sourceVisitIds = [...new Set([
       ...(body.sourceVisitIds || []).map(String).filter(Boolean),
@@ -188,7 +191,32 @@ export async function POST(request: NextRequest) {
     });
 
     if (result.error) throw rpcError(result.error.message);
-    return NextResponse.json(result.data);
+
+    const verified = await enforcePublishedRouteEmployee({
+      service,
+      companyId,
+      employeeId,
+      crewId,
+      routeDate,
+      orderedJobIds,
+      preferredRouteId: result.data?.routeId || null,
+    });
+
+    console.info("admin-route-assignment-verified", {
+      companyId,
+      employeeId: verified.employeeId,
+      routeDate,
+      routeId: verified.routeId,
+      count: verified.count,
+      jobIds: orderedJobIds,
+    });
+
+    return NextResponse.json({
+      ...(result.data || {}),
+      ...verified,
+      count: orderedJobIds.length,
+      assignmentVerified: true,
+    });
   } catch (error) {
     console.error("admin-route-advisor-post", error);
     return NextResponse.json(

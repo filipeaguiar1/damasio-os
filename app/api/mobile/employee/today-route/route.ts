@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { repairLegacyDemoAssignments } from "@/lib/routes/routeAssignmentIntegrity";
 import { normalizeVisitExecutionState } from "@/lib/visits/executionState";
 
 export const dynamic = "force-dynamic";
@@ -99,7 +100,22 @@ export async function GET(request: NextRequest) {
 
     if (result.error) throw new Error(result.error.message);
 
-    const assignedVisits = (result.data || []).filter((visit: any) =>
+    const allVisits = (result.data || []) as any[];
+    const repairedIds = await repairLegacyDemoAssignments({
+      service,
+      companyId,
+      employee: { id: employee.id, crew_id: employee.crew_id || null },
+      visits: allVisits,
+    });
+    const repaired = new Set(repairedIds);
+    for (const visit of allVisits) {
+      if (repaired.has(visit.id)) {
+        visit.assigned_employee_id = employee.id;
+        visit.crew_id = employee.crew_id;
+      }
+    }
+
+    const assignedVisits = allVisits.filter((visit: any) =>
       visit.assigned_employee_id === employee.id
       || (
         !visit.assigned_employee_id
@@ -170,6 +186,7 @@ export async function GET(request: NextRequest) {
       employeeId: employee.id,
       companyId,
       date,
+      repairedDemoAssignmentCount: repairedIds.length,
       stopCount: stops.length,
       routeLinkedCount: stops.filter((stop: any) => Boolean(stop.routeId)).length,
       unlinkedAssignedCount: stops.filter((stop: any) => !stop.routeId).length,
@@ -189,6 +206,7 @@ export async function GET(request: NextRequest) {
       routeId: stops.find((stop: any) => stop.routeId)?.routeId || null,
       date,
       stops,
+      repairedDemoAssignmentCount: repairedIds.length,
     });
   } catch (error) {
     console.error("employee-today-route", error);
