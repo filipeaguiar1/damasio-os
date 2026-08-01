@@ -1,0 +1,35 @@
+name: Fix Mobile UX Typecheck
+
+on:
+  push:
+    branches:
+      - fix/mobile-alerts-tasks-smart-route
+    paths:
+      - scripts/fix-mobile-ux-typecheck.py
+      - .github/workflows/fix-mobile-ux-typecheck.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/mobile-alerts-tasks-smart-route
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/fix-mobile-ux-typecheck.py
+      - run: |
+          rm scripts/fix-mobile-ux-typecheck.py
+          rm .github/workflows/fix-mobile-ux-typecheck.yml
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Keep typed Employee skip action while fixing Smart Route enum compatibility"
+          git push origin HEAD:fix/mobile-alerts-tasks-smart-route
