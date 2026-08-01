@@ -84,7 +84,7 @@ function exactRoadOrder(count: number, matrix: Array<Array<number | null>>, alte
 
   const starts = Array.from({ length: count }, (_, index) => index + 1)
     .sort((left, right) => Number(matrix[0]?.[left] ?? Number.POSITIVE_INFINITY) - Number(matrix[0]?.[right] ?? Number.POSITIVE_INFINITY));
-  const forcedFirst = alternative > 0 ? starts[(alternative - 1) % starts.length] : null;
+  const forcedFirst = alternative > 0 ? starts[alternative % starts.length] : null;
   const size = 1 << count;
   const width = count;
   const costs = new Float64Array(size * width);
@@ -160,13 +160,38 @@ export async function POST(request: NextRequest) {
       const stops = body.stops.filter(stop => allowed.has(stop.id) && Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude));
       if (stops.length !== body.stops.length) throw new Error("One or more stops do not belong to this Employee route.");
       const matrix = await roadMatrix(body.origin, stops);
-      const order = exactRoadOrder(stops.length, matrix.durations, Math.max(0, Number(body.alternative || 0)));
-      const orderedIds = order.map(index => stops[index - 1].id);
+      const originDistances = (matrix.distances[0] || []).slice(1).filter((value): value is number => Number.isFinite(value));
+      const nearestOriginDistance = originDistances.length ? Math.min(...originDistances) : Number.POSITIVE_INFINITY;
+      if (!Number.isFinite(nearestOriginDistance) || nearestOriginDistance > 80000) {
+        throw new Error("The starting address was located too far from this route. Choose the full street address and city.");
+      }
+
+      const inputIds = stops.map(stop => stop.id);
+      const requestedAlternative = Math.max(0, Number(body.alternative || 0));
+      let usedAlternative = requestedAlternative;
+      let order = exactRoadOrder(stops.length, matrix.durations, requestedAlternative);
+      let orderedIds = order.map(index => stops[index - 1].id);
+
+      if (requestedAlternative > 0 && orderedIds.every((id, index) => id === inputIds[index])) {
+        for (let offset = 1; offset <= stops.length; offset += 1) {
+          const candidateAlternative = requestedAlternative + offset;
+          const candidateOrder = exactRoadOrder(stops.length, matrix.durations, candidateAlternative);
+          const candidateIds = candidateOrder.map(index => stops[index - 1].id);
+          if (candidateIds.some((id, index) => id !== inputIds[index])) {
+            usedAlternative = candidateAlternative;
+            order = candidateOrder;
+            orderedIds = candidateIds;
+            break;
+          }
+        }
+      }
+
       return NextResponse.json({
         orderedIds,
         distanceMeters: pathCost(order, matrix.distances),
         durationSeconds: pathCost(order, matrix.durations),
-        alternative: Number(body.alternative || 0),
+        alternative: usedAlternative,
+        changed: orderedIds.some((id, index) => id !== inputIds[index]),
       });
     }
 
