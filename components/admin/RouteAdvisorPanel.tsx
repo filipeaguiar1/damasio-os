@@ -93,6 +93,9 @@ export function RouteAdvisorPanel() {
         || left.id.localeCompare(right.id));
   }, [visits, date, employee]);
 
+  const hasCompleted = publishedVisits.some(visit => visit.status === "completed");
+  const hasMissed = publishedVisits.some(visit => visit.status === "missed");
+
   useEffect(() => {
     setOrderedJobIds(ownedJobs.map(job => job.id));
   }, [employeeId, ownedJobs.map(job => job.id).join("|")]);
@@ -131,6 +134,20 @@ export function RouteAdvisorPanel() {
     });
   }
 
+  function moveToPosition(jobId: string, requested: number) {
+    if (!Number.isFinite(requested)) return;
+    setOrderedJobIds(current => {
+      const index = current.indexOf(jobId);
+      if (index < 0) return current;
+      const target = Math.max(0, Math.min(current.length - 1, Math.round(requested) - 1));
+      if (target === index) return current;
+      const next = [...current];
+      const [item] = next.splice(index, 1);
+      next.splice(target, 0, item);
+      return next;
+    });
+  }
+
   async function publish() {
     if (!employee) {
       setMessage("Choose an Employee.");
@@ -142,6 +159,14 @@ export function RouteAdvisorPanel() {
     }
     if (orderedJobIds.some(id => !ownedJobs.some(job => job.id === id))) {
       setMessage("The route contains a house that no longer belongs to this Employee. Refresh and try again.");
+      return;
+    }
+    if (hasCompleted) {
+      setMessage("Esta casa já foi concluída hoje. Completed Visits stay locked; use the separate Type REOPEN audited flow when correction is required.");
+      return;
+    }
+    if (hasMissed) {
+      setMessage("Needs Reschedule: move the missed Visit to a new date before publishing this route again.");
       return;
     }
 
@@ -218,6 +243,11 @@ export function RouteAdvisorPanel() {
       <div><small>ALREADY PUBLISHED</small><strong>{publishedVisits.length}</strong></div>
     </section>
 
+    {(hasCompleted || hasMissed) && <section className="owner-route-guards">
+      {hasCompleted && <p><strong>Esta casa já foi concluída hoje.</strong> Completed work is locked. The audited correction requires the separate <b>Type REOPEN</b> confirmation.</p>}
+      {hasMissed && <p><strong>Needs Reschedule.</strong> Choose a new date and move the same Visit instead of creating a duplicate.</p>}
+    </section>}
+
     {!employee ? <div className="owner-route-empty"><strong>Choose an Employee.</strong></div>
       : !ownedJobs.length ? <div className="owner-route-empty">
         <strong>No houses are permanently assigned to {employee.name}.</strong>
@@ -225,16 +255,20 @@ export function RouteAdvisorPanel() {
       </div>
         : <div className="owner-route-layout">
           <section className="owner-route-list">
-            <header><strong>Route order</strong><span>{orderedJobIds.length} selected</span></header>
-            {visibleJobs.map((job, index) => <article key={job.id}>
-              <button type="button" className="owner-route-check active" onClick={() => toggleJob(job.id)} aria-label={`Remove ${job.customerName || "house"} from route`}>✓</button>
-              <b>{orderedJobIds.indexOf(job.id) + 1}</b>
-              <div><strong>{jobLabel(job)}</strong><small>{job.serviceName} · permanently assigned to {employee.name}</small></div>
-              <nav>
-                <button type="button" disabled={orderedJobIds.indexOf(job.id) === 0} onClick={() => move(job.id, -1)}>↑</button>
-                <button type="button" disabled={orderedJobIds.indexOf(job.id) === orderedJobIds.length - 1} onClick={() => move(job.id, 1)}>↓</button>
-              </nav>
-            </article>)}
+            <header><strong>MANUAL ROUTE ORDER</strong><span>{orderedJobIds.length} selected</span></header>
+            {visibleJobs.map(job => {
+              const position = orderedJobIds.indexOf(job.id) + 1;
+              return <article key={job.id}>
+                <button type="button" className="owner-route-check active" onClick={() => toggleJob(job.id)} aria-label={`Remove ${job.customerName || "house"} from route`}>✓</button>
+                <b>{position}</b>
+                <div><strong>{jobLabel(job)}</strong><small>{job.serviceName} · permanently assigned to {employee.name}</small></div>
+                <nav>
+                  <button type="button" disabled={position === 1} onClick={() => move(job.id, -1)} aria-label="Move up">↑</button>
+                  <label><span>Position</span><input type="number" min={1} max={orderedJobIds.length} value={position} onChange={event => moveToPosition(job.id, Number(event.target.value))} /></label>
+                  <button type="button" disabled={position === orderedJobIds.length} onClick={() => move(job.id, 1)} aria-label="Move down">↓</button>
+                </nav>
+              </article>;
+            })}
             {!visibleJobs.length && <div className="owner-route-empty"><strong>No matching houses.</strong></div>}
           </section>
 
@@ -246,14 +280,14 @@ export function RouteAdvisorPanel() {
               <strong>{excludedJobs.length} excluded</strong>
               {excludedJobs.map(job => <button key={job.id} type="button" onClick={() => toggleJob(job.id)}>＋ {job.customerName || job.address || "House"}</button>)}
             </section>}
-            <button type="button" className="btn btn-primary" disabled={busy || !orderedJobIds.length} onClick={() => void publish()}>
+            <button type="button" className="btn btn-primary" disabled={busy || !orderedJobIds.length || hasCompleted || hasMissed} onClick={() => void publish()}>
               {busy ? "Publishing…" : `Publish ${orderedJobIds.length} houses`}
             </button>
           </aside>
         </div>}
 
     <style jsx global>{`
-      .owner-route-advisor{display:grid;gap:14px;min-width:0}.owner-route-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px;border:1px solid #dbe7e1;border-radius:22px;background:#fff}.owner-route-hero span,.owner-route-summary small,.owner-route-publish>span{color:#0b7046;font-size:10px;font-weight:950;letter-spacing:.12em}.owner-route-hero h2{margin:5px 0 6px;font-size:26px}.owner-route-hero p{margin:0;color:#617269}.owner-route-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:14px;border:1px solid #dbe7e1;border-radius:18px;background:#fff}.owner-route-controls label{display:grid;gap:6px}.owner-route-controls label>span{color:#607168;font-size:10px;font-weight:900;text-transform:uppercase}.owner-route-controls input,.owner-route-controls select{min-height:48px;width:100%;border:1px solid #cbdad2;border-radius:12px;padding:0 13px;background:#fff}.owner-route-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.owner-route-summary>div{display:grid;gap:4px;padding:14px;border:1px solid #dbe7e1;border-radius:16px;background:#fff}.owner-route-summary strong{font-size:20px}.owner-route-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.65fr);gap:14px}.owner-route-list,.owner-route-publish{overflow:hidden;border:1px solid #dbe7e1;border-radius:20px;background:#fff}.owner-route-list>header{display:flex;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e8efeb}.owner-route-list>article{display:grid;grid-template-columns:36px 32px minmax(0,1fr) auto;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #edf2ef}.owner-route-list article>div{display:grid;gap:3px}.owner-route-list article small{color:#67786f}.owner-route-list article nav{display:flex;gap:5px}.owner-route-list article nav button,.owner-route-check{width:36px;height:36px;border:1px solid #d4e1da;border-radius:10px;background:#fff;font-weight:950}.owner-route-check.active{border-color:#0b7046;background:#0b7046;color:#fff}.owner-route-list article nav button:disabled{opacity:.25}.owner-route-publish{display:grid;align-content:start;gap:10px;padding:18px}.owner-route-publish h3{margin:0;font-size:22px}.owner-route-publish p{margin:0;color:#617269;line-height:1.5}.owner-route-publish section{display:grid;gap:6px;margin:5px 0;padding:12px;border-radius:14px;background:#f3f7f5}.owner-route-publish section button{border:0;background:transparent;color:#0b7046;text-align:left;font-weight:800}.owner-route-publish>.btn{min-height:52px}.owner-route-empty{padding:22px;border:1px dashed #bfd1c7;border-radius:18px;background:#f8fbf9;color:#52675d;text-align:center}.owner-route-empty p{margin:5px 0 0}
+      .owner-route-advisor{display:grid;gap:14px;min-width:0}.owner-route-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px;border:1px solid #dbe7e1;border-radius:22px;background:#fff}.owner-route-hero span,.owner-route-summary small,.owner-route-publish>span{color:#0b7046;font-size:10px;font-weight:950;letter-spacing:.12em}.owner-route-hero h2{margin:5px 0 6px;font-size:26px}.owner-route-hero p{margin:0;color:#617269}.owner-route-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:14px;border:1px solid #dbe7e1;border-radius:18px;background:#fff}.owner-route-controls label{display:grid;gap:6px}.owner-route-controls label>span{color:#607168;font-size:10px;font-weight:900;text-transform:uppercase}.owner-route-controls input,.owner-route-controls select{min-height:48px;width:100%;border:1px solid #cbdad2;border-radius:12px;padding:0 13px;background:#fff}.owner-route-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.owner-route-summary>div{display:grid;gap:4px;padding:14px;border:1px solid #dbe7e1;border-radius:16px;background:#fff}.owner-route-summary strong{font-size:20px}.owner-route-guards{display:grid;gap:6px;padding:13px 15px;border:1px solid #efd7b1;border-radius:16px;background:#fff8eb;color:#76521d}.owner-route-guards p{margin:0;line-height:1.45}.owner-route-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.65fr);gap:14px}.owner-route-list,.owner-route-publish{overflow:hidden;border:1px solid #dbe7e1;border-radius:20px;background:#fff}.owner-route-list>header{display:flex;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #e8efeb}.owner-route-list>article{display:grid;grid-template-columns:36px 32px minmax(0,1fr) auto;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #edf2ef}.owner-route-list article>div{display:grid;gap:3px}.owner-route-list article small{color:#67786f}.owner-route-list article nav{display:flex;align-items:end;gap:5px}.owner-route-list article nav>button,.owner-route-check{width:36px;height:36px;border:1px solid #d4e1da;border-radius:10px;background:#fff;font-weight:950}.owner-route-list article nav button:disabled{opacity:.25}.owner-route-list article nav label{display:grid;gap:2px}.owner-route-list article nav label span{font-size:8px;font-weight:900;text-transform:uppercase}.owner-route-list article nav input{width:58px;height:36px;border:1px solid #d4e1da;border-radius:9px;text-align:center}.owner-route-check.active{border-color:#0b7046;background:#0b7046;color:#fff}.owner-route-publish{display:grid;align-content:start;gap:10px;padding:18px}.owner-route-publish h3{margin:0;font-size:22px}.owner-route-publish p{margin:0;color:#617269;line-height:1.5}.owner-route-publish section{display:grid;gap:6px;margin:5px 0;padding:12px;border-radius:14px;background:#f3f7f5}.owner-route-publish section button{border:0;background:transparent;color:#0b7046;text-align:left;font-weight:800}.owner-route-publish>.btn{min-height:52px}.owner-route-empty{padding:22px;border:1px dashed #bfd1c7;border-radius:18px;background:#f8fbf9;color:#52675d;text-align:center}.owner-route-empty p{margin:5px 0 0}
       @media(max-width:760px){.owner-route-hero{padding:15px}.owner-route-hero h2{font-size:20px}.owner-route-controls{grid-template-columns:1fr}.owner-route-summary{grid-template-columns:1fr 1fr}.owner-route-layout{grid-template-columns:1fr}.owner-route-list>article{grid-template-columns:34px 26px minmax(0,1fr)}.owner-route-list article nav{grid-column:3}.owner-route-publish{padding:15px}}
     `}</style>
   </section>;
