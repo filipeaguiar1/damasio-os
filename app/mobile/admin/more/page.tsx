@@ -12,7 +12,6 @@ const groups = [
   ["Employees", "W", "/mobile/admin/employees"],
   ["Payments", "$", "/mobile/admin/finance"],
   ["Reports", "R", "/mobile/admin/reports"],
-  ["Database", "DB", "/admin/database"],
   ["Settings", "*", "/mobile/admin/settings"],
 ];
 
