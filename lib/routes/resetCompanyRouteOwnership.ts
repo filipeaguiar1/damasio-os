@@ -54,9 +54,8 @@ export async function resetCompanyRouteOwnership(
     unassignedJobCount = (cleared.data || []).length;
   }
 
-  // The production visit_status enum uses scheduled/on_the_way/in_progress/completed/cancelled.
-  // Legacy "missed" behavior is represented through the newer migration only and cannot be
-  // included in a PostgREST enum filter against this project.
+  // This project intentionally does not grant DELETE on Visits to service_role.
+  // Reset therefore preserves the canonical rows and removes only operational ownership.
   const removableVisits = await service
     .from("visits")
     .select("id,route_id,status")
@@ -65,32 +64,20 @@ export async function resetCompanyRouteOwnership(
   if (removableVisits.error) throw new Error(removableVisits.error.message);
 
   const visitIds = (removableVisits.data || []).map((row: any) => String(row.id));
-  const affectedRouteIds = [...new Set(
-    (removableVisits.data || []).map((row: any) => row.route_id).filter(Boolean),
-  )] as string[];
-
-  let removedVisitCount = 0;
+  let clearedVisitCount = 0;
   if (visitIds.length) {
-    const deleted = await service.from("visits").delete().in("id", visitIds).select("id");
-    if (deleted.error) throw new Error(deleted.error.message);
-    removedVisitCount = (deleted.data || []).length;
-  }
-
-  let removedRouteCount = 0;
-  if (affectedRouteIds.length) {
-    const remaining = await service
+    const cleared = await service
       .from("visits")
-      .select("route_id")
-      .in("route_id", affectedRouteIds)
-      .not("route_id", "is", null);
-    if (remaining.error) throw new Error(remaining.error.message);
-    const usedRouteIds = new Set((remaining.data || []).map((row: any) => String(row.route_id)));
-    const emptyRouteIds = affectedRouteIds.filter(id => !usedRouteIds.has(id));
-    if (emptyRouteIds.length) {
-      const deletedRoutes = await service.from("routes").delete().in("id", emptyRouteIds).select("id");
-      if (deletedRoutes.error) throw new Error(deletedRoutes.error.message);
-      removedRouteCount = (deletedRoutes.data || []).length;
-    }
+      .update({
+        route_id: null,
+        assigned_employee_id: null,
+        crew_id: null,
+        route_order: null,
+      })
+      .in("id", visitIds)
+      .select("id");
+    if (cleared.error) throw new Error(cleared.error.message);
+    clearedVisitCount = (cleared.data || []).length;
   }
 
   let deactivatedDemoEmployeeCount = 0;
@@ -130,27 +117,43 @@ export async function resetCompanyRouteOwnership(
     }
   }
 
-  const verification = await service
-    .from("jobs")
-    .select("id,default_crew_id")
-    .eq("active", true)
-    .or(companyFilter(companyId));
-  if (verification.error) throw new Error(verification.error.message);
-  const stillAssigned = (verification.data || []).filter((row: any) => Boolean(row.default_crew_id));
-  if (stillAssigned.length) {
-    throw new Error(`${stillAssigned.length} Job assignment(s) remained after reset.`);
+  const [jobVerification, visitVerification] = await Promise.all([
+    service
+      .from("jobs")
+      .select("id,default_crew_id")
+      .eq("active", true)
+      .or(companyFilter(companyId)),
+    service
+      .from("visits")
+      .select("id,route_id,assigned_employee_id,crew_id,route_order,status")
+      .in("status", ["scheduled", "on_the_way", "cancelled"])
+      .or(companyFilter(companyId)),
+  ]);
+  if (jobVerification.error) throw new Error(jobVerification.error.message);
+  if (visitVerification.error) throw new Error(visitVerification.error.message);
+
+  const stillAssignedJobs = (jobVerification.data || []).filter((row: any) => Boolean(row.default_crew_id));
+  if (stillAssignedJobs.length) {
+    throw new Error(`${stillAssignedJobs.length} Job assignment(s) remained after reset.`);
+  }
+  const stillAssignedVisits = (visitVerification.data || []).filter((row: any) =>
+    row.route_id || row.assigned_employee_id || row.crew_id || row.route_order !== null);
+  if (stillAssignedVisits.length) {
+    throw new Error(`${stillAssignedVisits.length} planned Visit assignment(s) remained after reset.`);
   }
 
   return {
     companyId,
     unassignedJobCount,
-    removedVisitCount,
-    removedRouteCount,
+    clearedVisitCount,
+    removedVisitCount: 0,
+    removedRouteCount: 0,
     deactivatedDemoEmployeeCount,
     deactivatedDemoProfileCount,
     deactivatedDemoCrewCount,
     customersPreserved: true,
     propertiesPreserved: true,
     jobsPreserved: true,
+    completedHistoryPreserved: true,
   };
 }
