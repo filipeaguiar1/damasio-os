@@ -112,7 +112,7 @@ export default function FeedbackPage() {
       <div className="feedback-hero-count"><strong>{waiting.length}</strong><span>waiting for feedback</span></div>
     </div>
 
-    {visibleMessage && <div className="feedback-status-message" role="status">{visibleMessage}</div>}
+    {visibleMessage && <div className="feedback-status-message notice" role="status">{visibleMessage}</div>}
 
     {loading ? <div className="feedback-empty-state"><i>…</i><h2>Loading completed services</h2></div> : !current ? <div className="feedback-empty-state"><i>✓</i><h2>No completed service yet</h2><p>When a crew completes a service, it will appear here.</p></div> : <div className="feedback-experience-layout">
       <aside className="feedback-visit-list">
@@ -140,7 +140,7 @@ export default function FeedbackPage() {
             <button type="button" className={rating >= 4 ? "active" : ""} onClick={() => setRating(5)}><i>✓</i><strong>Yes, I liked it</strong><small>Everything looked great</small></button>
             <button type="button" className={rating < 4 ? "active issue" : ""} onClick={() => setRating(2)}><i>!</i><strong>It needs attention</strong><small>Tell us what happened</small></button>
           </div>
-          <div className="feedback-rating-row" aria-label="Service rating">{[1, 2, 3, 4, 5].map((value) => <button type="button" key={value} className={value <= rating ? "active" : ""} onClick={() => setRating(value)} aria-label={`${value} star${value === 1 ? "" : "s"}`}>★</button>)}</div>
+          <div className="feedback-rating-row" aria-label="Service rating">{[1, 2, 3, 4, 5].map((value) => <button type="button" key={value} className={`star-button ${value <= rating ? "active" : ""}`.trim()} onClick={() => setRating(value)} aria-label={`${value} star${value === 1 ? "" : "s"}`}>★</button>)}</div>
           <label className="feedback-comment-field"><span>Comment <small>optional</small></span><textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Tell us what the crew did well or what needs attention." /></label>
           <div className="feedback-review-actions">
             <button className="feedback-primary-action" type="button" onClick={() => void submit()}>{currentDone ? "Update Review" : "Submit Review"}</button>
