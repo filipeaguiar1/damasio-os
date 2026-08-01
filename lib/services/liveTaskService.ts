@@ -15,7 +15,7 @@ function normalizeStatus(value:string):EmployeeTask["status"]{return (["open","a
 
 async function loadAdminTaskFallback(client:ReturnType<typeof getSupabaseBrowserClient>):Promise<EmployeeTask[]>{
   const{data:session}=await client.auth.getSession();const token=session.session?.access_token;const userId=session.session?.user.id;if(!token||!userId)return[];
-  const{data:profile}=await client.from("profiles").select("role").eq("id",userId).maybeSingle();
+  const{data:profile}=await (client as any).from("profiles").select("role").eq("id",userId).maybeSingle();
   if(!profile||!["admin","manager"].includes(String(profile.role)))return[];
   const response=await fetch("/api/admin/service-requests",{headers:{authorization:`Bearer ${token}`},cache:"no-store"});
   const result=await response.json();if(!response.ok)throw new Error(result.error||"Admin task fallback could not be loaded.");
