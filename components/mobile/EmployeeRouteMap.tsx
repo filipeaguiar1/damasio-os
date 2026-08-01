@@ -25,7 +25,7 @@ const HAMILTON: [number, number] = [43.2557, -79.8711];
 function visualState(lead: CanonicalRouteLead, _isNext: boolean) {
   const canonicalStatus = lead.canonicalVisitStatus;
   if (canonicalStatus === "completed" || lead.status === "completed") return { color: "#16a34a", label: "Completed" };
-  if (canonicalStatus === "missed") return { color: "#eab308", label: "Skipped" };
+  if (canonicalStatus === "cancelled" || canonicalStatus === "missed") return { color: "#eab308", label: "Skipped" };
 
   const session = getSessionForLead(lead.id);
   if (session?.status === "skipped") return { color: "#eab308", label: "Skipped" };

@@ -176,22 +176,32 @@ export default function MobileEmployeeApp(){
     if(Number.isFinite(lead.latitude)&&Number.isFinite(lead.longitude))return lead;
     const point=await geocodeAddress(lead.address);return {...lead,...point};
   }
-  function distance(a:{latitude:number;longitude:number},b:{latitude:number;longitude:number}){const x=(a.longitude-b.longitude)*Math.cos((a.latitude+b.latitude)*Math.PI/360);const y=a.latitude-b.latitude;return x*x+y*y}
+  function distance(a:{latitude:number;longitude:number},b:{latitude:number;longitude:number}){
+    const toRad=(value:number)=>value*Math.PI/180;
+    const dLat=toRad(b.latitude-a.latitude),dLon=toRad(b.longitude-a.longitude);
+    const value=Math.sin(dLat/2)**2+Math.cos(toRad(a.latitude))*Math.cos(toRad(b.latitude))*Math.sin(dLon/2)**2;
+    return 6371*2*Math.atan2(Math.sqrt(value),Math.sqrt(1-value));
+  }
+  function smartRouteDistance(order:Lead[],origin:{latitude:number;longitude:number}){
+    let total=0;let cursor=origin;
+    for(const lead of order){const point={latitude:Number(lead.latitude),longitude:Number(lead.longitude)};total+=distance(cursor,point);cursor=point}
+    return total;
+  }
+  function refineSmartOrder(order:Lead[],origin:{latitude:number;longitude:number}){
+    let best=[...order],bestDistance=smartRouteDistance(best,origin),improved=true,passes=0;
+    while(improved&&passes<5){improved=false;passes+=1;for(let left=0;left<best.length-2;left++){for(let right=left+1;right<best.length-1;right++){const candidate=[...best.slice(0,left),...best.slice(left,right+1).reverse(),...best.slice(right+1)];const candidateDistance=smartRouteDistance(candidate,origin);if(candidateDistance+0.01<bestDistance){best=candidate;bestDistance=candidateDistance;improved=true}}}}
+    return best;
+  }
   function buildSmartOrder(located:Lead[],origin:{latitude:number;longitude:number},alternative:number){
-    if(alternative%3===1){
-      const angle=(lead:Lead)=>Math.atan2(Number(lead.latitude)-origin.latitude,Number(lead.longitude)-origin.longitude);
-      return [...located].sort((a,b)=>angle(a)-angle(b)||distance(origin,a as Lead&{latitude:number;longitude:number})-distance(origin,b as Lead&{latitude:number;longitude:number}));
-    }
-    if(alternative%3===2){
-      const farthest=[...located].sort((a,b)=>distance(origin,b as Lead&{latitude:number;longitude:number})-distance(origin,a as Lead&{latitude:number;longitude:number}));
-      const remaining=[...farthest];const ordered:Lead[]=[];let cursor=origin;
-      if(remaining.length){const first=remaining.shift()!;ordered.push(first);cursor={latitude:Number(first.latitude),longitude:Number(first.longitude)}}
-      while(remaining.length){let best=0;for(let index=1;index<remaining.length;index++)if(distance(cursor,remaining[index] as Lead&{latitude:number;longitude:number})<distance(cursor,remaining[best] as Lead&{latitude:number;longitude:number}))best=index;const next=remaining.splice(best,1)[0];ordered.push(next);cursor={latitude:Number(next.latitude),longitude:Number(next.longitude)}}
-      return ordered;
-    }
-    const remaining=[...located];const ordered:Lead[]=[];let cursor=origin;
-    while(remaining.length){let best=0;for(let index=1;index<remaining.length;index++)if(distance(cursor,remaining[index] as Lead&{latitude:number;longitude:number})<distance(cursor,remaining[best] as Lead&{latitude:number;longitude:number}))best=index;const next=remaining.splice(best,1)[0];ordered.push(next);cursor={latitude:Number(next.latitude),longitude:Number(next.longitude)}}
-    return ordered;
+    if(!located.length)return [];
+    const byOrigin=[...located].sort((a,b)=>distance(origin,{latitude:Number(a.latitude),longitude:Number(a.longitude)})-distance(origin,{latitude:Number(b.latitude),longitude:Number(b.longitude)}));
+    const seedIndex=Math.min(alternative%Math.min(4,byOrigin.length),byOrigin.length-1);
+    const first=byOrigin[seedIndex];
+    const remaining=located.filter(lead=>lead.id!==first.id);
+    const ordered:Lead[]=[first];
+    let cursor={latitude:Number(first.latitude),longitude:Number(first.longitude)};
+    while(remaining.length){let best=0;for(let index=1;index<remaining.length;index++){const candidate={latitude:Number(remaining[index].latitude),longitude:Number(remaining[index].longitude)};const current={latitude:Number(remaining[best].latitude),longitude:Number(remaining[best].longitude)};if(distance(cursor,candidate)<distance(cursor,current))best=index}const next=remaining.splice(best,1)[0];ordered.push(next);cursor={latitude:Number(next.latitude),longitude:Number(next.longitude)}}
+    return refineSmartOrder(ordered,origin);
   }
   async function prepareSmartRoute(nextAlternative=0){
     const chosen=smartCandidates.filter(lead=>smartSelected.includes(lead.id));
@@ -277,7 +287,7 @@ export default function MobileEmployeeApp(){
     if(!selected||busy)return;
     setBusy(true); setError("");
     try{
-      if(selected.canonicalVisitId){await runVisitStatusOrQueue(selected.canonicalVisitId,"missed");setOfflinePending(getOfflineActionCount())}
+      if(selected.canonicalVisitId){await runVisitStatusOrQueue(selected.canonicalVisitId,"cancelled");setOfflinePending(getOfflineActionCount())}
       skipServiceSession(selected.id,skipComment,skipPhotos,profile.name,crew);
       setSkipOpen(false);setRouteReload(value=>value+1);refresh();setMessage("House skipped. Admin and Dispatch were notified.");setTab("route")
     }catch(error){setError(error instanceof Error?error.message:"House could not be skipped.")}
@@ -349,7 +359,7 @@ export default function MobileEmployeeApp(){
       <div className="employee-smart-origin"><strong>Starting point</strong><div>{[["current","Current location"],["last","Last completed house"],["profile","Profile address"],["manual","Manual address"]].map(([value,label])=><button key={value} className={smartOrigin===value?"active":""} onClick={()=>{setSmartOrigin(value as typeof smartOrigin);setManualOriginPoint(null);clearSmartPreview()}}>{label}</button>)}</div>{smartOrigin==="manual"&&<AddressAutocomplete value={manualOrigin} onChange={value=>{setManualOrigin(value);setManualOriginPoint(null);clearSmartPreview()}} onSelect={suggestion=>{setManualOrigin(suggestion.label);setManualOriginPoint({latitude:suggestion.latitude,longitude:suggestion.longitude,label:suggestion.label});clearSmartPreview()}} placeholder="Start typing the route address" ariaLabel="Manual route start"/>}{smartOrigin==="profile"&&<p>{profileDraft.defaultAddress||"Add a default route address in your profile."}</p>}{smartOrigin==="last"&&<p>{lastCompleted?.address||"No completed house is available yet."}</p>}{smartOrigin==="current"&&<p>Uses the employee phone GPS after permission is granted.</p>}</div>
       <div className="employee-smart-head"><span>{smartSelected.length} selected · {smartCandidates.length} pending</span><button onClick={()=>{setSmartSelected(smartSelected.length===smartCandidates.length?[]:smartCandidates.map(lead=>lead.id));setSmartPreview([])}}>{smartSelected.length===smartCandidates.length?"Clear":"Select all pending"}</button></div>
       <div className="employee-smart-list">{route.map((lead,index)=>{const completed=lead.status==="completed";const skippedState=getSessionForLead(lead.id)?.status==="skipped";const disabled=completed||skippedState;const selectedStop=smartSelected.includes(lead.id);return <button key={lead.id} disabled={disabled} className={`${selectedStop?"selected":""} ${disabled?"locked":""}`} onClick={()=>toggleSmartStop(lead.id)}><b>{disabled?"✓":selectedStop?"✓":index+1}</b><div><strong>{lead.address}</strong><span>{lead.name} · {lead.service}</span><small>{completed?"Completed — locked":skippedState?"Skipped — excluded":"Pending and available"}</small></div><i>{disabled?"Locked":selectedStop?"Included":"Add"}</i></button>})}</div>
-      {!smartPreview.length?<button className="employee-smart-build" disabled={!smartSelected.length||smartPreparing} onClick={()=>void prepareSmartRoute(0)}>{smartPreparing?"Preparing preview…":"Preview Smart Route"}<span>↗</span></button>:<section className="employee-smart-preview"><header><div><small>ROUTE PREVIEW</small><strong>{smartPreview.length} pending stops</strong><span>Start: {smartOriginPoint?.label}</span></div><div className="employee-smart-preview-tools">{smartMetrics&&<details className="employee-smart-info"><summary aria-label="Route distance and driving time">!</summary><div role="status"><strong>Route estimate</strong><span>{smartMetrics.distance.toFixed(1)} km total</span><span>About {smartMetrics.time} min driving</span><small>Travel estimate only. Service time is not included.</small></div></details>}<button type="button" className={`employee-smart-alternate ${smartPreparing?"is-spinning":""}`} disabled={smartPreparing} onClick={tryAnotherSmartRoute} aria-label="Try another route" title="Try another route"><span aria-hidden="true">↻</span></button><button onClick={clearSmartPreview}>Edit</button></div></header><div className="employee-smart-map-wrap"><EmployeeRouteMap route={smartPreview} originPoint={smartOriginPoint} onOpenVisit={()=>{}} actionLabel="Preview stop"/></div><div className="employee-smart-preview-actions"><button onClick={clearSmartPreview}>Cancel</button><button onClick={applySmartPreview}>Apply Smart Route</button></div></section>}
+      {!smartPreview.length?<button className="employee-smart-build" disabled={!smartSelected.length||smartPreparing} onClick={()=>void prepareSmartRoute(0)}>{smartPreparing?"Preparing preview…":"Preview Smart Route"}<span>↗</span></button>:<section className="employee-smart-preview"><header><div><small>ROUTE PREVIEW</small><strong>{smartPreview.length} pending stops</strong><span>Start: {smartOriginPoint?.label}</span></div><div className="employee-smart-preview-tools">{smartMetrics&&<details className="employee-smart-info"><summary aria-label="Route distance and driving time">!</summary><div role="status"><strong>Route estimate</strong><span>{smartMetrics.distance.toFixed(1)} km total</span><span>About {smartMetrics.time} min driving</span><small>Travel estimate only. Service time is not included.</small></div></details>}<button type="button" className={`employee-smart-alternate ${smartPreparing?"is-spinning":""}`} disabled={smartPreparing} onClick={tryAnotherSmartRoute} aria-label="Try another route" title="Try another route"><span aria-hidden="true">↻</span></button><button onClick={clearSmartPreview}>Edit</button></div></header><div className="employee-smart-map-wrap" style={{height:"min(58vh,620px)",minHeight:"420px",overflow:"hidden",borderRadius:"18px"}}><EmployeeRouteMap route={smartPreview} originPoint={smartOriginPoint} onOpenVisit={()=>{}} actionLabel="Preview stop"/></div><div className="employee-smart-preview-actions" style={{position:"sticky",bottom:"calc(env(safe-area-inset-bottom) + 8px)",zIndex:8,background:"rgba(255,255,255,.96)",padding:"10px",borderRadius:"16px",boxShadow:"0 10px 30px rgba(9,45,31,.16)"}}><button onClick={clearSmartPreview}>Cancel</button><button onClick={applySmartPreview}>Apply Smart Route</button></div></section>}
       {message&&<p className="mobile-message">{message}</p>}
     </section>}
 
@@ -405,7 +415,7 @@ export default function MobileEmployeeApp(){
 
     {tab==="issues"&&<section className="mobile-card-list employee-task-list">
       {tasks.length===0?<div className="mobile-empty"><strong>No return visits.</strong><p>Assigned Tasks will appear here.</p></div>:tasks.map(task=><button className={`mobile-issue-card employee-task-card ${task.priority}`} key={task.id} onClick={()=>openTask(task.id)}>
-        <span className="employee-task-icon">!</span><div><em>RETURN TASK · {task.priority}</em><strong>{task.title}</strong><p>{task.customer}<br/>{task.address}</p><small>{task.description}</small></div><b>›</b>
+        <span className="employee-task-icon">!</span><div><em>RETURN TASK · {task.priority}</em><strong>{task.title}</strong><p>{task.customer}<br/>{task.address}</p><small>{task.description}</small><time className="employee-task-card-date">Due {task.scheduledDate?new Date(`${task.scheduledDate}T12:00:00`).toLocaleDateString("en-CA",{weekday:"short",month:"short",day:"numeric"}):"date not assigned"}</time></div><b>›</b>
       </button>)}
     </section>}
 
