@@ -1,0 +1,31 @@
+name: Apply Smart Route Order Patch
+
+on:
+  push:
+    branches: [fix/smart-route-order-collision]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/smart-route-order-collision
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply patch
+        run: python scripts/patch-smart-route-order.py
+      - name: Remove temporary files
+        run: rm -f scripts/patch-smart-route-order.py .github/workflows/apply-smart-route-order-patch.yml
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/mobile/employee/smart-route/route.ts scripts/patch-smart-route-order.py .github/workflows/apply-smart-route-order-patch.yml
+          git commit -m "Fix Smart Route ordering and route-order collisions"
+          git push origin HEAD:fix/smart-route-order-collision
