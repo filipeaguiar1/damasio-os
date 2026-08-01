@@ -3,6 +3,7 @@
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { PortalShell } from "@/components/admin/PortalShell";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { signOutAccount } from "@/lib/auth/signOut";
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -97,7 +98,7 @@ export default function CustomerProfilePage() {
     {message&&<div className="billing-message">{message}</div>}
     <div className="property-center-grid">
       <section className="property-photo-panel customer-account-photo-panel"><div className="customer-avatar-preview large">{displayPhoto?<img src={displayPhoto} alt="Customer profile"/>:<span>{customerInitials}</span>}</div><label className="property-photo-action">Choose profile photo<input type="file" accept="image/*" onChange={chooseAvatar}/></label>{pendingFile&&<div className="customer-photo-confirm"><button onClick={()=>{setPendingFile(null);setPreviewUrl(null);}}>Cancel</button><button className="primary" disabled={busy} onClick={()=>void confirmAvatar()}>{busy?"Saving...":"Confirm photo"}</button></div>}</section>
-      <section className="property-detail-panel customer-edit-form"><header><span>ACCOUNT DETAILS</span><h2>Edit your information</h2></header><label>Full name<input value={fullName} onChange={event=>setFullName(event.target.value)}/></label><label>Email<input value={email} disabled readOnly/></label><label>Phone<input value={phone} onChange={event=>setPhone(event.target.value)}/></label><button className="customer-profile-save" disabled={busy||fullName.trim().length<2} onClick={()=>void save()}>{busy?"Saving...":"Save profile"}</button><p>Email remains locked to preserve account identity.</p></section>
+      <section className="property-detail-panel customer-edit-form"><header><span>ACCOUNT DETAILS</span><h2>Edit your information</h2></header><label>Full name<input value={fullName} onChange={event=>setFullName(event.target.value)}/></label><label>Email<input value={email} disabled readOnly/></label><label>Phone<input value={phone} onChange={event=>setPhone(event.target.value)}/></label><button className="customer-profile-save" disabled={busy||fullName.trim().length<2} onClick={()=>void save()}>{busy?"Saving...":"Save profile"}</button><button type="button" disabled={busy} onClick={()=>void signOutAccount("/login")} style={{minHeight:50,borderRadius:14,border:"1px solid #fecaca",background:"#fff7f7",color:"#b91c1c",fontWeight:900,cursor:"pointer"}}>Sign Out</button><p>Email remains locked to preserve account identity.</p></section>
     </div>
   </PortalShell>;
 }
