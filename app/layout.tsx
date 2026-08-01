@@ -5,6 +5,8 @@ import "./customer-profile-media.css";
 import "./role-profile-media.css";
 import "./role-mobile-system.css";
 import "./customer-mobile-overnight.css";
+import "./mobile-audit-fixes.css";
+import "./customer-wallet-feedback.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 import {AdminAccessFallback} from "@/components/master/AdminAccessFallback";
 import {CustomerLegacyDataGuard} from "@/components/customer/CustomerLegacyDataGuard";

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { stripeReturnOrigin } from "@/lib/stripe/checkoutOrigin";
 
 export const dynamic = "force-dynamic";
 
@@ -26,13 +27,11 @@ export async function POST(request: NextRequest) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const stripeKey = process.env.STRIPE_SECRET_KEY;
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-    if (!url || !serviceKey || !stripeKey || !siteUrl) {
+    if (!url || !serviceKey || !stripeKey) {
       const missing = [
         !url && "NEXT_PUBLIC_SUPABASE_URL",
         !serviceKey && "SUPABASE_SERVICE_ROLE_KEY",
         !stripeKey && "STRIPE_SECRET_KEY",
-        !siteUrl && "NEXT_PUBLIC_SITE_URL",
       ].filter(Boolean);
       console.error("Stripe Checkout configuration missing", missing);
       return failure("Card payments are not available yet.", 503);
@@ -61,7 +60,7 @@ export async function POST(request: NextRequest) {
       db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
       db.from("customers").select("id,profile_id,email,full_name").eq("id", invoice.customer_id).maybeSingle()
     ]);
-    if (!invoiceAccessAllowed(profile, customer, auth.user.id, companyId)) {
+    if (!companyId || !invoiceAccessAllowed(profile, customer, auth.user.id, companyId)) {
       return failure("You cannot pay this invoice.", 403);
     }
 
@@ -89,14 +88,15 @@ export async function POST(request: NextRequest) {
     const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
     const transferGroup = `invoice-${invoice.id}`;
     const metadata = { invoiceId: invoice.id, companyId, customerId: invoice.customer_id || "" };
+    const origin = stripeReturnOrigin(request);
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: customer?.email || auth.user.email || undefined,
       line_items: [{ quantity: 1, price_data: { currency: "cad", unit_amount: cents, product_data: { name: `Invoice ${invoice.invoice_number}` } } }],
       metadata,
       payment_intent_data: { metadata, transfer_group: transferGroup },
-      success_url: `${siteUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}/payment/cancel?invoiceId=${invoice.id}`
+      success_url: `${origin}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/payment/cancel?invoiceId=${invoice.id}`
     }, {
       idempotencyKey: `checkout-${invoice.id}-${cents}-${invoice.stripe_checkout_session_id || "initial"}`
     });
@@ -145,7 +145,7 @@ export async function DELETE(request: NextRequest) {
       db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
       db.from("customers").select("profile_id").eq("id", invoice.customer_id).maybeSingle()
     ]);
-    if (!invoiceAccessAllowed(profile, customer, auth.user.id, companyId)) {
+    if (!companyId || !invoiceAccessAllowed(profile, customer, auth.user.id, companyId)) {
       return failure("You cannot cancel this checkout.", 403);
     }
 

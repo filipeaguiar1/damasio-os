@@ -193,6 +193,14 @@ function normalizePaymentsPortal(data: unknown): CustomerPaymentsVisitsPortal {
   };
 }
 
+function canUseCustomerPortalApiFallback(error: { code?: string; message?: string } | null | undefined) {
+  const message = String(error?.message || "");
+  return error?.code === "PGRST202"
+    || error?.code === "42501"
+    || error?.code === "42703"
+    || /could not find the function public\.(create_customer_portal_request|submit_customer_portal_feedback)|schema cache|permission denied|column .*company_id.*does not exist/i.test(message);
+}
+
 async function rpcBoard(name: string, args?: Record<string, unknown>) {
   const supabase = getSupabaseBrowserClient();
   const { data, error } = await supabase.rpc(name as never, (args || {}) as never);
@@ -211,18 +219,60 @@ export async function getCustomerPaymentsVisitsPortal() {
   return normalizePaymentsPortal(data || emptyPaymentsPortal);
 }
 
-export function createCustomerPortalRequest(input: { serviceName: string; message?: string }) {
-  return rpcBoard("create_customer_portal_request", {
+async function callCustomerPortalAction(body: Record<string, unknown>) {
+  const supabase = getSupabaseBrowserClient() as any;
+  const session = await supabase.auth.getSession();
+  const accessToken = session.data.session?.access_token;
+  if (!accessToken) throw new Error("Customer session expired.");
+  const response = await fetch("/api/customer/portal-actions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Customer portal action failed.");
+  return getCustomerPortalBoard();
+}
+
+export async function createCustomerPortalRequest(input: { serviceName: string; message?: string }) {
+  const supabase = getSupabaseBrowserClient() as any;
+  const rpc = await supabase.rpc("create_customer_portal_request", {
     p_service_name: input.serviceName,
     p_message: input.message || null,
   });
+  if (!rpc.error) return normalizeBoard(rpc.data || emptyBoard);
+  if (!canUseCustomerPortalApiFallback(rpc.error)) throw new Error(rpc.error.message);
+
+  const board = await getCustomerPortalBoard();
+  if (!board.property?.propertyId) throw new Error("Customer property not found for this account.");
+  return callCustomerPortalAction({
+    action: "request",
+    propertyId: board.property.propertyId,
+    serviceName: input.serviceName,
+    message: input.message || null,
+  });
 }
 
-export function submitCustomerPortalFeedback(input: { visitId?: string; taskId?: string; rating: number; comment?: string }) {
-  return rpcBoard("submit_customer_portal_feedback", {
+export async function submitCustomerPortalFeedback(input: { visitId?: string; taskId?: string; rating: number; comment?: string }) {
+  const supabase = getSupabaseBrowserClient() as any;
+  const args = {
     p_visit_id: input.visitId || null,
     p_task_id: input.taskId || null,
     p_rating: input.rating,
     p_comment: input.comment || null,
+  };
+  const rpc = await supabase.rpc("submit_customer_portal_feedback", args);
+  if (!rpc.error) return normalizeBoard(rpc.data || emptyBoard);
+  if (!canUseCustomerPortalApiFallback(rpc.error)) throw new Error(rpc.error.message);
+
+  return callCustomerPortalAction({
+    action: "feedback",
+    visitId: input.visitId || null,
+    taskId: input.taskId || null,
+    rating: input.rating,
+    comment: input.comment || null,
   });
 }

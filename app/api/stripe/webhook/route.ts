@@ -14,6 +14,66 @@ function requireDatabaseSuccess(error: DatabaseError, operation: string) {
   if (error) throw new Error(`${operation}: ${error.message || error.code || "database request failed"}`);
 }
 
+function missingColumn(error: DatabaseError, column: string) {
+  const message = String(error?.message || "").toLowerCase();
+  return (message.includes("does not exist") || message.includes("schema cache") || message.includes("could not find"))
+    && message.includes(column.toLowerCase());
+}
+
+async function insertCompanyCompatible(
+  db: any,
+  table: string,
+  row: Record<string, unknown>,
+  selectColumns?: string,
+) {
+  const execute = async (value: Record<string, unknown>) => {
+    const query = db.from(table).insert(value);
+    return selectColumns ? query.select(selectColumns).single() : query;
+  };
+
+  let result = await execute(row);
+  if (result.error && missingColumn(result.error, "company_id")) {
+    const { company_id: _companyId, ...legacyRow } = row;
+    result = await execute(legacyRow);
+  }
+  return result;
+}
+
+async function loadInvoice(db: any, invoiceId: string) {
+  let result = await db
+    .from("invoices")
+    .select("id,organization_id,company_id,customer_id,property_id,invoice_number,total")
+    .eq("id", invoiceId)
+    .maybeSingle();
+  if (result.error && missingColumn(result.error, "company_id")) {
+    result = await db
+      .from("invoices")
+      .select("id,organization_id,customer_id,property_id,invoice_number,total")
+      .eq("id", invoiceId)
+      .maybeSingle();
+  }
+  return result;
+}
+
+async function updateInvoiceForTenant(
+  db: any,
+  invoiceId: string,
+  companyId: string,
+  values: Record<string, unknown>,
+) {
+  let result = await db.from("invoices")
+    .update(values)
+    .eq("id", invoiceId)
+    .or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
+  if (result.error && missingColumn(result.error, "company_id")) {
+    result = await db.from("invoices")
+      .update(values)
+      .eq("id", invoiceId)
+      .eq("organization_id", companyId);
+  }
+  return result;
+}
+
 function platformFee(total: number) {
   const percent = Number(process.env.STRIPE_PLATFORM_FEE_PERCENT || "0");
   if (!Number.isFinite(percent) || percent <= 0) return 0;
@@ -87,11 +147,7 @@ async function markInvoicePaid(db: any, paymentIntent: Stripe.PaymentIntent) {
   const metadataCustomerId = String(paymentIntent.metadata.customerId || "");
   if (!invoiceId || !metadataCompanyId) throw new Error("Stripe payment metadata is incomplete.");
 
-  const invoiceResult = await db
-    .from("invoices")
-    .select("id,organization_id,company_id,customer_id,property_id,invoice_number,total")
-    .eq("id", invoiceId)
-    .maybeSingle();
+  const invoiceResult = await loadInvoice(db, invoiceId);
   requireDatabaseSuccess(invoiceResult.error, "Load paid invoice");
   const invoice = invoiceResult.data;
   if (!invoice) throw new Error("Stripe payment references an invoice that does not exist.");
@@ -134,7 +190,7 @@ async function markInvoicePaid(db: any, paymentIntent: Stripe.PaymentIntent) {
 
   let paymentId = existingPayment.data?.id;
   if (!paymentId) {
-    const paymentInsert = await db.from("payments").insert({
+    const paymentInsert = await insertCompanyCompatible(db, "payments", {
       organization_id: companyId,
       company_id: companyId,
       invoice_id: invoice.id,
@@ -148,7 +204,7 @@ async function markInvoicePaid(db: any, paymentIntent: Stripe.PaymentIntent) {
       stripe_transfer_group: transferGroup,
       paid_at: new Date().toISOString(),
       notes: "Stripe Checkout payment confirmed by webhook."
-    }).select("id").single();
+    }, "id");
     requireDatabaseSuccess(paymentInsert.error, "Create Stripe payment");
     paymentId = paymentInsert.data?.id;
   }
@@ -171,16 +227,27 @@ async function markInvoicePaid(db: any, paymentIntent: Stripe.PaymentIntent) {
     requireDatabaseSuccess(jobResult.error, "Find invoice job");
     const job = jobResult.data;
 
-    const visitResult = job?.id
-      ? await db
+    let visitResult: any = { data: null, error: null };
+    if (job?.id) {
+      visitResult = await db
         .from("visits")
         .select("id")
         .eq("job_id", job.id)
         .or(`company_id.eq.${companyId},organization_id.eq.${companyId}`)
         .order("scheduled_date", { ascending: false })
         .limit(1)
-        .maybeSingle()
-      : { data: null, error: null };
+        .maybeSingle();
+      if (visitResult.error && missingColumn(visitResult.error, "company_id")) {
+        visitResult = await db
+          .from("visits")
+          .select("id")
+          .eq("job_id", job.id)
+          .eq("organization_id", companyId)
+          .order("scheduled_date", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+      }
+    }
     requireDatabaseSuccess(visitResult.error, "Find invoice visit");
     const visit = visitResult.data;
 
@@ -205,7 +272,7 @@ async function markInvoicePaid(db: any, paymentIntent: Stripe.PaymentIntent) {
     requireDatabaseSuccess(payoutInsert.error, "Create payout item");
   }
 
-  const activity = await db.from("activity_log").insert({
+  const activity = await insertCompanyCompatible(db, "activity_log", {
     organization_id: companyId,
     company_id: companyId,
     action: "stripe.payment_confirmed",
@@ -221,18 +288,17 @@ async function markPaymentFailed(db: any, intent: Stripe.PaymentIntent) {
   const companyId = String(intent.metadata.companyId || "");
   if (!invoiceId || !companyId) throw new Error("Failed payment metadata is incomplete.");
 
-  const invoiceUpdate = await db
-    .from("invoices")
-    .update({ status: "waiting_payment", stripe_payment_intent_id: intent.id })
-    .eq("id", invoiceId)
-    .or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
+  const invoiceUpdate = await updateInvoiceForTenant(db, invoiceId, companyId, {
+    status: "waiting_payment",
+    stripe_payment_intent_id: intent.id,
+  });
   requireDatabaseSuccess(invoiceUpdate.error, "Restore failed invoice");
 
   const existing = await db.from("payments").select("id").eq("stripe_payment_intent_id", intent.id).maybeSingle();
   requireDatabaseSuccess(existing.error, "Find failed Stripe payment");
   if (existing.data) return;
 
-  const failedInsert = await db.from("payments").insert({
+  const failedInsert = await insertCompanyCompatible(db, "payments", {
     organization_id: companyId,
     company_id: companyId,
     invoice_id: invoiceId,
