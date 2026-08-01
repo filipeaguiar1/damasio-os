@@ -22,6 +22,18 @@ function label(value: string) {
   return value.replaceAll("_", " ");
 }
 
+const actionStyle = {
+  border: 0,
+  borderRadius: 16,
+  minHeight: 56,
+  padding: "0 18px",
+  background: "linear-gradient(135deg,#16a34a,#15803d)",
+  color: "#fff",
+  fontWeight: 800,
+  fontSize: 16,
+  boxShadow: "0 12px 26px rgba(22,163,74,.28)",
+} as const;
+
 function PaymentChoice({
   title,
   description,
@@ -78,7 +90,9 @@ function MobileCustomerPaymentsContent() {
   async function save() {
     setSaving(true);
     try {
-      await saveCustomerPaymentPreferences({ servicePaymentMethod, tipPaymentMethod });
+      const saved = await saveCustomerPaymentPreferences({ servicePaymentMethod, tipPaymentMethod });
+      setServicePaymentMethod(saved.servicePaymentMethod);
+      setTipPaymentMethod(saved.tipPaymentMethod);
       setMessage("Payment preferences saved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Payment preferences could not be saved.");
@@ -108,7 +122,7 @@ function MobileCustomerPaymentsContent() {
       <div style={{ display: "grid", gap: 18 }}>
         <PaymentChoice title="Services" description="Select the default payment method for completed services." value={servicePaymentMethod} onChange={setServicePaymentMethod} disabled={loading || saving} />
         <PaymentChoice title="Tips" description="Tips are optional and use their own payment preference." value={tipPaymentMethod} onChange={setTipPaymentMethod} disabled={loading || saving} />
-        <button type="button" className="role-mobile-primary-button" style={{ marginTop: 8, minHeight: 52 }} disabled={loading||saving} onClick={()=>void save()}>{saving?"Saving...":"Save preferences"}</button>
+        <button type="button" style={{ ...actionStyle, marginTop: 14, opacity: loading || saving ? .55 : 1 }} disabled={loading||saving} onClick={()=>void save()}>{saving?"Saving...":"Save preferences"}</button>
       </div>
     </section>
 
@@ -117,17 +131,17 @@ function MobileCustomerPaymentsContent() {
       <div style={{ borderRadius: 22, padding: 18, background: "linear-gradient(145deg,#ffffff,#f8fafc)", border: "1px solid rgba(15,23,42,.09)", boxShadow: "0 16px 40px rgba(15,23,42,.07)" }}>
         <div style={{ marginBottom: 16 }}><strong style={{ display: "block", fontSize: 17 }}>Choose an amount</strong><span style={{ display: "block", marginTop: 4, color: "#64748b", fontSize: 13 }}>Credits become available after Stripe confirms the payment.</span></div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 }}>
-          {creditOptions.map((option) => <button key={option} type="button" onClick={() => { setAmount(option); setCustomAmount(""); }} style={{ minHeight: 58, borderRadius: 16, border: !customAmount && amount === option ? "2px solid #16a34a" : "1px solid #dbe3ee", background: !customAmount && amount === option ? "#f0fdf4" : "#fff", fontSize: 18, fontWeight: 800 }}>{money(option)}</button>)}
+          {creditOptions.map((option) => <button key={option} type="button" onClick={() => { setAmount(option); setCustomAmount(""); }} style={{ minHeight: 58, borderRadius: 16, border: !customAmount && amount === option ? "2px solid #16a34a" : "1px solid #dbe3ee", background: !customAmount && amount === option ? "linear-gradient(135deg,#dcfce7,#f0fdf4)" : "#fff", color: !customAmount && amount === option ? "#166534" : "#0f172a", boxShadow: !customAmount && amount === option ? "0 8px 20px rgba(22,163,74,.14)" : "0 4px 12px rgba(15,23,42,.04)", fontSize: 18, fontWeight: 800 }}>{money(option)}</button>)}
         </div>
         <label style={{ display: "block", marginTop: 14 }}><span style={{ display: "block", marginBottom: 7, fontSize: 13, fontWeight: 700 }}>Custom amount</span><div style={{ display: "flex", alignItems: "center", minHeight: 54, borderRadius: 15, border: customAmount ? "2px solid #16a34a" : "1px solid #dbe3ee", background: "#fff", padding: "0 14px" }}><b style={{ marginRight: 8 }}>$</b><input aria-label="Custom credit amount" inputMode="decimal" type="number" min={5} max={1000} step="1" placeholder="Enter amount" value={customAmount} onChange={(event)=>setCustomAmount(event.target.value)} style={{ width: "100%", border: 0, outline: 0, minHeight: 50, fontSize: 17, background: "transparent" }} /></div></label>
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}><span style={{ color: "#64748b" }}>Top-up total</span><strong style={{ fontSize: 20 }}>{validTopUp ? money(topUpAmount) : "—"}</strong></div>
-        <button type="button" className="role-mobile-primary-button" style={{ marginTop: 14, minHeight: 54 }} disabled={wallet.openingCredits>0 || !validTopUp} onClick={()=>void wallet.topUp(topUpAmount)}>{wallet.openingCredits>0?"Opening Stripe...":validTopUp?`Add ${money(topUpAmount)}`:"Enter at least $5"}</button>
+        <button type="button" style={{ ...actionStyle, marginTop: 16, width: "100%", opacity: wallet.openingCredits>0 || !validTopUp ? .55 : 1 }} disabled={wallet.openingCredits>0 || !validTopUp} onClick={()=>void wallet.topUp(topUpAmount)}>{wallet.openingCredits>0?"Opening Stripe...":validTopUp?`Add ${money(topUpAmount)}`:"Enter at least $5"}</button>
       </div>
     </section>
 
     <section className="role-mobile-section">
       <div className="role-mobile-section-head"><div><span>RECENT ACTIVITY</span><h2>Payments</h2></div></div>
-      {wallet.transactions.length===0?<div className="role-mobile-clear"><i>✓</i><span><strong>No transactions yet</strong><small>Your activity will appear here.</small></span></div>:wallet.transactions.slice(0,6).map((item)=><article className="role-mobile-priority" key={item.id}><i>{item.credits>=0?"+":"−"}</i><span><strong>{item.description||label(item.type)}</strong><small>{new Date(item.createdAt).toLocaleString("en-CA")}</small></span><b>{item.credits>=0?"+":""}{money(item.credits)}</b></article>)}
+      {wallet.transactions.length===0?<div className="role-mobile-clear"><i>✓</i><span><strong>No transactions yet</strong><small>Your activity will appear here.</small></span></div>:wallet.transactions.slice(0,6).map((item)=><article className="role-mobile-priority" key={item.id}><i>{item.credits>=0?"+":"−"}</i><span><strong>{item.description||label(item.type)}</strong><small>{item.paymentMethod === "stripe" ? "Credit or debit card · Stripe" : "Account balance"}</small><small>{new Date(item.createdAt).toLocaleString("en-CA")}</small></span><b>{item.credits>=0?"+":""}{money(item.credits)}</b></article>)}
     </section>
 
     <MobileCustomerNav active="billing"/>
