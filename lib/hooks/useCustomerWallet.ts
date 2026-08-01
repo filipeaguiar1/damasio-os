@@ -10,6 +10,7 @@ type WalletTransaction = {
   credits: number;
   balanceAfterCredits: number;
   description?: string | null;
+  paymentMethod?: "stripe" | "account_balance";
   createdAt: string;
 };
 
