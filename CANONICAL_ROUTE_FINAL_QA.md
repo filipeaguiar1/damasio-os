@@ -4,6 +4,8 @@ The canonical Route is persisted atomically in Postgres through the route-order 
 
 Smart Route previews remain unpublished until the Employee confirms Apply. Applying or restoring a route increments the canonical version and every surface replaces its complete snapshot. Local storage, client-side stop ordering and route-only geometry caches are not authoritative.
 
+Transient network failures are retried once and shown as an actionable route message rather than exposing a raw browser `TypeError`. A failed request never publishes a partial order.
+
 Required release validation:
 
 - Admin publishes the daily Route to an Employee.
