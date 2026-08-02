@@ -45,9 +45,17 @@ export type EmployeeDatabaseSmartRouteState = {
   routeVersion: number;
 };
 
+type ConfirmedRouteOrder = {
+  version: number;
+  appliedOrder: string[];
+  origin: { label: string; latitude: number; longitude: number };
+  appliedAt: string;
+};
+
 const emptyContext: EmployeeRouteMapContext = { routeId: null, routeVersion: null, stops: [] };
 const canonicalRouteVersions = new Map<string, number>();
 const smartRoutePreviewVersions = new Map<string, number>();
+const confirmedRouteOrders = new Map<string, ConfirmedRouteOrder>();
 let smartRouteApplyInFlight = false;
 
 function torontoParts(date = new Date()) {
@@ -71,8 +79,49 @@ function clearLegacySmartRouteStates() {
   }
 }
 
+function uniqueStringOrder(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const id = String(value || "");
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
+function applyConfirmedRouteOrder(
+  context: EmployeeRouteMapContext,
+  appliedOrder: string[],
+  routeVersion?: number | null,
+): EmployeeRouteMapContext {
+  const order = uniqueStringOrder(appliedOrder);
+  if (!order.length || !context.stops.length) return context;
+
+  const rank = new Map(order.map((visitId, index) => [visitId, index + 1]));
+  const reordered = [...context.stops]
+    .sort((left, right) =>
+      (rank.get(left.visitId) ?? 2147483647)
+      - (rank.get(right.visitId) ?? 2147483647)
+      || (left.routeOrder ?? 2147483647) - (right.routeOrder ?? 2147483647)
+      || left.visitId.localeCompare(right.visitId))
+    .map((stop, index) => ({
+      ...stop,
+      routeOrder: rank.get(stop.visitId) ?? stop.routeOrder ?? index + 1,
+    }));
+
+  return {
+    ...context,
+    routeVersion: routeVersion && routeVersion > 0
+      ? Math.max(routeVersion, context.routeVersion || 0)
+      : context.routeVersion,
+    stops: reordered,
+  };
+}
+
 export function routeDateForWeekday(dayName: string) {
-  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const days = ["Monday", "Tuesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const current = torontoParts();
   const currentIndex = days.indexOf(current.weekday);
   const targetIndex = days.indexOf(dayName);
@@ -185,8 +234,18 @@ export async function loadEmployeeRouteMapContext(
     }),
   } satisfies EmployeeRouteMapContext;
 
-  if (routeId && context.routeVersion) {
-    canonicalRouteVersions.set(routeId, context.routeVersion);
+  let resolvedContext = context;
+  if (routeId) {
+    const confirmed = confirmedRouteOrders.get(routeId);
+    if (confirmed && context.routeVersion && context.routeVersion > confirmed.version) {
+      confirmedRouteOrders.delete(routeId);
+    } else if (confirmed && confirmed.version >= (context.routeVersion || 0)) {
+      resolvedContext = applyConfirmedRouteOrder(context, confirmed.appliedOrder, confirmed.version);
+    }
+  }
+
+  if (routeId && resolvedContext.routeVersion) {
+    canonicalRouteVersions.set(routeId, resolvedContext.routeVersion);
   } else if (routeId) {
     try {
       await rememberCanonicalRouteVersion(routeId);
@@ -195,7 +254,7 @@ export async function loadEmployeeRouteMapContext(
     }
   }
 
-  return context;
+  return resolvedContext;
 }
 
 export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRouteMapContext): CanonicalRouteLead[] {
@@ -291,11 +350,28 @@ export async function loadEmployeeDatabaseSmartRouteState(
   if (!row) return null;
 
   const state = smartRouteStateFrom(row);
-  if (state.routeVersion > 0) {
-    canonicalRouteVersions.set(routeId, state.routeVersion);
+  const confirmed = confirmedRouteOrders.get(routeId);
+  if (confirmed && state.routeVersion > confirmed.version) {
+    confirmedRouteOrders.delete(routeId);
   }
-  if (!state.active) clearLegacySmartRouteStates();
-  return state;
+  const resolvedState = confirmed && confirmed.version >= state.routeVersion
+    ? {
+      ...state,
+      appliedOrder: confirmed.appliedOrder,
+      originLabel: confirmed.origin.label,
+      originLatitude: confirmed.origin.latitude,
+      originLongitude: confirmed.origin.longitude,
+      appliedAt: confirmed.appliedAt,
+      active: true,
+      routeVersion: confirmed.version,
+    }
+    : state;
+
+  if (resolvedState.routeVersion > 0) {
+    canonicalRouteVersions.set(routeId, resolvedState.routeVersion);
+  }
+  if (!resolvedState.active) clearLegacySmartRouteStates();
+  return resolvedState;
 }
 
 export async function optimizeEmployeeRoadRoute(params: {
@@ -375,13 +451,29 @@ export async function applyEmployeeDatabaseSmartRoute(params: {
       version: number;
       appliedOrder: string[];
     };
+    if (
+      !confirmed.saved
+      || confirmed.routeId !== params.routeId
+      || !Number.isInteger(Number(confirmed.version))
+      || !Array.isArray(confirmed.appliedOrder)
+    ) {
+      throw new Error("The database did not confirm the reviewed route.");
+    }
+
+    const appliedOrder = uniqueStringOrder(confirmed.appliedOrder.map(String));
     canonicalRouteVersions.set(params.routeId, confirmed.version);
+    confirmedRouteOrders.set(params.routeId, {
+      version: confirmed.version,
+      appliedOrder,
+      origin: params.origin,
+      appliedAt: new Date().toISOString(),
+    });
 
     completeMobileOperation(
       "Route saved",
       `${confirmed.count} houses are synchronized for Worker and Admin.`,
     );
-    return confirmed;
+    return { ...confirmed, appliedOrder };
   } catch (error) {
     const message = error instanceof Error
       ? error.message
@@ -416,6 +508,9 @@ export async function restoreEmployeeDatabaseSmartRoute(
   if (row?.route_version) {
     canonicalRouteVersions.set(routeId, Number(row.route_version));
   }
-  if (row?.restored) clearLegacySmartRouteStates();
+  if (row?.restored) {
+    confirmedRouteOrders.delete(routeId);
+    clearLegacySmartRouteStates();
+  }
   return Boolean(row?.restored);
 }
