@@ -29,7 +29,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
 
       - name: Install
@@ -37,6 +37,15 @@ jobs:
 
       - name: Validate canonical route identity
         run: node scripts/validate-canonical-route.mjs
+
+      - name: Validate Route Stops V2 schema preflight
+        run: node scripts/validate-route-v2-preflight.mjs
+
+      - name: Validate Canonical Route Stops V2
+        run: node scripts/validate-route-stops-v2.mjs
+
+      - name: Validate Smart Route preview version binding
+        run: node scripts/validate-smart-route-preview-version.mjs
 
       - name: Simulate canonical operations
         run: node scripts/simulate-canonical-operations.mjs

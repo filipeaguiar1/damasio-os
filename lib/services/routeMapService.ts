@@ -3,9 +3,15 @@ import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/c
 import type { Lead } from "@/lib/storage";
 import type { CanonicalRouteLead, CanonicalVisitStatus } from "@/lib/routes/canonicalRouteIdentity";
 import { normalizeVisitExecutionState } from "@/lib/visits/executionState";
+import {
+  beginMobileOperation,
+  completeMobileOperation,
+  failMobileOperation,
+} from "@/lib/mobile/mobileOperationStatus";
 
 export type EmployeeRouteMapContext = {
   routeId: string | null;
+  routeVersion?: number | null;
   stops: Array<{
     visitId: string;
     jobId?: string | null;
@@ -39,7 +45,18 @@ export type EmployeeDatabaseSmartRouteState = {
   routeVersion: number;
 };
 
-const emptyContext: EmployeeRouteMapContext = { routeId: null, stops: [] };
+type ConfirmedRouteOrder = {
+  version: number;
+  appliedOrder: string[];
+  origin: { label: string; latitude: number; longitude: number };
+  appliedAt: string;
+};
+
+const emptyContext: EmployeeRouteMapContext = { routeId: null, routeVersion: null, stops: [] };
+const canonicalRouteVersions = new Map<string, number>();
+const smartRoutePreviewVersions = new Map<string, number>();
+const confirmedRouteOrders = new Map<string, ConfirmedRouteOrder>();
+let smartRouteApplyInFlight = false;
 
 function torontoParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -52,8 +69,59 @@ function torontoParts(date = new Date()) {
   return Object.fromEntries(parts.map(part => [part.type, part.value]));
 }
 
+function clearLegacySmartRouteStates() {
+  if (typeof window === "undefined") return;
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.localStorage.key(index);
+    if (key?.startsWith("damasio_os_employee_smart_route_")) {
+      window.localStorage.removeItem(key);
+    }
+  }
+}
+
+function uniqueStringOrder(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const id = String(value || "");
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
+function applyConfirmedRouteOrder(
+  context: EmployeeRouteMapContext,
+  appliedOrder: string[],
+  routeVersion?: number | null,
+): EmployeeRouteMapContext {
+  const order = uniqueStringOrder(appliedOrder);
+  if (!order.length || !context.stops.length) return context;
+
+  const rank = new Map(order.map((visitId, index) => [visitId, index + 1]));
+  const reordered = [...context.stops]
+    .sort((left, right) =>
+      (rank.get(left.visitId) ?? 2147483647)
+      - (rank.get(right.visitId) ?? 2147483647)
+      || (left.routeOrder ?? 2147483647) - (right.routeOrder ?? 2147483647)
+      || left.visitId.localeCompare(right.visitId))
+    .map((stop, index) => ({
+      ...stop,
+      routeOrder: rank.get(stop.visitId) ?? stop.routeOrder ?? index + 1,
+    }));
+
+  return {
+    ...context,
+    routeVersion: routeVersion && routeVersion > 0
+      ? Math.max(routeVersion, context.routeVersion || 0)
+      : context.routeVersion,
+    stops: reordered,
+  };
+}
+
 export function routeDateForWeekday(dayName: string) {
-  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const days = ["Monday", "Tuesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const current = torontoParts();
   const currentIndex = days.indexOf(current.weekday);
   const targetIndex = days.indexOf(dayName);
@@ -72,6 +140,25 @@ async function accessToken() {
   const supabase = getSupabaseBrowserClient() as any;
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token || null;
+}
+
+async function rememberCanonicalRouteVersion(routeId: string) {
+  const supabase = getSupabaseBrowserClient() as any;
+  const { data, error } = await supabase.rpc("get_canonical_route_order_v2", {
+    p_route_id: routeId,
+  });
+  if (error) {
+    if (/get_canonical_route_order_v2|schema cache|could not find the function/i.test(error.message || "")) {
+      throw new Error("The Canonical Route Stops V2 database migration is not installed.");
+    }
+    throw new Error(error.message);
+  }
+  const version = Number(data?.version || 0);
+  if (!Number.isInteger(version) || version < 1) {
+    throw new Error("The canonical Route version could not be loaded.");
+  }
+  canonicalRouteVersions.set(routeId, version);
+  return version;
 }
 
 export async function loadEmployeeRouteMapContext(
@@ -94,6 +181,7 @@ export async function loadEmployeeRouteMapContext(
 
   const result = await response.json() as {
     routeId?: string | null;
+    routeVersion?: number | null;
     stops?: Array<{
       visitId: string;
       jobId?: string | null;
@@ -113,8 +201,11 @@ export async function loadEmployeeRouteMapContext(
     }>;
   };
 
-  return {
-    routeId: result.routeId || null,
+  const routeId = result.routeId || null;
+  const routeVersion = Number(result.routeVersion || 0);
+  const context = {
+    routeId,
+    routeVersion: Number.isInteger(routeVersion) && routeVersion > 0 ? routeVersion : null,
     stops: (result.stops || []).map(stop => {
       const execution = normalizeVisitExecutionState({
         status: stop.status,
@@ -141,7 +232,29 @@ export async function loadEmployeeRouteMapContext(
         durationSeconds: execution.durationSeconds,
       };
     }),
-  };
+  } satisfies EmployeeRouteMapContext;
+
+  let resolvedContext: EmployeeRouteMapContext = context;
+  if (routeId) {
+    const confirmed = confirmedRouteOrders.get(routeId);
+    if (confirmed && context.routeVersion && context.routeVersion > confirmed.version) {
+      confirmedRouteOrders.delete(routeId);
+    } else if (confirmed && confirmed.version >= (context.routeVersion || 0)) {
+      resolvedContext = applyConfirmedRouteOrder(context, confirmed.appliedOrder, confirmed.version);
+    }
+  }
+
+  if (routeId && resolvedContext.routeVersion) {
+    canonicalRouteVersions.set(routeId, resolvedContext.routeVersion);
+  } else if (routeId) {
+    try {
+      await rememberCanonicalRouteVersion(routeId);
+    } catch (error) {
+      console.warn("canonical-route-version-unavailable", error);
+    }
+  }
+
+  return resolvedContext;
 }
 
 export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRouteMapContext): CanonicalRouteLead[] {
@@ -234,7 +347,31 @@ export async function loadEmployeeDatabaseSmartRouteState(
   });
   if (error) throw new Error(error.message);
   const row = Array.isArray(data) ? data[0] : null;
-  return row ? smartRouteStateFrom(row) : null;
+  if (!row) return null;
+
+  const state = smartRouteStateFrom(row);
+  const confirmed = confirmedRouteOrders.get(routeId);
+  if (confirmed && state.routeVersion > confirmed.version) {
+    confirmedRouteOrders.delete(routeId);
+  }
+  const resolvedState = confirmed && confirmed.version >= state.routeVersion
+    ? {
+      ...state,
+      appliedOrder: confirmed.appliedOrder,
+      originLabel: confirmed.origin.label,
+      originLatitude: confirmed.origin.latitude,
+      originLongitude: confirmed.origin.longitude,
+      appliedAt: confirmed.appliedAt,
+      active: true,
+      routeVersion: confirmed.version,
+    }
+    : state;
+
+  if (resolvedState.routeVersion > 0) {
+    canonicalRouteVersions.set(routeId, resolvedState.routeVersion);
+  }
+  if (!resolvedState.active) clearLegacySmartRouteStates();
+  return resolvedState;
 }
 
 export async function optimizeEmployeeRoadRoute(params: {
@@ -243,6 +380,11 @@ export async function optimizeEmployeeRoadRoute(params: {
   stops: Array<{ id: string; latitude: number; longitude: number }>;
   alternative?: number;
 }) {
+  const reviewedVersion = canonicalRouteVersions.get(params.routeId);
+  if (!reviewedVersion) {
+    throw new Error("Refresh the route before creating a Smart Route preview.");
+  }
+
   const token = await accessToken();
   if (!token) throw new Error("Your Employee login expired. Sign in again.");
   const response = await fetch("/api/mobile/employee/smart-route", {
@@ -252,6 +394,7 @@ export async function optimizeEmployeeRoadRoute(params: {
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || "Road Smart Route could not be calculated.");
+  smartRoutePreviewVersions.set(params.routeId, reviewedVersion);
   return result as { orderedIds: string[]; distanceMeters: number; durationSeconds: number; alternative: number };
 }
 
@@ -262,16 +405,85 @@ export async function applyEmployeeDatabaseSmartRoute(params: {
   origin: { label: string; latitude: number; longitude: number };
   expectedVersion?: number | null;
 }) {
-  const token = await accessToken();
-  if (!token) throw new Error("Your Employee login expired. Sign in again.");
-  const response = await fetch("/api/mobile/employee/smart-route", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify({ action: "apply", routeId: params.routeId, originalOrder: params.originalOrder, appliedOrder: params.appliedOrder, origin: params.origin }),
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "Smart Route could not be applied.");
-  return Number(result.count || 0);
+  if (smartRouteApplyInFlight) {
+    throw new Error("This route is already being saved. Please wait for confirmation.");
+  }
+
+  const reviewedVersion = smartRoutePreviewVersions.get(params.routeId)
+    ?? params.expectedVersion
+    ?? canonicalRouteVersions.get(params.routeId)
+    ?? null;
+  if (!reviewedVersion) {
+    throw new Error("Refresh the route and create the preview again before applying it.");
+  }
+
+  smartRouteApplyInFlight = true;
+  beginMobileOperation(
+    "Saving Smart Route",
+    `Confirming all ${params.appliedOrder.length} houses and updating every map…`,
+  );
+
+  try {
+    const token = await accessToken();
+    if (!token) throw new Error("Your Employee login expired. Sign in again.");
+
+    const response = await fetch("/api/mobile/employee/smart-route", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        action: "apply",
+        routeId: params.routeId,
+        originalOrder: params.originalOrder,
+        appliedOrder: params.appliedOrder,
+        origin: params.origin,
+        expectedVersion: reviewedVersion,
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || "Smart Route could not be applied.");
+    }
+
+    const confirmed = result as {
+      saved: true;
+      routeId: string;
+      count: number;
+      version: number;
+      appliedOrder: string[];
+    };
+    if (
+      !confirmed.saved
+      || confirmed.routeId !== params.routeId
+      || !Number.isInteger(Number(confirmed.version))
+      || !Array.isArray(confirmed.appliedOrder)
+    ) {
+      throw new Error("The database did not confirm the reviewed route.");
+    }
+
+    const appliedOrder = uniqueStringOrder(confirmed.appliedOrder.map(String));
+    canonicalRouteVersions.set(params.routeId, confirmed.version);
+    confirmedRouteOrders.set(params.routeId, {
+      version: confirmed.version,
+      appliedOrder,
+      origin: params.origin,
+      appliedAt: new Date().toISOString(),
+    });
+
+    completeMobileOperation(
+      "Route saved",
+      `${confirmed.count} houses are synchronized for Worker and Admin.`,
+    );
+    return { ...confirmed, appliedOrder };
+  } catch (error) {
+    const message = error instanceof Error
+      ? error.message
+      : "Smart Route could not be applied.";
+    failMobileOperation("Route not changed", message);
+    throw error;
+  } finally {
+    smartRoutePreviewVersions.delete(params.routeId);
+    smartRouteApplyInFlight = false;
+  }
 }
 
 export async function restoreEmployeeDatabaseSmartRoute(
@@ -279,12 +491,26 @@ export async function restoreEmployeeDatabaseSmartRoute(
   expectedVersion?: number | null,
 ) {
   if (!isSupabaseConfigured()) throw new Error("Database route mode is not configured.");
+  const reviewedVersion = expectedVersion
+    ?? canonicalRouteVersions.get(routeId)
+    ?? null;
+  if (!reviewedVersion) {
+    throw new Error("Refresh the route before restoring its original order.");
+  }
+
   const supabase = getSupabaseBrowserClient() as any;
   const { data, error } = await supabase.rpc("restore_employee_smart_route", {
     p_route_id: routeId,
-    p_expected_version: expectedVersion ?? null,
+    p_expected_version: reviewedVersion,
   });
   if (error) throw new Error(error.message);
   const row = Array.isArray(data) ? data[0] : null;
+  if (row?.route_version) {
+    canonicalRouteVersions.set(routeId, Number(row.route_version));
+  }
+  if (row?.restored) {
+    confirmedRouteOrders.delete(routeId);
+    clearLegacySmartRouteStates();
+  }
   return Boolean(row?.restored);
 }
