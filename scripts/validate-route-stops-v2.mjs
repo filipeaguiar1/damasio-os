@@ -4,6 +4,7 @@ const read = path => fs.readFileSync(path, "utf8");
 const files = {
   foundation: read("supabase/migrations/202608020500_canonical_route_stops_v2.sql"),
   writers: read("supabase/migrations/202608020510_canonical_route_writer_wrappers_v2.sql"),
+  projection: read("supabase/migrations/202608020515_canonical_route_projection_constraint_v2.sql"),
   resetMigration: read("supabase/migrations/202608020520_canonical_route_reset_v2.sql"),
   smartApi: read("app/api/mobile/employee/smart-route/route.ts"),
   service: read("lib/services/routeMapService.ts"),
@@ -91,6 +92,16 @@ requireText(
   "route_order_audit",
   "Route order changes are not auditable.",
 );
+requireText(
+  "projection",
+  "update public.visits\n  set route_order = null\n  where route_id = p_route_id;",
+  "The compatibility projection does not clear cancelled Visit positions safely.",
+);
+requireText(
+  "projection",
+  "Cancelled Visit positions were not cleared.",
+  "Cancelled Visit projection safety is not verified.",
+);
 
 requireText(
   "resetMigration",
@@ -140,8 +151,8 @@ rejectText(
 );
 rejectText(
   "integrity",
-  '.from("visits")\n          .update',
-  "A post-RPC integrity helper still mutates Visits.",
+  ".update({",
+  "A post-RPC integrity helper still mutates the database.",
 );
 rejectText(
   "integrity",
@@ -224,5 +235,6 @@ if (failures.length) {
 console.log("Canonical Route Stops V2 validation passed.");
 console.log("Admin, Employee, movement and reset converge on transactional route writers.");
 console.log("Every non-cancelled house is durable, versioned, audited and verified.");
+console.log("Cancelled legacy positions cannot collide with the verified projection.");
 console.log("Post-write integrity checks are read-only.");
 console.log("Critical mobile writes block duplicate input and report working/success/error states.");
