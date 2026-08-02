@@ -105,18 +105,16 @@ async function requireProfile(request: NextRequest, service: any) {
   return { profile, companyId: String(companyId) };
 }
 
-async function employeeForProfile(service: any, profileId: string, companyId: string) {
+async function employeesForProfile(service: any, profileId: string, companyId: string) {
   const result = await service
     .from("employees")
     .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active,created_at")
     .eq("profile_id", profileId)
     .eq("active", true)
     .or(companyFilter(companyId))
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("created_at", { ascending: false });
   if (result.error) throw new Error(result.error.message);
-  return result.data;
+  return result.data || [];
 }
 
 async function resolveRoute(input: {
@@ -129,11 +127,13 @@ async function resolveRoute(input: {
   const { service, profile, companyId } = input;
   const role = String(profile.role);
   let employee: any = null;
+  let employeeCandidates: any[] = [];
   let route: any = null;
 
   if (role === "employee") {
-    employee = await employeeForProfile(service, profile.id, companyId);
-    if (!employee) throw new Error("No active Employee is linked to this login.");
+    employeeCandidates = await employeesForProfile(service, profile.id, companyId);
+    if (!employeeCandidates.length) throw new Error("No active Employee is linked to this login.");
+    employee = employeeCandidates[0];
   } else if (!["admin", "manager", "master"].includes(role)) {
     throw new Error("This account cannot view operational routes.");
   }
@@ -148,62 +148,97 @@ async function resolveRoute(input: {
     route = result.data;
   } else {
     if (!input.routeDate) throw new Error("routeId or date is required.");
-    if (!employee) throw new Error("Admin route reads require routeId.");
+    if (!employeeCandidates.length) throw new Error("Admin route reads require routeId.");
 
-    const byCrew = await service
-      .from("routes")
-      .select("id,crew_id,route_date,company_id,organization_id,created_at")
-      .eq("route_date", input.routeDate)
-      .eq("crew_id", employee.crew_id)
-      .or(companyFilter(companyId))
-      .order("created_at", { ascending: true })
-      .limit(2);
-    if (byCrew.error) throw new Error(byCrew.error.message);
-    if ((byCrew.data || []).length > 1) {
-      throw new Error("More than one canonical Route exists for this Employee and date.");
+    // The Visit assignment is the canonical Employee → Route relation. A login may
+    // have legacy duplicate Employee rows, so resolve across every active row linked
+    // to the authenticated profile instead of trusting the newest row or crew alone.
+    const employeeIds = employeeCandidates.map(candidate => String(candidate.id));
+    const assigned = await service
+      .from("visits")
+      .select("route_id,assigned_employee_id,crew_id")
+      .eq("scheduled_date", input.routeDate)
+      .in("assigned_employee_id", employeeIds)
+      .neq("status", "cancelled")
+      .or(companyFilter(companyId));
+    if (assigned.error) throw new Error(assigned.error.message);
+
+    const assignedRouteIds = [...new Set<string>(
+      (assigned.data || []).map((row: any) => String(row.route_id || "")).filter(Boolean),
+    )];
+    if (assignedRouteIds.length > 1) {
+      throw new Error("Employee Visits point to more than one Route for this date.");
     }
-    route = byCrew.data?.[0] || null;
+
+    if (assignedRouteIds[0]) {
+      const result = await service
+        .from("routes")
+        .select("id,crew_id,route_date,company_id,organization_id,created_at")
+        .eq("id", assignedRouteIds[0])
+        .maybeSingle();
+      if (result.error) throw new Error(result.error.message);
+      route = result.data;
+      const matchingAssignment = (assigned.data || []).find((row: any) => String(row.route_id) === assignedRouteIds[0]);
+      employee = employeeCandidates.find(candidate => String(candidate.id) === String(matchingAssignment?.assigned_employee_id))
+        || employeeCandidates.find(candidate => candidate.crew_id && String(candidate.crew_id) === String(route?.crew_id))
+        || employee;
+    }
 
     if (!route) {
-      const assigned = await service
-        .from("visits")
-        .select("route_id")
-        .eq("scheduled_date", input.routeDate)
-        .eq("assigned_employee_id", employee.id)
-        .neq("status", "cancelled")
-        .or(companyFilter(companyId));
-      if (assigned.error) throw new Error(assigned.error.message);
-      const routeIds = [...new Set<string>(
-        (assigned.data || []).map((row: any) => String(row.route_id || "")).filter(Boolean),
+      const crewIds = [...new Set<string>(
+        employeeCandidates.map(candidate => String(candidate.crew_id || "")).filter(Boolean),
       )];
-      if (routeIds.length > 1) throw new Error("Employee Visits point to more than one Route for this date.");
-      if (routeIds[0]) {
-        const result = await service
+      if (crewIds.length) {
+        const byCrew = await service
           .from("routes")
           .select("id,crew_id,route_date,company_id,organization_id,created_at")
-          .eq("id", routeIds[0])
-          .maybeSingle();
-        if (result.error) throw new Error(result.error.message);
-        route = result.data;
+          .eq("route_date", input.routeDate)
+          .in("crew_id", crewIds)
+          .or(companyFilter(companyId))
+          .order("created_at", { ascending: true })
+          .limit(2);
+        if (byCrew.error) throw new Error(byCrew.error.message);
+        if ((byCrew.data || []).length > 1) {
+          throw new Error("More than one canonical Route exists for this Employee and date.");
+        }
+        route = byCrew.data?.[0] || null;
+        if (route) {
+          employee = employeeCandidates.find(candidate => String(candidate.crew_id || "") === String(route.crew_id || "")) || employee;
+        }
       }
     }
   }
 
   if (!route || String(route.company_id || route.organization_id) !== companyId) {
+    console.warn("canonical-route-identity-miss", {
+      profileId: String(profile.id),
+      companyId,
+      routeDate: input.routeDate || null,
+      requestedRouteId: input.routeId || null,
+      employeeIds: employeeCandidates.map(candidate => String(candidate.id)),
+      crewIds: employeeCandidates.map(candidate => String(candidate.crew_id || "")).filter(Boolean),
+    });
     throw new Error("Canonical Route not found in this company.");
   }
 
-  if (employee) {
-    const assigned = await service
+  if (employeeCandidates.length) {
+    const employeeIds = employeeCandidates.map(candidate => String(candidate.id));
+    const assignment = await service
       .from("visits")
-      .select("id", { count: "exact", head: true })
+      .select("assigned_employee_id,crew_id")
       .eq("route_id", route.id)
-      .eq("assigned_employee_id", employee.id)
-      .neq("status", "cancelled");
-    if (assigned.error) throw new Error(assigned.error.message);
-    if (route.crew_id !== employee.crew_id && !assigned.count) {
+      .in("assigned_employee_id", employeeIds)
+      .neq("status", "cancelled")
+      .limit(1);
+    if (assignment.error) throw new Error(assignment.error.message);
+    const assignedRow = assignment.data?.[0];
+    const crewIds = new Set(employeeCandidates.map(candidate => String(candidate.crew_id || "")).filter(Boolean));
+    if (!assignedRow && !crewIds.has(String(route.crew_id || ""))) {
       throw new Error("This Route is not assigned to the authenticated Employee.");
     }
+    employee = employeeCandidates.find(candidate => String(candidate.id) === String(assignedRow?.assigned_employee_id))
+      || employeeCandidates.find(candidate => String(candidate.crew_id || "") === String(route.crew_id || ""))
+      || employee;
   }
 
   return { route, employee };

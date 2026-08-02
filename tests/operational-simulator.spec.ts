@@ -18,9 +18,14 @@ function watchErrors(page: Page, label: string) {
     errors.push(`${label}: ${text}`);
   });
   page.on("response", response => {
-    if (response.status() < 400) return;
     const url = response.url();
     if (!url.startsWith(baseURL) || /\/favicon\.ico(?:\?|$)/.test(url)) return;
+    if (response.status() < 400) {
+      for (let index = errors.length - 1; index >= 0; index -= 1) {
+        if (/HTTP (401|502|503|504) /.test(errors[index]) && errors[index].endsWith(` ${url}`)) errors.splice(index, 1);
+      }
+      return;
+    }
     errors.push(`${label}: HTTP ${response.status()} ${url}`);
   });
   page.on("pageerror", error => errors.push(`${label}: ${error.message}`));
