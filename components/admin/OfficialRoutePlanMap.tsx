@@ -137,7 +137,7 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
             window.clearTimeout(timeout);
           }
           if (response.ok) break;
-          const genericBadRequest = response.status === 400
+          const genericBadRequest = [400, 401].includes(response.status)
             && /^bad request$/i.test(String(result?.error || ""));
           if ((!genericBadRequest && ![502, 503, 504].includes(response.status)) || attempt === 2) {
             throw new Error(result.error || `Routes could not be loaded (${response.status}).`);

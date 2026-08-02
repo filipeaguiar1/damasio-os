@@ -203,8 +203,22 @@ export default function EmployeeRoutePage(){
     if(!selected)return;
     try{
       if(selected.canonicalVisitId){
-        await runVisitStatusOrQueue(selected.canonicalVisitId,"in_progress");
-        setMapContext(await loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,selected.canonicalVisitId,"in_progress"));
+        const visitId=selected.canonicalVisitId;
+        const transition=await runVisitStatusOrQueue(visitId,"in_progress") as {visit?:{status?:string;started_at?:string|null;finished_at?:string|null;duration_seconds?:number|null}};
+        const verified=transition.visit;
+        if(verified?.status!=="in_progress"||!verified.started_at||verified.finished_at){
+          throw new Error("The server did not confirm this Visit as active.");
+        }
+        setMapContext(current=>({...current,stops:current.stops.map(stop=>stop.visitId===visitId?{
+          ...stop,
+          status:"in_progress",
+          startedAt:verified.started_at||undefined,
+          finishedAt:undefined,
+          durationSeconds:undefined,
+        }:stop)}));
+        void loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,visitId,"in_progress")
+          .then(setMapContext)
+          .catch(error=>setMenuMessage(error instanceof Error?error.message:"The active Visit could not be refreshed."));
       }else{
         startServiceSession(selected.id,profile.name,crew);
       }
@@ -224,8 +238,22 @@ export default function EmployeeRoutePage(){
     if(!window.confirm("Complete this house and mark it as Done?"))return;
     try{
       if(selected.canonicalVisitId){
-        await runVisitStatusOrQueue(selected.canonicalVisitId,"completed");
-        setMapContext(await loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,selected.canonicalVisitId,"completed"));
+        const visitId=selected.canonicalVisitId;
+        const transition=await runVisitStatusOrQueue(visitId,"completed") as {visit?:{status?:string;started_at?:string|null;finished_at?:string|null;duration_seconds?:number|null}};
+        const verified=transition.visit;
+        if(verified?.status!=="completed"||!verified.started_at||!verified.finished_at||!Number.isFinite(Number(verified.duration_seconds))){
+          throw new Error("The server did not confirm this Visit as completed.");
+        }
+        setMapContext(current=>({...current,stops:current.stops.map(stop=>stop.visitId===visitId?{
+          ...stop,
+          status:"completed",
+          startedAt:verified.started_at||undefined,
+          finishedAt:verified.finished_at||undefined,
+          durationSeconds:Number(verified.duration_seconds),
+        }:stop)}));
+        void loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,visitId,"completed")
+          .then(setMapContext)
+          .catch(error=>setMenuMessage(error instanceof Error?error.message:"The completed Visit could not be refreshed."));
       }else{
         finishServiceSession(selected.id,serviceComment);
       }

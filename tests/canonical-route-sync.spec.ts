@@ -48,7 +48,7 @@ async function authRequest<T>(page: Page, path: string, init?: { method?: string
     } catch (error) {
       lastError = error instanceof Error ? error.message : lastError;
       const retryable = /fetch failed|failed to fetch|network|abort/i.test(lastError)
-        || /^HTTP_400:Bad Request$/i.test(lastError);
+        || /^HTTP_(400|401):Bad Request$/i.test(lastError);
       if (attempt === 2 || !retryable) {
         throw new Error(lastError.replace(/^HTTP_\d+:/, ""));
       }

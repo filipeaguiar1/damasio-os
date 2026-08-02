@@ -49,8 +49,9 @@ export async function runVisitStatusOrQueue(
     resolvedReason = window.prompt("Why are you resetting this Visit? A reason is required.")?.trim() || "";
     if (resolvedReason.length < 5) throw new Error("Reset cancelled. A reason with at least 5 characters is required.");
   }
+  let result: Record<string, any> | null = null;
   try {
-    await changeEmployeeVisitStatus(visitId, status, resolvedReason || undefined);
+    result = await changeEmployeeVisitStatus(visitId, status, resolvedReason || undefined) as Record<string, any>;
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     if (status !== "scheduled" || !/completed.*reopen|requires reopen/i.test(message)) throw error;
@@ -61,9 +62,9 @@ export async function runVisitStatusOrQueue(
     if (confirmation?.trim().toUpperCase() !== "REOPEN") {
       throw new Error("Completed Visit Reopen cancelled.");
     }
-    await reopenEmployeeCompletedVisit(visitId, resolvedReason);
+    result = await reopenEmployeeCompletedVisit(visitId, resolvedReason) as Record<string, any>;
   }
-  return { queued: false };
+  return { queued: false, ...(result || {}) };
 }
 
 export async function flushOfflineActionQueue() {
