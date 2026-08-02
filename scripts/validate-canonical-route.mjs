@@ -60,7 +60,7 @@ assert.match(serviceMigration, /insert into public\.route_stops/);
 assert.match(serviceMigration, /set route_order = requested\.position::integer/);
 assert.match(serviceMigration, /insert into public\.route_order_state/);
 assert.match(serviceMigration, /insert into public\.employee_smart_route_state/);
-assert.match(serviceMigration, /Route verification failed\. Nothing was changed\./);
+assert.match(serviceMigration, /Route verification failed\. requested=%, stored=%, projected=%/);
 
 assert.match(routeReader, /from\("route_stops"\)/, "Canonical route reads must start at route_stops.");
 assert.match(routeReader, /No projection fallback is allowed/, "Inconsistent canonical routes must fail closed.");
