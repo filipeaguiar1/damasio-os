@@ -25,15 +25,10 @@ jobs:
       - name: Apply staged repair
         run: python scripts/apply-route-soft-cleanup.py
 
-      - name: Restore workflows and publish repair
+      - name: Publish code repair
         run: |
-          git show HEAD^:.github/workflows/canonical-route-check.yml > .github/workflows/canonical-route-check.yml
-          git show 8216359d94b32d8f52c1f6febcf3dffa496409e2:.github/workflows/canonical-map-qa.yml > .github/workflows/canonical-map-qa.yml
-          git show 291ba2876924139e4dd5a5642f921b5d9f1165f3:.github/workflows/operational-simulator-e2e.yml > .github/workflows/operational-simulator-e2e.yml
-          rm -f .github/workflows/source-bundle.yml
-          rm -f scripts/apply-route-soft-cleanup.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add app/api/admin/operational-simulator/route.ts app/api/admin/routes/route.ts tests/operational-simulator.spec.ts tests/canonical-route-sync.spec.ts
           git commit -m "fix(simulator): archive legacy rows when protected deletes are unavailable"
           git push origin HEAD:feature/25-30-homes-simulator-v1
