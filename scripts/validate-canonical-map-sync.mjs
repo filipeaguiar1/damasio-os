@@ -149,9 +149,9 @@ assert.match(
   /route_version: input\.version/,
   "Smart Route state must be stamped with the same canonical version.",
 );
-assert.match(
-  canonicalWriter,
-  /verified\.currentOrder\.join\("\\\|"\)/,
+assert.equal(
+  canonicalWriter.includes('verified.currentOrder.join("|")'),
+  true,
   "Every compatibility write must verify the stored canonical order before returning success.",
 );
 
