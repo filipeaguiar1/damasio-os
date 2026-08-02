@@ -123,9 +123,60 @@ export async function GET(request: NextRequest) {
         && visit.crew_id === employee.crew_id
       ));
 
-    const propertyIds = unique(assignedVisits.map((visit: any) => visit.property_id));
-    const customerIds = unique(assignedVisits.map((visit: any) => visit.customer_id));
-    const jobIds = unique(assignedVisits.map((visit: any) => visit.job_id));
+    const assignedRouteIds = unique(assignedVisits.map((visit: any) => visit.route_id));
+    const routeStopPositions = new Map<string, number>();
+    const routeVersions = new Map<string, number>();
+
+    if (assignedRouteIds.length) {
+      const [routeStopsResult, routeStatesResult] = await Promise.all([
+        service
+          .from("route_stops")
+          .select("route_id,visit_id,position")
+          .in("route_id", assignedRouteIds),
+        service
+          .from("route_order_state")
+          .select("route_id,version")
+          .in("route_id", assignedRouteIds),
+      ]);
+
+      if (routeStopsResult.error) {
+        console.warn("employee-today-route-stops", routeStopsResult.error.message);
+      } else {
+        for (const stop of routeStopsResult.data || []) {
+          const position = Number((stop as any).position || 0);
+          if ((stop as any).visit_id && Number.isInteger(position) && position > 0) {
+            routeStopPositions.set(String((stop as any).visit_id), position);
+          }
+        }
+      }
+
+      if (routeStatesResult.error) {
+        console.warn("employee-today-route-version", routeStatesResult.error.message);
+      } else {
+        for (const state of routeStatesResult.data || []) {
+          const version = Number((state as any).version || 0);
+          if ((state as any).route_id && Number.isInteger(version) && version > 0) {
+            routeVersions.set(String((state as any).route_id), version);
+          }
+        }
+      }
+    }
+
+    const routeRank = new Map(assignedRouteIds.map((routeId, index) => [routeId, index]));
+    const orderedAssignedVisits = [...assignedVisits].sort((left: any, right: any) => {
+      const leftRouteRank = routeRank.get(left.route_id) ?? 9999;
+      const rightRouteRank = routeRank.get(right.route_id) ?? 9999;
+      const leftOrder = routeStopPositions.get(String(left.id)) ?? left.route_order ?? 2147483647;
+      const rightOrder = routeStopPositions.get(String(right.id)) ?? right.route_order ?? 2147483647;
+      return leftRouteRank - rightRouteRank
+        || leftOrder - rightOrder
+        || String(left.created_at || "").localeCompare(String(right.created_at || ""))
+        || String(left.id).localeCompare(String(right.id));
+    });
+
+    const propertyIds = unique(orderedAssignedVisits.map((visit: any) => visit.property_id));
+    const customerIds = unique(orderedAssignedVisits.map((visit: any) => visit.customer_id));
+    const jobIds = unique(orderedAssignedVisits.map((visit: any) => visit.job_id));
     const empty = Promise.resolve({ data: [] as any[], error: null });
 
     const [propertiesResult, customersResult, jobsResult] = await Promise.all([
@@ -148,7 +199,7 @@ export async function GET(request: NextRequest) {
     const customers = new Map((customersResult.data || []).map((row: any) => [row.id, row]));
     const jobs = new Map((jobsResult.data || []).map((row: any) => [row.id, row]));
 
-    const stops = assignedVisits.map((visit: any) => {
+    const stops = orderedAssignedVisits.map((visit: any) => {
       const property = properties.get(visit.property_id) as any;
       const customer = customers.get(visit.customer_id) as any;
       const job = jobs.get(visit.job_id) as any;
@@ -170,7 +221,7 @@ export async function GET(request: NextRequest) {
         postalCode: property?.postal_code || "",
         latitude: null,
         longitude: null,
-        routeOrder: visit.route_order,
+        routeOrder: routeStopPositions.get(String(visit.id)) ?? visit.route_order,
         status: visit.status,
         customerName: customer?.full_name || "Customer",
         serviceName: job?.service_name || "Property Service",
@@ -183,25 +234,18 @@ export async function GET(request: NextRequest) {
     });
 
     const routeId = stops.find((stop: any) => stop.routeId)?.routeId || null;
-    let routeVersion: number | null = null;
-    if (routeId) {
-      const { data: state, error: stateError } = await service
-        .from("route_order_state")
-        .select("version")
-        .eq("route_id", routeId)
-        .maybeSingle();
-      if (stateError) {
-        console.warn("employee-today-route-version", stateError.message);
-      }
-      const version = Number(state?.version || 0);
-      routeVersion = Number.isInteger(version) && version > 0 ? version : 1;
-    }
+    const routeVersion = routeId
+      ? routeVersions.get(String(routeId)) ?? 1
+      : null;
+    const canonicalOrderSource = routeStopPositions.size ? "route_stops_v2" : "visits_route_order";
 
     console.info("employee-today-route-ok", {
       employeeId: employee.id,
       companyId,
       date,
+      routeId,
       routeVersion,
+      canonicalOrderSource,
       repairedDemoAssignmentCount: repairedIds.length,
       stopCount: stops.length,
       routeLinkedCount: stops.filter((stop: any) => Boolean(stop.routeId)).length,
