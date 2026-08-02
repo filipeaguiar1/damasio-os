@@ -71,7 +71,7 @@ requireText("resetApi", "resetCompanyRouteOwnership(user, companyId", "The reset
 requireText("service", "canonicalRouteVersions", "The reviewed Route version is not retained with the loaded map.");
 requireText("service", 'rpc("get_canonical_route_order_v2"', "The map does not load its canonical Route version.");
 requireText("service", "expectedVersion: reviewedVersion", "Apply does not send the exact reviewed Route version.");
-requireText("service", "Refresh the route before applying this preview.", "Apply can continue without a reviewed Route version.");
+requireText("service", "Refresh the route and create the preview again before applying it.", "Apply can continue without a reviewed Route version.");
 requireText("service", "clearLegacySmartRouteStates", "Inactive database state can resurrect a local Smart Route.");
 requireText("service", "smartRouteApplyInFlight", "Repeated Apply clicks are not guarded.");
 requireText("service", "beginMobileOperation", "Route persistence does not announce its working state.");
