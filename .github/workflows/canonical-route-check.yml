@@ -44,6 +44,9 @@ jobs:
       - name: Validate Canonical Route Stops V2
         run: node scripts/validate-route-stops-v2.mjs
 
+      - name: Validate Smart Route preview version binding
+        run: node scripts/validate-smart-route-preview-version.mjs
+
       - name: Simulate canonical operations
         run: node scripts/simulate-canonical-operations.mjs
 
