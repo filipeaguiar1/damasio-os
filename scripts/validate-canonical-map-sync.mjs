@@ -34,7 +34,7 @@ assert.doesNotMatch(canonicalApi, /\.from\([^\n]+\)\.(?:insert|upsert|update|del
 
 assert.match(canonicalWriter, /service\.rpc\(\s*"apply_canonical_route_order_v2_service"/, "All route applies must use the one service transaction.");
 assert.match(canonicalWriter, /p_actor_profile_id: context\.profile\.id/, "The service writer must audit the authenticated actor.");
-assert.match(canonicalWriter, /user\.rpc\(\s*"restore_canonical_route_order_v2"/, "All restores must use the canonical restore transaction.");
+assert.match(canonicalWriter, /context\.user\.rpc\(\s*"restore_canonical_route_order_v2"/, "All restores must use the canonical restore transaction.");
 assert.doesNotMatch(canonicalWriter, /replace_canonical_route_order_v2|employee_smart_route_state.*upsert/, "The API cannot use independent compatibility writers.");
 assert.doesNotMatch(canonicalWriter, /\.from\("route_stops"\)|\.from\("visits"\)\.(?:insert|upsert|update|delete)/, "The browser API cannot manually rewrite canonical tables.");
 assert.match(canonicalWriter, /A reviewed routeVersion is required/, "Stale clients must not write without optimistic concurrency.");
