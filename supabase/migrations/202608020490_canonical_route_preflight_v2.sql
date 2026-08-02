@@ -47,7 +47,8 @@ begin
       ('route_id'),('company_id'),('crew_id'),('route_date'),
       ('original_order'),('applied_order'),('origin_label'),
       ('origin_latitude'),('origin_longitude'),('active'),
-      ('applied_by_profile_id'),('applied_at'),('route_version'),('updated_at')
+      ('applied_by_profile_id'),('applied_at'),('restored_at'),
+      ('restored_by_profile_id'),('route_version'),('updated_at')
     ) as required(column_name)
     where not exists (
       select 1
@@ -58,6 +59,23 @@ begin
     )
   loop
     v_missing := array_append(v_missing, 'column employee_smart_route_state.' || v_constraint.column_name);
+  end loop;
+
+  for v_constraint in
+    select required.column_name
+    from (values
+      ('organization_id'),('company_id'),('actor_profile_id'),('action'),
+      ('entity_type'),('entity_id'),('details'),('metadata')
+    ) as required(column_name)
+    where not exists (
+      select 1
+      from information_schema.columns c
+      where c.table_schema='public'
+        and c.table_name='activity_log'
+        and c.column_name=required.column_name
+    )
+  loop
+    v_missing := array_append(v_missing, 'column activity_log.' || v_constraint.column_name);
   end loop;
 
   if to_regprocedure('public.current_company_id()') is null then
