@@ -109,8 +109,6 @@ function contextFromStops(routeId: string | null | undefined, stops: RouteStopPa
         jobId: stop.jobId || null,
         customerId: stop.customerId || null,
         propertyId: stop.propertyId || null,
-        // Canonical map snapshots return the complete property address. Older
-        // employee payloads use addressLine1, so both remain supported.
         addressLine1: stop.address || stop.addressLine1 || "",
         latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : null,
         longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : null,
@@ -152,9 +150,6 @@ export async function loadEmployeeRouteMapContext(
   const fallback = contextFromStops(result.routeId, result.stops || []);
   if (!result.routeId) return fallback;
 
-  // The same canonical snapshot powers Admin, browser Employee and mobile
-  // Employee. This keeps the visible list, marker numbers, origin and driving
-  // line on one order/version instead of combining API and localStorage data.
   try {
     const canonicalResponse = await fetch(
       `/api/map/canonical-route?routeId=${encodeURIComponent(result.routeId)}`,
@@ -237,10 +232,6 @@ export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRou
 export async function loadCachedRouteGeometry(
   _routeId?: string,
 ): Promise<{ status?: string; geometry?: RouteLineString | null } | null> {
-  // A route-id cache does not encode the current origin or waypoint coordinates.
-  // Using it can overwrite the freshly calculated START → stop 1 → stop 2 geometry
-  // after an address, origin, or route order changes. The map's coordinate-keyed
-  // client cache remains safe and is used by EmployeeRouteMap before recalculation.
   return null;
 }
 
@@ -273,6 +264,24 @@ export async function loadEmployeeDatabaseSmartRouteState(
   return row ? smartRouteStateFrom(row) : null;
 }
 
+async function canonicalOrderRequest(body: Record<string, unknown>) {
+  const token = await accessToken();
+  if (!token) throw new Error("Your session expired. Sign in again.");
+
+  const response = await fetch("/api/map/canonical-route/order", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+    body: JSON.stringify(body),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || "Canonical route order could not be saved.");
+  return result as Record<string, any>;
+}
+
 export async function applyEmployeeDatabaseSmartRoute(params: {
   routeId: string;
   originalOrder: string[];
@@ -281,19 +290,14 @@ export async function applyEmployeeDatabaseSmartRoute(params: {
   expectedVersion?: number | null;
 }) {
   if (!isSupabaseConfigured()) throw new Error("Database route mode is not configured.");
-  const supabase = getSupabaseBrowserClient() as any;
-  const { data, error } = await supabase.rpc("apply_employee_smart_route", {
-    p_route_id: params.routeId,
-    p_original_order: params.originalOrder,
-    p_applied_order: params.appliedOrder,
-    p_origin_label: params.origin.label,
-    p_origin_latitude: params.origin.latitude,
-    p_origin_longitude: params.origin.longitude,
-    p_expected_version: params.expectedVersion ?? null,
+  const result = await canonicalOrderRequest({
+    action: "apply",
+    routeId: params.routeId,
+    orderedVisitIds: params.appliedOrder,
+    origin: params.origin,
+    expectedVersion: params.expectedVersion ?? null,
   });
-  if (error) throw new Error(error.message);
-  const row = Array.isArray(data) ? data[0] : null;
-  return Number(row?.route_version || 0);
+  return Number(result.version || 0);
 }
 
 export async function restoreEmployeeDatabaseSmartRoute(
@@ -301,12 +305,10 @@ export async function restoreEmployeeDatabaseSmartRoute(
   expectedVersion?: number | null,
 ) {
   if (!isSupabaseConfigured()) throw new Error("Database route mode is not configured.");
-  const supabase = getSupabaseBrowserClient() as any;
-  const { data, error } = await supabase.rpc("restore_employee_smart_route", {
-    p_route_id: routeId,
-    p_expected_version: expectedVersion ?? null,
+  const result = await canonicalOrderRequest({
+    action: "restore",
+    routeId,
+    expectedVersion: expectedVersion ?? null,
   });
-  if (error) throw new Error(error.message);
-  const row = Array.isArray(data) ? data[0] : null;
-  return Boolean(row?.restored);
+  return Boolean(result.restored);
 }
