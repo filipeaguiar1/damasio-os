@@ -11,6 +11,7 @@ import {
 
 export type EmployeeRouteMapContext = {
   routeId: string | null;
+  routeVersion?: number | null;
   stops: Array<{
     visitId: string;
     jobId?: string | null;
@@ -44,7 +45,7 @@ export type EmployeeDatabaseSmartRouteState = {
   routeVersion: number;
 };
 
-const emptyContext: EmployeeRouteMapContext = { routeId: null, stops: [] };
+const emptyContext: EmployeeRouteMapContext = { routeId: null, routeVersion: null, stops: [] };
 const canonicalRouteVersions = new Map<string, number>();
 const smartRoutePreviewVersions = new Map<string, number>();
 let smartRouteApplyInFlight = false;
@@ -131,6 +132,7 @@ export async function loadEmployeeRouteMapContext(
 
   const result = await response.json() as {
     routeId?: string | null;
+    routeVersion?: number | null;
     stops?: Array<{
       visitId: string;
       jobId?: string | null;
@@ -151,8 +153,10 @@ export async function loadEmployeeRouteMapContext(
   };
 
   const routeId = result.routeId || null;
+  const routeVersion = Number(result.routeVersion || 0);
   const context = {
     routeId,
+    routeVersion: Number.isInteger(routeVersion) && routeVersion > 0 ? routeVersion : null,
     stops: (result.stops || []).map(stop => {
       const execution = normalizeVisitExecutionState({
         status: stop.status,
@@ -181,7 +185,9 @@ export async function loadEmployeeRouteMapContext(
     }),
   } satisfies EmployeeRouteMapContext;
 
-  if (routeId) {
+  if (routeId && context.routeVersion) {
+    canonicalRouteVersions.set(routeId, context.routeVersion);
+  } else if (routeId) {
     try {
       await rememberCanonicalRouteVersion(routeId);
     } catch (error) {
