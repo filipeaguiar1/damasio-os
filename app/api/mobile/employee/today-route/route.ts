@@ -182,10 +182,26 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    const routeId = stops.find((stop: any) => stop.routeId)?.routeId || null;
+    let routeVersion: number | null = null;
+    if (routeId) {
+      const { data: state, error: stateError } = await service
+        .from("route_order_state")
+        .select("version")
+        .eq("route_id", routeId)
+        .maybeSingle();
+      if (stateError) {
+        console.warn("employee-today-route-version", stateError.message);
+      }
+      const version = Number(state?.version || 0);
+      routeVersion = Number.isInteger(version) && version > 0 ? version : 1;
+    }
+
     console.info("employee-today-route-ok", {
       employeeId: employee.id,
       companyId,
       date,
+      routeVersion,
       repairedDemoAssignmentCount: repairedIds.length,
       stopCount: stops.length,
       routeLinkedCount: stops.filter((stop: any) => Boolean(stop.routeId)).length,
@@ -203,7 +219,8 @@ export async function GET(request: NextRequest) {
         email: employee.email || null,
         avatarUrl,
       },
-      routeId: stops.find((stop: any) => stop.routeId)?.routeId || null,
+      routeId,
+      routeVersion,
       date,
       stops,
       repairedDemoAssignmentCount: repairedIds.length,
