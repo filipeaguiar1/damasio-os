@@ -29,40 +29,10 @@ function projectedOrder(visits: any[]) {
     .map(visit => String(visit.id));
 }
 
-function pause(milliseconds: number) {
-  return new Promise(resolve => setTimeout(resolve, milliseconds));
-}
-
 async function must<T = any>(promise: PromiseLike<{ data: T; error: any }>, label: string) {
   const result = await promise;
   if (result.error) throw new Error(`${label}: ${result.error.message}`);
   return result.data;
-}
-
-async function replaceRouteStops(service: any, routeId: string, companyId: string, order: string[]) {
-  let lastError = "";
-  for (let attempt = 1; attempt <= 6; attempt += 1) {
-    const removed = await service.from("route_stops").delete().eq("route_id", routeId);
-    if (removed.error) throw new Error(`reset route stops ${routeId}: ${removed.error.message}`);
-    await pause(attempt * 300);
-
-    if (!order.length) return;
-    const inserted = await service.from("route_stops").insert(order.map((visitId: string, index: number) => ({
-      company_id: companyId,
-      route_id: routeId,
-      visit_id: visitId,
-      position: index + 1,
-      updated_at: new Date().toISOString(),
-    })));
-    if (!inserted.error) return;
-
-    lastError = inserted.error.message;
-    if (!/duplicate key value/i.test(lastError) || attempt === 6) {
-      throw new Error(`write canonical stops ${routeId}: ${lastError}`);
-    }
-    await pause(attempt * 500);
-  }
-  throw new Error(`write canonical stops ${routeId}: ${lastError || "unknown error"}`);
 }
 
 export async function GET() {
@@ -83,7 +53,10 @@ export async function GET() {
     const yorkProperties = (properties || []).filter(property => exactYork(property.address_line1));
     const customerIds = unique(yorkProperties.map(property => property.customer_id));
     const customers = customerIds.length
-      ? await must<any[]>(service.from("customers").select("id,full_name,email,notes").in("id", customerIds), "load York customers")
+      ? await must<any[]>(
+          service.from("customers").select("id,full_name,email,notes").in("id", customerIds),
+          "load York customers",
+        )
       : [];
     const demoCustomerIds = new Set((customers || []).filter(isDemo).map(customer => String(customer.id)));
     const propertyIds = yorkProperties
@@ -92,7 +65,9 @@ export async function GET() {
 
     const yorkVisits = propertyIds.length
       ? await must<any[]>(
-          service.from("visits").select("id,route_id,job_id,customer_id,property_id,status").in("property_id", propertyIds),
+          service.from("visits")
+            .select("id,route_id,job_id,customer_id,property_id,status")
+            .in("property_id", propertyIds),
           "load York visits",
         )
       : [];
@@ -109,9 +84,11 @@ export async function GET() {
       ...(staleStops || []).map(stop => stop.route_id),
     ]);
 
+    if ((yorkVisits || []).some(visit => String(visit.status) === "in_progress")) {
+      throw new Error("The retired York demo visit is currently in progress.");
+    }
+
     if (yorkVisitIds.length) {
-      const active = (yorkVisits || []).filter(visit => String(visit.status) === "in_progress");
-      if (active.length) throw new Error("The retired York demo visit is currently in progress.");
       await must(
         service.from("visits").update({
           status: "cancelled",
@@ -125,10 +102,20 @@ export async function GET() {
         }).in("id", yorkVisitIds),
         "cancel every York demo visit",
       );
-      await must(service.from("route_stops").delete().in("visit_id", yorkVisitIds), "remove every York route stop");
+      await must(
+        service.from("route_stops").delete().in("visit_id", yorkVisitIds),
+        "remove every York route stop",
+      );
     }
 
-    const reports: Array<{ routeId: string; visits: number; stops: number; version: number }> = [];
+    const reports: Array<{
+      routeId: string;
+      visits: number;
+      stops: number;
+      version: number;
+      orderMatches: boolean;
+    }> = [];
+
     for (const routeId of affectedRouteIds) {
       const visits = await must<any[]>(
         service.from("visits")
@@ -149,50 +136,31 @@ export async function GET() {
       const storedOrder = unique((currentStops || [])
         .map(stop => String(stop.visit_id))
         .filter(visitId => activeIds.has(visitId)));
-      const order = storedOrder.length === visits.length ? storedOrder : projectedOrder(visits);
-      const companyId = String(visits[0].company_id || visits[0].organization_id || "");
-      if (!companyId) throw new Error(`Route ${routeId} is missing its company ID.`);
+      const fallback = projectedOrder(visits);
+      const order = [...storedOrder];
+      for (const visitId of fallback) if (!order.includes(visitId)) order.push(visitId);
 
-      await must(
-        service.from("visits").update({ route_order: null }).eq("route_id", routeId).neq("status", "cancelled"),
-        `reset visit order ${routeId}`,
-      );
-      await replaceRouteStops(service, routeId, companyId, order);
-      for (let index = 0; index < order.length; index += 1) {
-        await must(
-          service.from("visits").update({ route_order: index + 1 }).eq("route_id", routeId).eq("id", order[index]),
-          `write route projection ${routeId}:${index + 1}`,
-        );
-      }
+      const replaced = await service.rpc("replace_canonical_route_order_v2", {
+        p_route_id: routeId,
+        p_ordered_visit_ids: order,
+        p_source: "preview_repair_canonical_route",
+        p_actor_profile_id: null,
+        p_expected_version: null,
+        p_allow_empty: true,
+      });
+      if (replaced.error) throw new Error(`replace canonical route ${routeId}: ${replaced.error.message}`);
+      const version = Number(replaced.data?.version || 0);
 
-      const state = await must<any>(
-        service.from("route_order_state").select("version").eq("route_id", routeId).maybeSingle(),
-        `load route version ${routeId}`,
-      );
-      const nextVersion = Number(state?.version || 1) + 1;
-      await must(
-        service.from("route_order_state").upsert({
-          route_id: routeId,
-          company_id: companyId,
-          version: nextVersion,
-          last_source: "preview_repair_canonical_route",
-          last_actor_profile_id: null,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "route_id" }),
-        `write route version ${routeId}`,
-      );
-      await must(
-        service.from("employee_smart_route_state").update({
-          original_order: order,
-          applied_order: order,
-          active: false,
-          restored_at: new Date().toISOString(),
-          restored_by_profile_id: null,
-          route_version: nextVersion,
-          updated_at: new Date().toISOString(),
-        }).eq("route_id", routeId),
-        `reset Smart Route state ${routeId}`,
-      );
+      const smartState = await service.from("employee_smart_route_state").update({
+        original_order: order,
+        applied_order: order,
+        active: false,
+        restored_at: new Date().toISOString(),
+        restored_by_profile_id: null,
+        route_version: version,
+        updated_at: new Date().toISOString(),
+      }).eq("route_id", routeId);
+      if (smartState.error) throw new Error(`reset Smart Route state ${routeId}: ${smartState.error.message}`);
 
       const verifiedStops = await must<any[]>(
         service.from("route_stops").select("visit_id,position").eq("route_id", routeId).order("position"),
@@ -204,14 +172,25 @@ export async function GET() {
       );
       const stopOrder = (verifiedStops || []).map(row => String(row.visit_id));
       const visitOrder = (verifiedVisits || []).map(row => String(row.id));
-      if (stopOrder.join("|") !== order.join("|") || visitOrder.join("|") !== order.join("|")) {
+      const orderMatches = stopOrder.join("|") === order.join("|")
+        && visitOrder.join("|") === order.join("|");
+      if (!orderMatches) {
         throw new Error(`Canonical verification failed for route ${routeId}.`);
       }
-      reports.push({ routeId, visits: visitOrder.length, stops: stopOrder.length, version: nextVersion });
+
+      reports.push({
+        routeId,
+        visits: visitOrder.length,
+        stops: stopOrder.length,
+        version,
+        orderMatches,
+      });
     }
 
     const jobIds = unique((yorkVisits || []).map(visit => visit.job_id));
-    if (jobIds.length) await must(service.from("jobs").update({ active: false }).in("id", jobIds), "deactivate York jobs");
+    if (jobIds.length) {
+      await must(service.from("jobs").update({ active: false }).in("id", jobIds), "deactivate York jobs");
+    }
     if (demoCustomerIds.size) {
       await must(
         service.from("customers").update({ archived_at: new Date().toISOString() }).in("id", [...demoCustomerIds]),
@@ -227,7 +206,12 @@ export async function GET() {
       : [];
     if (remainingYork.length) throw new Error("Active York demo visits remain after repair.");
 
-    return NextResponse.json({ repaired: true, removedYorkVisits: yorkVisitIds.length, activeYorkVisits: 0, routes: reports });
+    return NextResponse.json({
+      repaired: true,
+      removedYorkVisits: yorkVisitIds.length,
+      activeYorkVisits: 0,
+      routes: reports,
+    });
   } catch (error) {
     console.error("qa-repair-canonical-route", error);
     return NextResponse.json(
