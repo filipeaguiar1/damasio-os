@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getEmployeeTasks, getSessionForLead } from "@/lib/storage";
+import { getSessionForLead } from "@/lib/storage";
 import type { CanonicalRouteLead } from "@/lib/routes/canonicalRouteIdentity";
-import { loadCachedRouteGeometry, loadEmployeeDatabaseSmartRouteState } from "@/lib/services/routeMapService";
 import type { RouteLineString } from "@/lib/maps/types";
 import { readRoadGeometry, saveRoadGeometry } from "@/lib/maps/clientMapCache";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -21,12 +20,39 @@ type Props = {
   originPoint?: RouteOriginPoint | null;
 };
 
-type AdminRouteEmployee = {
-  id?: string;
-  employeeId?: string;
-  crewId?: string;
-  name?: string;
-  routeStartAddress?: string | null;
+type CanonicalMapStop = {
+  visitId: string;
+  jobId?: string | null;
+  routeId?: string | null;
+  customerId?: string | null;
+  propertyId?: string | null;
+  employeeId?: string | null;
+  crewId?: string | null;
+  address: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  routeOrder: number;
+  status: string;
+  customerName?: string;
+  serviceName?: string;
+  scheduledDate?: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  durationSeconds?: number | null;
+};
+
+type CanonicalMapSnapshot = {
+  routeId: string;
+  routeDate?: string;
+  version: number;
+  activeSmartRoute: boolean;
+  origin?: {
+    latitude?: number | null;
+    longitude?: number | null;
+    label?: string;
+    address?: string | null;
+  } | null;
+  stops: CanonicalMapStop[];
 };
 
 const HAMILTON: [number, number] = [43.2557, -79.8711];
@@ -56,93 +82,166 @@ export function EmployeeRouteMap({
   const routeLayerRef = useRef<any>(null);
   const locationLayerRef = useRef<any>(null);
   const didInitialFit = useRef(false);
+  const snapshotSignatureRef = useRef("");
   const [selectedId, setSelectedId] = useState("");
   const [geometry, setGeometry] = useState<RouteLineString | null>(null);
   const [resolvedRoute, setResolvedRoute] = useState<CanonicalRouteLead[]>(route);
-  const [autoOrigin, setAutoOrigin] = useState<RouteOriginPoint | null>(null);
-  const [canonicalOrigin, setCanonicalOrigin] = useState<RouteOriginPoint | null>(null);
+  const [snapshot, setSnapshot] = useState<CanonicalMapSnapshot | null>(null);
+  const [snapshotOrigin, setSnapshotOrigin] = useState<RouteOriginPoint | null>(null);
   const [mapStatus, setMapStatus] = useState("Locating properties...");
   const [mapReady, setMapReady] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
-  const routeKey = route.map(lead => `${lead.id}:${lead.address}:${lead.routeOrder ?? ""}:${lead.canonicalVisitStatus || lead.status}`).join("|");
-  const effectiveOrigin = canonicalOrigin || originPoint || autoOrigin;
-  const originKey = effectiveOrigin ? `${effectiveOrigin.latitude}:${effectiveOrigin.longitude}` : "";
+  const effectiveRouteId = routeId
+    || route.find(lead => Boolean(lead.canonicalRouteId))?.canonicalRouteId;
 
   useEffect(() => {
     let cancelled = false;
-    setCanonicalOrigin(null);
-    if (!routeId) return () => { cancelled = true; };
+    snapshotSignatureRef.current = "";
+    setSnapshot(null);
+    if (!effectiveRouteId) return () => { cancelled = true; };
 
-    void loadEmployeeDatabaseSmartRouteState(routeId)
-      .then(state => {
-        if (cancelled
-          || !state?.active
-          || !Number.isFinite(state.originLatitude)
-          || !Number.isFinite(state.originLongitude)) return;
-        setCanonicalOrigin({
-          latitude: Number(state.originLatitude),
-          longitude: Number(state.originLongitude),
-          label: state.originLabel || "Route start",
-        });
-      })
-      .catch(() => {
-        if (!cancelled) setCanonicalOrigin(null);
-      });
-
-    return () => { cancelled = true; };
-  }, [routeId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (canonicalOrigin || originPoint || !route.length) {
-      setAutoOrigin(null);
-      return () => { cancelled = true; };
-    }
-
-    const employeeId = route.find(lead => lead.canonicalEmployeeId)?.canonicalEmployeeId;
-    const crewId = route.find(lead => lead.canonicalCrewId)?.canonicalCrewId;
-    if (!employeeId && !crewId) {
-      setAutoOrigin(null);
-      return () => { cancelled = true; };
-    }
-
-    async function resolveAdminOrigin() {
+    async function loadSnapshot() {
       try {
         const client = getSupabaseBrowserClient() as any;
         const { data } = await client.auth.getSession();
         const accessToken = data.session?.access_token;
         if (!accessToken) return;
 
-        const response = await fetch("/api/admin/routes", {
+        const response = await fetch(`/api/map/canonical-route?routeId=${encodeURIComponent(effectiveRouteId!)}`, {
           headers: { authorization: `Bearer ${accessToken}` },
           cache: "no-store",
         });
         if (!response.ok) return;
-        const result = await response.json() as { employees?: AdminRouteEmployee[] };
-        const employee = (result.employees || []).find(item =>
-          (employeeId && (item.employeeId === employeeId || item.id === employeeId))
-          || (crewId && item.crewId === crewId));
-        const address = employee?.routeStartAddress?.trim();
-        if (!address) return;
-
-        const geocode = await fetch(`/api/map/geocode?address=${encodeURIComponent(address)}`, { cache: "no-store" });
-        if (!geocode.ok) return;
-        const point = await geocode.json() as { latitude: number; longitude: number };
-        if (!cancelled && Number.isFinite(point.latitude) && Number.isFinite(point.longitude)) {
-          setAutoOrigin({
-            latitude: Number(point.latitude),
-            longitude: Number(point.longitude),
-            label: `${employee?.name || "Employee"} start`,
-          });
+        const result = await response.json() as CanonicalMapSnapshot;
+        const signature = JSON.stringify({
+          version: result.version,
+          activeSmartRoute: result.activeSmartRoute,
+          origin: result.origin,
+          stops: result.stops.map(stop => [
+            stop.visitId,
+            stop.routeOrder,
+            stop.status,
+            stop.address,
+            stop.latitude,
+            stop.longitude,
+          ]),
+        });
+        if (!cancelled && signature !== snapshotSignatureRef.current) {
+          snapshotSignatureRef.current = signature;
+          setSnapshot(result);
         }
       } catch {
-        if (!cancelled) setAutoOrigin(null);
+        // The supplied route remains available while synchronization retries.
       }
     }
 
-    void resolveAdminOrigin();
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible") void loadSnapshot();
+    };
+    void loadSnapshot();
+    const timer = window.setInterval(() => void loadSnapshot(), 5_000);
+    window.addEventListener("focus", refreshVisible);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshVisible);
+      document.removeEventListener("visibilitychange", refreshVisible);
+    };
+  }, [effectiveRouteId]);
+
+  const displayRoute = useMemo<CanonicalRouteLead[]>(() => {
+    if (!snapshot) return route;
+
+    const byVisitId = new Map(route.map(lead => [lead.canonicalVisitId || lead.id, lead]));
+    const byJobId = new Map(route
+      .filter(lead => Boolean(lead.canonicalJobId))
+      .map(lead => [lead.canonicalJobId as string, lead]));
+
+    return snapshot.stops.map(stop => {
+      const existing = byVisitId.get(stop.visitId)
+        || (stop.jobId ? byJobId.get(stop.jobId) : undefined);
+      return {
+        ...(existing || {
+          id: stop.visitId,
+          createdAt: stop.scheduledDate ? `${stop.scheduledDate}T12:00:00.000Z` : "1970-01-01T00:00:00.000Z",
+          name: stop.customerName || "Customer",
+          phone: "",
+          email: "",
+          address: stop.address,
+          service: stop.serviceName || "Property Service",
+          status: "booked" as const,
+          subtotal: 0,
+          tax: 0,
+          total: 0,
+          photos: [],
+        }),
+        id: stop.visitId,
+        name: stop.customerName || existing?.name || "Customer",
+        address: stop.address || existing?.address || "",
+        service: stop.serviceName || existing?.service || "Property Service",
+        scheduledDate: stop.scheduledDate || existing?.scheduledDate,
+        routeOrder: stop.routeOrder,
+        latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : undefined,
+        longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : undefined,
+        canonicalVisitId: stop.visitId,
+        canonicalJobId: stop.jobId || existing?.canonicalJobId,
+        canonicalRouteId: stop.routeId || snapshot.routeId,
+        canonicalCustomerId: stop.customerId || existing?.canonicalCustomerId,
+        canonicalPropertyId: stop.propertyId || existing?.canonicalPropertyId,
+        canonicalEmployeeId: stop.employeeId || existing?.canonicalEmployeeId,
+        canonicalCrewId: stop.crewId || existing?.canonicalCrewId,
+        canonicalVisitStatus: stop.status as CanonicalRouteLead["canonicalVisitStatus"],
+        visitStartedAt: stop.startedAt || undefined,
+        visitFinishedAt: stop.finishedAt || undefined,
+        visitDurationSeconds: stop.durationSeconds ?? undefined,
+        status: stop.status === "completed" ? "completed" as const : "booked" as const,
+      };
+    });
+  }, [route, snapshot]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const origin = snapshot?.origin;
+    setSnapshotOrigin(null);
+    if (!origin) return () => { cancelled = true; };
+
+    if (Number.isFinite(origin.latitude) && Number.isFinite(origin.longitude)) {
+      setSnapshotOrigin({
+        latitude: Number(origin.latitude),
+        longitude: Number(origin.longitude),
+        label: origin.label || "Route start",
+      });
+      return () => { cancelled = true; };
+    }
+
+    const address = origin.address?.trim();
+    if (!address) return () => { cancelled = true; };
+    void fetch(`/api/map/geocode?address=${encodeURIComponent(address)}`, { cache: "no-store" })
+      .then(response => {
+        if (!response.ok) throw new Error("Route start could not be mapped.");
+        return response.json() as Promise<{ latitude: number; longitude: number }>;
+      })
+      .then(point => {
+        if (cancelled || !Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) return;
+        setSnapshotOrigin({
+          latitude: Number(point.latitude),
+          longitude: Number(point.longitude),
+          label: origin.label || "Route start",
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setSnapshotOrigin(null);
+      });
+
     return () => { cancelled = true; };
-  }, [canonicalOrigin, originPoint, routeKey]);
+  }, [snapshot?.version, snapshot?.activeSmartRoute, snapshot?.origin?.latitude, snapshot?.origin?.longitude, snapshot?.origin?.address, snapshot?.origin?.label]);
+
+  const effectiveOrigin = snapshotOrigin || originPoint;
+  const originKey = effectiveOrigin ? `${effectiveOrigin.latitude}:${effectiveOrigin.longitude}` : "";
+  const routeKey = `${snapshot?.version || 0}|${displayRoute.map(lead =>
+    `${lead.id}:${lead.address}:${lead.latitude ?? ""}:${lead.longitude ?? ""}:${lead.routeOrder ?? ""}:${lead.canonicalVisitStatus || lead.status}`
+  ).join("|")}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -151,15 +250,13 @@ export function EmployeeRouteMap({
     setGeometry(null);
 
     async function locateAndRoute() {
-      const alreadyLocated = route.filter(lead => Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude));
+      const alreadyLocated = displayRoute.filter(lead => Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude));
       setResolvedRoute(alreadyLocated);
-      setMapStatus(routeId
-        ? "Loading saved driving route..."
-        : alreadyLocated.length === route.length
-          ? "Map ready"
-          : "Locating new properties...");
+      setMapStatus(alreadyLocated.length === displayRoute.length
+        ? "Map ready"
+        : "Locating new properties...");
 
-      const located = await Promise.all(route.map(async lead => {
+      const located = await Promise.all(displayRoute.map(async lead => {
         if (Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude)) return lead;
         try {
           const response = await fetch(`/api/map/geocode?address=${encodeURIComponent(lead.address)}`, { cache: "no-store" });
@@ -215,24 +312,7 @@ export function EmployeeRouteMap({
 
     void locateAndRoute();
     return () => { cancelled = true; };
-  }, [routeKey, routeId, originKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!routeId) return () => { cancelled = true; };
-
-    loadCachedRouteGeometry(routeId)
-      .then(cache => {
-        if (cancelled) return;
-        if (cache?.status === "ready" && cache.geometry) {
-          setGeometry(cache.geometry);
-          setMapStatus("Driving route");
-        }
-      })
-      .catch(() => { /* direct road calculation remains the fallback */ });
-
-    return () => { cancelled = true; };
-  }, [routeId]);
+  }, [routeKey, originKey]);
 
   const nextVisitId = useMemo(() => resolvedRoute.find(lead => {
     if (lead.canonicalVisitId) return lead.status !== "completed";
@@ -250,7 +330,7 @@ export function EmployeeRouteMap({
     }];
   }), [resolvedRoute, nextVisitId]);
 
-  const unmapped = route.filter(lead => !points.some(point => point.id === lead.id));
+  const unmapped = displayRoute.filter(lead => !points.some(point => point.id === lead.id));
   const selected = points.find(point => point.id === selectedId) || points[0] || null;
 
   function fitRoute() {
@@ -383,7 +463,7 @@ export function EmployeeRouteMap({
 
   return <section className={`employee-map-panel ${desktop ? "employee-map-desktop" : ""}`}>
     <div className="employee-map-toolbar">
-      <div><strong>{points.length}/{route.length} properties mapped</strong><span>{mapStatus}{locationMessage ? ` · ${locationMessage}` : ""}</span></div>
+      <div><strong>{points.length}/{displayRoute.length} properties mapped</strong><span>{mapStatus}{locationMessage ? ` · ${locationMessage}` : ""}</span></div>
       <div className="employee-map-toolbar-actions"><button type="button" onClick={fitRoute} disabled={!points.length && !effectiveOrigin}>Fit Route</button><button type="button" onClick={recenterMe}>Recenter Me</button></div>
     </div>
     {unmapped.length > 0 && <p className="employee-map-notice">{unmapped.length} {unmapped.length === 1 ? "property is" : "properties are"} Not mapped.</p>}
