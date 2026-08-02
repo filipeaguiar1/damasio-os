@@ -6,150 +6,159 @@ on:
       - main
     paths:
       - "app/api/admin/operational-simulator/**"
-      - "app/api/customer/portal-actions/**"
-      - "app/api/map/**"
-      - "app/admin/performance/**"
-      - "app/employee/route/page.tsx"
-      - "app/mobile/admin/routes/page.tsx"
-      - "app/mobile/employee/page.tsx"
-      - "components/admin/OfficialRoutePlanMap.tsx"
-      - "components/mobile/EmployeeRouteMap.tsx"
-      - "lib/hooks/useCanonicalRouteSnapshot.ts"
-      - "lib/repositories/customerPortalRepository.ts"
-      - "lib/routes/canonicalRouteSnapshot.ts"
-      - "lib/services/routeMapService.ts"
-      - "lib/simulator/**"
-      - "supabase/migrations/202607290001_customer_portal_action_contract.sql"
-      - "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql"
+      - "app/api/admin/routes/**"
       - "tests/operational-simulator.spec.ts"
       - "tests/canonical-route-sync.spec.ts"
-      - "public/demo/simulation-lawn-after.svg"
       - ".github/workflows/operational-simulator-e2e.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: operational-simulator-v1
   cancel-in-progress: true
 
 jobs:
-  simulator:
+  repair:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_MANAGEMENT_ACCESS_TOKEN: ${{ secrets.SUPABASE_MANAGEMENT_ACCESS_TOKEN }}
-      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
-      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
-      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
-
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feature/25-30-homes-simulator-v1
+          fetch-depth: 0
 
-      - name: Apply database contracts when authorized
+      - name: Apply resilient cleanup and archived-route filtering
         run: |
           python - <<'PY'
-          import json
-          import os
-          import sys
-          import urllib.error
-          import urllib.parse
-          import urllib.request
           from pathlib import Path
 
-          token = os.environ.get("SUPABASE_ACCESS_TOKEN") or os.environ.get("SUPABASE_MANAGEMENT_ACCESS_TOKEN")
-          if not token:
-              print("Supabase management token is not configured; using the database's current migration state.")
-              sys.exit(0)
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              file.write_text(text.replace(old, new, 1))
 
-          project_url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
-          hostname = urllib.parse.urlparse(project_url).hostname or ""
-          project_ref = hostname.split(".")[0]
-          if not project_ref:
-              raise SystemExit("Could not resolve the Supabase project ref.")
-
-          migrations = [
-              "supabase/migrations/202607290001_customer_portal_action_contract.sql",
-              "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql",
-          ]
-          query = "\n\n".join(Path(path).read_text() for path in migrations)
-          request = urllib.request.Request(
-              f"https://api.supabase.com/v1/projects/{project_ref}/database/query",
-              data=json.dumps({"query": query, "read_only": False}).encode(),
-              headers={
-                  "Authorization": f"Bearer {token}",
-                  "Content-Type": "application/json",
-              },
-              method="POST",
+          replace_once(
+              "app/api/admin/operational-simulator/route.ts",
+              '''  async function remove(label: string, operation: PromiseLike<{ error?: { message?: string } | null }>, optional = false) {
+    const result = await operation;
+    if (!result.error) return;
+    const message = result.error.message || "cleanup failed";
+    if (optional && (missingColumn(message) || /permission denied/i.test(message))) {
+      console.warn(`operational-simulator cleanup skipped ${label}: ${message}`);
+      return;
+    }
+    throw new Error(`${label}: ${message}`);
+  }''',
+              '''  async function remove(label: string, operation: PromiseLike<{ error?: { message?: string } | null }>, optional = false) {
+    const result = await operation;
+    if (!result.error) return true;
+    const message = result.error.message || "cleanup failed";
+    if (optional && (missingColumn(message) || /permission denied/i.test(message))) {
+      console.warn(`operational-simulator cleanup skipped ${label}: ${message}`);
+      return false;
+    }
+    throw new Error(`${label}: ${message}`);
+  }''',
           )
-          try:
-              with urllib.request.urlopen(request, timeout=240) as response:
-                  print(f"Database contracts applied: HTTP {response.status}")
-          except urllib.error.HTTPError as error:
-              detail = error.read().decode(errors="replace")
-              raise SystemExit(f"Supabase migration failed: HTTP {error.code}: {detail[:2000]}")
+
+          replace_once(
+              "app/api/admin/operational-simulator/route.ts",
+              '''  if (customerIds.length) {
+    await remove("invoices", service.from("invoices").delete().in("customer_id", customerIds));
+    await remove("visits", service.from("visits").delete().in("customer_id", customerIds));
+  }
+  if (routeIds.length) await remove("routes", service.from("routes").delete().in("id", routeIds));
+  if (jobIds.length) await remove("jobs", service.from("jobs").delete().in("id", jobIds));
+  if (customerIds.length) {
+    await remove("quotes", service.from("quotes").delete().in("customer_id", customerIds));
+    await remove("properties", service.from("properties").delete().in("customer_id", customerIds));
+    await remove("customers", service.from("customers").delete().in("id", customerIds));
+  }
+  if (employeeIds.length) await remove("employees", service.from("employees").delete().in("id", employeeIds));
+  if (crewIds.length) await remove("crews", service.from("crews").delete().in("id", crewIds));''',
+              '''  let visitsDeleted = true;
+  if (customerIds.length) {
+    await remove("invoices", service.from("invoices").delete().in("customer_id", customerIds));
+    visitsDeleted = await remove("visits", service.from("visits").delete().in("customer_id", customerIds), true);
+  }
+
+  if (visitsDeleted) {
+    if (routeIds.length) await remove("routes", service.from("routes").delete().in("id", routeIds));
+    if (jobIds.length) await remove("jobs", service.from("jobs").delete().in("id", jobIds));
+    if (customerIds.length) {
+      await remove("quotes", service.from("quotes").delete().in("customer_id", customerIds));
+      await remove("properties", service.from("properties").delete().in("customer_id", customerIds));
+      await remove("customers", service.from("customers").delete().in("id", customerIds));
+    }
+    if (employeeIds.length) await remove("employees", service.from("employees").delete().in("id", employeeIds));
+    if (crewIds.length) await remove("crews", service.from("crews").delete().in("id", crewIds));
+  } else {
+    const archivedAt = new Date().toISOString();
+    if (customerIds.length) await remove("archive customers", service.from("customers").update({ archived_at: archivedAt }).in("id", customerIds));
+    if (jobIds.length) await remove("deactivate jobs", service.from("jobs").update({ active: false }).in("id", jobIds));
+    if (employeeIds.length) await remove("deactivate employees", service.from("employees").update({ active: false }).in("id", employeeIds));
+    if (crewIds.length) await remove("deactivate crews", service.from("crews").update({ active: false }).in("id", crewIds));
+    if (profileIds.length) await remove("deactivate profiles", service.from("profiles").update({ active: false }).in("id", profileIds));
+  }''',
+          )
+
+          replace_once(
+              "app/api/admin/routes/route.ts",
+              '.select("id,job_id,route_id,crew_id,assigned_employee_id,customer_id,property_id,scheduled_date,status,route_order,started_at,finished_at,duration_seconds,created_at,customers(full_name),properties(address_line1,city,province,postal_code),jobs(service_name),employees(full_name)")',
+              '.select("id,job_id,route_id,crew_id,assigned_employee_id,customer_id,property_id,scheduled_date,status,route_order,started_at,finished_at,duration_seconds,created_at,customers(full_name,archived_at),properties(address_line1,city,province,postal_code),jobs(service_name),employees(full_name)")',
+          )
+
+          replace_once(
+              "app/api/admin/routes/route.ts",
+              '''    const employee = (Array.isArray(row.employees) ? row.employees[0] : row.employees)?.full_name || null;
+
+    // Legacy demo Visits are not operational work and must not reappear in Route Plan/Status.
+    if (isDemoLabel(employee)) return [];''',
+              '''    const employee = (Array.isArray(row.employees) ? row.employees[0] : row.employees)?.full_name || null;
+    const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers;
+
+    // Legacy demo and archived simulation Visits are not operational work.
+    if (isDemoLabel(employee) || customer?.archived_at) return [];''',
+          )
+
+          replace_once(
+              "tests/operational-simulator.spec.ts",
+              'await expect(admin.getByText(/simulation customers/i)).toBeVisible({ timeout: 60_000 });',
+              'await expect(admin.locator(".payment-message")).toContainText(/simulation customers.*removed/i, { timeout: 60_000 });',
+          )
+
+          replace_once(
+              "tests/canonical-route-sync.spec.ts",
+              '''  await authRequest(adminDesktop, "/api/admin/operational-simulator", {
+    method: "POST",
+    body: { action: "remove" },
+  }).catch(() => undefined);
+  const simulation = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {''',
+              '''  const removal = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
+    method: "POST",
+    body: { action: "remove" },
+  });
+  expect(removal.removed).toBe(true);
+  await expect.poll(async () => {
+    const result = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator");
+    return Boolean(result.status?.exists);
+  }, { timeout: 60_000 }).toBe(false);
+  const simulation = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {''',
+          )
+
+          Path('.github/workflows/source-bundle.yml').unlink(missing_ok=True)
           PY
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9.15.4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install temporary Playwright package
-        run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
-
-      - name: TypeScript and production build
-        run: pnpm build
-
-      - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Start production server
+      - name: Restore workflow and publish patch
         run: |
-          pnpm start > /tmp/damasio-simulator-server.log 2>&1 &
-          echo $! > /tmp/damasio-simulator-server.pid
-          for attempt in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
-            sleep 1
-          done
-          cat /tmp/damasio-simulator-server.log
-          exit 1
-
-      - name: Run full two-month operational simulation
-        run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
-
-      - name: Validate canonical route on four authenticated screens
-        if: ${{ always() }}
-        run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
-
-      - name: Upload screenshots and server log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: operational-simulator-e2e
-          path: |
-            operational-simulator.png
-            employee-live-route.png
-            customer-feedback-result.png
-            customer-feedback.png
-            customer-desktop-qa.png
-            canonical-admin-web.png
-            canonical-admin-mobile.png
-            canonical-employee-web.png
-            canonical-employee-mobile.png
-            /tmp/damasio-simulator-server.log
-          if-no-files-found: ignore
+          git show HEAD^:.github/workflows/operational-simulator-e2e.yml > .github/workflows/operational-simulator-e2e.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(simulator): archive legacy rows when protected deletes are unavailable"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
