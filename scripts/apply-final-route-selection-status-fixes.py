@@ -12,19 +12,36 @@ def replace_once(path: str, old: str, new: str) -> None:
 
 replace_once(
     "app/api/mobile/employee/route/route.ts",
-    '''    const userClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        auth: { persistSession: false, autoRefreshToken: false },
-        global: { headers: { Authorization: `Bearer ${token}` } },
-      },
-    ) as any;
-    const transition = await transitionEmployeeVisitStatus(userClient, String(body.visitId), body.status, profileId);''',
-    '''    // Ownership and role were already verified above. Execute the canonical Visit
-    // transition with the trusted server client so a valid Employee action cannot be
-    // silently queued because of a legacy browser-role DELETE/UPDATE policy mismatch.
-    const transition = await transitionEmployeeVisitStatus(service, String(body.visitId), body.status, profileId);''',
+    '''    if (result.error) {
+      if (!missingMigration(result.error.message)) throw new Error(result.error.message);
+      const visit = await fallbackVisitTransition({
+        service,
+        employee,
+        userId,
+        companyId,
+        visitId,
+        action,
+        reason,
+      });
+      return NextResponse.json({ visit, fallback: true });
+    }''',
+    '''    if (result.error) {
+      // The API has already authenticated the Employee and verified the Visit belongs
+      // to this Employee/company. Apply the same invariant-checked server fallback for
+      // legacy RPC permissions as well as a missing migration; never pretend the action
+      // succeeded by leaving it only in a browser queue.
+      console.warn("employee-route-rpc-fallback", { visitId, action, message: result.error.message });
+      const visit = await fallbackVisitTransition({
+        service,
+        employee,
+        userId,
+        companyId,
+        visitId,
+        action,
+        reason,
+      });
+      return NextResponse.json({ visit, fallback: true });
+    }''',
 )
 
 replace_once(
