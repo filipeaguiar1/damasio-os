@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getEmployeeTasks, getSessionForLead } from "@/lib/storage";
 import type { CanonicalRouteLead } from "@/lib/routes/canonicalRouteIdentity";
-import { loadCachedRouteGeometry } from "@/lib/services/routeMapService";
+import { loadCachedRouteGeometry, loadEmployeeDatabaseSmartRouteState } from "@/lib/services/routeMapService";
 import type { RouteLineString } from "@/lib/maps/types";
 import { readRoadGeometry, saveRoadGeometry } from "@/lib/maps/clientMapCache";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -60,16 +60,41 @@ export function EmployeeRouteMap({
   const [geometry, setGeometry] = useState<RouteLineString | null>(null);
   const [resolvedRoute, setResolvedRoute] = useState<CanonicalRouteLead[]>(route);
   const [autoOrigin, setAutoOrigin] = useState<RouteOriginPoint | null>(null);
+  const [canonicalOrigin, setCanonicalOrigin] = useState<RouteOriginPoint | null>(null);
   const [mapStatus, setMapStatus] = useState("Locating properties...");
   const [mapReady, setMapReady] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
   const routeKey = route.map(lead => `${lead.id}:${lead.address}:${lead.routeOrder ?? ""}:${lead.canonicalVisitStatus || lead.status}`).join("|");
-  const effectiveOrigin = originPoint || autoOrigin;
+  const effectiveOrigin = canonicalOrigin || originPoint || autoOrigin;
   const originKey = effectiveOrigin ? `${effectiveOrigin.latitude}:${effectiveOrigin.longitude}` : "";
 
   useEffect(() => {
     let cancelled = false;
-    if (originPoint || !route.length) {
+    setCanonicalOrigin(null);
+    if (!routeId) return () => { cancelled = true; };
+
+    void loadEmployeeDatabaseSmartRouteState(routeId)
+      .then(state => {
+        if (cancelled
+          || !state?.active
+          || !Number.isFinite(state.originLatitude)
+          || !Number.isFinite(state.originLongitude)) return;
+        setCanonicalOrigin({
+          latitude: Number(state.originLatitude),
+          longitude: Number(state.originLongitude),
+          label: state.originLabel || "Route start",
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setCanonicalOrigin(null);
+      });
+
+    return () => { cancelled = true; };
+  }, [routeId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (canonicalOrigin || originPoint || !route.length) {
       setAutoOrigin(null);
       return () => { cancelled = true; };
     }
@@ -117,7 +142,7 @@ export function EmployeeRouteMap({
 
     void resolveAdminOrigin();
     return () => { cancelled = true; };
-  }, [originPoint, routeKey]);
+  }, [canonicalOrigin, originPoint, routeKey]);
 
   useEffect(() => {
     let cancelled = false;
