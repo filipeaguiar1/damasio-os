@@ -10,6 +10,7 @@ const snapshotClient = read("lib/routes/canonicalRouteSnapshot.ts");
 const snapshotHook = read("lib/hooks/useCanonicalRouteSnapshot.ts");
 const cleanupMigration = read("supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql");
 const demoSandbox = read("app/api/admin/demo-sandbox/route.ts");
+const operationalSimulator = read("app/api/admin/operational-simulator/route.ts");
 const adminWeb = read("components/admin/OfficialRoutePlanMap.tsx");
 const adminMobile = read("app/mobile/admin/routes/page.tsx");
 const employeeWeb = read("app/employee/route/page.tsx");
@@ -37,6 +38,13 @@ assert.doesNotMatch(canonicalWriter, /apply_canonical_route_order_v2_service|rep
 assert.doesNotMatch(canonicalWriter, /\.from\("route_stops"\)|\.from\("visits"\)\.(?:insert|upsert|update|delete)/, "The browser API cannot manually rewrite canonical tables.");
 assert.match(canonicalWriter, /A reviewed routeVersion is required/, "Stale clients must not write without optimistic concurrency.");
 assert.match(canonicalWriter, /sameOrder\(savedOrder, orderedVisitIds\)/, "The exact stored order must be confirmed before success.");
+
+assert.match(operationalSimulator, /writer: authenticatedClient\(token\)/, "The simulator must write routes as the authenticated Admin.");
+assert.match(operationalSimulator, /rpc\("apply_canonical_route_order_v2"/, "Every simulated Route must use the same canonical transaction.");
+assert.match(operationalSimulator, /await initializeCanonicalRoutes\(writer, operations, workers\)/, "Simulation creation cannot finish before canonical initialization.");
+assert.match(operationalSimulator, /savedOrder\.some/, "The simulator must verify the exact saved Visit order.");
+assert.match(operationalSimulator, /from\("route_stops"\)\.delete/, "Simulation cleanup must remove canonical stops.");
+assert.match(operationalSimulator, /from\("route_order_state"\)\.delete/, "Simulation cleanup must remove canonical route versions.");
 
 assert.match(snapshotClient, /loadCanonicalRouteSnapshot/, "Every screen must use the shared snapshot loader.");
 assert.match(snapshotClient, /stop\.visitId === snapshot\.orderedVisitIds\[index\]/, "The client must reject identity/order mismatches.");
