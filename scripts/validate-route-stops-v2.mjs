@@ -8,6 +8,7 @@ const files = {
   resetMigration: read("supabase/migrations/202608020520_canonical_route_reset_v2.sql"),
   stateMigration: read("supabase/migrations/202608020525_canonical_route_state_read_v2.sql"),
   rollout: read("supabase/migrations/202608020530_canonical_route_backfill_verify_v2.sql"),
+  serviceApply: read("supabase/migrations/202608020555_canonical_route_service_apply_v2.sql"),
   smartApi: read("app/api/mobile/employee/smart-route/route.ts"),
   service: read("lib/services/routeMapService.ts"),
   integrity: read("lib/routes/routeAssignmentIntegrity.ts"),
@@ -54,11 +55,20 @@ requireText("rollout", "canonical_route_stops_v2_rollout", "Existing routes are 
 requireText("rollout", "A non-cancelled Visit is missing its matching Route Stop.", "Rollout does not verify complete route membership.");
 requireText("rollout", "A Route Stop does not match its Visit projection.", "Rollout does not verify the compatibility projection.");
 requireText("rollout", "A populated Route is missing its canonical version state.", "Rollout does not verify route versions.");
+requireText("serviceApply", "apply_canonical_route_order_v2_service", "The service-backed Employee Apply RPC is missing.");
+requireText("serviceApply", "p_actor_profile_id uuid", "The service-backed Apply RPC is not tied to a verified actor.");
+requireText("serviceApply", "grant execute on function public.apply_canonical_route_order_v2_service", "The service-backed Apply RPC is not granted only to service_role.");
+requireText("serviceApply", "Route verification failed. requested=%, stored=%, projected=%", "The service-backed Apply RPC does not verify the persisted order before commit.");
+requireText("serviceApply", "v.status::text <> 'cancelled'", "The service-backed Apply RPC drops skipped houses from the official route.");
 
-requireText("smartApi", 'user.rpc("apply_canonical_route_order_v2"', "Employee Apply does not use the authenticated canonical transaction.");
+requireText("smartApi", 'service.rpc("apply_canonical_route_order_v2_service"', "Employee Apply does not use the service-backed canonical transaction.");
+requireText("smartApi", "p_actor_profile_id: profileId", "Employee Apply is not bound to the verified Employee profile.");
 requireText("smartApi", "p_expected_version: body.expectedVersion", "Employee Apply has no optimistic concurrency protection.");
 requireText("smartApi", "The database did not confirm the reviewed route.", "Employee Apply can report success without database confirmation.");
+requireText("smartApi", "verifyOfficialRouteOrder", "Employee Apply does not re-read the official Route Stops after saving.");
+requireText("smartApi", "The official route order was not persisted.", "Employee Apply can still report success when the official order did not change.");
 requireText("smartApi", 'String(visit.status) !== "cancelled"', "Employee Apply drops skipped houses from the official route.");
+rejectText("smartApi", 'user.rpc("apply_canonical_route_order_v2"', "Employee Apply still uses the old auth RPC path that can falsely confirm persistence.");
 rejectText("smartApi", '.from("visits").update', "Employee endpoint still writes route order directly.");
 rejectText("smartApi", '.from("employee_smart_route_state").upsert', "Employee endpoint still writes Smart Route state outside the transaction.");
 rejectText("integrity", ".update({", "A post-RPC integrity helper still mutates the database.");
