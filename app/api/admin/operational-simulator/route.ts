@@ -658,9 +658,13 @@ async function removeSimulation(service: any, companyId: string) {
 
   async function remove(label: string, operation: PromiseLike<{ error?: { message?: string } | null }>, optional = false) {
     const result = await operation;
-    if (result.error && !(optional && missingColumn(result.error.message))) {
-      throw new Error(`${label}: ${result.error.message || "cleanup failed"}`);
+    if (!result.error) return;
+    const message = result.error.message || "cleanup failed";
+    if (optional && (missingColumn(message) || /permission denied/i.test(message))) {
+      console.warn(`operational-simulator cleanup skipped ${label}: ${message}`);
+      return;
     }
+    throw new Error(`${label}: ${message}`);
   }
 
   if (customerIds.length) {
