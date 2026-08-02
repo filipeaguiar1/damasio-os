@@ -109,15 +109,12 @@ replace_once(
 
 replace_once(
     "components/admin/OfficialRoutePlanMap.tsx",
-    '''      const response = await fetch(`/api/admin/routes?date=${encodeURIComponent(date)}`, {
-        headers: { authorization: `Bearer ${accessToken}` },
-        cache: "no-store",
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Official Route Plan could not be loaded.");''',
+    '''      const response = await fetch(`/api/admin/routes?date=${encodeURIComponent(date)}`, { headers: { authorization: `Bearer ${accessToken}` }, cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Routes could not be loaded.");''',
     '''      let response: Response | null = null;
-      let data: any = null;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
+      let result: any = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
           const controller = new AbortController();
           const timeout = window.setTimeout(() => controller.abort(), 20_000);
@@ -127,20 +124,21 @@ replace_once(
               cache: "no-store",
               signal: controller.signal,
             });
-            data = await response.json().catch(() => ({}));
+            result = await response.json().catch(() => ({}));
           } finally {
             window.clearTimeout(timeout);
           }
           if (response.ok) break;
-          if (![502, 503, 504].includes(response.status) || attempt === 1) {
-            throw new Error(data.error || `Official Route Plan failed (${response.status}).`);
+          if (![502, 503, 504].includes(response.status) || attempt === 2) {
+            throw new Error(result.error || `Routes could not be loaded (${response.status}).`);
           }
         } catch (reason) {
-          if (attempt === 1 || !(reason instanceof Error) || !/fetch|network|abort|load failed/i.test(reason.message)) throw reason;
-          await new Promise(resolve => window.setTimeout(resolve, 350));
+          const retryable = reason instanceof Error && /fetch|network|abort|load failed/i.test(reason.message);
+          if (attempt === 2 || !retryable) throw reason;
+          await new Promise(resolve => window.setTimeout(resolve, 400 * (attempt + 1)));
         }
       }
-      if (!response?.ok) throw new Error(data?.error || "Official Route Plan could not reach the server. Refresh and try again.");''',
+      if (!response?.ok) throw new Error(result?.error || "Routes could not reach the server. Refresh and try again.");''',
 )
 
 print("Final UI/network stability patch applied.")
