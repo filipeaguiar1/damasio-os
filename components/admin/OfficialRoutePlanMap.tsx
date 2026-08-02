@@ -319,9 +319,29 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
       </div>
     </header>
     {message && <div className="studio-empty">{message}</div>}
-    {!selectedEmployee ? <div className={`${styles.overviewMap} studio-map real-map official-route-overview`}>
-      <div ref={mapNode} className="studio-preview-leaflet" />
-    </div> : <div className={`${styles.focusedRoute} official-route-focused`}>
+    {!selectedEmployee ? <>
+      <div className={`${styles.overviewMap} studio-map real-map official-route-overview`}>
+        <div ref={mapNode} className="studio-preview-leaflet" />
+      </div>
+      <div className="official-route-worker-list" aria-label="Published employee routes" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginTop: 12 }}>
+        {employees.map(employee => <button
+          type="button"
+          key={employee.id}
+          className="official-route-worker-button studio-route-stop"
+          data-employee-id={employee.id}
+          onClick={() => {
+            setSelectedHome(null);
+            setCustomerRecord(null);
+            setCustomerMessage("");
+            setSelectedId(employee.id);
+          }}
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 48, padding: "10px 12px" }}
+        >
+          <strong>{employee.name}</strong>
+          <span>{counts.get(employee.id) || 0} house{(counts.get(employee.id) || 0) === 1 ? "" : "s"}</span>
+        </button>)}
+      </div>
+    </> : <div className={`${styles.focusedRoute} official-route-focused`}>
       <EmployeeRouteMap route={selectedRoute} routeId={selectedRoute[0]?.canonicalRouteId} originPoint={origin} desktop actionLabel="Customer & property" onOpenVisit={openCustomer} />
       <aside className={`${styles.housePanel} studio-route-popover official-house-list`}>
         <strong>{selectedEmployee.name}</strong><small>{selectedRoute.length} clients on {date}</small>

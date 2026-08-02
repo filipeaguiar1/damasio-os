@@ -138,9 +138,10 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
 
   await adminDesktop.goto(`${baseURL}/admin/routes?tab=view`);
   await adminDesktop.locator('input[type="date"]').first().fill(routeDate);
-  const workerMarker = adminDesktop.locator(`.studio-leaflet-crew[title="${worker.name}"]`).first();
-  await expect(workerMarker).toBeVisible({ timeout: 30_000 });
-  await workerMarker.click();
+  const workerRouteButton = adminDesktop.locator(`.official-route-worker-button[data-employee-id="${worker.id}"]`);
+  await expect(workerRouteButton).toBeVisible({ timeout: 30_000 });
+  await expect(workerRouteButton).toContainText(String(employeeSnapshot.stops.length));
+  await workerRouteButton.click();
 
   for (const [page, label] of [
     [adminDesktop, "Admin web"],

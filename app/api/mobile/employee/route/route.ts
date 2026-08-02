@@ -431,7 +431,11 @@ export async function PATCH(request: NextRequest) {
     });
 
     if (result.error) {
-      if (!missingMigration(result.error.message)) throw new Error(result.error.message);
+      // The API has already authenticated the Employee and verified the Visit belongs
+      // to this Employee/company. Apply the same invariant-checked server fallback for
+      // legacy RPC permissions as well as a missing migration; never pretend the action
+      // succeeded by leaving it only in a browser queue.
+      console.warn("employee-route-rpc-fallback", { visitId, action, message: result.error.message });
       const visit = await fallbackVisitTransition({
         service,
         employee,
