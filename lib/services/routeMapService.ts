@@ -3,6 +3,11 @@ import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/c
 import type { Lead } from "@/lib/storage";
 import type { CanonicalRouteLead, CanonicalVisitStatus } from "@/lib/routes/canonicalRouteIdentity";
 import { normalizeVisitExecutionState } from "@/lib/visits/executionState";
+import {
+  beginMobileOperation,
+  completeMobileOperation,
+  failMobileOperation,
+} from "@/lib/mobile/mobileOperationStatus";
 
 export type EmployeeRouteMapContext = {
   routeId: string | null;
@@ -40,6 +45,7 @@ export type EmployeeDatabaseSmartRouteState = {
 };
 
 const emptyContext: EmployeeRouteMapContext = { routeId: null, stops: [] };
+let smartRouteApplyInFlight = false;
 
 function torontoParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -262,29 +268,59 @@ export async function applyEmployeeDatabaseSmartRoute(params: {
   origin: { label: string; latitude: number; longitude: number };
   expectedVersion?: number | null;
 }) {
-  const token = await accessToken();
-  if (!token) throw new Error("Your Employee login expired. Sign in again.");
-  const response = await fetch("/api/mobile/employee/smart-route", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify({
-      action: "apply",
-      routeId: params.routeId,
-      originalOrder: params.originalOrder,
-      appliedOrder: params.appliedOrder,
-      origin: params.origin,
-      expectedVersion: params.expectedVersion ?? null,
-    }),
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "Smart Route could not be applied.");
-  return result as {
-    saved: true;
-    routeId: string;
-    count: number;
-    version: number;
-    appliedOrder: string[];
-  };
+  if (smartRouteApplyInFlight) {
+    throw new Error("This route is already being saved. Please wait for confirmation.");
+  }
+
+  smartRouteApplyInFlight = true;
+  beginMobileOperation(
+    "Saving Smart Route",
+    `Confirming all ${params.appliedOrder.length} houses and updating every map…`,
+  );
+
+  try {
+    const token = await accessToken();
+    if (!token) throw new Error("Your Employee login expired. Sign in again.");
+
+    const response = await fetch("/api/mobile/employee/smart-route", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        action: "apply",
+        routeId: params.routeId,
+        originalOrder: params.originalOrder,
+        appliedOrder: params.appliedOrder,
+        origin: params.origin,
+        expectedVersion: params.expectedVersion ?? null,
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || "Smart Route could not be applied.");
+    }
+
+    const confirmed = result as {
+      saved: true;
+      routeId: string;
+      count: number;
+      version: number;
+      appliedOrder: string[];
+    };
+
+    completeMobileOperation(
+      "Route saved",
+      `${confirmed.count} houses are synchronized for Worker and Admin.`,
+    );
+    return confirmed;
+  } catch (error) {
+    const message = error instanceof Error
+      ? error.message
+      : "Smart Route could not be applied.";
+    failMobileOperation("Route not changed", message);
+    throw error;
+  } finally {
+    smartRouteApplyInFlight = false;
+  }
 }
 
 export async function restoreEmployeeDatabaseSmartRoute(
