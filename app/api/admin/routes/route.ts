@@ -291,7 +291,7 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
 async function canonicalVisits(service: any, companyId: string, routeDate?: string | null) {
   let query = service
     .from("visits")
-    .select("id,job_id,route_id,crew_id,assigned_employee_id,customer_id,property_id,scheduled_date,status,route_order,started_at,finished_at,duration_seconds,created_at,customers(full_name),properties(address_line1,city,province,postal_code),jobs(service_name),employees(full_name)")
+    .select("id,job_id,route_id,crew_id,assigned_employee_id,customer_id,property_id,scheduled_date,status,route_order,started_at,finished_at,duration_seconds,created_at,customers(full_name,archived_at),properties(address_line1,city,province,postal_code),jobs(service_name),employees(full_name)")
     .or(companyFilter(companyId))
     .neq("status", "cancelled");
 
@@ -306,9 +306,10 @@ async function canonicalVisits(service: any, companyId: string, routeDate?: stri
 
   return (result.data || []).flatMap((row: any) => {
     const employee = (Array.isArray(row.employees) ? row.employees[0] : row.employees)?.full_name || null;
+    const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers;
 
-    // Legacy demo Visits are not operational work and must not reappear in Route Plan/Status.
-    if (isDemoLabel(employee)) return [];
+    // Legacy demo and archived simulation Visits are not operational work.
+    if (isDemoLabel(employee) || customer?.archived_at) return [];
 
     const property = Array.isArray(row.properties) ? row.properties[0] : row.properties;
     return [{

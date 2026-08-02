@@ -67,7 +67,7 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   if (await remove.isEnabled()) {
     admin.once("dialog", dialog => dialog.accept());
     await remove.click();
-    await expect(admin.getByText(/simulation customers/i)).toBeVisible({ timeout: 60_000 });
+    await expect(admin.locator(".payment-message")).toContainText(/simulation customers.*removed/i, { timeout: 60_000 });
     await expect(create).toBeEnabled({ timeout: 30_000 });
   }
 

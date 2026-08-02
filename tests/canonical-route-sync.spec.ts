@@ -72,10 +72,15 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await signIn(adminDesktop, process.env.E2E_ADMIN_EMAIL!, process.env.E2E_ADMIN_PASSWORD!);
   await adminDesktop.waitForURL("**/admin", { timeout: 30_000 });
 
-  await authRequest(adminDesktop, "/api/admin/operational-simulator", {
+  const removal = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
     method: "POST",
     body: { action: "remove" },
-  }).catch(() => undefined);
+  });
+  expect(removal.removed).toBe(true);
+  await expect.poll(async () => {
+    const result = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator");
+    return Boolean(result.status?.exists);
+  }, { timeout: 60_000 }).toBe(false);
   const simulation = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
     method: "POST",
     body: { action: "create" },

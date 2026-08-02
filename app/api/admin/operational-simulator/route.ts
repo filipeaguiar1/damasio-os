@@ -658,11 +658,11 @@ async function removeSimulation(service: any, companyId: string) {
 
   async function remove(label: string, operation: PromiseLike<{ error?: { message?: string } | null }>, optional = false) {
     const result = await operation;
-    if (!result.error) return;
+    if (!result.error) return true;
     const message = result.error.message || "cleanup failed";
     if (optional && (missingColumn(message) || /permission denied/i.test(message))) {
       console.warn(`operational-simulator cleanup skipped ${label}: ${message}`);
-      return;
+      return false;
     }
     throw new Error(`${label}: ${message}`);
   }
@@ -682,19 +682,30 @@ async function removeSimulation(service: any, companyId: string) {
     await remove("route_map_cache", service.from("route_map_cache").delete().in("route_id", routeIds), true);
   }
   if (jobIds.length) await remove("job invoice links", service.from("jobs").update({ invoice_id: null }).in("id", jobIds), true);
+  let visitsDeleted = true;
   if (customerIds.length) {
     await remove("invoices", service.from("invoices").delete().in("customer_id", customerIds));
-    await remove("visits", service.from("visits").delete().in("customer_id", customerIds));
+    visitsDeleted = await remove("visits", service.from("visits").delete().in("customer_id", customerIds), true);
   }
-  if (routeIds.length) await remove("routes", service.from("routes").delete().in("id", routeIds));
-  if (jobIds.length) await remove("jobs", service.from("jobs").delete().in("id", jobIds));
-  if (customerIds.length) {
-    await remove("quotes", service.from("quotes").delete().in("customer_id", customerIds));
-    await remove("properties", service.from("properties").delete().in("customer_id", customerIds));
-    await remove("customers", service.from("customers").delete().in("id", customerIds));
+
+  if (visitsDeleted) {
+    if (routeIds.length) await remove("routes", service.from("routes").delete().in("id", routeIds));
+    if (jobIds.length) await remove("jobs", service.from("jobs").delete().in("id", jobIds));
+    if (customerIds.length) {
+      await remove("quotes", service.from("quotes").delete().in("customer_id", customerIds));
+      await remove("properties", service.from("properties").delete().in("customer_id", customerIds));
+      await remove("customers", service.from("customers").delete().in("id", customerIds));
+    }
+    if (employeeIds.length) await remove("employees", service.from("employees").delete().in("id", employeeIds));
+    if (crewIds.length) await remove("crews", service.from("crews").delete().in("id", crewIds));
+  } else {
+    const archivedAt = new Date().toISOString();
+    if (customerIds.length) await remove("archive customers", service.from("customers").update({ archived_at: archivedAt }).in("id", customerIds));
+    if (jobIds.length) await remove("deactivate jobs", service.from("jobs").update({ active: false }).in("id", jobIds));
+    if (employeeIds.length) await remove("deactivate employees", service.from("employees").update({ active: false }).in("id", employeeIds));
+    if (crewIds.length) await remove("deactivate crews", service.from("crews").update({ active: false }).in("id", crewIds));
+    if (profileIds.length) await remove("deactivate profiles", service.from("profiles").update({ active: false }).in("id", profileIds));
   }
-  if (employeeIds.length) await remove("employees", service.from("employees").delete().in("id", employeeIds));
-  if (crewIds.length) await remove("crews", service.from("crews").delete().in("id", crewIds));
 
   const storageDelete = await service.storage.from("work-photos").remove([`${companyId}/operational-simulation/after.svg`]);
   if (storageDelete.error && !/not found/i.test(storageDelete.error.message || "")) {
