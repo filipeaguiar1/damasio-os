@@ -131,13 +131,18 @@ assert.doesNotMatch(
 
 assert.match(
   canonicalWriter,
+  /apply_canonical_route_order_v2_service/,
+  "The API must apply mobile Smart Route changes through the service-backed canonical transaction.",
+);
+assert.match(
+  canonicalWriter,
   /apply_canonical_route_order_v2/,
-  "The canonical writer must use the authenticated transactional wrapper when available.",
+  "The canonical writer must retain the authenticated transactional wrapper as a compatibility path.",
 );
 assert.match(
   canonicalWriter,
   /replace_canonical_route_order_v2/,
-  "The compatibility path must use the database transaction that writes route_stops and visits together.",
+  "The final compatibility path must still use the database transaction that writes route_stops and visits together.",
 );
 assert.doesNotMatch(
   canonicalWriter,
