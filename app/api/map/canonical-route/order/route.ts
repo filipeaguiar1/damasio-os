@@ -186,7 +186,6 @@ async function saveSmartState(input: {
   const now = new Date().toISOString();
   const result = await input.service.from("employee_smart_route_state").upsert({
     company_id: input.companyId,
-    organization_id: input.companyId,
     route_id: input.route.id,
     crew_id: input.route.crew_id,
     route_date: input.route.route_date,
