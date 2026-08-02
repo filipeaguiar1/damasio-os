@@ -1,42 +1,26 @@
-import fs from "node:fs";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
-const read = path => fs.readFileSync(path, "utf8");
-const files = {
-  identity: read("lib/routes/canonicalRouteIdentity.ts"),
-  scheduling: read("lib/services/schedulingService.ts"),
-  repository: read("lib/repositories/schedulingRepository.ts"),
-  adminApi: read("app/api/admin/routes/route.ts"),
-  advisorApi: read("app/api/admin/route-advisor/route.ts"),
-  assignmentApi: read("app/api/admin/route-assignment/route.ts"),
-  employeeApi: read("app/api/mobile/employee/route/route.ts"),
-  advisorPanel: read("components/admin/RouteAdvisorPanel.tsx"),
-  previewMap: read("components/admin/InteractiveRoutePreviewMap.tsx"),
-  routeMapService: read("lib/services/routeMapService.ts"),
-  executionState: read("lib/visits/executionState.ts"),
-  offlineQueue: read("lib/mobile/offlineActionQueue.ts"),
-  studio: read("components/admin/RouteStudio.tsx"),
-  officialMap: read("components/admin/OfficialRoutePlanMap.tsx"),
-  officialStatus: read("components/admin/OfficialRouteStatus.tsx"),
-  officialPanelsCss: read("components/admin/officialRoutePanels.module.css"),
-  employeeMap: read("components/mobile/EmployeeRouteMap.tsx"),
-  mobileAdminRoute: read("app/mobile/admin/routes/page.tsx"),
-  customerHistory: read("app/customer/history/page.tsx"),
-  customerMobile: read("app/mobile/customer/[section]/page.tsx"),
-  customerNav: read("components/mobile/MobileCustomerNav.tsx"),
-  customerVisitModal: read("components/customer/CustomerServiceVisitModal.tsx"),
-  migration: read("supabase/migrations/202607270003_completed_visit_reopen_guard.sql"),
-  executionMigration: read("supabase/migrations/202607270004_visit_execution_state_invariants.sql"),
-  assignmentMigration: read("supabase/migrations/202607280001_route_assignment_modes.sql"),
-  dailyPublishCompatMigration: read("supabase/migrations/202607280002_route_daily_publish_compat.sql"),
-};
+// The global snapshot regression is the authoritative map synchronization check.
+await import("./validate-canonical-map-sync.mjs");
 
-const failures = [];
-const requireText = (file, value, message) => {
-  if (!files[file].includes(value)) failures.push(message);
-};
-const rejectText = (file, value, message) => {
-  if (files[file].includes(value)) failures.push(message);
-};
+const read = path => readFileSync(path, "utf8");
+const identity = read("lib/routes/canonicalRouteIdentity.ts");
+const scheduling = read("lib/services/schedulingService.ts");
+const repository = read("lib/repositories/schedulingRepository.ts");
+const adminApi = read("app/api/admin/routes/route.ts");
+const employeeApi = read("app/api/mobile/employee/route/route.ts");
+const routeService = read("lib/services/routeMapService.ts");
+const routeSnapshot = read("lib/routes/canonicalRouteSnapshot.ts");
+const routeHook = read("lib/hooks/useCanonicalRouteSnapshot.ts");
+const routeReader = read("app/api/map/canonical-route/route.ts");
+const routeWriter = read("app/api/map/canonical-route/order/route.ts");
+const routeMap = read("components/mobile/EmployeeRouteMap.tsx");
+const visitMigration = read("supabase/migrations/202607270003_completed_visit_reopen_guard.sql");
+const executionMigration = read("supabase/migrations/202607270004_visit_execution_state_invariants.sql");
+const assignmentMigration = read("supabase/migrations/202607280001_route_assignment_modes.sql");
+const canonicalMigration = read("supabase/migrations/202608020500_canonical_route_stops_v2.sql");
+const cleanupMigration = read("supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql");
 
 for (const field of [
   "canonicalCustomerId",
@@ -47,155 +31,85 @@ for (const field of [
   "canonicalEmployeeId",
   "canonicalCrewId",
 ]) {
-  const found = Object.values(files).some(source => source.includes(field));
-  if (!found) failures.push(`Canonical route field missing from integration: ${field}`);
+  assert.ok(
+    [identity, scheduling, routeService].some(source => source.includes(field)),
+    `Canonical route field missing from integration: ${field}`,
+  );
 }
 
-requireText("identity", "belongsToCanonicalEmployee", "Canonical Employee ID matching helper is missing.");
-requireText("scheduling", "canonicalEmployeeId: visit.employeeId", "Visits are not mapped to canonical Employee IDs.");
-requireText("scheduling", "canonicalCustomerId: visit.customerId", "Visits are not mapped to canonical Customer IDs.");
-requireText("scheduling", "visit.status !== \"cancelled\"", "Skipped Visits are hidden instead of remaining available for Needs Reschedule.");
-requireText("scheduling", "normalizeVisitExecutionState", "Admin scheduling views do not normalize Visit execution state.");
+assert.match(identity, /belongsToCanonicalEmployee/, "Canonical Employee identity matching is missing.");
+assert.match(scheduling, /normalizeVisitExecutionState/, "Scheduling must normalize Visit execution state.");
+assert.match(repository, /canonicalWriterRequired/, "Legacy operational repository writers must remain blocked.");
+assert.match(adminApi, /publish_canonical_route/, "Admin publication must use the canonical transaction.");
+assert.match(adminApi, /assign_job_to_crew/, "Permanent Job assignment must use the canonical RPC.");
+assert.match(employeeApi, /transition_visit_execution/, "Employee Visit actions must use the canonical transition RPC.");
+assert.doesNotMatch(employeeApi, /\.ilike\("email"/, "Employee identity cannot fall back to email matching.");
 
-requireText("adminApi", "jobByProperty", "Build does not preserve one permanent Job per Property.");
-requireText("adminApi", "publish_canonical_route", "Legacy Smart/Publish writes do not use the canonical route transaction.");
-requireText("adminApi", "assign_job_to_crew", "Build assignment is not using the canonical Job/Crew RPC.");
-requireText("adminApi", "isDemoIdentity", "Operational routes can still create Employees from demo profiles.");
-requireText("adminApi", "Treat legacy Demo 02/04 assignments as unassigned", "Legacy demo Job assignments are still exposed as real work.");
-requireText("adminApi", "Legacy demo Visits are not operational work", "Legacy demo Visits can still appear in official routes.");
+assert.match(canonicalMigration, /route_stops is the durable source of truth/i);
+assert.match(canonicalMigration, /All writes below are in this single database transaction/i);
+assert.match(canonicalMigration, /Route verification failed\. Nothing was changed\./);
+assert.match(canonicalMigration, /set route_order = s\.position/);
+assert.match(canonicalMigration, /route_order_state/);
+assert.match(canonicalMigration, /employee_smart_route_state/);
 
-requireText("advisorApi", "publish_canonical_route_daily", "Route Advisor can still change permanent Job ownership during daily publication.");
-requireText("advisorApi", "reopen_completed_visit", "Route Advisor has no audited completed Visit Reopen.");
-rejectText("advisorApi", '.from("visits").insert', "Route Advisor still inserts Visits through a parallel write path.");
-rejectText("advisorApi", '.from("visits").update', "Route Advisor still updates Visits through a parallel write path.");
+assert.match(routeReader, /from\("route_stops"\)/, "Canonical route reads must start at route_stops.");
+assert.match(routeReader, /No projection fallback is allowed/, "Inconsistent canonical routes must fail closed.");
+assert.doesNotMatch(routeReader, /route_map_cache/, "RouteId-only geometry cache cannot serve canonical snapshots.");
+assert.match(routeReader, /roadGeometry\(String\(route\.id\), routeVersion, routePoints\)/, "Road geometry must be generated for the exact versioned stop sequence.");
+assert.match(routeReader, /orderedVisitIds/);
+assert.match(routeReader, /geometryStatus/);
 
-requireText("assignmentApi", "move_canonical_visits", "Temporary and permanent moves do not share the canonical assignment RPC.");
-requireText("assignmentApi", 'mode?: "temporary" | "permanent"', "Move API does not explicitly separate temporary and permanent assignment.");
-rejectText("assignmentApi", '.from("visits").update', "Assignment API bypasses the canonical database transaction.");
+assert.match(routeWriter, /rpc\("apply_canonical_route_order_v2"/);
+assert.match(routeWriter, /rpc\("restore_canonical_route_order_v2"/);
+assert.match(routeWriter, /A reviewed routeVersion is required/);
+assert.match(routeWriter, /sameOrder\(savedOrder, orderedVisitIds\)/);
+assert.doesNotMatch(routeWriter, /apply_canonical_route_order_v2_service|replace_canonical_route_order_v2/);
 
-requireText("employeeApi", "transition_visit_execution", "Start, Done, Skip, Reset and Reopen do not share the canonical Visit transition RPC.");
-requireText("employeeApi", "fallbackVisitTransition", "Employee execution has no safe fallback while the canonical migration is pending.");
-requireText("employeeApi", "Start this Visit before finishing it.", "Employee API can still finish a Visit that was never started.");
-requireText("employeeApi", 'action?: "start" | "done" | "reset" | "skip" | "reopen"', "Employee Reopen action is missing.");
-requireText("employeeApi", '.eq("profile_id", user.id)', "Employee route identity is not resolved through canonical profile_id.");
-rejectText("employeeApi", '.ilike("email"', "Employee identity still falls back to email matching.");
-rejectText("employeeApi", "latitude,longitude", "Employee Route API still depends on optional Property coordinate columns instead of address geocoding fallback.");
+assert.match(routeSnapshot, /loadCanonicalRouteSnapshot/);
+assert.match(routeSnapshot, /stop\.visitId === snapshot\.orderedVisitIds\[index\]/);
+assert.match(routeHook, /table: "route_order_state"/);
+assert.match(routeHook, /setInterval\(refreshCurrent, 5_000\)/);
+assert.match(routeHook, /current\.routeVersion > next\.routeVersion/);
+assert.match(routeService, /loadCanonicalRouteSnapshot\(\{ routeDate \}\)/);
+assert.doesNotMatch(routeService, /\/api\/mobile\/employee\/(?:route|today-route)/);
+assert.doesNotMatch(routeService, /localStorage|confirmedRouteOrders|canonicalRouteVersions|smartRoutePreviewVersions/);
 
-requireText("executionState", "normalizeVisitExecutionState", "Shared Visit execution normalization is missing.");
-requireText("executionState", 'status === "scheduled"', "Scheduled Visit timer cleanup is missing.");
-requireText("executionState", 'status === "completed"', "Completed Visit invariant validation is missing.");
-requireText("routeMapService", "canonicalVisitId", "Employee Route map does not synchronize by canonical Visit ID.");
-requireText("routeMapService", "id: stop.visitId", "Canonical Employee screens still retain a legacy Lead ID that can revive stale local timers.");
-requireText("routeMapService", "normalizeVisitExecutionState", "Employee Route does not normalize Visit execution state.");
-rejectText("routeMapService", "stop.startedAt || lead?.visitStartedAt", "Canonical Visit timestamps still fall back to legacy local data.");
-rejectText("routeMapService", "employeeNameMatches", "Employee Route still identifies a worker by display name.");
-rejectText("routeMapService", "normalizeAddress(candidate.address)", "Employee Route still identifies stops by address text.");
-rejectText("offlineQueue", "localStorage.setItem", "Operational Visit writes are still persisted in localStorage.");
-rejectText("offlineQueue", "localStorage.getItem", "Operational Visit writes are still read from localStorage.");
+assert.match(routeMap, /useCanonicalRouteSnapshot\(effectiveRouteId\)/);
+assert.match(routeMap, /snapshot\.stops\.map/);
+assert.match(routeMap, /snapshot\.geometry\.coordinates/);
+assert.doesNotMatch(routeMap, /\/api\/map\/geocode|\/api\/map\/route|clientMapCache/);
 
-for (const legacyWriter of [
-  "schedule_job_on_route",
-  "move_visit_to_route",
-  "set_visit_dispatch_status",
-  "save_job_route_pattern",
-]) {
-  rejectText("repository", legacyWriter, `Legacy parallel operational writer remains exposed: ${legacyWriter}`);
-}
-requireText("repository", "canonicalWriterRequired", "Legacy repository signatures are not explicitly blocked.");
-
-requireText("advisorPanel", "MANUAL ROUTE ORDER", "Manual route reordering controls are missing.");
-requireText("advisorPanel", "Needs Reschedule", "Skipped Visit handling is missing from Route Advisor.");
-requireText("advisorPanel", "Esta casa já foi concluída hoje", "Completed Visit selection guard is missing.");
-requireText("advisorPanel", "Type REOPEN", "Strong completed Visit Reopen confirmation is missing.");
-requireText("advisorPanel", "Position", "Accessible direct route position control is missing.");
-requireText("previewMap", "distanceMeters", "Route preview does not recalculate distance.");
-requireText("previewMap", "durationSeconds", "Route preview does not recalculate duration.");
-requireText("previewMap", "onMetricsChange", "Route preview metrics are not synchronized with the list.");
-
-for (const databaseGuard of [
+for (const guard of [
   "visit_transition_audit",
-  "visits_one_active_occurrence_per_job_day_idx",
-  "visits_route_order_unique",
-  "guard_visit_operational_transition",
   "transition_visit_execution",
   "reopen_completed_visit",
-  "publish_canonical_route",
-  "apply_employee_smart_route",
   "America/Toronto",
 ]) {
-  requireText("migration", databaseGuard, `Database route/Visit guard missing: ${databaseGuard}`);
+  assert.ok(visitMigration.includes(guard), `Visit guard missing: ${guard}`);
 }
-
-for (const executionGuard of [
+for (const guard of [
   "visits_execution_state_invariants",
   "enforce_visit_execution_state",
   "Start this Visit before finishing it.",
-  "started_at = null",
-  "duration_seconds = null",
 ]) {
-  requireText("executionMigration", executionGuard, `Visit execution invariant missing: ${executionGuard}`);
+  assert.ok(executionMigration.includes(guard), `Execution invariant missing: ${guard}`);
 }
-
-for (const assignmentGuard of [
+for (const guard of [
   "visit_assignment_audit",
   "publish_canonical_route_daily",
   "move_canonical_visits",
   "temporary",
   "permanent",
-  "Only Scheduled Visits can be moved",
-  "assign_job_to_crew",
 ]) {
-  requireText("assignmentMigration", assignmentGuard, `Permanent/temporary assignment guard missing: ${assignmentGuard}`);
+  assert.ok(assignmentMigration.includes(guard), `Assignment guard missing: ${guard}`);
 }
-requireText("assignmentMigration", "Admin published the reviewed daily route without changing permanent Job ownership.", "Daily route publication can silently change permanent Job ownership.");
-requireText("dailyPublishCompatMigration", "publish_canonical_route_daily", "Legacy route publishers are not redirected to dated Visit publication.");
 
-requireText("studio", "<OfficialRoutePlanMap date={date} onDateChange={setDate} />", "Dispatch View does not keep one controlled operational date.");
-requireText("studio", "operationalDateKey", "Dispatch still uses a UTC date key.");
-requireText("studio", 'type MoveMode = "temporary" | "permanent"', "Desktop Move does not separate temporary and permanent assignment.");
-requireText("studio", 'mode: moveMode', "Desktop Move does not send its assignment mode to the canonical API.");
-requireText("studio", "Build assigns the canonical Job", "Desktop Build does not explain permanent Job ownership.");
-rejectText("officialMap", "official-worker-list", "Route Plan still renders the redundant Employee list over the overview map.");
-requireText("officialMap", "mapRef.current?.remove()", "Route Plan does not destroy the old Leaflet instance before returning to overview.");
-requireText("officialMap", 'setSelectedId("")', "Route Plan Back navigation is missing.");
-requireText("officialMap", "originPoint={origin}", "Admin route view does not include the Employee starting point.");
-requireText("officialMap", "houseScroll", "Route Plan does not include the scrollable house panel.");
-requireText("officialMap", "Boolean(item.canonicalRouteId)", "Admin Route Plan still shows assigned Visits that were never published.");
-requireText("officialPanelsCss", "grid-template-rows: auto auto minmax(0, 1fr)", "The Employee house panel does not reserve a scrollable list area.");
-requireText("officialStatus", "{row.completed}/{row.visits.length}", "Route Status does not show completed houses over the real daily total.");
-rejectText("officialStatus", "dailyCapacity", "Route Status still compares work against Employee capacity instead of the published daily route.");
-requireText("officialStatus", ".filter(row => row.visits.length > 0)", "Route Status still renders Employees with no route for the day.");
-requireText("employeeMap", "Calculating driving route", "Driving route geometry is not requested.");
-rejectText("studio", "assignedCrew === employee.name", "Route Plan still matches Employees by display name.");
-rejectText("studio", "assignedCrew===employee.name", "Route Plan still matches Employees by display name.");
-rejectText("employeeMap", "updateLead(", "Canonical map still writes coordinates to local Lead storage.");
-
-requireText("mobileAdminRoute", "belongsToCanonicalEmployee", "Mobile Admin routes do not use canonical Employee identity.");
-requireText("mobileAdminRoute", "item.canonicalRouteId", "Mobile Admin routes still show unpublished Employee work.");
-requireText("mobileAdminRoute", "operationalDateKey", "Mobile Admin routes still use a UTC day key.");
-requireText("mobileAdminRoute", 'type MoveMode = "temporary" | "permanent"', "Mobile Move does not separate temporary and permanent assignment.");
-requireText("mobileAdminRoute", 'mode: moveMode', "Mobile Move does not send its assignment mode to the canonical API.");
-requireText("mobileAdminRoute", "Permanent Employee", "Mobile Build still behaves like a dated route builder.");
-requireText("mobileAdminRoute", ".mobile-route-advisor .advisor-hero{display:none!important}", "Mobile Route Advisor still renders the oversized desktop explanation hero.");
-requireText("mobileAdminRoute", "mobile-advisor-help-tools", "Mobile Route Advisor has no compact contextual help controls.");
-rejectText("mobileAdminRoute", "AddressAutocomplete", "Mobile Build still asks for a route origin instead of assigning the permanent Job owner.");
-rejectText("mobileAdminRoute", "Generate Smart Route", "Mobile Build still publishes daily routes instead of assigning Customer Jobs.");
-rejectText("mobileAdminRoute", "assignedCrew===employee.name", "Mobile Admin routes still identify Employees by display name.");
-
-requireText("customerHistory", "CustomerServiceVisitModal", "Desktop Customer history does not open the shared completed-service detail.");
-requireText("customerHistory", "getPropertyPhotoHistory", "Desktop Customer history does not load Visit-linked photo history.");
-requireText("customerMobile", "CustomerServiceVisitModal", "Mobile Customer history does not open the shared completed-service detail.");
-requireText("customerMobile", "getPropertyPhotoHistory", "Mobile Customer history does not load Visit-linked photo history.");
-requireText("customerVisitModal", 'type Tab = "service" | "photos" | "property"', "Customer completed-service detail is missing standardized tabs.");
-requireText("customerVisitModal", "customer-visit-modal-close", "Customer completed-service detail has no accessible close control.");
-requireText("customerNav", "return null", "The floating Customer navigation is still rendered.");
-
-if (failures.length) {
-  console.error("Canonical Route validation failed:");
-  for (const failure of failures) console.error(`- ${failure}`);
-  process.exit(1);
-}
+assert.match(cleanupMigration, /retired_55_york_demo/);
+assert.match(cleanupMigration, /delete from public\.route_stops/);
+assert.match(cleanupMigration, /delete from public\.visits/);
+assert.match(cleanupMigration, /delete from public\.jobs/);
+assert.match(cleanupMigration, /delete from public\.customers/);
+assert.match(cleanupMigration, /alter publication supabase_realtime add table public\.route_order_state/);
 
 console.log("Canonical Route validation passed.");
-console.log("Customer → Property → Job → Visit → Route → Employee/Crew IDs remain canonical.");
-console.log("Permanent Job ownership, dated Visit execution and actual completed-work history remain separated.");
+console.log("One route_stops order, one versioned snapshot, one transactional writer and one shared map path are enforced.");

@@ -133,6 +133,7 @@ jobs:
         run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
 
       - name: Validate canonical route on four authenticated screens
+        if: ${{ always() }}
         run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
 
       - name: Upload screenshots and server log

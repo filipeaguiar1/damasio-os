@@ -4,8 +4,10 @@ import type { RouteLineString } from "@/lib/maps/types";
 
 export const dynamic = "force-dynamic";
 
+const SERVICE_CENTER = { latitude: 43.2557, longitude: -79.8711 };
 const SERVICE_VIEWBOX = "-80.35,43.65,-79.35,42.85";
-const geocodeCache = new Map<string, { latitude: number; longitude: number; expiresAt: number }>();
+const SERVICE_BBOX = "-80.35,42.85,-79.35,43.65";
+const geocodeCache = new Map<string, { point: Point | null; expiresAt: number }>();
 const geometryCache = new Map<string, { geometry: RouteLineString | null; expiresAt: number }>();
 
 type RouteVisit = Record<string, any>;
@@ -75,11 +77,12 @@ function isRetiredYorkDemo(visit: RouteVisit) {
   const property = joined(visit.properties);
   const customer = joined(visit.customers);
   const address = normalizedAddress(property?.address_line1);
-  const retiredAddress = address === "55 york blvd" || address === "55 york boulevard";
-  const demoIdentity = /^demo customer\b/i.test(String(customer?.full_name || ""))
-    || /@4everseasons\.test$/i.test(String(customer?.email || ""))
-    || /\[TEMP_DEMO_SANDBOX_V1\]/i.test(String(customer?.notes || ""));
-  return retiredAddress && demoIdentity;
+  return (address === "55 york blvd" || address === "55 york boulevard")
+    && (
+      /^demo customer\b/i.test(String(customer?.full_name || ""))
+      || /@4everseasons\.test$/i.test(String(customer?.email || ""))
+      || /\[TEMP_DEMO_SANDBOX_V1\]/i.test(String(customer?.notes || ""))
+    );
 }
 
 async function requireProfile(request: NextRequest, service: any) {
@@ -87,6 +90,7 @@ async function requireProfile(request: NextRequest, service: any) {
   if (!token) throw new Error("Sign in to view this route.");
   const auth = await service.auth.getUser(token);
   if (auth.error || !auth.data.user) throw new Error("Your session expired. Sign in again.");
+
   const profileResult = await service
     .from("profiles")
     .select("id,role,active,company_id,organization_id,full_name,address_line1,route_start_address")
@@ -142,6 +146,7 @@ async function resolveRoute(input: {
   } else {
     if (!input.routeDate) throw new Error("routeId or date is required.");
     if (!currentEmployee) throw new Error("Admin route reads require routeId.");
+
     const byCrew = await service
       .from("routes")
       .select("id,crew_id,route_date,company_id,organization_id,created_at")
@@ -197,16 +202,33 @@ async function resolveRoute(input: {
       throw new Error("This Route is not assigned to the authenticated Employee.");
     }
   }
+
   return { route, currentEmployee };
 }
 
-async function geocodeAddress(address: string): Promise<Point | null> {
-  const key = normalizedAddress(address);
-  if (!key) return null;
-  const cached = geocodeCache.get(key);
-  if (cached && cached.expiresAt > Date.now()) {
-    return { latitude: cached.latitude, longitude: cached.longitude };
-  }
+async function photonPoint(address: string): Promise<Point | null> {
+  const url = new URL("https://photon.komoot.io/api/");
+  url.searchParams.set("q", address);
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("lang", "en");
+  url.searchParams.set("lat", String(SERVICE_CENTER.latitude));
+  url.searchParams.set("lon", String(SERVICE_CENTER.longitude));
+  url.searchParams.set("bbox", SERVICE_BBOX);
+  const response = await fetch(url, {
+    headers: { Accept: "application/json", "User-Agent": "DamasioOS/CanonicalRouteSnapshot" },
+    cache: "no-store",
+  });
+  if (!response.ok) return null;
+  const data = await response.json() as {
+    features?: Array<{ geometry?: { coordinates?: [number, number] } }>;
+  };
+  const coordinates = data.features?.[0]?.geometry?.coordinates;
+  const longitude = numeric(coordinates?.[0]);
+  const latitude = numeric(coordinates?.[1]);
+  return latitude === null || longitude === null ? null : { latitude, longitude };
+}
+
+async function nominatimPoint(address: string): Promise<Point | null> {
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("format", "jsonv2");
   url.searchParams.set("limit", "1");
@@ -215,24 +237,42 @@ async function geocodeAddress(address: string): Promise<Point | null> {
   url.searchParams.set("bounded", "1");
   url.searchParams.set("q", address);
   const response = await fetch(url, {
-    headers: { "User-Agent": "DamasioOS/CanonicalRouteSnapshot" },
+    headers: {
+      Accept: "application/json",
+      "Accept-Language": "en-CA,en;q=0.9",
+      "User-Agent": "DamasioOS/CanonicalRouteSnapshot",
+    },
     cache: "no-store",
   });
   if (!response.ok) return null;
   const rows = await response.json() as Array<{ lat?: string; lon?: string }>;
   const latitude = numeric(rows[0]?.lat);
   const longitude = numeric(rows[0]?.lon);
-  if (latitude === null || longitude === null) return null;
-  geocodeCache.set(key, { latitude, longitude, expiresAt: Date.now() + 15 * 60_000 });
-  return { latitude, longitude };
+  return latitude === null || longitude === null ? null : { latitude, longitude };
+}
+
+async function geocodeAddress(address: string): Promise<Point | null> {
+  const key = normalizedAddress(address);
+  if (!key) return null;
+  const cached = geocodeCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.point;
+
+  let point: Point | null = null;
+  try { point = await photonPoint(address); } catch { /* canonical fallback below */ }
+  if (!point) {
+    try { point = await nominatimPoint(address); } catch { /* unresolved address */ }
+  }
+  geocodeCache.set(key, { point, expiresAt: Date.now() + (point ? 15 * 60_000 : 60_000) });
+  return point;
 }
 
 async function roadGeometry(routeId: string, routeVersion: number, points: Point[]) {
   if (points.length < 2) return null;
-  const signature = `${routeId}:${routeVersion}:${points.map((point: Point) => `${point.longitude},${point.latitude}`).join(";")}`;
+  const signature = `${routeId}:${routeVersion}:${points.map(point => `${point.longitude},${point.latitude}`).join(";")}`;
   const cached = geometryCache.get(signature);
   if (cached && cached.expiresAt > Date.now()) return cached.geometry;
-  const encoded = points.map((point: Point) => `${point.longitude},${point.latitude}`).join(";");
+
+  const encoded = points.map(point => `${point.longitude},${point.latitude}`).join(";");
   const response = await fetch(
     `https://router.project-osrm.org/route/v1/driving/${encoded}?overview=full&geometries=geojson&steps=false`,
     {
@@ -250,7 +290,7 @@ async function roadGeometry(routeId: string, routeVersion: number, points: Point
 function sameMembers(left: string[], right: string[]) {
   if (left.length !== right.length) return false;
   const expected = new Set(left);
-  return right.every((value: string) => expected.has(value));
+  return right.every(value => expected.has(value));
 }
 
 export async function GET(request: NextRequest) {
@@ -264,13 +304,25 @@ export async function GET(request: NextRequest) {
     const [visitsResult, stopsResult, stateResult, smartResult] = await Promise.all([
       service
         .from("visits")
-        .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes),properties(address_line1,city,province,postal_code,latitude,longitude),jobs(service_name)")
+        .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes),properties(address_line1,city,province,postal_code),jobs(service_name)")
         .eq("route_id", route.id)
         .neq("status", "cancelled")
         .or(companyFilter(companyId)),
-      service.from("route_stops").select("visit_id,position").eq("route_id", route.id).order("position", { ascending: true }),
-      service.from("route_order_state").select("version,updated_at").eq("route_id", route.id).maybeSingle(),
-      service.from("employee_smart_route_state").select("origin_label,origin_latitude,origin_longitude,active,route_version,updated_at").eq("route_id", route.id).maybeSingle(),
+      service
+        .from("route_stops")
+        .select("visit_id,position")
+        .eq("route_id", route.id)
+        .order("position", { ascending: true }),
+      service
+        .from("route_order_state")
+        .select("version,updated_at")
+        .eq("route_id", route.id)
+        .maybeSingle(),
+      service
+        .from("employee_smart_route_state")
+        .select("origin_label,origin_latitude,origin_longitude,active,route_version,updated_at")
+        .eq("route_id", route.id)
+        .maybeSingle(),
     ]);
 
     if (visitsResult.error) throw new Error(visitsResult.error.message);
@@ -280,61 +332,56 @@ export async function GET(request: NextRequest) {
     }
 
     const visits = (visitsResult.data || []) as RouteVisit[];
-    if (visits.some((visit: RouteVisit) => isRetiredYorkDemo(visit))) {
+    if (visits.some(isRetiredYorkDemo)) {
       throw new Error("Retired demo data remains on this Route. Run the 55 York cleanup migration.");
     }
-    const activeVisitIds: string[] = visits.map((visit: RouteVisit) => String(visit.id));
+
+    const activeVisitIds = visits.map(visit => String(visit.id));
     const stopRows = stopsResult.data || [];
-    const orderedVisitIds: string[] = stopRows.map((row: any) => String(row.visit_id));
-    const positionsAreCanonical = stopRows.every((row: any, index: number) => Number(row.position) === index + 1);
-    if (new Set(orderedVisitIds).size !== orderedVisitIds.length
-      || !positionsAreCanonical
-      || !sameMembers(activeVisitIds, orderedVisitIds)) {
+    const orderedVisitIds = stopRows.map((row: any) => String(row.visit_id));
+    const sequential = stopRows.every((row: any, index: number) => Number(row.position) === index + 1);
+    if (
+      new Set(orderedVisitIds).size !== orderedVisitIds.length
+      || !sequential
+      || !sameMembers(activeVisitIds, orderedVisitIds)
+    ) {
       throw new Error("route_stops does not exactly match the active Visits. No projection fallback is allowed.");
     }
 
     const routeVersion = Number(stateResult.data.version);
-    if (!Number.isInteger(routeVersion) || routeVersion < 1) throw new Error("Canonical routeVersion is invalid.");
+    if (!Number.isInteger(routeVersion) || routeVersion < 1) {
+      throw new Error("Canonical routeVersion is invalid.");
+    }
 
-    const byVisitId = new Map<string, RouteVisit>(
-      visits.map((visit: RouteVisit) => [String(visit.id), visit]),
-    );
-    const orderedVisits: RouteVisit[] = orderedVisitIds.map((visitId: string) => byVisitId.get(visitId)!);
-    const stops: SnapshotStop[] = await Promise.all(
-      orderedVisits.map(async (visit: RouteVisit, index: number): Promise<SnapshotStop> => {
-        const property = joined(visit.properties);
-        const customer = joined(visit.customers);
-        const job = joined(visit.jobs);
-        const address = completeAddress(property);
-        let latitude = numeric(property?.latitude);
-        let longitude = numeric(property?.longitude);
-        if (latitude === null || longitude === null) {
-          const point = await geocodeAddress(address);
-          latitude = point?.latitude ?? null;
-          longitude = point?.longitude ?? null;
-        }
-        return {
-          visitId: String(visit.id),
-          jobId: visit.job_id || null,
-          routeId: String(route.id),
-          customerId: visit.customer_id || null,
-          propertyId: visit.property_id || null,
-          employeeId: visit.assigned_employee_id || null,
-          crewId: visit.crew_id || null,
-          address,
-          latitude,
-          longitude,
-          routeOrder: index + 1,
-          status: String(visit.status || "scheduled"),
-          customerName: customer?.full_name || "Customer",
-          serviceName: job?.service_name || "Property Service",
-          scheduledDate: visit.scheduled_date,
-          startedAt: visit.started_at,
-          finishedAt: visit.finished_at,
-          durationSeconds: visit.duration_seconds,
-        };
-      }),
-    );
+    const byVisitId = new Map<string, RouteVisit>(visits.map(visit => [String(visit.id), visit]));
+    const orderedVisits = orderedVisitIds.map(visitId => byVisitId.get(visitId)!);
+    const stops: SnapshotStop[] = await Promise.all(orderedVisits.map(async (visit, index) => {
+      const property = joined(visit.properties);
+      const customer = joined(visit.customers);
+      const job = joined(visit.jobs);
+      const address = completeAddress(property);
+      const point = await geocodeAddress(address);
+      return {
+        visitId: String(visit.id),
+        jobId: visit.job_id || null,
+        routeId: String(route.id),
+        customerId: visit.customer_id || null,
+        propertyId: visit.property_id || null,
+        employeeId: visit.assigned_employee_id || null,
+        crewId: visit.crew_id || null,
+        address,
+        latitude: point?.latitude ?? null,
+        longitude: point?.longitude ?? null,
+        routeOrder: index + 1,
+        status: String(visit.status || "scheduled"),
+        customerName: customer?.full_name || "Customer",
+        serviceName: job?.service_name || "Property Service",
+        scheduledDate: visit.scheduled_date,
+        startedAt: visit.started_at,
+        finishedAt: visit.finished_at,
+        durationSeconds: visit.duration_seconds,
+      };
+    }));
 
     const smartState: any = smartResult.error ? null : smartResult.data;
     const smartOriginIsCurrent = Boolean(
@@ -346,26 +393,35 @@ export async function GET(request: NextRequest) {
 
     let routeEmployee = currentEmployee;
     if (!routeEmployee) {
-      const employeeId = orderedVisits.find((visit: RouteVisit) => Boolean(visit.assigned_employee_id))?.assigned_employee_id;
+      const employeeId = orderedVisits.find(visit => Boolean(visit.assigned_employee_id))?.assigned_employee_id;
       if (employeeId) {
-        const result = await service.from("employees")
+        const result = await service
+          .from("employees")
           .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active")
-          .eq("id", employeeId).maybeSingle();
+          .eq("id", employeeId)
+          .maybeSingle();
         if (!result.error) routeEmployee = result.data;
       }
     }
     if (!routeEmployee && route.crew_id) {
-      const result = await service.from("employees")
+      const result = await service
+        .from("employees")
         .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active")
-        .eq("crew_id", route.crew_id).eq("active", true).or(companyFilter(companyId)).limit(1).maybeSingle();
+        .eq("crew_id", route.crew_id)
+        .eq("active", true)
+        .or(companyFilter(companyId))
+        .limit(1)
+        .maybeSingle();
       if (!result.error) routeEmployee = result.data;
     }
 
     let employeeProfile: any = null;
     if (routeEmployee?.profile_id) {
-      const result = await service.from("profiles")
+      const result = await service
+        .from("profiles")
         .select("id,full_name,address_line1,route_start_address")
-        .eq("id", routeEmployee.profile_id).maybeSingle();
+        .eq("id", routeEmployee.profile_id)
+        .maybeSingle();
       if (!result.error) employeeProfile = result.data;
     }
 
@@ -409,11 +465,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const allStopsMapped = stops.every((stop: SnapshotStop) => stop.latitude !== null && stop.longitude !== null);
+    const allStopsMapped = stops.every(stop => stop.latitude !== null && stop.longitude !== null);
     const routePoints: Point[] = allStopsMapped
       ? [
           ...(!origin || originIsFirstStop ? [] : [{ latitude: origin.latitude, longitude: origin.longitude }]),
-          ...stops.map((stop: SnapshotStop) => ({ latitude: stop.latitude!, longitude: stop.longitude! })),
+          ...stops.map(stop => ({ latitude: stop.latitude!, longitude: stop.longitude! })),
         ]
       : [];
     const geometry = routePoints.length >= 2
@@ -421,7 +477,9 @@ export async function GET(request: NextRequest) {
       : null;
     const geometryStatus = !allStopsMapped ? "incomplete" : geometry ? "ready" : "unavailable";
     const updatedAt = [stateResult.data.updated_at, smartState?.updated_at, route.created_at]
-      .filter(Boolean).sort().at(-1) || new Date().toISOString();
+      .filter(Boolean)
+      .sort()
+      .at(-1) || new Date().toISOString();
 
     console.info("canonical-route-snapshot-ok", {
       routeId: route.id,
@@ -436,7 +494,7 @@ export async function GET(request: NextRequest) {
       routeDate: route.route_date,
       origin,
       orderedVisitIds,
-      routeOrder: orderedVisitIds.map((visitId: string, index: number) => ({ visitId, routeOrder: index + 1 })),
+      routeOrder: orderedVisitIds.map((visitId, index) => ({ visitId, routeOrder: index + 1 })),
       stops,
       geometry,
       geometryStatus,
