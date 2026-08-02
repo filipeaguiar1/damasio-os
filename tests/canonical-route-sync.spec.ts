@@ -119,12 +119,8 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await signIn(employeeDesktop, workerEmail, workerPassword);
   await employeeDesktop.waitForURL("**/employee", { timeout: 30_000 });
 
-  const routeDate = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Toronto",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
+  const routeDate = String(simulation.operational?.liveDate || "");
+  expect(routeDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   const employeeSnapshot = await authRequest<any>(employeeDesktop, `/api/map/canonical-route?date=${routeDate}`);
   expect(employeeSnapshot.orderedVisitIds.length).toBeGreaterThanOrEqual(2);
   expect(employeeSnapshot.stops.every((stop: any, index: number) =>
