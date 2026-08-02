@@ -35,8 +35,8 @@ function sameOrder(left: string[], right: string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function unique(values: Array<string | null>) {
-  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+function uniqueOrder(values: string[]) {
+  return [...new Set(values)];
 }
 
 function isRetiredDemoYork(visit: RouteVisit) {
@@ -57,134 +57,6 @@ function projectedOrder(visits: RouteVisit[]) {
       || String(left.created_at || "").localeCompare(String(right.created_at || ""))
       || String(left.id).localeCompare(String(right.id)))
     .map(visit => String(visit.id));
-}
-
-async function writeCanonicalOrder(input: {
-  service: any;
-  companyId: string;
-  routeId: string;
-  profileId: string;
-  order: string[];
-  source: string;
-}) {
-  const removed = await input.service.from("route_stops").delete().eq("route_id", input.routeId);
-  if (removed.error) throw new Error(removed.error.message);
-
-  const cleared = await input.service
-    .from("visits")
-    .update({ route_order: null })
-    .eq("route_id", input.routeId)
-    .neq("status", "cancelled");
-  if (cleared.error) throw new Error(cleared.error.message);
-
-  if (input.order.length) {
-    const inserted = await input.service.from("route_stops").insert(
-      input.order.map((visitId: string, index: number) => ({
-        company_id: input.companyId,
-        route_id: input.routeId,
-        visit_id: visitId,
-        position: index + 1,
-        updated_at: new Date().toISOString(),
-      })),
-    );
-    if (inserted.error) throw new Error(inserted.error.message);
-  }
-
-  for (let index = 0; index < input.order.length; index += 1) {
-    const updated = await input.service
-      .from("visits")
-      .update({ route_order: index + 1 })
-      .eq("route_id", input.routeId)
-      .eq("id", input.order[index]);
-    if (updated.error) throw new Error(updated.error.message);
-  }
-
-  const currentVersion = await input.service
-    .from("route_order_state")
-    .select("version")
-    .eq("route_id", input.routeId)
-    .maybeSingle();
-  const nextVersion = Number(currentVersion.error ? 1 : currentVersion.data?.version || 1) + 1;
-  const orderState = await input.service.from("route_order_state").upsert({
-    route_id: input.routeId,
-    company_id: input.companyId,
-    version: nextVersion,
-    last_source: input.source,
-    last_actor_profile_id: input.profileId,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "route_id" });
-  if (orderState.error) throw new Error(orderState.error.message);
-
-  return nextVersion;
-}
-
-async function permanentlyRemoveRetiredDemoYork(input: {
-  service: any;
-  companyId: string;
-  routeId: string;
-  profileId: string;
-  visits: RouteVisit[];
-}) {
-  const retired = input.visits.filter(isRetiredDemoYork);
-  if (!retired.length || retired.some(visit => String(visit.status) === "in_progress")) return 0;
-
-  const retiredIds = retired.map(visit => String(visit.id));
-  const retiredSet = new Set(retiredIds);
-  const remaining = input.visits.filter(visit => !retiredSet.has(String(visit.id)));
-  const remainingSet = new Set(remaining.map(visit => String(visit.id)));
-  const jobIds = unique(retired.map(visit => visit.job_id ? String(visit.job_id) : null));
-  const customerIds = unique(retired.map(visit => visit.customer_id ? String(visit.customer_id) : null));
-
-  const stored = await input.service
-    .from("route_stops")
-    .select("visit_id,position")
-    .eq("route_id", input.routeId)
-    .order("position");
-  const storedOrder: string[] = stored.error
-    ? []
-    : (stored.data || [])
-      .map((row: any) => String(row.visit_id))
-      .filter((visitId: string) => remainingSet.has(visitId));
-  const order = storedOrder.length === remaining.length ? storedOrder : projectedOrder(remaining);
-
-  const cancelled = await input.service.from("visits").update({
-    status: "cancelled",
-    route_id: null,
-    route_order: null,
-    crew_id: null,
-    assigned_employee_id: null,
-    started_at: null,
-    finished_at: null,
-    duration_seconds: null,
-  }).in("id", retiredIds);
-  if (cancelled.error) throw new Error(cancelled.error.message);
-
-  const nextVersion = await writeCanonicalOrder({ ...input, order, source: "remove_retired_demo_york" });
-  const smartState = await input.service.from("employee_smart_route_state").update({
-    original_order: order,
-    applied_order: order,
-    active: false,
-    restored_at: new Date().toISOString(),
-    restored_by_profile_id: input.profileId,
-    route_version: nextVersion,
-    updated_at: new Date().toISOString(),
-  }).eq("route_id", input.routeId);
-  if (smartState.error) throw new Error(smartState.error.message);
-
-  if (jobIds.length) {
-    const jobs = await input.service.from("jobs").update({ active: false }).in("id", jobIds);
-    if (jobs.error) throw new Error(jobs.error.message);
-  }
-  if (customerIds.length) {
-    const customers = await input.service
-      .from("customers")
-      .update({ archived_at: new Date().toISOString() })
-      .in("id", customerIds);
-    if (customers.error) throw new Error(customers.error.message);
-  }
-
-  try { await input.service.from("route_map_cache").delete().eq("route_id", input.routeId); } catch { /* optional cache */ }
-  return retiredIds.length;
 }
 
 async function requireProfile(request: NextRequest, service: any) {
@@ -225,36 +97,17 @@ export async function GET(request: NextRequest) {
       throw new Error("Route not found in this company.");
     }
 
-    const loadVisits = async () => {
-      const result = await service
-        .from("visits")
-        .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes),properties(address_line1,city,province,postal_code),jobs(service_name)")
-        .eq("route_id", routeId)
-        .neq("status", "cancelled")
-        .or(companyFilter(companyId))
-        .order("route_order", { ascending: true, nullsFirst: false })
-        .order("created_at", { ascending: true });
-      if (result.error) throw new Error(result.error.message);
-      return (result.data || []) as RouteVisit[];
-    };
+    const visitsResult = await service
+      .from("visits")
+      .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes),properties(address_line1,city,province,postal_code),jobs(service_name)")
+      .eq("route_id", routeId)
+      .neq("status", "cancelled")
+      .or(companyFilter(companyId))
+      .order("route_order", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: true });
+    if (visitsResult.error) throw new Error(visitsResult.error.message);
 
-    let rawVisits = await loadVisits();
-    let removedRetiredDemoStops = 0;
-    if (rawVisits.some(isRetiredDemoYork)) {
-      try {
-        removedRetiredDemoStops = await permanentlyRemoveRetiredDemoYork({
-          service,
-          companyId,
-          routeId,
-          profileId: String(profile.id),
-          visits: rawVisits,
-        });
-        if (removedRetiredDemoStops) rawVisits = await loadVisits();
-      } catch (cleanupError) {
-        console.error("canonical-route-demo-cleanup", cleanupError);
-      }
-    }
-
+    const rawVisits = (visitsResult.data || []) as RouteVisit[];
     const visits = rawVisits.filter(visit => !isRetiredDemoYork(visit));
     const activeVisitIds = new Set(visits.map(visit => String(visit.id)));
 
@@ -284,26 +137,30 @@ export async function GET(request: NextRequest) {
         .select("route_id,applied_order,origin_label,origin_latitude,origin_longitude,active,route_version,updated_at")
         .eq("route_id", routeId)
         .maybeSingle(),
-      service.from("route_order_state").select("version").eq("route_id", routeId).maybeSingle(),
+      service.from("route_order_state").select("version,updated_at").eq("route_id", routeId).maybeSingle(),
     ]);
 
     const smartState = smartStateResult.error ? null : smartStateResult.data;
     const canonicalVersion = Number(orderStateResult.error
       ? smartState?.route_version || 1
       : orderStateResult.data?.version || smartState?.route_version || 1);
-    const routeStopOrder: string[] = routeStopsResult.error
+    const routeStopOrder = routeStopsResult.error
       ? []
-      : (routeStopsResult.data || [])
+      : uniqueOrder((routeStopsResult.data || [])
         .map((row: any) => String(row.visit_id))
-        .filter((visitId: string) => activeVisitIds.has(visitId));
+        .filter((visitId: string) => activeVisitIds.has(visitId)));
     const visitProjection = projectedOrder(visits);
     const canonicalOrder = routeStopOrder.length === visits.length ? routeStopOrder : visitProjection;
-    const smartOrder: string[] = Array.isArray(smartState?.applied_order)
-      ? smartState.applied_order.map(String).filter((visitId: string) => activeVisitIds.has(visitId))
+    const smartOrder = Array.isArray(smartState?.applied_order)
+      ? uniqueOrder(smartState.applied_order.map(String).filter((visitId: string) => activeVisitIds.has(visitId)))
       : [];
-    const smartActive = Boolean(smartState?.active && sameOrder(smartOrder, canonicalOrder));
+    const smartActive = Boolean(
+      smartState?.active
+      && Number(smartState.route_version || 0) === canonicalVersion
+      && sameOrder(smartOrder, canonicalOrder),
+    );
     const canonicalIndex = new Map<string, number>(
-      canonicalOrder.map((visitId: string, index: number): [string, number] => [visitId, index]),
+      canonicalOrder.map((visitId, index): [string, number] => [visitId, index]),
     );
     const orderedVisits = [...visits].sort((left, right) =>
       (canonicalIndex.get(String(left.id)) ?? 9999) - (canonicalIndex.get(String(right.id)) ?? 9999)
@@ -392,9 +249,8 @@ export async function GET(request: NextRequest) {
       version: canonicalVersion,
       activeSmartRoute: smartActive,
       stopCount: stops.length,
-      removedRetiredDemoStops,
       source: routeStopOrder.length === visits.length ? "route_stops" : "visit_projection",
-      completeAddressCount: stops.filter(stop => stop.address.split(",").length >= 3).length,
+      hiddenRetiredDemoStops: rawVisits.length - visits.length,
     });
 
     return NextResponse.json({
