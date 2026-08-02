@@ -109,6 +109,17 @@ for (const [label, source] of [
 }
 
 assert.match(
+  employeeWeb,
+  /window\.setInterval\(loadContext,5_000\)/,
+  "Employee web route list must refresh from the canonical context every five seconds.",
+);
+assert.match(
+  employeeWeb,
+  /document\.addEventListener\("visibilitychange",loadVisible\)/,
+  "Employee web must refresh immediately after the tab becomes visible.",
+);
+
+assert.match(
   routeService,
   /\/api\/map\/canonical-route\?routeId=/,
   "Employee route lists must use the same canonical snapshot as the map.",
