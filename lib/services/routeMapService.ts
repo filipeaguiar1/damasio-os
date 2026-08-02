@@ -267,11 +267,24 @@ export async function applyEmployeeDatabaseSmartRoute(params: {
   const response = await fetch("/api/mobile/employee/smart-route", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify({ action: "apply", routeId: params.routeId, originalOrder: params.originalOrder, appliedOrder: params.appliedOrder, origin: params.origin }),
+    body: JSON.stringify({
+      action: "apply",
+      routeId: params.routeId,
+      originalOrder: params.originalOrder,
+      appliedOrder: params.appliedOrder,
+      origin: params.origin,
+      expectedVersion: params.expectedVersion ?? null,
+    }),
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || "Smart Route could not be applied.");
-  return Number(result.count || 0);
+  return result as {
+    saved: true;
+    routeId: string;
+    count: number;
+    version: number;
+    appliedOrder: string[];
+  };
 }
 
 export async function restoreEmployeeDatabaseSmartRoute(
