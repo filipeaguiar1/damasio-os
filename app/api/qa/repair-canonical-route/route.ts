@@ -29,10 +29,40 @@ function projectedOrder(visits: any[]) {
     .map(visit => String(visit.id));
 }
 
+function pause(milliseconds: number) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
 async function must<T = any>(promise: PromiseLike<{ data: T; error: any }>, label: string) {
   const result = await promise;
   if (result.error) throw new Error(`${label}: ${result.error.message}`);
   return result.data;
+}
+
+async function replaceRouteStops(service: any, routeId: string, companyId: string, order: string[]) {
+  let lastError = "";
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    const removed = await service.from("route_stops").delete().eq("route_id", routeId);
+    if (removed.error) throw new Error(`reset route stops ${routeId}: ${removed.error.message}`);
+    await pause(attempt * 300);
+
+    if (!order.length) return;
+    const inserted = await service.from("route_stops").insert(order.map((visitId: string, index: number) => ({
+      company_id: companyId,
+      route_id: routeId,
+      visit_id: visitId,
+      position: index + 1,
+      updated_at: new Date().toISOString(),
+    })));
+    if (!inserted.error) return;
+
+    lastError = inserted.error.message;
+    if (!/duplicate key value/i.test(lastError) || attempt === 6) {
+      throw new Error(`write canonical stops ${routeId}: ${lastError}`);
+    }
+    await pause(attempt * 500);
+  }
+  throw new Error(`write canonical stops ${routeId}: ${lastError || "unknown error"}`);
 }
 
 export async function GET() {
@@ -123,23 +153,11 @@ export async function GET() {
       const companyId = String(visits[0].company_id || visits[0].organization_id || "");
       if (!companyId) throw new Error(`Route ${routeId} is missing its company ID.`);
 
-      await must(service.from("route_stops").delete().eq("route_id", routeId), `reset route stops ${routeId}`);
       await must(
         service.from("visits").update({ route_order: null }).eq("route_id", routeId).neq("status", "cancelled"),
         `reset visit order ${routeId}`,
       );
-      if (order.length) {
-        await must(
-          service.from("route_stops").upsert(order.map((visitId: string, index: number) => ({
-            company_id: companyId,
-            route_id: routeId,
-            visit_id: visitId,
-            position: index + 1,
-            updated_at: new Date().toISOString(),
-          })), { onConflict: "route_id,visit_id" }),
-          `write canonical stops ${routeId}`,
-        );
-      }
+      await replaceRouteStops(service, routeId, companyId, order);
       for (let index = 0; index < order.length; index += 1) {
         await must(
           service.from("visits").update({ route_order: index + 1 }).eq("route_id", routeId).eq("id", order[index]),
