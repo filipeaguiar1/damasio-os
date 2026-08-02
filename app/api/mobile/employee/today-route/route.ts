@@ -123,22 +123,14 @@ export async function GET(request: NextRequest) {
         && visit.crew_id === employee.crew_id
       ));
 
-    const routeId = assignedVisits.find((visit: any) => Boolean(visit.route_id))?.route_id || null;
-    const canonicalVisits = routeId
-      ? assignedVisits.filter((visit: any) => visit.route_id === routeId)
-      : assignedVisits.filter((visit: any) => !visit.route_id);
-    const unroutedVisits = routeId
-      ? assignedVisits.filter((visit: any) => !visit.route_id)
-      : [];
-
-    const propertyIds = unique(canonicalVisits.map((visit: any) => visit.property_id));
-    const customerIds = unique(canonicalVisits.map((visit: any) => visit.customer_id));
-    const jobIds = unique(canonicalVisits.map((visit: any) => visit.job_id));
+    const propertyIds = unique(assignedVisits.map((visit: any) => visit.property_id));
+    const customerIds = unique(assignedVisits.map((visit: any) => visit.customer_id));
+    const jobIds = unique(assignedVisits.map((visit: any) => visit.job_id));
     const empty = Promise.resolve({ data: [] as any[], error: null });
 
     const [propertiesResult, customersResult, jobsResult] = await Promise.all([
       propertyIds.length
-        ? service.from("properties").select("id,address_line1,city,province,postal_code,latitude,longitude").in("id", propertyIds)
+        ? service.from("properties").select("id,address_line1,city,province,postal_code").in("id", propertyIds)
         : empty,
       customerIds.length
         ? service.from("customers").select("id,full_name").in("id", customerIds)
@@ -156,7 +148,7 @@ export async function GET(request: NextRequest) {
     const customers = new Map((customersResult.data || []).map((row: any) => [row.id, row]));
     const jobs = new Map((jobsResult.data || []).map((row: any) => [row.id, row]));
 
-    const stops = canonicalVisits.map((visit: any) => {
+    const stops = assignedVisits.map((visit: any) => {
       const property = properties.get(visit.property_id) as any;
       const customer = customers.get(visit.customer_id) as any;
       const job = jobs.get(visit.job_id) as any;
@@ -176,8 +168,8 @@ export async function GET(request: NextRequest) {
         city: property?.city || "",
         province: property?.province || "",
         postalCode: property?.postal_code || "",
-        latitude: Number.isFinite(property?.latitude) ? Number(property.latitude) : null,
-        longitude: Number.isFinite(property?.longitude) ? Number(property.longitude) : null,
+        latitude: null,
+        longitude: null,
         routeOrder: visit.route_order,
         status: visit.status,
         customerName: customer?.full_name || "Customer",
@@ -194,13 +186,11 @@ export async function GET(request: NextRequest) {
       employeeId: employee.id,
       companyId,
       date,
-      routeId,
       repairedDemoAssignmentCount: repairedIds.length,
       stopCount: stops.length,
-      unroutedAssignedCount: unroutedVisits.length,
-      missingCoordinateCount: stops.filter((stop: any) => !Number.isFinite(stop.latitude) || !Number.isFinite(stop.longitude)).length,
+      routeLinkedCount: stops.filter((stop: any) => Boolean(stop.routeId)).length,
+      unlinkedAssignedCount: stops.filter((stop: any) => !stop.routeId).length,
       visitIds: stops.map((stop: any) => stop.visitId),
-      unroutedVisitIds: unroutedVisits.map((visit: any) => visit.id),
     });
 
     return NextResponse.json({
@@ -213,10 +203,9 @@ export async function GET(request: NextRequest) {
         email: employee.email || null,
         avatarUrl,
       },
-      routeId,
+      routeId: stops.find((stop: any) => stop.routeId)?.routeId || null,
       date,
       stops,
-      unroutedAssignedCount: unroutedVisits.length,
       repairedDemoAssignmentCount: repairedIds.length,
     });
   } catch (error) {
