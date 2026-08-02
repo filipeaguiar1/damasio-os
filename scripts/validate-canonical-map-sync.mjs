@@ -6,6 +6,11 @@ const canonicalWriter = readFileSync("app/api/map/canonical-route/order/route.ts
 const geocodeApi = readFileSync("app/api/map/geocode/route.ts", "utf8");
 const routeMap = readFileSync("components/mobile/EmployeeRouteMap.tsx", "utf8");
 const routeService = readFileSync("lib/services/routeMapService.ts", "utf8");
+const demoSandbox = readFileSync("app/api/admin/demo-sandbox/route.ts", "utf8");
+const adminWeb = readFileSync("components/admin/OfficialRoutePlanMap.tsx", "utf8");
+const adminMobile = readFileSync("app/mobile/admin/routes/page.tsx", "utf8");
+const employeeWeb = readFileSync("app/employee/route/page.tsx", "utf8");
+const employeeMobile = readFileSync("app/mobile/employee/page.tsx", "utf8");
 
 assert.doesNotMatch(
   canonicalApi,
@@ -20,11 +25,16 @@ assert.match(
 assert.match(
   canonicalApi,
   /const canonicalOrder = routeStopOrder\.length === visits\.length \? routeStopOrder : visitProjection/,
-  "Every client must read one canonical route_stops order with one visit projection fallback.",
+  "Every client must read one route_stops order with one visit projection fallback.",
 );
 assert.match(
   canonicalApi,
-  /smartState\?\.active && sameOrder\(smartOrder, canonicalOrder\)/,
+  /Number\(smartState\.route_version \|\| 0\) === canonicalVersion/,
+  "Smart Route origin is valid only when it belongs to the current canonical version.",
+);
+assert.match(
+  canonicalApi,
+  /sameOrder\(smartOrder, canonicalOrder\)/,
   "Legacy Smart Route state must never override the canonical ordered stops.",
 );
 assert.match(
@@ -32,21 +42,27 @@ assert.match(
   /address: fullAddress\(property\)/,
   "Every canonical map stop must receive the same full address.",
 );
-assert.match(
+assert.doesNotMatch(
   canonicalApi,
-  /permanentlyRemoveRetiredDemoYork/,
-  "The retired 55 York demo stop must be removed from the database, not only hidden on one map.",
+  /\.from\([^\n]+\)\.(?:insert|upsert|update|delete)\(/,
+  "The canonical route GET endpoint must be read-only and cannot race with open map tabs.",
+);
+assert.doesNotMatch(
+  demoSandbox,
+  /\["55 York Blvd"/,
+  "Future demo sandboxes must not recreate the retired 55 York property.",
 );
 assert.match(
   canonicalApi,
   /address === "55 york blvd" \|\| address === "55 york boulevard"/,
-  "55 York cleanup must use an exact address match.",
+  "A strict safety filter must hide any stale retired York demo row.",
 );
 assert.match(
   canonicalApi,
   /TEMP_DEMO_SANDBOX_V1/,
-  "55 York cleanup must be limited to temporary demo records.",
+  "The safety filter must be limited to temporary demo data.",
 );
+
 assert.match(
   geocodeApi,
   /SERVICE_VIEWBOX = "-80\.35,43\.65,-79\.35,42\.85"/,
@@ -62,6 +78,7 @@ assert.match(
   /cache: "no-store"/,
   "Corrected geocoding must not be replaced by an old daily cache result.",
 );
+
 assert.match(
   routeMap,
   /\/api\/map\/canonical-route\?routeId=/,
@@ -75,8 +92,22 @@ assert.match(
 assert.match(
   routeMap,
   /employee-canonical-route-list/,
-  "Desktop maps must render their stop list from the same canonical snapshot as their markers.",
+  "Desktop maps must render their stop list from the same snapshot as their markers.",
 );
+
+for (const [label, source] of [
+  ["Admin web", adminWeb],
+  ["Admin mobile", adminMobile],
+  ["Employee web", employeeWeb],
+  ["Employee mobile", employeeMobile],
+]) {
+  assert.match(
+    source,
+    /EmployeeRouteMap/,
+    `${label} must render the shared canonical map component.`,
+  );
+}
+
 assert.match(
   routeService,
   /\/api\/map\/canonical-route\?routeId=/,
@@ -95,32 +126,33 @@ assert.match(
 assert.doesNotMatch(
   routeService,
   /rpc\("apply_employee_smart_route"/,
-  "The browser service must not write only the legacy Smart Route state.",
+  "The browser must not write only the legacy Smart Route state.",
 );
+
 assert.match(
   canonicalWriter,
   /apply_canonical_route_order_v2/,
-  "The canonical writer must use the transactional route order RPC when available.",
+  "The canonical writer must use the authenticated transactional wrapper when available.",
 );
 assert.match(
   canonicalWriter,
-  /from\("route_stops"\)/,
-  "The compatibility fallback must persist the same order in route_stops.",
+  /replace_canonical_route_order_v2/,
+  "The compatibility path must use the database transaction that writes route_stops and visits together.",
+);
+assert.doesNotMatch(
+  canonicalWriter,
+  /from\("route_stops"\)\.(?:insert|upsert|update|delete)/,
+  "The API must never manually rewrite route_stops outside the canonical database transaction.",
 );
 assert.match(
   canonicalWriter,
-  /from\("visits"\)[\s\S]*route_order/,
-  "The compatibility fallback must project the same order to visits.route_order.",
+  /route_version: input\.version/,
+  "Smart Route state must be stamped with the same canonical version.",
 );
 assert.match(
   canonicalWriter,
-  /from\("route_order_state"\)/,
-  "Every order change must increment the canonical route version.",
-);
-assert.match(
-  canonicalWriter,
-  /cleanup_demo_york/,
-  "The canonical writer must expose a guarded cleanup for the retired demo stop.",
+  /verified\.currentOrder\.join\("\\\|"\)/,
+  "Every compatibility write must verify the stored canonical order before returning success.",
 );
 
 console.log("PASS canonical map synchronization regression checks");
