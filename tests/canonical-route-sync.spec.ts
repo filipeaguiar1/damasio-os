@@ -112,7 +112,7 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   expect(employeeSnapshot.stops.every((stop: any) => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude))).toBe(true);
   expect(employeeSnapshot.geometryStatus).toBe("ready");
 
-  const adminRoutes = await authRequest<any>(adminDesktop, "/api/admin/routes");
+  const adminRoutes = await authRequest<any>(adminDesktop, `/api/admin/routes?date=${encodeURIComponent(routeDate)}`);
   const worker = (adminRoutes.employees || []).find((item: any) =>
     String(item.email || "").toLowerCase() === workerEmail.toLowerCase());
   expect(worker).toBeTruthy();

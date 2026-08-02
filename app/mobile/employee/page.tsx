@@ -7,7 +7,7 @@ import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
-import { applyEmployeeDatabaseSmartRoute, applyEmployeeRouteMapContext, loadEmployeeDatabaseSmartRouteState, loadEmployeeRouteMapContext, restoreEmployeeDatabaseSmartRoute, type EmployeeDatabaseSmartRouteState, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
+import { applyEmployeeDatabaseSmartRoute, applyEmployeeRouteMapContext, loadEmployeeDatabaseSmartRouteState, loadEmployeeRouteMapContext, loadEmployeeRouteMapContextUntilStatus, restoreEmployeeDatabaseSmartRoute, type EmployeeDatabaseSmartRouteState, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
 import {uploadVisitServicePhotos} from "@/lib/services/propertyPhotoService";
 import {isSupabaseConfigured} from "@/lib/supabase/client";
 import {
@@ -287,7 +287,7 @@ export default function MobileEmployeeApp(){
   async function start(){
     if(!selected||busy)return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"in_progress");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Service start saved offline. It will sync automatically.":"Service started and synchronized.")}else{startServiceSession(selected.id,profile.name,crew);setMessage("Service started and synchronized.")} setRouteReload(value=>value+1); refresh();}
+    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"in_progress");setMapContext(await loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,selected.canonicalVisitId,"in_progress"));setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Service start saved offline. It will sync automatically.":"Service started and synchronized.")}else{startServiceSession(selected.id,profile.name,crew);setMessage("Service started and synchronized.")} setRouteReload(value=>value+1); refresh();}
     catch(error){setError(error instanceof Error?error.message:"Service could not be started. Please try again.")}
     finally{setBusy(false)}
   }
@@ -295,7 +295,7 @@ export default function MobileEmployeeApp(){
     if(!selected||busy)return;
     if(!window.confirm("Finish this service and mark this house as Done?"))return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"completed");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Completion saved offline. It will sync automatically.":"Done. Every device was updated.")}else{finishServiceSession(selected.id,comment);setMessage("Done. Every device was updated.")} setRouteReload(value=>value+1); refresh();}
+    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"completed");setMapContext(await loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,selected.canonicalVisitId,"completed"));setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Completion saved offline. It will sync automatically.":"Done. Every device was updated.")}else{finishServiceSession(selected.id,comment);setMessage("Done. Every device was updated.")} setRouteReload(value=>value+1); refresh();}
     catch(error){setError(error instanceof Error?error.message:"Service could not be completed. Please try again.")}
     finally{setBusy(false)}
   }
@@ -303,7 +303,7 @@ export default function MobileEmployeeApp(){
     if(!selected||busy)return;
     if(!window.confirm("Reset this house? The timer will be cleared and the visit will return to Open."))return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"scheduled");setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Reset saved offline. It will sync automatically.":"House reset to Open on every device.")}else{resetServiceSession(selected.id);setMessage("House reset to Open on every device.")} setComment(""); setRouteReload(value=>value+1); refresh();}
+    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"scheduled");setMapContext(await loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,selected.canonicalVisitId,"scheduled"));setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Reset saved offline. It will sync automatically.":"House reset to Open on every device.")}else{resetServiceSession(selected.id);setMessage("House reset to Open on every device.")} setComment(""); setRouteReload(value=>value+1); refresh();}
     catch{setError("House could not be reset.")}
     finally{setBusy(false)}
   }

@@ -140,6 +140,22 @@ export async function loadEmployeeRouteMapContext(
   return contextFromSnapshot(snapshot);
 }
 
+export async function loadEmployeeRouteMapContextUntilStatus(
+  routeDate: string,
+  crewName: string,
+  visitId: string,
+  expectedStatus: string,
+): Promise<EmployeeRouteMapContext> {
+  let latest = await loadEmployeeRouteMapContext(routeDate, crewName);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const stop = latest.stops.find(item => item.visitId === visitId);
+    if (stop?.status === expectedStatus) return latest;
+    await new Promise(resolve => window.setTimeout(resolve, 300 + attempt * 100));
+    latest = await loadEmployeeRouteMapContext(routeDate, crewName);
+  }
+  throw new Error(`The Visit was saved, but the canonical Route did not converge to ${expectedStatus}. Refresh and verify before continuing.`);
+}
+
 export function applyEmployeeRouteMapContext(
   route: Lead[],
   context: EmployeeRouteMapContext,
