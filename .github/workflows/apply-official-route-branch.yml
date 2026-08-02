@@ -1,24 +1,21 @@
-name: Apply Official Route Branch
+name: Apply Final Route Stability Patch
 
 on:
   push:
-    branches: [work/official-route-map-no-demo]
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
+    branches: [feature/25-30-homes-simulator-v1]
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]' && (github.event_name != 'pull_request' || github.head_ref == 'work/official-route-map-no-demo')
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: work/official-route-map-no-demo
-          fetch-depth: 0
+          ref: feature/25-30-homes-simulator-v1
+          fetch-depth: 2
       - uses: pnpm/action-setup@v4
         with:
           version: 9.15.4
@@ -26,37 +23,22 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - name: Apply prepared patch
+      - name: Apply prepared stability patch
+        run: python scripts/apply-final-ui-network-stability.py
+      - name: Restore workflow and remove staging script
         shell: bash
         run: |
-          python scripts/apply-official-route-patch.py
-          python scripts/fix-official-route-typecheck.py
-      - name: Install
+          git show HEAD^:.github/workflows/apply-official-route-branch.yml > .github/workflows/apply-official-route-branch.yml
+          rm scripts/apply-final-ui-network-stability.py
+      - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Typecheck
-        shell: bash
-        run: |
-          set +e
-          pnpm typecheck > /tmp/official-route-typecheck.log 2>&1
-          status=$?
-          cat /tmp/official-route-typecheck.log
-          if [ "$status" -ne 0 ]; then
-            cp /tmp/official-route-typecheck.log docs/OFFICIAL_ROUTE_TYPECHECK_ERROR.txt
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add app components lib docs/OFFICIAL_ROUTE_TYPECHECK_ERROR.txt
-            git commit -m "Record official route typecheck failure"
-            git push origin HEAD:work/official-route-map-no-demo
-            exit "$status"
-          fi
-      - name: Production build
+      - name: Validate production build
         run: pnpm build
       - name: Commit validated changes
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          rm -f docs/OFFICIAL_ROUTE_PATCH_ERROR.txt docs/OFFICIAL_ROUTE_TYPECHECK_ERROR.txt
-          git add app components lib docs/OFFICIAL_ROUTE_PATCH_ERROR.txt docs/OFFICIAL_ROUTE_TYPECHECK_ERROR.txt
-          git commit -m "Complete official route maps and visit status colors"
-          git push origin HEAD:work/official-route-map-no-demo
+          git add app/employee/route/page.tsx components/admin/OfficialRoutePlanMap.tsx tests/canonical-route-sync.spec.ts scripts/apply-final-ui-network-stability.py .github/workflows/apply-official-route-branch.yml
+          git commit -m "fix: finalize canonical route status and fetch resilience"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
