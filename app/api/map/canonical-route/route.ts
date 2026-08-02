@@ -74,9 +74,13 @@ export async function GET(request: NextRequest) {
       throw new Error("Route not found in this company.");
     }
 
+    // Coordinates are intentionally not selected here. Some production tenants
+    // predate the optional properties.latitude/longitude columns. Every client
+    // receives the same complete canonical address and the shared map component
+    // geocodes that address consistently when stored coordinates are unavailable.
     const visitsResult = await service
       .from("visits")
-      .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name),properties(address_line1,city,province,postal_code,latitude,longitude),jobs(service_name)")
+      .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name),properties(address_line1,city,province,postal_code),jobs(service_name)")
       .eq("route_id", routeId)
       .neq("status", "cancelled")
       .or(companyFilter(companyId))
@@ -217,8 +221,8 @@ export async function GET(request: NextRequest) {
         employeeId: visit.assigned_employee_id,
         crewId: visit.crew_id,
         address: fullAddress(property),
-        latitude: numeric(property?.latitude),
-        longitude: numeric(property?.longitude),
+        latitude: null,
+        longitude: null,
         routeOrder: index + 1,
         status: String(visit.status || "scheduled"),
         customerName: customer?.full_name || "Customer",
@@ -228,6 +232,15 @@ export async function GET(request: NextRequest) {
         finishedAt: visit.finished_at,
         durationSeconds: visit.duration_seconds,
       };
+    });
+
+    console.info("canonical-route-map-ok", {
+      routeId,
+      version: canonicalVersion,
+      activeSmartRoute: smartActive,
+      stopCount: stops.length,
+      source: smartOrder.length ? "smart_route" : routeStopOrder.length ? "route_stops" : "visit_projection",
+      completeAddressCount: stops.filter(stop => stop.address.split(",").length >= 3).length,
     });
 
     return NextResponse.json({
