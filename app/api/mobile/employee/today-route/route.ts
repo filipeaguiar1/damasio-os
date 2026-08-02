@@ -85,6 +85,20 @@ async function requireEmployee(request: NextRequest) {
   };
 }
 
+function applyOrderPositions(
+  positions: Map<string, number>,
+  order: unknown,
+) {
+  if (!Array.isArray(order)) return 0;
+  let count = 0;
+  for (const [index, value] of order.entries()) {
+    if (!value) continue;
+    positions.set(String(value), index + 1);
+    count += 1;
+  }
+  return count;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { service, employee, companyId, avatarUrl } = await requireEmployee(request);
@@ -126,9 +140,10 @@ export async function GET(request: NextRequest) {
     const assignedRouteIds = unique(assignedVisits.map((visit: any) => visit.route_id));
     const routeStopPositions = new Map<string, number>();
     const routeVersions = new Map<string, number>();
+    const routeOrderSources = new Map<string, string>();
 
     if (assignedRouteIds.length) {
-      const [routeStopsResult, routeStatesResult] = await Promise.all([
+      const [routeStopsResult, routeStatesResult, smartStatesResult] = await Promise.all([
         service
           .from("route_stops")
           .select("route_id,visit_id,position")
@@ -137,6 +152,11 @@ export async function GET(request: NextRequest) {
           .from("route_order_state")
           .select("route_id,version")
           .in("route_id", assignedRouteIds),
+        service
+          .from("employee_smart_route_state")
+          .select("route_id,active,applied_order,route_version")
+          .in("route_id", assignedRouteIds)
+          .eq("active", true),
       ]);
 
       if (routeStopsResult.error) {
@@ -146,6 +166,9 @@ export async function GET(request: NextRequest) {
           const position = Number((stop as any).position || 0);
           if ((stop as any).visit_id && Number.isInteger(position) && position > 0) {
             routeStopPositions.set(String((stop as any).visit_id), position);
+            if ((stop as any).route_id) {
+              routeOrderSources.set(String((stop as any).route_id), "route_stops_v2");
+            }
           }
         }
       }
@@ -157,6 +180,32 @@ export async function GET(request: NextRequest) {
           const version = Number((state as any).version || 0);
           if ((state as any).route_id && Number.isInteger(version) && version > 0) {
             routeVersions.set(String((state as any).route_id), version);
+          }
+        }
+      }
+
+      if (smartStatesResult.error) {
+        console.warn("employee-today-route-smart-state", smartStatesResult.error.message);
+      } else {
+        for (const state of smartStatesResult.data || []) {
+          const routeId = String((state as any).route_id || "");
+          const stateVersion = Number((state as any).route_version || 0);
+          const canonicalVersion = routeVersions.get(routeId) || 0;
+          const shouldUseSmartState = routeId
+            && Number.isInteger(stateVersion)
+            && stateVersion >= canonicalVersion
+            && Array.isArray((state as any).applied_order)
+            && (state as any).applied_order.length > 0;
+
+          if (shouldUseSmartState) {
+            const count = applyOrderPositions(
+              routeStopPositions,
+              (state as any).applied_order,
+            );
+            if (count > 0) {
+              routeVersions.set(routeId, stateVersion);
+              routeOrderSources.set(routeId, "employee_smart_route_state");
+            }
           }
         }
       }
@@ -237,7 +286,9 @@ export async function GET(request: NextRequest) {
     const routeVersion = routeId
       ? routeVersions.get(String(routeId)) ?? 1
       : null;
-    const canonicalOrderSource = routeStopPositions.size ? "route_stops_v2" : "visits_route_order";
+    const canonicalOrderSource = routeId
+      ? routeOrderSources.get(String(routeId)) || (routeStopPositions.size ? "route_stops_v2" : "visits_route_order")
+      : "visits_route_order";
 
     console.info("employee-today-route-ok", {
       employeeId: employee.id,
