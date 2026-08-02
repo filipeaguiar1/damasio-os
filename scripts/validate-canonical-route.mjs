@@ -67,7 +67,7 @@ assert.match(routeReader, /geometryStatus/);
 
 assert.match(routeWriter, /service\.rpc\(\s*"apply_canonical_route_order_v2_service"/);
 assert.match(routeWriter, /p_actor_profile_id: context\.profile\.id/);
-assert.match(routeWriter, /user\.rpc\(\s*"restore_canonical_route_order_v2"/);
+assert.match(routeWriter, /context\.user\.rpc\(\s*"restore_canonical_route_order_v2"/);
 assert.match(routeWriter, /A reviewed routeVersion is required/);
 assert.match(routeWriter, /sameOrder\(savedOrder, orderedVisitIds\)/);
 assert.doesNotMatch(routeWriter, /replace_canonical_route_order_v2/);
