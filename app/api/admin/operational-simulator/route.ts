@@ -22,16 +22,6 @@ function serviceClient() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
 }
 
-function authenticatedClient(token: string) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) throw new Error("Canonical route authentication is not configured.");
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  }) as any;
-}
-
 function companyFilter(companyId: string) {
   return `company_id.eq.${companyId},organization_id.eq.${companyId}`;
 }
@@ -138,7 +128,6 @@ async function requireAdmin(request: NextRequest) {
   if (!companyId) throw new Error("Your Admin profile is not linked to a company.");
   return {
     service,
-    writer: authenticatedClient(token),
     companyId: String(companyId),
     actorId: String(auth.data.user.id),
     actorName: String(profile.data.full_name || "Márcio"),
@@ -487,9 +476,10 @@ function createCompletedOperations(
 }
 
 async function initializeCanonicalRoutes(
-  writer: any,
+  service: any,
   operations: ReturnType<typeof createCompletedOperations>,
   workers: WorkerRecord[],
+  actorId: string,
 ) {
   const visitsByRoute = new Map<string, Record<string, unknown>[]>();
   for (const visit of operations.visits) {
@@ -513,13 +503,14 @@ async function initializeCanonicalRoutes(
       }
 
       const worker = workerByCrew.get(String(route.crew_id || ""));
-      const applied = await writer.rpc("apply_canonical_route_order_v2", {
+      const applied = await service.rpc("apply_canonical_route_order_v2_service", {
         p_route_id: routeId,
         p_ordered_visit_ids: orderedVisitIds,
         p_origin_label: `${worker?.name || "Employee"} start`,
         p_origin_latitude: null,
         p_origin_longitude: null,
         p_expected_version: null,
+        p_actor_profile_id: actorId,
         p_source: "operational_simulator_initialization",
       });
       if (applied.error) {
@@ -711,7 +702,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { service, writer, companyId } = await requireAdmin(request);
+    const { service, companyId, actorId } = await requireAdmin(request);
     const body = await request.json() as { action?: "create" | "remove"; assumptions?: Partial<OperationalSimulationInput> };
 
     if (body.action === "remove") {
@@ -753,7 +744,7 @@ export async function POST(request: NextRequest) {
       const operations = createCompletedOperations(companyId, input, workers, customerRows.chains);
       await insertRowsWithFallback(service, "routes", operations.routes, ["company_id"]);
       await insertRowsWithFallback(service, "visits", operations.visits, ["company_id", "employee_notes", "customer_visible_summary"]);
-      await initializeCanonicalRoutes(writer, operations, workers);
+      await initializeCanonicalRoutes(service, operations, workers, actorId);
 
       const photoStoragePath = `${companyId}/operational-simulation/after.svg`;
       const photoAsset = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800"><rect width="1200" height="800" fill="#dce9f5"/><rect y="470" width="1200" height="330" fill="#4d8f4b"/><rect x="180" y="260" width="430" height="260" fill="#f4efe4"/><polygon points="140,280 395,90 650,280" fill="#744d3b"/><text x="60" y="735" font-family="Arial" font-size="42" fill="#ffffff">4Ever Seasons · Employee After-Service Photo · Simulation</text></svg>`;
