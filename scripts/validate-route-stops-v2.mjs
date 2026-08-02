@@ -6,7 +6,9 @@ const files = {
   writers: read("supabase/migrations/202608020510_canonical_route_writer_wrappers_v2.sql"),
   smartApi: read("app/api/mobile/employee/smart-route/route.ts"),
   service: read("lib/services/routeMapService.ts"),
-  employeePage: read("app/mobile/employee/page.tsx"),
+  operationStatus: read("lib/mobile/mobileOperationStatus.ts"),
+  operationUi: read("components/mobile/MobileOperationStatus.tsx"),
+  mobileLayout: read("app/mobile/layout.tsx"),
 };
 
 const failures = [];
@@ -124,20 +126,43 @@ requireText(
 );
 requireText(
   "service",
-  "saved: true",
-  "The client does not expect a confirmed persistence result.",
-);
-
-// UX checks are intentionally explicit: a critical route write must never look idle.
-requireText(
-  "employeePage",
-  "setBusy(true)",
-  "Employee Apply does not enter a busy state.",
+  "smartRouteApplyInFlight",
+  "Repeated Apply clicks are not guarded.",
 );
 requireText(
-  "employeePage",
-  "Smart Route applied. Your map and stop order are synchronized.",
-  "Employee Apply has no clear success acknowledgement.",
+  "service",
+  "beginMobileOperation",
+  "Route persistence does not announce its working state.",
+);
+requireText(
+  "service",
+  "completeMobileOperation",
+  "Route persistence does not announce confirmed success.",
+);
+requireText(
+  "service",
+  "failMobileOperation",
+  "Route persistence does not communicate a safe rollback/error state.",
+);
+requireText(
+  "operationStatus",
+  'phase: "working" | "success" | "error" | "clear"',
+  "The mobile operation status contract is incomplete.",
+);
+requireText(
+  "operationUi",
+  'aria-busy="true"',
+  "The mobile save overlay is not accessible as a busy operation.",
+);
+requireText(
+  "operationUi",
+  'role={status.phase === "error" ? "alert" : "status"}',
+  "Mobile operation results are not announced accessibly.",
+);
+requireText(
+  "mobileLayout",
+  "<MobileOperationStatus />",
+  "The global mobile operation status is not mounted.",
 );
 
 if (failures.length) {
@@ -149,3 +174,4 @@ if (failures.length) {
 console.log("Canonical Route Stops V2 validation passed.");
 console.log("Admin, Employee and route movement converge on one transactional order.");
 console.log("Every non-cancelled house is durable, versioned, audited and verified.");
+console.log("Critical mobile writes block duplicate input and report working/success/error states.");
