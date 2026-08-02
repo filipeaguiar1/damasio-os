@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "cleanup:retired-york": "node scripts/cleanup-retired-demo-york-once.mjs",
     "test:map-sync": "node scripts/validate-canonical-map-sync.mjs",
-    "build": "pnpm test:map-sync && pnpm typecheck && next build",
+    "build": "pnpm cleanup:retired-york && pnpm test:map-sync && pnpm typecheck && next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "check": "pnpm test:map-sync && pnpm typecheck",
