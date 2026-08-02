@@ -14,8 +14,10 @@ route was committed and verified; a failure means nothing changed.
 - A `visit_id` can exist in only one route.
 - Every non-cancelled Visit linked to a Route must exist exactly once.
 - `missed` / Needs Reschedule Visits remain durable stops.
-- `visits.route_order` remains a compatibility projection and is written only
-  inside the same transaction as `route_stops`.
+- `visits.route_order` is a compatibility read model, written only inside the
+  same transaction as `route_stops` and re-read before commit.
+- Cancelled Visits keep their history but have `route_order = null`, preventing
+  collisions with active route positions under the legacy unique constraint.
 
 `route_order_state` provides optimistic concurrency. A phone applying a preview
 must send the version it reviewed. If another device changed the route first,
@@ -32,10 +34,11 @@ resulting version for every route-order mutation.
 2. reads every non-cancelled Visit currently belonging to the Route;
 3. verifies the requested sequence contains exactly the same Visit IDs once;
 4. replaces `route_stops`;
-5. updates the `visits.route_order` compatibility projection;
-6. increments the Route version;
-7. writes an audit record;
-8. re-reads both representations and compares them before returning.
+5. clears every old `visits.route_order` position for that Route;
+6. rebuilds the compatibility projection from `route_stops`;
+7. increments the Route version;
+8. writes an audit record;
+9. re-reads both representations and compares them before returning.
 
 Any exception rolls the complete database transaction back.
 
@@ -44,20 +47,40 @@ Public operations are wrappers around this writer:
 - `apply_canonical_route_order_v2` — Employee Smart Route and future manual order changes;
 - `publish_canonical_route_daily` — Admin daily publication;
 - `move_canonical_visits` — temporary and permanent Visit movement;
-- `restore_canonical_route_order_v2` — restoration of the original reviewed order.
+- `restore_canonical_route_order_v2` — restoration of the original reviewed order;
+- `reset_company_route_ownership_v2` — protected company route reset.
+
+Post-RPC integrity helpers are read-only. They compare Route, Visit assignment,
+`route_stops`, the compatibility projection and route version. They never create,
+move or reorder a Visit.
 
 The previous RPC contracts remain available as thin compatibility wrappers, but
 no endpoint may update `visits.route_order` or upsert Smart Route state directly.
+
+## Mobile communication
+
+Critical mobile writes publish a shared operation status:
+
+- a blocking, accessible “Saving Smart Route” overlay;
+- duplicate Apply protection while the transaction is in flight;
+- “Route saved” only after the database confirms count, version and exact order;
+- “Route not changed” when the transaction rolls back or rejects stale data.
+
+The operation-status component is mounted once in the mobile layout and can be
+reused by other critical writes.
 
 ## Rollout order
 
 1. Back up the production database.
 2. Run `202608020500_canonical_route_stops_v2.sql`.
 3. Run `202608020510_canonical_route_writer_wrappers_v2.sql`.
-4. Confirm the PostgREST schema reload completed.
-5. Run the verification queries below.
-6. Deploy the application code.
-7. Test Admin publish, Employee Apply, refresh, logout/login and Admin/Employee comparison.
+4. Run `202608020515_canonical_route_projection_constraint_v2.sql`.
+5. Run `202608020520_canonical_route_reset_v2.sql`.
+6. Confirm the PostgREST schema reload completed.
+7. Run the verification queries below.
+8. Deploy the application code.
+9. Test Admin publish, Employee Apply, refresh, logout/login, Visit movement,
+   Admin/Employee comparison and the protected route reset.
 
 Application code intentionally reports that the migration is missing instead of
 falling back to a parallel writer.
@@ -82,22 +105,8 @@ Both queries must return zero rows.
 
 ### Route Stops and Visit projection are identical
 
-```sql
-select
-  r.id as route_id,
-  array_agg(s.visit_id order by s.position)
-    filter (where s.visit_id is not null) as route_stops_order,
-  array_agg(v.id order by v.route_order)
-    filter (where v.id is not null and v.status::text <> 'cancelled') as visits_order
-from public.routes r
-left join public.route_stops s on s.route_id = r.id
-left join public.visits v on v.route_id = r.id
-where r.id = '<ROUTE_ID>'::uuid
-group by r.id;
-```
-
-For operational verification, compare the two arrays in separate subqueries to
-avoid the Cartesian product introduced by joining two one-to-many relations.
+Use separate subqueries to avoid the Cartesian product produced by joining two
+one-to-many relations.
 
 ```sql
 select
@@ -123,12 +132,48 @@ where r.id = '<ROUTE_ID>'::uuid;
 
 `route_stops_order` and `visits_order` must be identical.
 
+### Cancelled Visits do not occupy an operational position
+
+```sql
+select id, route_id, route_order
+from public.visits
+where status::text = 'cancelled'
+  and route_id is not null
+  and route_order is not null;
+```
+
+This query must return zero rows after a V2 write touches the Route.
+
+### Audit and version advance together
+
+```sql
+select
+  state.route_id,
+  state.version,
+  state.last_source,
+  state.updated_at,
+  audit.previous_order,
+  audit.next_order,
+  audit.created_at
+from public.route_order_state state
+left join lateral (
+  select previous_order, next_order, created_at, route_version
+  from public.route_order_audit
+  where route_id = state.route_id
+  order by created_at desc
+  limit 1
+) audit on true
+where state.route_id = '<ROUTE_ID>'::uuid;
+```
+
+The latest audit `route_version` must equal the state version after a mutation.
+
 ## Rollback
 
-The migration does not delete Routes, Visits, Jobs, Customers or Properties.
+The migrations do not delete Routes, Visits, Jobs, Customers or Properties.
 `route_stops` is initially backfilled from the existing Visit order. If the
-application rollout must be paused, the existing screens can continue reading
-`visits.route_order`, because it is maintained as the verified projection.
+application rollout must be paused, existing screens can continue reading the
+verified `visits.route_order` projection.
 
 Do not restore direct endpoint writes or the old implicit trigger. Correct the
 transaction and retry instead.
