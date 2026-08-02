@@ -151,9 +151,7 @@ export async function loadEmployeeRouteMapContext(
   };
 
   const routeId = result.routeId || null;
-  if (routeId) await rememberCanonicalRouteVersion(routeId);
-
-  return {
+  const context = {
     routeId,
     stops: (result.stops || []).map(stop => {
       const execution = normalizeVisitExecutionState({
@@ -181,7 +179,17 @@ export async function loadEmployeeRouteMapContext(
         durationSeconds: execution.durationSeconds,
       };
     }),
-  };
+  } satisfies EmployeeRouteMapContext;
+
+  if (routeId) {
+    try {
+      await rememberCanonicalRouteVersion(routeId);
+    } catch (error) {
+      console.warn("canonical-route-version-unavailable", error);
+    }
+  }
+
+  return context;
 }
 
 export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRouteMapContext): CanonicalRouteLead[] {
