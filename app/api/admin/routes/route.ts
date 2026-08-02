@@ -91,15 +91,16 @@ async function ensureEmployees(service: any, companyId: string) {
 
   const employeeResult = await service
     .from("employees")
-    .select("id,profile_id,crew_id,full_name,email,address_line1,route_start_address,active")
+    .select("id,profile_id,crew_id,full_name,email,address_line1,route_start_address,active,created_at")
     .eq("active", true)
-    .or(companyFilter(companyId));
+    .or(companyFilter(companyId))
+    .order("created_at", { ascending: false });
 
   if (employeeResult.error) throw new Error(employeeResult.error.message);
 
   const byProfile = new Map<string, any>();
   for (const row of employeeResult.data || []) {
-    if (row.profile_id) byProfile.set(row.profile_id, row);
+    if (row.profile_id && !byProfile.has(row.profile_id)) byProfile.set(row.profile_id, row);
   }
 
   const employees: any[] = [];
@@ -287,15 +288,19 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
   });
 }
 
-async function canonicalVisits(service: any, companyId: string) {
-  const result = await service
+async function canonicalVisits(service: any, companyId: string, routeDate?: string | null) {
+  let query = service
     .from("visits")
     .select("id,job_id,route_id,crew_id,assigned_employee_id,customer_id,property_id,scheduled_date,status,route_order,started_at,finished_at,duration_seconds,created_at,customers(full_name),properties(address_line1,city,province,postal_code),jobs(service_name),employees(full_name)")
     .or(companyFilter(companyId))
-    .neq("status", "cancelled")
+    .neq("status", "cancelled");
+
+  if (routeDate) query = query.eq("scheduled_date", routeDate);
+
+  const result = await query
     .order("scheduled_date", { ascending: false })
     .order("route_order", { ascending: true, nullsFirst: false })
-    .limit(1000);
+    .limit(routeDate ? 250 : 1000);
 
   if (result.error) throw new Error(result.error.message);
 
@@ -362,10 +367,11 @@ function canonicalHealth(employees: any[], visits: any[]) {
 export async function GET(request: NextRequest) {
   try {
     const { service, user, companyId } = await requireAdmin(request);
+    const routeDate = request.nextUrl.searchParams.get("date")?.trim() || null;
     const [employees, jobs, visits] = await Promise.all([
       ensureEmployees(service, companyId),
       canonicalJobs(service, user, companyId),
-      canonicalVisits(service, companyId),
+      canonicalVisits(service, companyId, routeDate),
     ]);
     const health = canonicalHealth(employees, visits);
 

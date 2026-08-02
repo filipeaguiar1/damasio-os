@@ -634,10 +634,10 @@ async function removeSimulation(service: any, companyId: string) {
   const workerProfiles = await service.from("profiles").select("id")
     .eq("role", "employee").or(companyFilter(companyId)).like("email", pattern);
   if (workerProfiles.error) throw new Error(workerProfiles.error.message);
-  const profileIds = [
+  const profileIds = [...new Set([
     ...(workerProfiles.data || []).map((row: any) => String(row.id)),
     ...(customers.data || []).map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),
-  ];
+  ])];
 
   if (!customerIds.length && !profileIds.length) return { customersRemoved: 0, accountsRemoved: 0 };
 
@@ -656,32 +656,54 @@ async function removeSimulation(service: any, companyId: string) {
   const employeeIds = (employees.data || []).map((row: any) => String(row.id));
   const crewIds = [...new Set((employees.data || []).map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];
 
-  if (visitIds.length) await service.from("photos").delete().in("visit_id", visitIds);
-  if (propertyIds.length) await service.from("photos").delete().in("property_id", propertyIds);
+  async function remove(label: string, operation: PromiseLike<{ error?: { message?: string } | null }>, optional = false) {
+    const result = await operation;
+    if (result.error && !(optional && missingColumn(result.error.message))) {
+      throw new Error(`${label}: ${result.error.message || "cleanup failed"}`);
+    }
+  }
+
+  if (customerIds.length) {
+    await remove("feedback", service.from("feedback").delete().in("customer_id", customerIds));
+    await remove("tasks", service.from("tasks").delete().in("customer_id", customerIds));
+    await remove("service_requests", service.from("service_requests").delete().in("customer_id", customerIds));
+    await remove("payments", service.from("payments").delete().in("customer_id", customerIds), true);
+  }
+  if (visitIds.length) await remove("visit photos", service.from("photos").delete().in("visit_id", visitIds));
+  if (propertyIds.length) await remove("property photos", service.from("photos").delete().in("property_id", propertyIds));
   if (routeIds.length) {
-    await service.from("route_stops").delete().in("route_id", routeIds);
-    await service.from("employee_smart_route_state").delete().in("route_id", routeIds);
-    await service.from("route_order_state").delete().in("route_id", routeIds);
+    await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));
+    await remove("employee_smart_route_state", service.from("employee_smart_route_state").delete().in("route_id", routeIds));
+    await remove("route_order_state", service.from("route_order_state").delete().in("route_id", routeIds));
+    await remove("route_map_cache", service.from("route_map_cache").delete().in("route_id", routeIds), true);
   }
+  if (jobIds.length) await remove("job invoice links", service.from("jobs").update({ invoice_id: null }).in("id", jobIds), true);
   if (customerIds.length) {
-    await service.from("invoices").delete().in("customer_id", customerIds);
-    await service.from("visits").delete().in("customer_id", customerIds);
+    await remove("invoices", service.from("invoices").delete().in("customer_id", customerIds));
+    await remove("visits", service.from("visits").delete().in("customer_id", customerIds));
   }
-  if (routeIds.length) await service.from("routes").delete().in("id", routeIds);
-  if (jobIds.length) await service.from("jobs").delete().in("id", jobIds);
+  if (routeIds.length) await remove("routes", service.from("routes").delete().in("id", routeIds));
+  if (jobIds.length) await remove("jobs", service.from("jobs").delete().in("id", jobIds));
   if (customerIds.length) {
-    await service.from("quotes").delete().in("customer_id", customerIds);
-    await service.from("properties").delete().in("customer_id", customerIds);
-    await service.from("customers").delete().in("id", customerIds);
+    await remove("quotes", service.from("quotes").delete().in("customer_id", customerIds));
+    await remove("properties", service.from("properties").delete().in("customer_id", customerIds));
+    await remove("customers", service.from("customers").delete().in("id", customerIds));
   }
-  if (employeeIds.length) await service.from("employees").delete().in("id", employeeIds);
-  if (crewIds.length) await service.from("crews").delete().in("id", crewIds);
-  await service.storage.from("work-photos").remove([`${companyId}/operational-simulation/after.svg`]);
+  if (employeeIds.length) await remove("employees", service.from("employees").delete().in("id", employeeIds));
+  if (crewIds.length) await remove("crews", service.from("crews").delete().in("id", crewIds));
+
+  const storageDelete = await service.storage.from("work-photos").remove([`${companyId}/operational-simulation/after.svg`]);
+  if (storageDelete.error && !/not found/i.test(storageDelete.error.message || "")) {
+    throw new Error(`work-photos: ${storageDelete.error.message}`);
+  }
 
   let accountsRemoved = 0;
-  for (const profileId of [...new Set(profileIds)]) {
+  for (const profileId of profileIds) {
     const result = await service.auth.admin.deleteUser(profileId);
-    if (!result.error || /not found/i.test(result.error.message)) accountsRemoved += 1;
+    if (result.error && !/not found/i.test(result.error.message)) {
+      throw new Error(`auth cleanup: ${result.error.message}`);
+    }
+    accountsRemoved += 1;
   }
 
   return { customersRemoved: customerIds.length, accountsRemoved };

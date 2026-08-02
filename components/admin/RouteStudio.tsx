@@ -55,7 +55,7 @@ export function RouteStudio() {
   async function refresh(silent = false) {
     try {
       const token = await accessToken();
-      const response = await fetch("/api/admin/routes", {
+      const response = await fetch(`/api/admin/routes?date=${encodeURIComponent(date)}`, {
         headers: { authorization: `Bearer ${token}` },
         cache: "no-store",
       });
@@ -93,7 +93,7 @@ export function RouteStudio() {
     void refresh();
     const timer = window.setInterval(() => void refresh(true), 10_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [date]);
 
   const jobs = useMemo(() => leads.filter(item => !item.canonicalVisitId), [leads]);
   const visits = useMemo(() => leads.filter(item => Boolean(item.canonicalVisitId)), [leads]);

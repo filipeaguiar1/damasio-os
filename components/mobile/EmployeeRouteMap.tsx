@@ -20,6 +20,7 @@ type Props = {
   desktop?: boolean;
   actionLabel?: string;
   originPoint?: { latitude: number; longitude: number; label?: string } | null;
+  preview?: boolean;
 };
 
 const HAMILTON: [number, number] = [43.2557, -79.8711];
@@ -50,6 +51,8 @@ export function EmployeeRouteMap({
   routeId,
   desktop = false,
   actionLabel = "Open Visit",
+  originPoint = null,
+  preview = false,
 }: Props) {
   const mapNode = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
@@ -60,12 +63,17 @@ export function EmployeeRouteMap({
   const [selectedId, setSelectedId] = useState("");
   const [mapReady, setMapReady] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
-  const effectiveRouteId = routeId
-    || route.find(lead => Boolean(lead.canonicalRouteId))?.canonicalRouteId
-    || null;
+  const effectiveRouteId = preview
+    ? null
+    : routeId || route.find(lead => Boolean(lead.canonicalRouteId))?.canonicalRouteId || null;
   const { snapshot, error, loading, refresh } = useCanonicalRouteSnapshot(effectiveRouteId);
 
   const displayRoute = useMemo<CanonicalRouteLead[]>(() => {
+    if (preview) {
+      return [...route]
+        .sort((left, right) => (left.routeOrder ?? 9999) - (right.routeOrder ?? 9999))
+        .map((lead, index) => ({ ...lead, routeOrder: index + 1 }));
+    }
     if (!snapshot) return [];
     return snapshot.stops.map(stop => ({
       id: stop.visitId,
@@ -96,7 +104,7 @@ export function EmployeeRouteMap({
       visitFinishedAt: stop.finishedAt || undefined,
       visitDurationSeconds: stop.durationSeconds ?? undefined,
     }));
-  }, [snapshot]);
+  }, [preview, route, snapshot]);
 
   const points = useMemo<Point[]>(() => displayRoute.flatMap(lead => {
     if (!Number.isFinite(lead.latitude) || !Number.isFinite(lead.longitude)) return [];
@@ -108,7 +116,7 @@ export function EmployeeRouteMap({
     }];
   }), [displayRoute]);
 
-  const origin = snapshot?.origin || null;
+  const origin = preview ? originPoint : snapshot?.origin || originPoint || null;
   const unmapped = displayRoute.filter(lead => !points.some(point => point.id === lead.id));
   const selected = points.find(point => point.id === selectedId) || points[0] || null;
 
@@ -238,21 +246,23 @@ export function EmployeeRouteMap({
       mapRef.current.removeLayer(routeLayerRef.current);
       routeLayerRef.current = null;
     }
-    if (!snapshot?.geometry?.coordinates?.length) return;
+    if (preview || !snapshot?.geometry?.coordinates?.length) return;
     routeLayerRef.current = window.L.polyline(
       snapshot.geometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]),
       { color: "#2563eb", weight: 5, opacity: .82, lineJoin: "round" },
     ).addTo(mapRef.current);
     routeLayerRef.current.bringToBack();
-  }, [mapReady, snapshot?.routeVersion, snapshot?.geometry]);
+  }, [mapReady, preview, snapshot?.routeVersion, snapshot?.geometry]);
 
-  const mapStatus = loading
-    ? "Loading canonical route…"
-    : error
-      ? error
-      : snapshot
-        ? `Canonical route v${snapshot.routeVersion}`
-        : "No canonical Route selected";
+  const mapStatus = preview
+    ? "Smart Route preview · not published"
+    : loading
+      ? "Loading canonical route…"
+      : error
+        ? error
+        : snapshot
+          ? `Canonical route v${snapshot.routeVersion}`
+          : "No canonical Route selected";
 
   return <section className={`employee-map-panel ${desktop ? "employee-map-desktop" : ""}`}>
     <div className="employee-map-toolbar">
@@ -263,7 +273,7 @@ export function EmployeeRouteMap({
       <div className="employee-map-toolbar-actions">
         <button type="button" onClick={fitRoute} disabled={!points.length && !origin}>Fit Route</button>
         <button type="button" onClick={recenterMe}>Recenter Me</button>
-        {error && <button type="button" onClick={() => void refresh()}>Retry</button>}
+        {error && !preview && <button type="button" onClick={() => void refresh()}>Retry</button>}
       </div>
     </div>
     {unmapped.length > 0 && <p className="employee-map-notice">

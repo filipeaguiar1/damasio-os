@@ -108,10 +108,12 @@ async function requireProfile(request: NextRequest, service: any) {
 async function employeeForProfile(service: any, profileId: string, companyId: string) {
   const result = await service
     .from("employees")
-    .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active")
+    .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active,created_at")
     .eq("profile_id", profileId)
     .eq("active", true)
     .or(companyFilter(companyId))
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (result.error) throw new Error(result.error.message);
   return result.data;
@@ -341,6 +343,8 @@ export async function GET(request: NextRequest) {
         .from("employee_smart_route_state")
         .select("origin_label,origin_latitude,origin_longitude,active,route_version,updated_at")
         .eq("route_id", route.id)
+        .order("updated_at", { ascending: false })
+        .limit(1)
         .maybeSingle(),
     ]);
 

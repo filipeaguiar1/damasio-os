@@ -120,7 +120,7 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
   async function refresh() {
     try {
       const accessToken = await token();
-      const response = await fetch("/api/admin/routes", { headers: { authorization: `Bearer ${accessToken}` }, cache: "no-store" });
+      const response = await fetch(`/api/admin/routes?date=${encodeURIComponent(date)}`, { headers: { authorization: `Bearer ${accessToken}` }, cache: "no-store" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Routes could not be loaded.");
       setEmployees(result.employees || []);
@@ -140,7 +140,7 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, []);
+  }, [date]);
 
   const visits = useMemo(() => leads.filter(item =>
     Boolean(item.canonicalVisitId)

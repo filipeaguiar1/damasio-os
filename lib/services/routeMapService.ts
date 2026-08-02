@@ -239,18 +239,38 @@ async function accessToken() {
 
 async function canonicalOrderRequest(body: Record<string, unknown>) {
   const token = await accessToken();
-  const response = await fetch("/api/map/canonical-route/order", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${token}`,
-    },
-    cache: "no-store",
-    body: JSON.stringify(body),
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || "Canonical Route could not be saved.");
-  return result as Record<string, any>;
+  let lastMessage = "Canonical Route could not be saved.";
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch("/api/map/canonical-route/order", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.ok) return result as Record<string, any>;
+      lastMessage = result.error || `Canonical Route request failed (${response.status}).`;
+      if (![502, 503, 504].includes(response.status) || attempt === 1) throw new Error(lastMessage);
+    } catch (reason) {
+      lastMessage = reason instanceof Error ? reason.message : lastMessage;
+      if (attempt === 1 || (reason instanceof Error && !/fetch|network|abort|load failed/i.test(reason.message))) {
+        throw new Error(lastMessage);
+      }
+    } finally {
+      window.clearTimeout(timeout);
+    }
+    await new Promise(resolve => window.setTimeout(resolve, 350));
+  }
+
+  throw new Error(`${lastMessage} No route change was saved. Refresh and try again.`);
 }
 
 export async function applyEmployeeDatabaseSmartRoute(params: {

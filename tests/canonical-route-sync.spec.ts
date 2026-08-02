@@ -104,6 +104,8 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
     && /Canada$/i.test(stop.address))).toBe(true);
   expect(JSON.stringify(employeeSnapshot)).not.toMatch(/55 York Blvd|55 York Boulevard/i);
   expect(employeeSnapshot.origin).toBeTruthy();
+  expect(employeeSnapshot.stops.every((stop: any) => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude))).toBe(true);
+  expect(employeeSnapshot.geometryStatus).toBe("ready");
 
   const adminRoutes = await authRequest<any>(adminDesktop, "/api/admin/routes");
   const worker = (adminRoutes.employees || []).find((item: any) =>
@@ -121,7 +123,7 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await adminMobile.locator("select").first().selectOption(worker.id);
   await adminMobile.locator('input[type="date"]').first().fill(routeDate);
 
-  const employeeMobileContext = await browser.newContext({ ...torontoContext, viewport: { width: 412, height: 915 } });
+  const employeeMobileContext = await browser.newContext({ ...torontoContext, viewport: { width: 412, height: 915 }, geolocation: { latitude: 43.2557, longitude: -79.8711 }, permissions: ["geolocation"] });
   const employeeMobile = await employeeMobileContext.newPage();
   await signIn(employeeMobile, workerEmail, workerPassword);
   await employeeMobile.waitForURL("**/employee", { timeout: 30_000 });
@@ -154,19 +156,20 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
     expect(snapshotIdentity(snapshot)).toEqual(snapshotIdentity(employeeSnapshot));
   }
 
-  const reversedOrder = [...employeeSnapshot.orderedVisitIds].reverse();
-  const employeeWrite = await authRequest<any>(employeeMobile, "/api/map/canonical-route/order", {
-    method: "POST",
-    body: {
-      action: "apply",
-      routeId: employeeSnapshot.routeId,
-      orderedVisitIds: reversedOrder,
-      origin: employeeSnapshot.origin,
-      expectedVersion: employeeSnapshot.routeVersion,
-    },
-  });
-  expect(employeeWrite.appliedOrder).toEqual(reversedOrder);
-  const employeeVersion = employeeWrite.routeVersion;
+  await employeeMobile.getByRole("button", { name: /Smart Route/i }).click();
+  await employeeMobile.getByRole("button", { name: /Select all pending/i }).click();
+  await employeeMobile.getByRole("button", { name: /Preview Smart Route/i }).click();
+  await expect(employeeMobile.getByText(/Smart Route preview · not published/i)).toBeVisible({ timeout: 30_000 });
+  await employeeMobile.getByRole("button", { name: "Apply Smart Route" }).click();
+
+  await expect.poll(async () => {
+    const snapshot = await authRequest<any>(employeeMobile, `/api/map/canonical-route?routeId=${employeeSnapshot.routeId}`);
+    return snapshot.routeVersion;
+  }, { timeout: 45_000 }).toBeGreaterThan(employeeSnapshot.routeVersion);
+
+  const smartSnapshot = await authRequest<any>(employeeMobile, `/api/map/canonical-route?routeId=${employeeSnapshot.routeId}`);
+  const reversedOrder = smartSnapshot.orderedVisitIds;
+  const employeeVersion = smartSnapshot.routeVersion;
 
   for (const page of [adminDesktop, adminMobile, employeeDesktop, employeeMobile]) {
     await waitForVersion(page, employeeSnapshot.routeId, employeeVersion);
