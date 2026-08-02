@@ -36,7 +36,10 @@ async function authRequest<T>(page: Page, path: string, init?: { method?: string
             body: init?.body === undefined ? undefined : JSON.stringify(init.body),
           });
           const result = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(result.error || `${response.status} ${path}`);
+          if (!response.ok) {
+            const message = result.error || `${response.status} ${path}`;
+            throw new Error(`HTTP_${response.status}:${message}`);
+          }
           return result;
         } finally {
           window.clearTimeout(timeout);
@@ -44,11 +47,15 @@ async function authRequest<T>(page: Page, path: string, init?: { method?: string
       }, { path, init }) as T;
     } catch (error) {
       lastError = error instanceof Error ? error.message : lastError;
-      if (attempt === 2 || !/fetch failed|failed to fetch|network|abort/i.test(lastError)) throw error;
+      const retryable = /fetch failed|failed to fetch|network|abort/i.test(lastError)
+        || /^HTTP_400:Bad Request$/i.test(lastError);
+      if (attempt === 2 || !retryable) {
+        throw new Error(lastError.replace(/^HTTP_\d+:/, ""));
+      }
       await page.waitForTimeout(500 * (attempt + 1));
     }
   }
-  throw new Error(lastError);
+  throw new Error(lastError.replace(/^HTTP_\d+:/, ""));
 }
 
 async function waitForVersion(page: Page, routeId: string, version: number) {

@@ -137,9 +137,12 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
             window.clearTimeout(timeout);
           }
           if (response.ok) break;
-          if (![502, 503, 504].includes(response.status) || attempt === 2) {
+          const genericBadRequest = response.status === 400
+            && /^bad request$/i.test(String(result?.error || ""));
+          if ((!genericBadRequest && ![502, 503, 504].includes(response.status)) || attempt === 2) {
             throw new Error(result.error || `Routes could not be loaded (${response.status}).`);
           }
+          await new Promise(resolve => window.setTimeout(resolve, 400 * (attempt + 1)));
         } catch (reason) {
           const retryable = reason instanceof Error && /fetch|network|abort|load failed/i.test(reason.message);
           if (attempt === 2 || !retryable) throw reason;
