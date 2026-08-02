@@ -338,7 +338,7 @@ export async function GET(request: NextRequest) {
 
     const activeVisitIds = visits.map(visit => String(visit.id));
     const stopRows = stopsResult.data || [];
-    const orderedVisitIds = stopRows.map((row: any) => String(row.visit_id));
+    const orderedVisitIds: string[] = stopRows.map((row: any) => String(row.visit_id));
     const sequential = stopRows.every((row: any, index: number) => Number(row.position) === index + 1);
     if (
       new Set(orderedVisitIds).size !== orderedVisitIds.length
