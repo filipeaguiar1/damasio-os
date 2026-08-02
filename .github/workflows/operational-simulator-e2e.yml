@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: feature/25-30-homes-simulator-v1
-          fetch-depth: 3
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           version: 9.15.4
@@ -37,11 +37,24 @@ jobs:
           cache: pnpm
       - name: Apply final UI and network stability patch
         run: python scripts/apply-final-ui-network-stability.py
+      - name: Preserve legacy active status compatibility
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("app/employee/route/page.tsx")
+          text = path.read_text()
+          old = '|| selected?.canonicalVisitStatus==="active"'
+          new = '|| (selected?.canonicalVisitStatus as string)==="active"'
+          if text.count(old) != 1:
+              raise SystemExit(f"Expected one legacy active comparison, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1))
+          PY
       - name: Restore permanent workflows and remove staging script
         shell: bash
         run: |
-          git show HEAD^:.github/workflows/operational-simulator-e2e.yml > .github/workflows/operational-simulator-e2e.yml
-          git show HEAD^^:.github/workflows/apply-official-route-branch.yml > .github/workflows/apply-official-route-branch.yml
+          git show c528e24dc64054d381aa27b7b0ce81349e923443:.github/workflows/operational-simulator-e2e.yml > .github/workflows/operational-simulator-e2e.yml
+          git show c528e24dc64054d381aa27b7b0ce81349e923443:.github/workflows/apply-official-route-branch.yml > .github/workflows/apply-official-route-branch.yml
           rm scripts/apply-final-ui-network-stability.py
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
