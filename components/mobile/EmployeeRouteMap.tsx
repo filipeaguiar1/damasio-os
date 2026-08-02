@@ -6,6 +6,7 @@ import type { CanonicalRouteLead } from "@/lib/routes/canonicalRouteIdentity";
 import { loadCachedRouteGeometry } from "@/lib/services/routeMapService";
 import type { RouteLineString } from "@/lib/maps/types";
 import { readRoadGeometry, saveRoadGeometry } from "@/lib/maps/clientMapCache";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 declare global { interface Window { L?: any } }
 
@@ -18,6 +19,14 @@ type Props = {
   desktop?: boolean;
   actionLabel?: string;
   originPoint?: RouteOriginPoint | null;
+};
+
+type AdminRouteEmployee = {
+  id?: string;
+  employeeId?: string;
+  crewId?: string;
+  name?: string;
+  routeStartAddress?: string | null;
 };
 
 const HAMILTON: [number, number] = [43.2557, -79.8711];
@@ -50,11 +59,65 @@ export function EmployeeRouteMap({
   const [selectedId, setSelectedId] = useState("");
   const [geometry, setGeometry] = useState<RouteLineString | null>(null);
   const [resolvedRoute, setResolvedRoute] = useState<CanonicalRouteLead[]>(route);
+  const [autoOrigin, setAutoOrigin] = useState<RouteOriginPoint | null>(null);
   const [mapStatus, setMapStatus] = useState("Locating properties...");
   const [mapReady, setMapReady] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
   const routeKey = route.map(lead => `${lead.id}:${lead.address}:${lead.routeOrder ?? ""}:${lead.canonicalVisitStatus || lead.status}`).join("|");
-  const originKey = originPoint ? `${originPoint.latitude}:${originPoint.longitude}` : "";
+  const effectiveOrigin = originPoint || autoOrigin;
+  const originKey = effectiveOrigin ? `${effectiveOrigin.latitude}:${effectiveOrigin.longitude}` : "";
+
+  useEffect(() => {
+    let cancelled = false;
+    if (originPoint || !route.length) {
+      setAutoOrigin(null);
+      return () => { cancelled = true; };
+    }
+
+    const employeeId = route.find(lead => lead.canonicalEmployeeId)?.canonicalEmployeeId;
+    const crewId = route.find(lead => lead.canonicalCrewId)?.canonicalCrewId;
+    if (!employeeId && !crewId) {
+      setAutoOrigin(null);
+      return () => { cancelled = true; };
+    }
+
+    async function resolveAdminOrigin() {
+      try {
+        const client = getSupabaseBrowserClient() as any;
+        const { data } = await client.auth.getSession();
+        const accessToken = data.session?.access_token;
+        if (!accessToken) return;
+
+        const response = await fetch("/api/admin/routes", {
+          headers: { authorization: `Bearer ${accessToken}` },
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const result = await response.json() as { employees?: AdminRouteEmployee[] };
+        const employee = (result.employees || []).find(item =>
+          (employeeId && (item.employeeId === employeeId || item.id === employeeId))
+          || (crewId && item.crewId === crewId));
+        const address = employee?.routeStartAddress?.trim();
+        if (!address) return;
+
+        const geocode = await fetch(`/api/map/geocode?address=${encodeURIComponent(address)}`, { cache: "no-store" });
+        if (!geocode.ok) return;
+        const point = await geocode.json() as { latitude: number; longitude: number };
+        if (!cancelled && Number.isFinite(point.latitude) && Number.isFinite(point.longitude)) {
+          setAutoOrigin({
+            latitude: Number(point.latitude),
+            longitude: Number(point.longitude),
+            label: `${employee?.name || "Employee"} start`,
+          });
+        }
+      } catch {
+        if (!cancelled) setAutoOrigin(null);
+      }
+    }
+
+    void resolveAdminOrigin();
+    return () => { cancelled = true; };
+  }, [originPoint, routeKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,7 +133,6 @@ export function EmployeeRouteMap({
         : alreadyLocated.length === route.length
           ? "Map ready"
           : "Locating new properties...");
-
 
       const located = await Promise.all(route.map(async lead => {
         if (Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude)) return lead;
@@ -88,8 +150,8 @@ export function EmployeeRouteMap({
       setResolvedRoute(located);
 
       const coordinates = [
-        ...(originPoint
-          ? [[Number(originPoint.longitude), Number(originPoint.latitude)] as [number, number]]
+        ...(effectiveOrigin
+          ? [[Number(effectiveOrigin.longitude), Number(effectiveOrigin.latitude)] as [number, number]]
           : []),
         ...located.map(lead => [Number(lead.longitude), Number(lead.latitude)] as [number, number]),
       ];
@@ -167,10 +229,10 @@ export function EmployeeRouteMap({
   const selected = points.find(point => point.id === selectedId) || points[0] || null;
 
   function fitRoute() {
-    if (!mapRef.current || !window.L || (!points.length && !originPoint)) return;
+    if (!mapRef.current || !window.L || (!points.length && !effectiveOrigin)) return;
     const bounds = [
       ...points.map(point => [point.latitude, point.longitude] as [number, number]),
-      ...(originPoint ? [[originPoint.latitude, originPoint.longitude] as [number, number]] : []),
+      ...(effectiveOrigin ? [[effectiveOrigin.latitude, effectiveOrigin.longitude] as [number, number]] : []),
     ];
     mapRef.current.fitBounds(window.L.latLngBounds(bounds).pad(.16), { maxZoom: 16 });
   }
@@ -214,33 +276,37 @@ export function EmployeeRouteMap({
       }
 
       markerLayerRef.current.clearLayers();
-      if (originPoint) {
+      if (effectiveOrigin) {
         const originIcon = L.divIcon({
           className: "employee-map-marker-shell",
-          html: `<div class="employee-map-origin-marker">●</div>`,
+          html: `<div class="employee-map-origin-marker">S</div>`,
           iconSize: [38, 38],
           iconAnchor: [19, 19],
         });
-        L.marker([originPoint.latitude, originPoint.longitude], { icon: originIcon })
-          .bindTooltip(originPoint.label || "Route start", { direction: "top" })
+        L.marker([effectiveOrigin.latitude, effectiveOrigin.longitude], { icon: originIcon, zIndexOffset: 20_000 })
+          .bindTooltip(effectiveOrigin.label || "Route start", { direction: "top" })
           .addTo(markerLayerRef.current);
       }
 
       points.forEach((point, index) => {
         const active = selected?.id === point.id;
+        const sequence = point.routeOrder || index + 1;
         const icon = L.divIcon({
           className: "employee-map-marker-shell",
-          html: `<div class="employee-map-marker ${active ? "active" : ""}" style="background:${point.color}">${point.routeOrder || index + 1}</div>`,
+          html: `<div class="employee-map-marker ${active ? "active" : ""}" style="background:${point.color}">${sequence}</div>`,
           iconSize: [active ? 40 : 34, active ? 40 : 34],
           iconAnchor: [active ? 20 : 17, active ? 20 : 17],
         });
-        L.marker([point.latitude, point.longitude], { icon })
-          .bindTooltip(`${point.name} · ${point.label}`, { direction: "top" })
+        L.marker([point.latitude, point.longitude], {
+          icon,
+          zIndexOffset: 10_000 - Number(sequence),
+        })
+          .bindTooltip(`Stop ${sequence} · ${point.name} · ${point.label}`, { direction: "top" })
           .on("click", () => setSelectedId(point.id))
           .addTo(markerLayerRef.current);
       });
 
-      if (!didInitialFit.current && (points.length || originPoint)) {
+      if (!didInitialFit.current && (points.length || effectiveOrigin)) {
         didInitialFit.current = true;
         fitRoute();
       }
@@ -293,7 +359,7 @@ export function EmployeeRouteMap({
   return <section className={`employee-map-panel ${desktop ? "employee-map-desktop" : ""}`}>
     <div className="employee-map-toolbar">
       <div><strong>{points.length}/{route.length} properties mapped</strong><span>{mapStatus}{locationMessage ? ` · ${locationMessage}` : ""}</span></div>
-      <div className="employee-map-toolbar-actions"><button type="button" onClick={fitRoute} disabled={!points.length && !originPoint}>Fit Route</button><button type="button" onClick={recenterMe}>Recenter Me</button></div>
+      <div className="employee-map-toolbar-actions"><button type="button" onClick={fitRoute} disabled={!points.length && !effectiveOrigin}>Fit Route</button><button type="button" onClick={recenterMe}>Recenter Me</button></div>
     </div>
     {unmapped.length > 0 && <p className="employee-map-notice">{unmapped.length} {unmapped.length === 1 ? "property is" : "properties are"} Not mapped.</p>}
     <div ref={mapNode} className="employee-route-map" aria-label="Interactive map of assigned visits" />
