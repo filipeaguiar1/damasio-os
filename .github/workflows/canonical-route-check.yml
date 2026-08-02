@@ -38,6 +38,9 @@ jobs:
       - name: Validate canonical route identity
         run: node scripts/validate-canonical-route.mjs
 
+      - name: Validate Canonical Route Stops V2
+        run: node scripts/validate-route-stops-v2.mjs
+
       - name: Simulate canonical operations
         run: node scripts/simulate-canonical-operations.mjs
 
