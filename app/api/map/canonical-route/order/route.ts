@@ -3,17 +3,15 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-type RouteOrigin = {
-  label?: string;
-  latitude?: number | null;
-  longitude?: number | null;
-};
-
 type RequestBody = {
   action?: "apply" | "restore";
   routeId?: string;
   orderedVisitIds?: string[];
-  origin?: RouteOrigin | null;
+  origin?: {
+    label?: string;
+    latitude?: number | null;
+    longitude?: number | null;
+  } | null;
   expectedVersion?: number | null;
 };
 
@@ -21,7 +19,9 @@ function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Canonical route writer is not configured.");
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  }) as any;
 }
 
 function userClient(token: string) {
@@ -39,25 +39,25 @@ function companyFilter(companyId: string) {
 }
 
 function normalizeOrder(values?: string[]) {
-  return [...new Set((values || []).map(String).filter(Boolean))];
+  return (values || []).map(String).filter(Boolean);
 }
 
-function sameMembers(left: string[], right: string[]) {
-  if (left.length !== right.length) return false;
-  const expected = new Set(left);
-  return right.every(value => expected.has(value));
+function sameOrder(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function missingRpc(message?: string) {
-  return /apply_canonical_route_order_v2_service|apply_canonical_route_order_v2|restore_canonical_route_order_v2|replace_canonical_route_order_v2|schema cache|could not find the function/i.test(message || "");
+function migrationError(message?: string) {
+  if (/apply_canonical_route_order_v2|restore_canonical_route_order_v2|schema cache|could not find the function/i.test(message || "")) {
+    return new Error("Canonical Route Stops V2 is not installed. The route was not changed.");
+  }
+  return new Error(message || "Canonical route order could not be saved.");
 }
 
-async function requireProfile(request: NextRequest) {
+async function requireContext(request: NextRequest) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) throw new Error("Sign in to change this route.");
 
   const service = serviceClient();
-  const user = userClient(token);
   const auth = await service.auth.getUser(token);
   if (auth.error || !auth.data.user) throw new Error("Your session expired. Sign in again.");
 
@@ -69,37 +69,42 @@ async function requireProfile(request: NextRequest) {
   if (profileResult.error) throw new Error(profileResult.error.message);
   const profile = profileResult.data;
   if (!profile?.active) throw new Error("This account is not active.");
-
   const companyId = profile.company_id || profile.organization_id;
   if (!companyId) throw new Error("This account is not linked to a company.");
-  return { service, user, profile, companyId: String(companyId) };
+
+  return {
+    service,
+    user: userClient(token),
+    profile,
+    companyId: String(companyId),
+  };
 }
 
-async function requireRouteAccess(service: any, profile: any, companyId: string, routeId: string) {
-  const routeResult = await service
+async function requireRouteAccess(context: Awaited<ReturnType<typeof requireContext>>, routeId: string) {
+  const routeResult = await context.service
     .from("routes")
-    .select("id,crew_id,route_date,company_id,organization_id")
+    .select("id,crew_id,company_id,organization_id")
     .eq("id", routeId)
     .maybeSingle();
   if (routeResult.error) throw new Error(routeResult.error.message);
   const route = routeResult.data;
-  if (!route || String(route.company_id || route.organization_id) !== companyId) {
+  if (!route || String(route.company_id || route.organization_id) !== context.companyId) {
     throw new Error("Route not found in this company.");
   }
 
-  if (String(profile.role) === "employee") {
-    const employeeResult = await service
+  if (String(context.profile.role) === "employee") {
+    const employeeResult = await context.service
       .from("employees")
       .select("id,crew_id,active")
-      .eq("profile_id", profile.id)
+      .eq("profile_id", context.profile.id)
       .eq("active", true)
-      .or(companyFilter(companyId))
+      .or(companyFilter(context.companyId))
       .maybeSingle();
     if (employeeResult.error) throw new Error(employeeResult.error.message);
     const employee = employeeResult.data;
     if (!employee) throw new Error("No active Employee is linked to this login.");
 
-    const assigned = await service
+    const assigned = await context.service
       .from("visits")
       .select("id", { count: "exact", head: true })
       .eq("route_id", routeId)
@@ -107,246 +112,11 @@ async function requireRouteAccess(service: any, profile: any, companyId: string,
       .neq("status", "cancelled");
     if (assigned.error) throw new Error(assigned.error.message);
     if (route.crew_id !== employee.crew_id && !assigned.count) {
-      throw new Error("This route is not assigned to the authenticated Employee.");
+      throw new Error("This Route is not assigned to the authenticated Employee.");
     }
-  } else if (!["admin", "manager", "master"].includes(String(profile.role))) {
+  } else if (!["admin", "manager", "master"].includes(String(context.profile.role))) {
     throw new Error("This account cannot change operational routes.");
   }
-
-  return route;
-}
-
-async function currentRouteData(service: any, companyId: string, routeId: string) {
-  const [visitsResult, stopsResult, versionResult, smartResult] = await Promise.all([
-    service.from("visits")
-      .select("id,route_order,status,created_at")
-      .eq("route_id", routeId)
-      .neq("status", "cancelled")
-      .or(companyFilter(companyId))
-      .order("route_order", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: true }),
-    service.from("route_stops").select("visit_id,position").eq("route_id", routeId).order("position"),
-    service.from("route_order_state").select("version").eq("route_id", routeId).maybeSingle(),
-    service.from("employee_smart_route_state").select("*").eq("route_id", routeId).maybeSingle(),
-  ]);
-  if (visitsResult.error) throw new Error(visitsResult.error.message);
-
-  const visits = visitsResult.data || [];
-  const visitIds = visits.map((visit: any) => String(visit.id));
-  const activeIds = new Set(visitIds);
-  const stopOrder = stopsResult.error
-    ? []
-    : normalizeOrder((stopsResult.data || [])
-      .map((row: any) => String(row.visit_id))
-      .filter((visitId: string) => activeIds.has(visitId)));
-  const currentOrder = sameMembers(visitIds, stopOrder) ? stopOrder : visitIds;
-
-  return {
-    visits,
-    visitIds,
-    currentOrder,
-    version: Number(versionResult.error ? 1 : versionResult.data?.version || 1),
-    smartState: smartResult.error ? null : smartResult.data,
-  };
-}
-
-async function replaceCanonicalOrder(input: {
-  service: any;
-  profileId: string;
-  routeId: string;
-  orderedVisitIds: string[];
-  expectedVersion?: number | null;
-  source: string;
-}) {
-  const replaced = await input.service.rpc("replace_canonical_route_order_v2", {
-    p_route_id: input.routeId,
-    p_ordered_visit_ids: input.orderedVisitIds,
-    p_source: input.source,
-    p_actor_profile_id: input.profileId,
-    p_expected_version: input.expectedVersion && input.expectedVersion > 0 ? input.expectedVersion : null,
-    p_allow_empty: false,
-  });
-  if (replaced.error) throw new Error(replaced.error.message);
-  return Number(replaced.data?.version || 0);
-}
-
-async function saveSmartState(input: {
-  service: any;
-  profileId: string;
-  companyId: string;
-  route: any;
-  order: string[];
-  originalOrder: string[];
-  origin?: RouteOrigin | null;
-  version: number;
-  active: boolean;
-  previousState?: any;
-}) {
-  const previous = input.previousState || null;
-  const now = new Date().toISOString();
-  const result = await input.service.from("employee_smart_route_state").upsert({
-    company_id: input.companyId,
-    route_id: input.route.id,
-    crew_id: input.route.crew_id,
-    route_date: input.route.route_date,
-    original_order: input.originalOrder,
-    applied_order: input.order,
-    origin_label: input.origin?.label || previous?.origin_label || "",
-    origin_latitude: Number.isFinite(input.origin?.latitude)
-      ? Number(input.origin?.latitude)
-      : previous?.origin_latitude ?? null,
-    origin_longitude: Number.isFinite(input.origin?.longitude)
-      ? Number(input.origin?.longitude)
-      : previous?.origin_longitude ?? null,
-    active: input.active,
-    applied_by_profile_id: input.active ? input.profileId : previous?.applied_by_profile_id || input.profileId,
-    applied_at: input.active ? now : previous?.applied_at || now,
-    restored_at: input.active ? null : now,
-    restored_by_profile_id: input.active ? null : input.profileId,
-    route_version: input.version,
-    updated_at: now,
-  }, { onConflict: "route_id" });
-  if (result.error) throw new Error(result.error.message);
-}
-
-function normalizedResult(result: any, routeId: string, order: string[], active: boolean) {
-  return {
-    saved: true,
-    routeId,
-    version: Number(result?.version || result?.routeVersion || 0),
-    appliedOrder: result?.appliedOrder || order,
-    active,
-  };
-}
-
-async function applyOrder(input: {
-  service: any;
-  user: any;
-  profile: any;
-  companyId: string;
-  route: any;
-  orderedVisitIds: string[];
-  origin?: RouteOrigin | null;
-  expectedVersion?: number | null;
-}) {
-  const before = await currentRouteData(input.service, input.companyId, input.route.id);
-  if (!sameMembers(before.visitIds, input.orderedVisitIds)) {
-    throw new Error("The reviewed route must contain every active house exactly once.");
-  }
-  if (before.visits.some((visit: any) => String(visit.status) === "in_progress")) {
-    throw new Error("Finish the active house before changing this route.");
-  }
-
-  const serviceApply = await input.service.rpc("apply_canonical_route_order_v2_service", {
-    p_route_id: input.route.id,
-    p_ordered_visit_ids: input.orderedVisitIds,
-    p_origin_label: input.origin?.label || "",
-    p_origin_latitude: Number.isFinite(input.origin?.latitude) ? Number(input.origin?.latitude) : null,
-    p_origin_longitude: Number.isFinite(input.origin?.longitude) ? Number(input.origin?.longitude) : null,
-    p_expected_version: input.expectedVersion && input.expectedVersion > 0 ? input.expectedVersion : null,
-    p_actor_profile_id: input.profile.id,
-    p_source: "employee_smart_route_global",
-  });
-  if (!serviceApply.error) {
-    return normalizedResult(serviceApply.data, input.route.id, input.orderedVisitIds, true);
-  }
-  if (!missingRpc(serviceApply.error.message)) throw new Error(serviceApply.error.message);
-
-  const wrapped = await input.user.rpc("apply_canonical_route_order_v2", {
-    p_route_id: input.route.id,
-    p_ordered_visit_ids: input.orderedVisitIds,
-    p_origin_label: input.origin?.label || "",
-    p_origin_latitude: Number.isFinite(input.origin?.latitude) ? Number(input.origin?.latitude) : null,
-    p_origin_longitude: Number.isFinite(input.origin?.longitude) ? Number(input.origin?.longitude) : null,
-    p_expected_version: input.expectedVersion && input.expectedVersion > 0 ? input.expectedVersion : null,
-    p_source: "employee_smart_route_global",
-  });
-  if (!wrapped.error) {
-    return normalizedResult(wrapped.data, input.route.id, input.orderedVisitIds, true);
-  }
-  if (!missingRpc(wrapped.error.message)) throw new Error(wrapped.error.message);
-
-  const version = await replaceCanonicalOrder({
-    service: input.service,
-    profileId: input.profile.id,
-    routeId: input.route.id,
-    orderedVisitIds: input.orderedVisitIds,
-    expectedVersion: input.expectedVersion,
-    source: "employee_smart_route_global_fallback",
-  });
-  const previousOriginal = Array.isArray(before.smartState?.original_order)
-    ? before.smartState.original_order.map(String)
-    : [];
-  const originalOrder = before.smartState?.active && previousOriginal.length
-    ? previousOriginal
-    : before.currentOrder;
-
-  await saveSmartState({
-    service: input.service,
-    profileId: input.profile.id,
-    companyId: input.companyId,
-    route: input.route,
-    order: input.orderedVisitIds,
-    originalOrder,
-    origin: input.origin,
-    version,
-    active: true,
-    previousState: before.smartState,
-  });
-
-  const verified = await currentRouteData(input.service, input.companyId, input.route.id);
-  if (verified.currentOrder.join("|") !== input.orderedVisitIds.join("|")) {
-    throw new Error("Canonical route verification failed.");
-  }
-  return { saved: true, routeId: input.route.id, version, appliedOrder: input.orderedVisitIds, active: true };
-}
-
-async function restoreOrder(input: {
-  service: any;
-  user: any;
-  profile: any;
-  companyId: string;
-  route: any;
-  expectedVersion?: number | null;
-}) {
-  const wrapped = await input.user.rpc("restore_canonical_route_order_v2", {
-    p_route_id: input.route.id,
-    p_expected_version: input.expectedVersion && input.expectedVersion > 0 ? input.expectedVersion : null,
-  });
-  if (!wrapped.error) return { ...(wrapped.data || {}), restored: true };
-  if (!missingRpc(wrapped.error.message)) throw new Error(wrapped.error.message);
-
-  const before = await currentRouteData(input.service, input.companyId, input.route.id);
-  const original = normalizeOrder(before.smartState?.original_order || []);
-  const restoredOrder = original.filter(visitId => before.visitIds.includes(visitId));
-  for (const visitId of before.currentOrder) if (!restoredOrder.includes(visitId)) restoredOrder.push(visitId);
-  if (!restoredOrder.length) return { restored: false, routeId: input.route.id };
-
-  const version = await replaceCanonicalOrder({
-    service: input.service,
-    profileId: input.profile.id,
-    routeId: input.route.id,
-    orderedVisitIds: restoredOrder,
-    expectedVersion: input.expectedVersion,
-    source: "employee_smart_route_restore_global_fallback",
-  });
-  await saveSmartState({
-    service: input.service,
-    profileId: input.profile.id,
-    companyId: input.companyId,
-    route: input.route,
-    order: restoredOrder,
-    originalOrder: restoredOrder,
-    version,
-    active: false,
-    previousState: before.smartState,
-  });
-
-  const verified = await currentRouteData(input.service, input.companyId, input.route.id);
-  if (verified.currentOrder.join("|") !== restoredOrder.join("|")) {
-    throw new Error("Canonical route verification failed.");
-  }
-  return { restored: true, routeId: input.route.id, version, appliedOrder: restoredOrder, active: false };
 }
 
 export async function POST(request: NextRequest) {
@@ -355,28 +125,78 @@ export async function POST(request: NextRequest) {
     const routeId = String(body.routeId || "").trim();
     if (!routeId) throw new Error("routeId is required.");
 
-    const context = await requireProfile(request);
-    const route = await requireRouteAccess(context.service, context.profile, context.companyId, routeId);
+    const expectedVersion = Number(body.expectedVersion);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+      throw new Error("A reviewed routeVersion is required before saving.");
+    }
+
+    const context = await requireContext(request);
+    await requireRouteAccess(context, routeId);
+
     if (body.action === "restore") {
-      const restored = await restoreOrder({ ...context, route, expectedVersion: body.expectedVersion });
-      return NextResponse.json(restored);
+      const restored = await context.user.rpc("restore_canonical_route_order_v2", {
+        p_route_id: routeId,
+        p_expected_version: expectedVersion,
+      });
+      if (restored.error) throw migrationError(restored.error.message);
+      const result = restored.data || {};
+      return NextResponse.json({
+        ...result,
+        routeId,
+        routeVersion: Number(result.version || result.routeVersion || 0),
+        restored: Boolean(result.restored),
+      }, { headers: { "Cache-Control": "no-store, max-age=0" } });
     }
 
     const orderedVisitIds = normalizeOrder(body.orderedVisitIds);
-    if (!orderedVisitIds.length) throw new Error("Keep at least one house in the route.");
-    const applied = await applyOrder({
-      ...context,
-      route,
-      orderedVisitIds,
-      origin: body.origin,
-      expectedVersion: body.expectedVersion,
+    if (!orderedVisitIds.length) throw new Error("Keep at least one house in the Route.");
+    if (new Set(orderedVisitIds).size !== orderedVisitIds.length) {
+      throw new Error("The reviewed Route contains duplicate houses.");
+    }
+
+    const latitude = Number(body.origin?.latitude);
+    const longitude = Number(body.origin?.longitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      throw new Error("A valid canonical Route origin is required.");
+    }
+
+    const applied = await context.user.rpc("apply_canonical_route_order_v2", {
+      p_route_id: routeId,
+      p_ordered_visit_ids: orderedVisitIds,
+      p_origin_label: String(body.origin?.label || "Route start"),
+      p_origin_latitude: latitude,
+      p_origin_longitude: longitude,
+      p_expected_version: expectedVersion,
+      p_source: ["admin", "manager", "master"].includes(String(context.profile.role))
+        ? "admin_canonical_route"
+        : "employee_smart_route_global",
     });
-    return NextResponse.json(applied);
+    if (applied.error) throw migrationError(applied.error.message);
+
+    const result = applied.data || {};
+    const savedOrder = Array.isArray(result.appliedOrder)
+      ? result.appliedOrder.map(String)
+      : Array.isArray(result.applied_order)
+        ? result.applied_order.map(String)
+        : [];
+    if (!sameOrder(savedOrder, orderedVisitIds)) {
+      throw new Error("The database did not confirm the exact canonical order. Nothing was accepted by the client.");
+    }
+
+    return NextResponse.json({
+      saved: true,
+      routeId,
+      routeVersion: Number(result.version || result.routeVersion || 0),
+      version: Number(result.version || result.routeVersion || 0),
+      appliedOrder: savedOrder,
+      count: savedOrder.length,
+      active: true,
+    }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("canonical-route-order", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Canonical route order could not be saved." },
-      { status: 400 },
+      { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } },
     );
   }
 }

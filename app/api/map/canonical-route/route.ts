@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import type { RouteLineString } from "@/lib/maps/types";
 
 export const dynamic = "force-dynamic";
 
+const SERVICE_VIEWBOX = "-80.35,43.65,-79.35,42.85";
+const geocodeCache = new Map<string, { latitude: number; longitude: number; expiresAt: number }>();
+const geometryCache = new Map<string, { geometry: RouteLineString | null; expiresAt: number }>();
+
 type RouteVisit = Record<string, any>;
+type Point = { latitude: number; longitude: number };
 
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Canonical route map service is not configured.");
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
+  if (!url || !key) throw new Error("Canonical route snapshot service is not configured.");
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  }) as any;
 }
 
 function companyFilter(companyId: string) {
@@ -21,42 +29,37 @@ function joined(value: any) {
 }
 
 function numeric(value: unknown) {
-  const result = Number(value);
-  return Number.isFinite(result) ? result : null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
-function fullAddress(property: any) {
-  return [property?.address_line1, property?.city, property?.province, property?.postal_code, "Canada"]
-    .filter(Boolean)
-    .join(", ");
+function completeAddress(property: any) {
+  return [
+    property?.address_line1,
+    property?.city,
+    property?.province,
+    property?.postal_code,
+    "Canada",
+  ].filter(Boolean).join(", ");
 }
 
-function sameOrder(left: string[], right: string[]) {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
+function normalizedAddress(value: unknown) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\./g, "")
+    .replace(/\s+/g, " ");
 }
 
-function uniqueOrder(values: string[]) {
-  return [...new Set(values)];
-}
-
-function isRetiredDemoYork(visit: RouteVisit) {
+function isRetiredYorkDemo(visit: RouteVisit) {
   const property = joined(visit.properties);
   const customer = joined(visit.customers);
-  const address = String(property?.address_line1 || "").trim().toLowerCase().replace(/\./g, "");
-  const york = address === "55 york blvd" || address === "55 york boulevard";
-  const demo = /^demo customer\b/i.test(String(customer?.full_name || ""))
+  const address = normalizedAddress(property?.address_line1);
+  const retiredAddress = address === "55 york blvd" || address === "55 york boulevard";
+  const demoIdentity = /^demo customer\b/i.test(String(customer?.full_name || ""))
     || /@4everseasons\.test$/i.test(String(customer?.email || ""))
     || /\[TEMP_DEMO_SANDBOX_V1\]/i.test(String(customer?.notes || ""));
-  return york && demo;
-}
-
-function projectedOrder(visits: RouteVisit[]) {
-  return [...visits]
-    .sort((left, right) =>
-      Number(left.route_order ?? 9999) - Number(right.route_order ?? 9999)
-      || String(left.created_at || "").localeCompare(String(right.created_at || ""))
-      || String(left.id).localeCompare(String(right.id)))
-    .map(visit => String(visit.id));
+  return retiredAddress && demoIdentity;
 }
 
 async function requireProfile(request: NextRequest, service: any) {
@@ -71,7 +74,6 @@ async function requireProfile(request: NextRequest, service: any) {
     .eq("id", auth.data.user.id)
     .maybeSingle();
   if (profileResult.error) throw new Error(profileResult.error.message);
-
   const profile = profileResult.data;
   if (!profile?.active) throw new Error("This account is not active.");
   const companyId = profile.company_id || profile.organization_id;
@@ -79,104 +81,296 @@ async function requireProfile(request: NextRequest, service: any) {
   return { profile, companyId: String(companyId) };
 }
 
+async function employeeForProfile(service: any, profileId: string, companyId: string) {
+  const result = await service
+    .from("employees")
+    .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active")
+    .eq("profile_id", profileId)
+    .eq("active", true)
+    .or(companyFilter(companyId))
+    .maybeSingle();
+  if (result.error) throw new Error(result.error.message);
+  return result.data;
+}
+
+async function resolveRoute(input: {
+  service: any;
+  profile: any;
+  companyId: string;
+  routeId?: string | null;
+  routeDate?: string | null;
+}) {
+  const { service, profile, companyId } = input;
+  const role = String(profile.role);
+  let currentEmployee: any = null;
+  let route: any = null;
+
+  if (role === "employee") {
+    currentEmployee = await employeeForProfile(service, profile.id, companyId);
+    if (!currentEmployee) throw new Error("No active Employee is linked to this login.");
+  } else if (!["admin", "manager", "master"].includes(role)) {
+    throw new Error("This account cannot view operational routes.");
+  }
+
+  if (input.routeId) {
+    const result = await service
+      .from("routes")
+      .select("id,crew_id,route_date,company_id,organization_id,created_at")
+      .eq("id", input.routeId)
+      .maybeSingle();
+    if (result.error) throw new Error(result.error.message);
+    route = result.data;
+  } else {
+    if (!input.routeDate) throw new Error("routeId or date is required.");
+    if (!currentEmployee) throw new Error("Admin route reads require routeId.");
+
+    const byCrew = await service
+      .from("routes")
+      .select("id,crew_id,route_date,company_id,organization_id,created_at")
+      .eq("route_date", input.routeDate)
+      .eq("crew_id", currentEmployee.crew_id)
+      .or(companyFilter(companyId))
+      .order("created_at", { ascending: true })
+      .limit(2);
+    if (byCrew.error) throw new Error(byCrew.error.message);
+    if ((byCrew.data || []).length > 1) {
+      throw new Error("More than one canonical Route exists for this Employee and date.");
+    }
+    route = byCrew.data?.[0] || null;
+
+    if (!route) {
+      const assigned = await service
+        .from("visits")
+        .select("route_id")
+        .eq("scheduled_date", input.routeDate)
+        .eq("assigned_employee_id", currentEmployee.id)
+        .neq("status", "cancelled")
+        .or(companyFilter(companyId));
+      if (assigned.error) throw new Error(assigned.error.message);
+      const routeIds = [...new Set((assigned.data || []).map((row: any) => row.route_id).filter(Boolean))];
+      if (routeIds.length > 1) throw new Error("Employee Visits point to more than one Route for this date.");
+      if (routeIds[0]) {
+        const result = await service
+          .from("routes")
+          .select("id,crew_id,route_date,company_id,organization_id,created_at")
+          .eq("id", routeIds[0])
+          .maybeSingle();
+        if (result.error) throw new Error(result.error.message);
+        route = result.data;
+      }
+    }
+  }
+
+  if (!route || String(route.company_id || route.organization_id) !== companyId) {
+    throw new Error("Canonical Route not found in this company.");
+  }
+
+  if (currentEmployee) {
+    const assigned = await service
+      .from("visits")
+      .select("id", { count: "exact", head: true })
+      .eq("route_id", route.id)
+      .eq("assigned_employee_id", currentEmployee.id)
+      .neq("status", "cancelled");
+    if (assigned.error) throw new Error(assigned.error.message);
+    if (route.crew_id !== currentEmployee.crew_id && !assigned.count) {
+      throw new Error("This Route is not assigned to the authenticated Employee.");
+    }
+  }
+
+  return { route, currentEmployee };
+}
+
+async function geocodeAddress(address: string): Promise<Point | null> {
+  const key = normalizedAddress(address);
+  if (!key) return null;
+  const cached = geocodeCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { latitude: cached.latitude, longitude: cached.longitude };
+  }
+
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("countrycodes", "ca");
+  url.searchParams.set("viewbox", SERVICE_VIEWBOX);
+  url.searchParams.set("bounded", "1");
+  url.searchParams.set("q", address);
+
+  const response = await fetch(url, {
+    headers: { "User-Agent": "DamasioOS/CanonicalRouteSnapshot" },
+    cache: "no-store",
+  });
+  if (!response.ok) return null;
+  const rows = await response.json() as Array<{ lat?: string; lon?: string }>;
+  const latitude = numeric(rows[0]?.lat);
+  const longitude = numeric(rows[0]?.lon);
+  if (latitude === null || longitude === null) return null;
+  geocodeCache.set(key, { latitude, longitude, expiresAt: Date.now() + 15 * 60_000 });
+  return { latitude, longitude };
+}
+
+async function roadGeometry(
+  routeId: string,
+  routeVersion: number,
+  points: Point[],
+): Promise<RouteLineString | null> {
+  if (points.length < 2) return null;
+  const signature = `${routeId}:${routeVersion}:${points.map(point => `${point.longitude},${point.latitude}`).join(";")}`;
+  const cached = geometryCache.get(signature);
+  if (cached && cached.expiresAt > Date.now()) return cached.geometry;
+
+  const encoded = points.map(point => `${point.longitude},${point.latitude}`).join(";");
+  const response = await fetch(
+    `https://router.project-osrm.org/route/v1/driving/${encoded}?overview=full&geometries=geojson&steps=false`,
+    {
+      headers: { Accept: "application/json", "User-Agent": "DamasioOS/CanonicalRouteSnapshot" },
+      cache: "no-store",
+    },
+  );
+  if (!response.ok) return null;
+  const result = await response.json() as {
+    code?: string;
+    routes?: Array<{ geometry?: RouteLineString }>;
+  };
+  const geometry = result.code === "Ok" ? result.routes?.[0]?.geometry || null : null;
+  geometryCache.set(signature, { geometry, expiresAt: Date.now() + 60_000 });
+  return geometry;
+}
+
+function sameMembers(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const expected = new Set(left);
+  return right.every(value => expected.has(value));
+}
+
 export async function GET(request: NextRequest) {
   try {
-    const routeId = request.nextUrl.searchParams.get("routeId")?.trim();
-    if (!routeId) return NextResponse.json({ error: "routeId is required." }, { status: 400 });
-
+    const routeId = request.nextUrl.searchParams.get("routeId")?.trim() || null;
+    const routeDate = request.nextUrl.searchParams.get("date")?.trim() || null;
     const service = serviceClient();
     const { profile, companyId } = await requireProfile(request, service);
-    const routeResult = await service
-      .from("routes")
-      .select("id,crew_id,route_date,company_id,organization_id")
-      .eq("id", routeId)
-      .maybeSingle();
-    if (routeResult.error) throw new Error(routeResult.error.message);
-    const route = routeResult.data;
-    if (!route || String(route.company_id || route.organization_id) !== companyId) {
-      throw new Error("Route not found in this company.");
-    }
+    const { route, currentEmployee } = await resolveRoute({
+      service,
+      profile,
+      companyId,
+      routeId,
+      routeDate,
+    });
 
-    const visitsResult = await service
-      .from("visits")
-      .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes),properties(address_line1,city,province,postal_code),jobs(service_name)")
-      .eq("route_id", routeId)
-      .neq("status", "cancelled")
-      .or(companyFilter(companyId))
-      .order("route_order", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: true });
-    if (visitsResult.error) throw new Error(visitsResult.error.message);
-
-    const rawVisits = (visitsResult.data || []) as RouteVisit[];
-    const visits = rawVisits.filter(visit => !isRetiredDemoYork(visit));
-    const activeVisitIds = new Set(visits.map(visit => String(visit.id)));
-
-    let currentEmployee: any = null;
-    if (String(profile.role) === "employee") {
-      const employeeResult = await service
-        .from("employees")
-        .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active")
-        .eq("profile_id", profile.id)
-        .eq("active", true)
-        .or(companyFilter(companyId))
-        .maybeSingle();
-      if (employeeResult.error) throw new Error(employeeResult.error.message);
-      currentEmployee = employeeResult.data;
-      const allowed = Boolean(currentEmployee) && (
-        route.crew_id === currentEmployee.crew_id
-        || visits.some(visit => visit.assigned_employee_id === currentEmployee.id)
-      );
-      if (!allowed) throw new Error("This route is not assigned to the authenticated Employee.");
-    } else if (!["admin", "manager", "master"].includes(String(profile.role))) {
-      throw new Error("This account cannot view operational routes.");
-    }
-
-    const [routeStopsResult, smartStateResult, orderStateResult] = await Promise.all([
-      service.from("route_stops").select("visit_id,position").eq("route_id", routeId).order("position"),
-      service.from("employee_smart_route_state")
-        .select("route_id,applied_order,origin_label,origin_latitude,origin_longitude,active,route_version,updated_at")
-        .eq("route_id", routeId)
+    const [visitsResult, stopsResult, stateResult, smartResult] = await Promise.all([
+      service
+        .from("visits")
+        .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes),properties(address_line1,city,province,postal_code,latitude,longitude),jobs(service_name)")
+        .eq("route_id", route.id)
+        .neq("status", "cancelled")
+        .or(companyFilter(companyId)),
+      service
+        .from("route_stops")
+        .select("visit_id,position")
+        .eq("route_id", route.id)
+        .order("position", { ascending: true }),
+      service
+        .from("route_order_state")
+        .select("version,updated_at")
+        .eq("route_id", route.id)
         .maybeSingle(),
-      service.from("route_order_state").select("version,updated_at").eq("route_id", routeId).maybeSingle(),
+      service
+        .from("employee_smart_route_state")
+        .select("origin_label,origin_latitude,origin_longitude,active,route_version,updated_at")
+        .eq("route_id", route.id)
+        .maybeSingle(),
     ]);
 
-    const smartState = smartStateResult.error ? null : smartStateResult.data;
-    const canonicalVersion = Number(orderStateResult.error
-      ? smartState?.route_version || 1
-      : orderStateResult.data?.version || smartState?.route_version || 1);
-    const routeStopOrder = routeStopsResult.error
-      ? []
-      : uniqueOrder((routeStopsResult.data || [])
-        .map((row: any) => String(row.visit_id))
-        .filter((visitId: string) => activeVisitIds.has(visitId)));
-    const visitProjection = projectedOrder(visits);
-    const canonicalOrder = routeStopOrder.length === visits.length ? routeStopOrder : visitProjection;
-    const smartOrder = Array.isArray(smartState?.applied_order)
-      ? uniqueOrder(smartState.applied_order.map(String).filter((visitId: string) => activeVisitIds.has(visitId)))
-      : [];
-    const smartActive = Boolean(
-      smartState?.active
-      && Number(smartState.route_version || 0) === canonicalVersion
-      && sameOrder(smartOrder, canonicalOrder),
-    );
-    const canonicalIndex = new Map<string, number>(
-      canonicalOrder.map((visitId, index): [string, number] => [visitId, index]),
-    );
-    const orderedVisits = [...visits].sort((left, right) =>
-      (canonicalIndex.get(String(left.id)) ?? 9999) - (canonicalIndex.get(String(right.id)) ?? 9999)
-      || String(left.id).localeCompare(String(right.id)));
+    if (visitsResult.error) throw new Error(visitsResult.error.message);
+    if (stopsResult.error) throw new Error(stopsResult.error.message);
+    if (stateResult.error || !stateResult.data) {
+      throw new Error("Canonical route version is missing. Run the Route Stops migration.");
+    }
 
-    const assignedEmployeeId = orderedVisits.find(visit => visit.assigned_employee_id)?.assigned_employee_id;
+    const visits = (visitsResult.data || []) as RouteVisit[];
+    if (visits.some(isRetiredYorkDemo)) {
+      throw new Error("Retired demo data remains on this Route. Run the 55 York cleanup migration.");
+    }
+
+    const activeVisitIds = visits.map(visit => String(visit.id));
+    const stopRows = stopsResult.data || [];
+    const orderedVisitIds = stopRows.map((row: any) => String(row.visit_id));
+    const positionsAreCanonical = stopRows.every(
+      (row: any, index: number) => Number(row.position) === index + 1,
+    );
+    if (
+      new Set(orderedVisitIds).size !== orderedVisitIds.length
+      || !positionsAreCanonical
+      || !sameMembers(activeVisitIds, orderedVisitIds)
+    ) {
+      throw new Error("route_stops does not exactly match the active Visits. No projection fallback is allowed.");
+    }
+
+    const routeVersion = Number(stateResult.data.version);
+    if (!Number.isInteger(routeVersion) || routeVersion < 1) {
+      throw new Error("Canonical routeVersion is invalid.");
+    }
+
+    const byVisitId = new Map(visits.map(visit => [String(visit.id), visit]));
+    const orderedVisits = orderedVisitIds.map(visitId => byVisitId.get(visitId)!);
+    const stops = await Promise.all(orderedVisits.map(async (visit, index) => {
+      const property = joined(visit.properties);
+      const customer = joined(visit.customers);
+      const job = joined(visit.jobs);
+      const address = completeAddress(property);
+      let latitude = numeric(property?.latitude);
+      let longitude = numeric(property?.longitude);
+      if (latitude === null || longitude === null) {
+        const point = await geocodeAddress(address);
+        latitude = point?.latitude ?? null;
+        longitude = point?.longitude ?? null;
+      }
+      return {
+        visitId: String(visit.id),
+        jobId: visit.job_id || null,
+        routeId: String(route.id),
+        customerId: visit.customer_id || null,
+        propertyId: visit.property_id || null,
+        employeeId: visit.assigned_employee_id || null,
+        crewId: visit.crew_id || null,
+        address,
+        latitude,
+        longitude,
+        routeOrder: index + 1,
+        status: String(visit.status || "scheduled"),
+        customerName: customer?.full_name || "Customer",
+        serviceName: job?.service_name || "Property Service",
+        scheduledDate: visit.scheduled_date,
+        startedAt: visit.started_at,
+        finishedAt: visit.finished_at,
+        durationSeconds: visit.duration_seconds,
+      };
+    }));
+
+    const smartState = smartResult.error ? null : smartResult.data;
+    const smartOriginIsCurrent = Boolean(
+      smartState?.active
+      && Number(smartState.route_version) === routeVersion
+      && numeric(smartState.origin_latitude) !== null
+      && numeric(smartState.origin_longitude) !== null,
+    );
+
     let routeEmployee = currentEmployee;
-    if (!routeEmployee && assignedEmployeeId) {
-      const result = await service.from("employees")
-        .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active")
-        .eq("id", assignedEmployeeId)
-        .maybeSingle();
-      if (!result.error) routeEmployee = result.data;
+    if (!routeEmployee) {
+      const employeeId = orderedVisits.find(visit => visit.assigned_employee_id)?.assigned_employee_id;
+      if (employeeId) {
+        const result = await service
+          .from("employees")
+          .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active")
+          .eq("id", employeeId)
+          .maybeSingle();
+        if (!result.error) routeEmployee = result.data;
+      }
     }
     if (!routeEmployee && route.crew_id) {
-      const result = await service.from("employees")
+      const result = await service
+        .from("employees")
         .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active")
         .eq("crew_id", route.crew_id)
         .eq("active", true)
@@ -188,84 +382,109 @@ export async function GET(request: NextRequest) {
 
     let employeeProfile: any = null;
     if (routeEmployee?.profile_id) {
-      const result = await service.from("profiles")
+      const result = await service
+        .from("profiles")
         .select("id,full_name,address_line1,route_start_address")
         .eq("id", routeEmployee.profile_id)
         .maybeSingle();
       if (!result.error) employeeProfile = result.data;
     }
 
-    const fallbackOriginAddress = employeeProfile?.route_start_address
-      || employeeProfile?.address_line1
-      || routeEmployee?.route_start_address
-      || routeEmployee?.address_line1
-      || "";
-    const smartLatitude = numeric(smartState?.origin_latitude);
-    const smartLongitude = numeric(smartState?.origin_longitude);
-    const origin = smartActive && smartLatitude !== null && smartLongitude !== null
-      ? {
-          latitude: smartLatitude,
-          longitude: smartLongitude,
-          label: smartState.origin_label || "Route start",
-          address: null,
-        }
-      : fallbackOriginAddress
-        ? {
-            latitude: null,
-            longitude: null,
-            label: `${employeeProfile?.full_name || routeEmployee?.full_name || "Employee"} start`,
-            address: fallbackOriginAddress,
-          }
-        : null;
+    let origin: {
+      label: string;
+      address: string | null;
+      latitude: number;
+      longitude: number;
+    } | null = null;
+    let originIsFirstStop = false;
 
-    const stops = orderedVisits.map((visit, index) => {
-      const property = joined(visit.properties);
-      const customer = joined(visit.customers);
-      const job = joined(visit.jobs);
-      return {
-        visitId: visit.id,
-        jobId: visit.job_id,
-        routeId: visit.route_id,
-        customerId: visit.customer_id,
-        propertyId: visit.property_id,
-        employeeId: visit.assigned_employee_id,
-        crewId: visit.crew_id,
-        address: fullAddress(property),
-        latitude: null,
-        longitude: null,
-        routeOrder: index + 1,
-        status: String(visit.status || "scheduled"),
-        customerName: customer?.full_name || "Customer",
-        serviceName: job?.service_name || "Property Service",
-        scheduledDate: visit.scheduled_date,
-        startedAt: visit.started_at,
-        finishedAt: visit.finished_at,
-        durationSeconds: visit.duration_seconds,
+    if (smartOriginIsCurrent) {
+      origin = {
+        label: smartState.origin_label || "Route start",
+        address: null,
+        latitude: Number(smartState.origin_latitude),
+        longitude: Number(smartState.origin_longitude),
       };
-    });
+    } else {
+      const startAddress = employeeProfile?.route_start_address
+        || employeeProfile?.address_line1
+        || routeEmployee?.route_start_address
+        || routeEmployee?.address_line1
+        || "";
+      const fullStartAddress = startAddress
+        ? /\bcanada\b/i.test(startAddress) ? startAddress : `${startAddress}, Canada`
+        : "";
+      const startPoint = fullStartAddress ? await geocodeAddress(fullStartAddress) : null;
+      if (startPoint) {
+        origin = {
+          label: `${employeeProfile?.full_name || routeEmployee?.full_name || "Employee"} start`,
+          address: fullStartAddress,
+          latitude: startPoint.latitude,
+          longitude: startPoint.longitude,
+        };
+      } else {
+        const first = stops[0];
+        if (first && first.latitude !== null && first.longitude !== null) {
+          originIsFirstStop = true;
+          origin = {
+            label: "First canonical stop",
+            address: first.address,
+            latitude: first.latitude,
+            longitude: first.longitude,
+          };
+        }
+      }
+    }
 
-    console.info("canonical-route-map-ok", {
-      routeId,
-      version: canonicalVersion,
-      activeSmartRoute: smartActive,
+    const allStopsMapped = stops.every(stop => stop.latitude !== null && stop.longitude !== null);
+    const routePoints: Point[] = allStopsMapped
+      ? [
+          ...(!origin || originIsFirstStop ? [] : [{ latitude: origin.latitude, longitude: origin.longitude }]),
+          ...stops.map(stop => ({ latitude: stop.latitude!, longitude: stop.longitude! })),
+        ]
+      : [];
+    const geometry = routePoints.length >= 2
+      ? await roadGeometry(String(route.id), routeVersion, routePoints)
+      : null;
+    const geometryStatus = !allStopsMapped
+      ? "incomplete"
+      : geometry
+        ? "ready"
+        : "unavailable";
+
+    const updatedAt = [stateResult.data.updated_at, smartState?.updated_at, route.created_at]
+      .filter(Boolean)
+      .sort()
+      .at(-1) || new Date().toISOString();
+
+    console.info("canonical-route-snapshot-ok", {
+      routeId: route.id,
+      routeVersion,
       stopCount: stops.length,
-      source: routeStopOrder.length === visits.length ? "route_stops" : "visit_projection",
-      hiddenRetiredDemoStops: rawVisits.length - visits.length,
+      geometryStatus,
     });
 
     return NextResponse.json({
-      routeId,
+      routeId: String(route.id),
+      routeVersion,
       routeDate: route.route_date,
-      version: canonicalVersion,
-      activeSmartRoute: smartActive,
       origin,
+      orderedVisitIds,
+      routeOrder: orderedVisitIds.map((visitId, index) => ({ visitId, routeOrder: index + 1 })),
       stops,
+      geometry,
+      geometryStatus,
+      updatedAt,
+    }, {
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
     });
   } catch (error) {
-    console.error("canonical-route-map", error);
+    console.error("canonical-route-snapshot", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Canonical route map could not be loaded." },
-      { status: 400 },
+      { error: error instanceof Error ? error.message : "Canonical route snapshot could not be loaded." },
+      { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } },
     );
   }
 }

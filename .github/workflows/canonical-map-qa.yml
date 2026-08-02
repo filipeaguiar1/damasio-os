@@ -12,8 +12,12 @@ on:
       - "app/employee/route/page.tsx"
       - "components/admin/OfficialRoutePlanMap.tsx"
       - "components/mobile/EmployeeRouteMap.tsx"
+      - "lib/hooks/useCanonicalRouteSnapshot.ts"
+      - "lib/routes/canonicalRouteSnapshot.ts"
       - "lib/services/routeMapService.ts"
       - "scripts/validate-canonical-map-sync.mjs"
+      - "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql"
+      - "tests/canonical-route-sync.spec.ts"
       - "package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/canonical-map-qa.yml"
@@ -28,10 +32,15 @@ on:
       - "app/employee/route/page.tsx"
       - "components/admin/OfficialRoutePlanMap.tsx"
       - "components/mobile/EmployeeRouteMap.tsx"
+      - "lib/hooks/useCanonicalRouteSnapshot.ts"
+      - "lib/routes/canonicalRouteSnapshot.ts"
       - "lib/services/routeMapService.ts"
       - "scripts/validate-canonical-map-sync.mjs"
+      - "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql"
+      - "tests/canonical-route-sync.spec.ts"
       - "package.json"
       - "pnpm-lock.yaml"
+      - ".github/workflows/canonical-map-qa.yml"
 
 concurrency:
   group: canonical-map-${{ github.ref }}

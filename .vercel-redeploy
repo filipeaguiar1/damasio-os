@@ -1,2 +1,3 @@
-Trigger Vercel preview deployment for canonical route synchronization fix.
-Requested at 2026-08-02T14:12:00-04:00.
+Canonical global route snapshot final validation.
+One deploy after canonical read/write, Realtime, cleanup, build and authenticated QA wiring.
+Requested at 2026-08-02T16:00:00-04:00.
