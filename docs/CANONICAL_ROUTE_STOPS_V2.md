@@ -19,9 +19,10 @@ route was committed and verified; a failure means nothing changed.
 - Cancelled Visits keep their history but have `route_order = null`, preventing
   collisions with active route positions under the legacy unique constraint.
 
-`route_order_state` provides optimistic concurrency. A phone applying a preview
-must send the version it reviewed. If another device changed the route first,
-the write is rejected and the user must refresh.
+`route_order_state` provides optimistic concurrency. The Employee app retains
+the version loaded with the map and sends that exact version when Apply or
+Restore is requested. If Admin or another device changed the route after the
+preview was prepared, the write is rejected and nothing changes.
 
 `route_order_audit` records the previous order, next order, source, actor and
 resulting version for every route-order mutation.
@@ -57,6 +58,20 @@ move or reorder a Visit.
 The previous RPC contracts remain available as thin compatibility wrappers, but
 no endpoint may update `visits.route_order` or upsert Smart Route state directly.
 
+## Canonical state on every device
+
+`get_employee_smart_route_state` always returns one database-backed state row for
+an accessible Route, even when no Smart Route is active. Its order and version
+come from `route_stops` and `route_order_state`.
+
+When Admin publication, Visit movement or route reset changes a Route:
+
+- an older Employee Smart Route state is marked inactive;
+- its stored version advances to the new canonical version;
+- stale browser Smart Route keys are removed when the Employee app reads the
+  inactive database state;
+- the app cannot fall back to an old local order.
+
 ## Mobile communication
 
 Critical mobile writes publish a shared operation status:
@@ -76,11 +91,12 @@ reused by other critical writes.
 3. Run `202608020510_canonical_route_writer_wrappers_v2.sql`.
 4. Run `202608020515_canonical_route_projection_constraint_v2.sql`.
 5. Run `202608020520_canonical_route_reset_v2.sql`.
-6. Confirm the PostgREST schema reload completed.
-7. Run the verification queries below.
-8. Deploy the application code.
-9. Test Admin publish, Employee Apply, refresh, logout/login, Visit movement,
-   Admin/Employee comparison and the protected route reset.
+6. Run `202608020525_canonical_route_state_read_v2.sql`.
+7. Confirm the PostgREST schema reload completed.
+8. Run the verification queries below.
+9. Deploy the application code.
+10. Test Admin publish, Employee Apply, refresh, logout/login, Visit movement,
+    Admin/Employee comparison and the protected route reset.
 
 Application code intentionally reports that the migration is missing instead of
 falling back to a parallel writer.
@@ -132,6 +148,22 @@ where r.id = '<ROUTE_ID>'::uuid;
 
 `route_stops_order` and `visits_order` must be identical.
 
+### Canonical Employee state matches the Route version
+
+```sql
+select
+  state.route_id,
+  state.active,
+  state.route_version as smart_route_version,
+  order_state.version as canonical_version
+from public.employee_smart_route_state state
+join public.route_order_state order_state on order_state.route_id = state.route_id
+where state.route_id = '<ROUTE_ID>'::uuid;
+```
+
+An active Smart Route must have equal versions. An Admin or movement update must
+leave the Smart Route inactive.
+
 ### Cancelled Visits do not occupy an operational position
 
 ```sql
@@ -154,10 +186,11 @@ select
   state.updated_at,
   audit.previous_order,
   audit.next_order,
+  audit.route_version,
   audit.created_at
 from public.route_order_state state
 left join lateral (
-  select previous_order, next_order, created_at, route_version
+  select previous_order, next_order, route_version, created_at
   from public.route_order_audit
   where route_id = state.route_id
   order by created_at desc
