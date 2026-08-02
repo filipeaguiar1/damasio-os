@@ -59,7 +59,7 @@ export default function MobileEmployeeApp(){
   const [smartOriginPoint,setSmartOriginPoint]=useState<{latitude:number;longitude:number;label:string}|null>(null);
   const [smartPreparing,setSmartPreparing]=useState(false);
   const [smartRouteActive,setSmartRouteActive]=useState(false);
-  const [activeSmartState,setActiveSmartState]=useState<(ReturnType<typeof getEmployeeSmartRouteState>|EmployeeDatabaseSmartRouteState)>(null);
+  const [activeSmartState,setActiveSmartState]=useState<EmployeeDatabaseSmartRouteState | null>(null);
   const [routeStarted,setRouteStarted]=useState(false);
   const [selectedTaskId,setSelectedTaskId]=useState("");
   const [routeView,setRouteView]=useState<"list"|"map">("map");
