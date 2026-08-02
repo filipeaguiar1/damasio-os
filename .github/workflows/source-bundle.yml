@@ -1,0 +1,26 @@
+name: Source Bundle Audit
+
+on:
+  push:
+    branches:
+      - feature/25-30-homes-simulator-v1
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: damasio-source-bundle
+          path: |
+            .
+            !node_modules
+            !.next
+            !test-results
+            !playwright-report
+          include-hidden-files: true
+          retention-days: 1
