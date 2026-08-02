@@ -90,7 +90,7 @@ async function allowedVisits(
   if (error) throw new Error(error.message);
 
   const visits = (data || []).filter((visit: any) =>
-    !["cancelled", "missed"].includes(String(visit.status))
+    String(visit.status) !== "cancelled"
     && (
       visit.assigned_employee_id === employee.id
       || (
@@ -101,7 +101,7 @@ async function allowedVisits(
     ));
 
   if (!visits.length) {
-    throw new Error("This route has no active visits assigned to you.");
+    throw new Error("This route has no non-cancelled visits assigned to you.");
   }
 
   return visits;
@@ -337,7 +337,7 @@ export async function POST(request: NextRequest) {
       || visits.some((visit: any) => !requestedOrder.includes(String(visit.id)))
     ) {
       throw new Error(
-        "The reviewed route must contain every active house exactly once.",
+        "The reviewed route must contain every non-cancelled house exactly once.",
       );
     }
 
