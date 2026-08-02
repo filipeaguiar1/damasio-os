@@ -47,8 +47,8 @@ function sameOrder(left: string[], right: string[]) {
 }
 
 function migrationError(message?: string) {
-  if (/apply_canonical_route_order_v2|restore_canonical_route_order_v2|schema cache|could not find the function/i.test(message || "")) {
-    return new Error("Canonical Route Stops V2 is not installed. The route was not changed.");
+  if (/apply_canonical_route_order_v2_service|restore_canonical_route_order_v2|schema cache|could not find the function/i.test(message || "")) {
+    return new Error("Canonical Route Stops V2 service contract is not installed. The route was not changed.");
   }
   return new Error(message || "Canonical route order could not be saved.");
 }
@@ -160,13 +160,14 @@ export async function POST(request: NextRequest) {
       throw new Error("A valid canonical Route origin is required.");
     }
 
-    const applied = await context.user.rpc("apply_canonical_route_order_v2", {
+    const applied = await context.service.rpc("apply_canonical_route_order_v2_service", {
       p_route_id: routeId,
       p_ordered_visit_ids: orderedVisitIds,
       p_origin_label: String(body.origin?.label || "Route start"),
       p_origin_latitude: latitude,
       p_origin_longitude: longitude,
       p_expected_version: expectedVersion,
+      p_actor_profile_id: context.profile.id,
       p_source: ["admin", "manager", "master"].includes(String(context.profile.role))
         ? "admin_canonical_route"
         : "employee_smart_route_global",
