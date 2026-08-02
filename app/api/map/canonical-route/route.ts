@@ -33,6 +33,21 @@ function fullAddress(property: any) {
   ].filter(Boolean).join(", ");
 }
 
+function sameOrder(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function isRetiredDemoYork(visit: any) {
+  const property = joined(visit.properties);
+  const customer = joined(visit.customers);
+  const address = String(property?.address_line1 || "").trim().toLowerCase().replace(/\./g, "");
+  const york = address === "55 york blvd" || address === "55 york boulevard";
+  const demo = /^demo customer\b/i.test(String(customer?.full_name || ""))
+    || /@4everseasons\.test$/i.test(String(customer?.email || ""))
+    || /\[TEMP_DEMO_SANDBOX_V1\]/i.test(String(customer?.notes || ""));
+  return york && demo;
+}
+
 async function requireProfile(request: NextRequest, service: any) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) throw new Error("Sign in to view this route.");
@@ -74,20 +89,18 @@ export async function GET(request: NextRequest) {
       throw new Error("Route not found in this company.");
     }
 
-    // Coordinates are intentionally not selected here. Some production tenants
-    // predate the optional properties.latitude/longitude columns. Every client
-    // receives the same complete canonical address and the shared map component
-    // geocodes that address consistently when stored coordinates are unavailable.
     const visitsResult = await service
       .from("visits")
-      .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name),properties(address_line1,city,province,postal_code),jobs(service_name)")
+      .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes),properties(address_line1,city,province,postal_code),jobs(service_name)")
       .eq("route_id", routeId)
       .neq("status", "cancelled")
       .or(companyFilter(companyId))
       .order("route_order", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: true });
     if (visitsResult.error) throw new Error(visitsResult.error.message);
-    const visits = visitsResult.data || [];
+    const rawVisits = visitsResult.data || [];
+    const visits = rawVisits.filter((visit: any) => !isRetiredDemoYork(visit));
+    const activeVisitIds = new Set(visits.map((visit: any) => String(visit.id)));
 
     let currentEmployee: any = null;
     if (String(profile.role) === "employee") {
@@ -123,25 +136,31 @@ export async function GET(request: NextRequest) {
     const canonicalVersion = Number(orderStateResult.error
       ? (smartState?.route_version || 1)
       : (orderStateResult.data?.version || smartState?.route_version || 1));
-    const smartActive = Boolean(
-      smartState?.active
-      && Number(smartState.route_version || 0) === canonicalVersion,
-    );
 
     const routeStopOrder: string[] = routeStopsResult.error
       ? []
-      : (routeStopsResult.data || []).map((row: any) => String(row.visit_id));
-    const smartOrder: string[] = smartActive && Array.isArray(smartState?.applied_order)
-      ? smartState.applied_order.map(String)
+      : (routeStopsResult.data || [])
+        .map((row: any) => String(row.visit_id))
+        .filter((visitId: string) => activeVisitIds.has(visitId));
+    const visitProjection = [...visits]
+      .sort((left: any, right: any) =>
+        Number(left.route_order ?? 9999) - Number(right.route_order ?? 9999)
+        || String(left.created_at || "").localeCompare(String(right.created_at || ""))
+        || String(left.id).localeCompare(String(right.id)))
+      .map((visit: any) => String(visit.id));
+    const canonicalOrder = routeStopOrder.length === visits.length ? routeStopOrder : visitProjection;
+
+    const smartOrder: string[] = Array.isArray(smartState?.applied_order)
+      ? smartState.applied_order.map(String).filter((visitId: string) => activeVisitIds.has(visitId))
       : [];
-    const preferredOrder: string[] = smartOrder.length ? smartOrder : routeStopOrder;
-    const preferredIndex = new Map<string, number>(
-      preferredOrder.map((visitId, index): [string, number] => [visitId, index]),
+    const smartActive = Boolean(smartState?.active && sameOrder(smartOrder, canonicalOrder));
+    const canonicalIndex = new Map<string, number>(
+      canonicalOrder.map((visitId, index): [string, number] => [visitId, index]),
     );
 
     const orderedVisits = [...visits].sort((left: any, right: any) => {
-      const leftIndex = preferredIndex.get(String(left.id));
-      const rightIndex = preferredIndex.get(String(right.id));
+      const leftIndex = canonicalIndex.get(String(left.id));
+      const rightIndex = canonicalIndex.get(String(right.id));
       if (leftIndex !== undefined || rightIndex !== undefined) {
         if (leftIndex === undefined) return 1;
         if (rightIndex === undefined) return -1;
@@ -239,7 +258,8 @@ export async function GET(request: NextRequest) {
       version: canonicalVersion,
       activeSmartRoute: smartActive,
       stopCount: stops.length,
-      source: smartOrder.length ? "smart_route" : routeStopOrder.length ? "route_stops" : "visit_projection",
+      removedRetiredDemoStops: rawVisits.length - visits.length,
+      source: routeStopOrder.length === visits.length ? "route_stops" : "visit_projection",
       completeAddressCount: stops.filter(stop => stop.address.split(",").length >= 3).length,
     });
 
