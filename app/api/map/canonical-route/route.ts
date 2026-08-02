@@ -124,14 +124,16 @@ export async function GET(request: NextRequest) {
       && Number(smartState.route_version || 0) === canonicalVersion,
     );
 
-    const routeStopOrder = routeStopsResult.error
+    const routeStopOrder: string[] = routeStopsResult.error
       ? []
       : (routeStopsResult.data || []).map((row: any) => String(row.visit_id));
-    const smartOrder = smartActive && Array.isArray(smartState?.applied_order)
+    const smartOrder: string[] = smartActive && Array.isArray(smartState?.applied_order)
       ? smartState.applied_order.map(String)
       : [];
-    const preferredOrder = smartOrder.length ? smartOrder : routeStopOrder;
-    const preferredIndex = new Map(preferredOrder.map((visitId: string, index: number) => [visitId, index]));
+    const preferredOrder: string[] = smartOrder.length ? smartOrder : routeStopOrder;
+    const preferredIndex = new Map<string, number>(
+      preferredOrder.map((visitId, index): [string, number] => [visitId, index]),
+    );
 
     const orderedVisits = [...visits].sort((left: any, right: any) => {
       const leftIndex = preferredIndex.get(String(left.id));
