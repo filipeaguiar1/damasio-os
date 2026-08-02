@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/tmp/apply-canonical-route-final-fix.py", line 297, in <module>
+    regex_once(
+  File "/tmp/apply-canonical-route-final-fix.py", line 27, in regex_once
+    raise RuntimeError(f'{path}: expected one regex match, found {count}: {pattern[:120]!r}')
+RuntimeError: app/mobile/employee/page.tsx: expected one regex match, found 0: '  useEffect\\(\\(\\)=>\\{let cancelled=false;async function syncSmartState\\(\\)\\{.*?\\}\\)\\n'
