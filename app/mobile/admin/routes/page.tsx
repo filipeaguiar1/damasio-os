@@ -23,6 +23,7 @@ type RouteEmployee = {
   email: string;
   routeStartAddress: string | null;
 };
+type RouteOrigin = { latitude: number; longitude: number; label: string };
 
 const today = () => operationalDateKey();
 const selectionId = (home: RouteLead) => home.canonicalVisitId || home.canonicalJobId || home.id;
@@ -66,6 +67,7 @@ export default function MobileAdminRoutes() {
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [advisorHelp, setAdvisorHelp] = useState<AdvisorHelp>(null);
+  const [routeOrigin, setRouteOrigin] = useState<RouteOrigin | null>(null);
 
   async function refresh(clearMessage = true) {
     try {
@@ -93,6 +95,32 @@ export default function MobileAdminRoutes() {
 
   const employee = employees.find(item => item.id === employeeId) || null;
   const targetEmployee = employees.find(item => item.id === targetEmployeeId) || null;
+
+  useEffect(() => {
+    let cancelled = false;
+    setRouteOrigin(null);
+    const address = employee?.routeStartAddress?.trim();
+    if (!address) return () => { cancelled = true; };
+
+    void fetch(`/api/map/geocode?address=${encodeURIComponent(address)}`, { cache: "no-store" })
+      .then(response => {
+        if (!response.ok) throw new Error("Route start could not be mapped.");
+        return response.json() as Promise<{ latitude: number; longitude: number }>;
+      })
+      .then(point => {
+        if (cancelled || !Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) return;
+        setRouteOrigin({
+          latitude: Number(point.latitude),
+          longitude: Number(point.longitude),
+          label: `${employee?.name || "Employee"} start`,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setRouteOrigin(null);
+      });
+
+    return () => { cancelled = true; };
+  }, [employee?.id, employee?.name, employee?.routeStartAddress]);
 
   const route = useMemo(() => {
     if (!employee) return [];
@@ -139,11 +167,7 @@ export default function MobileAdminRoutes() {
     try {
       const result = await api("/api/admin/routes", {
         method: "POST",
-        body: JSON.stringify({
-          action: "assign",
-          jobIds: selected,
-          crewId: employee.crewId,
-        }),
+        body: JSON.stringify({ action: "assign", jobIds: selected, crewId: employee.crewId }),
       });
       setSelected([]);
       await refresh(false);
@@ -160,19 +184,16 @@ export default function MobileAdminRoutes() {
       setMessage("Select scheduled houses and the destination Employee.");
       return;
     }
-
     const visits = movableRoute.filter(home => selected.includes(selectionId(home)));
     if (!visits.length) {
       setMessage("Only Scheduled Visits from the selected day can be moved.");
       return;
     }
-
     const permanent = moveMode === "permanent";
     const confirmed = window.confirm(permanent
       ? `Permanently assign ${visits.length} house${visits.length === 1 ? "" : "s"} to ${targetEmployee.name}? Future Scheduled Visits will also move.`
       : `Temporarily send ${visits.length} house${visits.length === 1 ? "" : "s"} to ${targetEmployee.name} for ${date}? Permanent ownership will not change.`);
     if (!confirmed) return;
-
     setBusy(true);
     try {
       const result = await api("/api/admin/route-assignment", {
@@ -250,7 +271,13 @@ export default function MobileAdminRoutes() {
       {mode === "view" && <>
         <div className="mobile-native-toggle"><button className={mapView ? "active" : ""} onClick={() => setMapView(true)}>Map</button><button className={!mapView ? "active" : ""} onClick={() => setMapView(false)}>List <b>{route.length}</b></button></div>
         {mapView
-          ? <EmployeeRouteMap route={route} actionLabel="Show in list" onOpenVisit={() => setMapView(false)} />
+          ? <EmployeeRouteMap
+              route={route}
+              routeId={route[0]?.canonicalRouteId}
+              originPoint={routeOrigin}
+              actionLabel="Show in list"
+              onOpenVisit={() => setMapView(false)}
+            />
           : <RouteList homes={route} selected={[]} onToggle={() => {}} selectable={false} />}
       </>}
 
@@ -316,7 +343,7 @@ function RouteList({ homes, selected, onToggle, selectable }: {
       const id = selectionId(home);
       const complete = home.canonicalVisitStatus === "completed" || home.status === "completed";
       return <button className={selected.includes(id) ? "selected" : ""} onClick={() => selectable && onToggle(id)} type="button" key={id}>
-        <b>{selectable ? (selected.includes(id) ? "✓" : "") : index + 1}</b>
+        <b>{selectable ? (selected.includes(id) ? "✓" : "") : home.routeOrder || index + 1}</b>
         <div><strong>{home.name}</strong><span>{home.address}</span><small>{home.service} · {home.assignedCrew || "Unassigned"}</small></div>
         <i className={complete ? "done" : ""}>{complete ? "Done" : home.canonicalRouteId ? home.assignedCrew || "Scheduled" : "Available"}</i>
       </button>;
