@@ -46,6 +46,7 @@ export type EmployeeDatabaseSmartRouteState = {
 
 const emptyContext: EmployeeRouteMapContext = { routeId: null, stops: [] };
 const canonicalRouteVersions = new Map<string, number>();
+const smartRoutePreviewVersions = new Map<string, number>();
 let smartRouteApplyInFlight = false;
 
 function torontoParts(date = new Date()) {
@@ -289,6 +290,11 @@ export async function optimizeEmployeeRoadRoute(params: {
   stops: Array<{ id: string; latitude: number; longitude: number }>;
   alternative?: number;
 }) {
+  const reviewedVersion = canonicalRouteVersions.get(params.routeId);
+  if (!reviewedVersion) {
+    throw new Error("Refresh the route before creating a Smart Route preview.");
+  }
+
   const token = await accessToken();
   if (!token) throw new Error("Your Employee login expired. Sign in again.");
   const response = await fetch("/api/mobile/employee/smart-route", {
@@ -298,6 +304,7 @@ export async function optimizeEmployeeRoadRoute(params: {
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || "Road Smart Route could not be calculated.");
+  smartRoutePreviewVersions.set(params.routeId, reviewedVersion);
   return result as { orderedIds: string[]; distanceMeters: number; durationSeconds: number; alternative: number };
 }
 
@@ -312,11 +319,12 @@ export async function applyEmployeeDatabaseSmartRoute(params: {
     throw new Error("This route is already being saved. Please wait for confirmation.");
   }
 
-  const reviewedVersion = params.expectedVersion
+  const reviewedVersion = smartRoutePreviewVersions.get(params.routeId)
+    ?? params.expectedVersion
     ?? canonicalRouteVersions.get(params.routeId)
     ?? null;
   if (!reviewedVersion) {
-    throw new Error("Refresh the route before applying this preview.");
+    throw new Error("Refresh the route and create the preview again before applying it.");
   }
 
   smartRouteApplyInFlight = true;
@@ -367,6 +375,7 @@ export async function applyEmployeeDatabaseSmartRoute(params: {
     failMobileOperation("Route not changed", message);
     throw error;
   } finally {
+    smartRoutePreviewVersions.delete(params.routeId);
     smartRouteApplyInFlight = false;
   }
 }
