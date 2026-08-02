@@ -627,7 +627,7 @@ async function simulationStatus(service: any, companyId: string) {
 async function removeSimulation(service: any, companyId: string) {
   const pattern = simulationPattern(companyId);
   const customers = await service.from("customers").select("id,profile_id")
-    .or(companyFilter(companyId)).like("email", pattern);
+    .or(companyFilter(companyId)).like("email", pattern).is("archived_at", null);
   if (customers.error) throw new Error(customers.error.message);
   const customerIds = (customers.data || []).map((row: any) => String(row.id));
 
@@ -673,7 +673,8 @@ async function removeSimulation(service: any, companyId: string) {
     await remove("service_requests", service.from("service_requests").delete().in("customer_id", customerIds));
     await remove("payments", service.from("payments").delete().in("customer_id", customerIds), true);
   }
-  if (visitIds.length) await remove("visit photos", service.from("photos").delete().in("visit_id", visitIds));
+  // Every simulator Photo is linked to its Property as well as its Visit. Deleting by
+  // Property keeps the request bounded and avoids oversized Visit-ID filters after legacy runs.
   if (propertyIds.length) await remove("property photos", service.from("photos").delete().in("property_id", propertyIds));
   if (routeIds.length) {
     await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));

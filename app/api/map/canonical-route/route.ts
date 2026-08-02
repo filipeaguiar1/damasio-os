@@ -293,17 +293,33 @@ async function roadGeometry(routeId: string, routeVersion: number, points: Point
   const cached = geometryCache.get(signature);
   if (cached && cached.expiresAt > Date.now()) return cached.geometry;
 
-  const encoded = points.map(point => `${point.longitude},${point.latitude}`).join(";");
-  const response = await fetch(
-    `https://router.project-osrm.org/route/v1/driving/${encoded}?overview=full&geometries=geojson&steps=false`,
-    {
-      headers: { Accept: "application/json", "User-Agent": "DamasioOS/CanonicalRouteSnapshot" },
-      cache: "no-store",
-    },
-  );
-  if (!response.ok) return null;
-  const result = await response.json() as { code?: string; routes?: Array<{ geometry?: RouteLineString }> };
-  const geometry = result.code === "Ok" ? result.routes?.[0]?.geometry || null : null;
+  // The canonical snapshot must always include drawable geometry when every stop
+  // is mapped. OSRM supplies the road-following line; a deterministic LineString
+  // keeps all four screens usable during a transient routing-provider outage.
+  const fallback: RouteLineString = {
+    type: "LineString",
+    coordinates: points.map(point => [point.longitude, point.latitude]),
+  };
+  let geometry: RouteLineString = fallback;
+  try {
+    const encoded = points.map(point => `${point.longitude},${point.latitude}`).join(";");
+    const response = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${encoded}?overview=full&geometries=geojson&steps=false`,
+      {
+        headers: { Accept: "application/json", "User-Agent": "DamasioOS/CanonicalRouteSnapshot" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (response.ok) {
+      const result = await response.json() as { code?: string; routes?: Array<{ geometry?: RouteLineString }> };
+      if (result.code === "Ok" && result.routes?.[0]?.geometry?.coordinates?.length) {
+        geometry = result.routes[0].geometry;
+      }
+    }
+  } catch {
+    // Keep the deterministic fallback. A provider outage cannot blank the Route.
+  }
   geometryCache.set(signature, { geometry, expiresAt: Date.now() + 60_000 });
   return geometry;
 }

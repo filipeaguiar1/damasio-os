@@ -122,9 +122,10 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   await employee.locator(".route-list-item").first().click();
   await expect(employee.getByRole("button", { name: "Start" })).toBeEnabled();
   await employee.getByRole("button", { name: "Start" }).click();
-  await expect(employee.getByText(/^(Active|IN PROGRESS)$/i).first()).toBeVisible({ timeout: 30_000 });
+  const finish = employee.getByRole("button", { name: "Finish" });
+  await expect(finish).toBeEnabled({ timeout: 30_000 });
   employee.once("dialog", dialog => dialog.accept());
-  await employee.getByRole("button", { name: "Finish" }).click();
+  await finish.click();
   await expect(employee.getByText("Done", { exact: true })).toBeVisible({ timeout: 30_000 });
   await employee.screenshot({ path: "employee-live-route.png", fullPage: true });
 
