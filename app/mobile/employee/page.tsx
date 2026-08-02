@@ -214,12 +214,14 @@ export default function MobileEmployeeApp(){
       if(!mapContext.routeId)throw new Error("Publish the Admin route before using road Smart Route.");
       const optimized=await optimizeEmployeeRoadRoute({routeId:mapContext.routeId,origin,stops:located.map(lead=>({id:lead.canonicalVisitId||lead.id,latitude:Number(lead.latitude),longitude:Number(lead.longitude)})),alternative:nextAlternative});
       const byVisit=new Map(located.map(lead=>[lead.canonicalVisitId||lead.id,lead]));
-      const ordered=optimized.orderedIds.map(id=>byVisit.get(id)).filter(Boolean) as Lead[];
+      const ordered=optimized.orderedIds.map((id,index)=>{const lead=byVisit.get(id);return lead?{...lead,routeOrder:index+1}:null}).filter(Boolean) as Lead[];
       if(ordered.length!==located.length)throw new Error("The road optimizer did not return every selected stop.");
-      setSmartAlternative(nextAlternative);setSmartOriginPoint(origin);setSmartPreview(ordered);setSmartRoadMetrics({distance:optimized.distanceMeters/1000,time:Math.max(1,Math.round(optimized.durationSeconds/60))});setMessage(nextAlternative?"A genuinely different road route is ready. Review it before applying.":"Road-based preview ready. Review the map before applying this route.");
+      const inputIds=located.map(lead=>lead.canonicalVisitId||lead.id);
+      const changed=optimized.orderedIds.some((id,index)=>id!==inputIds[index]);
+      setSmartAlternative(optimized.alternative);setSmartOriginPoint(origin);setSmartPreview(ordered);setSmartRoadMetrics({distance:optimized.distanceMeters/1000,time:Math.max(1,Math.round(optimized.durationSeconds/60))});setMessage(changed?(nextAlternative?"A different road sequence is ready. Review the numbered stops before applying.":"Road-based preview ready. Review the numbered stops before applying."):"This is already the best sequence for the selected starting point.");
     }catch(cause){setError(cause instanceof Error?cause.message:"Smart Route could not be prepared.")}finally{setSmartPreparing(false)}
   }
-  function tryAnotherSmartRoute(){void prepareSmartRoute(smartAlternative+1)}
+  function tryAnotherSmartRoute(){if(smartPreparing)return;setMessage("Calculating a different driving sequence...");void prepareSmartRoute(smartAlternative+1)}
   async function applySmartPreview(){
     if(!smartPreview.length||!smartOriginPoint)return;
     const locked=route.filter(lead=>lead.status==="completed"||getSessionForLead(lead.id)?.status==="skipped").map(lead=>lead.id);
