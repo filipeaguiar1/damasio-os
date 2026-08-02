@@ -31,6 +31,18 @@ function unique(values: Array<string | null | undefined>) {
   return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
+function timestampMs(value: unknown) {
+  if (!value) return 0;
+  const time = Date.parse(String(value));
+  return Number.isFinite(time) ? time : 0;
+}
+
+function completeOrder(order: string[], expected: Set<string>) {
+  if (!expected.size || order.length !== expected.size) return false;
+  const seen = new Set(order);
+  return seen.size === expected.size && [...seen].every(id => expected.has(id));
+}
+
 async function requireEmployee(request: NextRequest) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) throw new Error("Sign in as Employee.");
@@ -87,9 +99,8 @@ async function requireEmployee(request: NextRequest) {
 
 function applyOrderPositions(
   positions: Map<string, number>,
-  order: unknown,
+  order: string[],
 ) {
-  if (!Array.isArray(order)) return 0;
   let count = 0;
   for (const [index, value] of order.entries()) {
     if (!value) continue;
@@ -138,6 +149,15 @@ export async function GET(request: NextRequest) {
       ));
 
     const assignedRouteIds = unique(assignedVisits.map((visit: any) => visit.route_id));
+    const assignedVisitIdsByRoute = new Map<string, Set<string>>();
+    for (const visit of assignedVisits) {
+      if (!visit.route_id) continue;
+      const routeId = String(visit.route_id);
+      const ids = assignedVisitIdsByRoute.get(routeId) || new Set<string>();
+      ids.add(String(visit.id));
+      assignedVisitIdsByRoute.set(routeId, ids);
+    }
+
     const routeStopPositions = new Map<string, number>();
     const routeVersions = new Map<string, number>();
     const routeOrderSources = new Map<string, string>();
@@ -146,30 +166,47 @@ export async function GET(request: NextRequest) {
       const [routeStopsResult, routeStatesResult, smartStatesResult] = await Promise.all([
         service
           .from("route_stops")
-          .select("route_id,visit_id,position")
+          .select("route_id,visit_id,position,updated_at")
           .in("route_id", assignedRouteIds),
         service
           .from("route_order_state")
-          .select("route_id,version")
+          .select("route_id,version,updated_at")
           .in("route_id", assignedRouteIds),
         service
           .from("employee_smart_route_state")
-          .select("route_id,active,applied_order,route_version")
+          .select("route_id,active,applied_order,route_version,applied_at,updated_at")
           .in("route_id", assignedRouteIds)
           .eq("active", true),
       ]);
+
+      const routeStopRowsByRoute = new Map<string, Array<{
+        visitId: string;
+        position: number;
+        updatedAt: number;
+      }>>();
+      const routeStateVersions = new Map<string, number>();
+      const routeStateUpdatedAt = new Map<string, number>();
+      const smartStateByRoute = new Map<string, {
+        order: string[];
+        version: number;
+        updatedAt: number;
+      }>();
 
       if (routeStopsResult.error) {
         console.warn("employee-today-route-stops", routeStopsResult.error.message);
       } else {
         for (const stop of routeStopsResult.data || []) {
+          const routeId = String((stop as any).route_id || "");
+          const visitId = String((stop as any).visit_id || "");
           const position = Number((stop as any).position || 0);
-          if ((stop as any).visit_id && Number.isInteger(position) && position > 0) {
-            routeStopPositions.set(String((stop as any).visit_id), position);
-            if ((stop as any).route_id) {
-              routeOrderSources.set(String((stop as any).route_id), "route_stops_v2");
-            }
-          }
+          if (!routeId || !visitId || !Number.isInteger(position) || position <= 0) continue;
+          const rows = routeStopRowsByRoute.get(routeId) || [];
+          rows.push({
+            visitId,
+            position,
+            updatedAt: timestampMs((stop as any).updated_at),
+          });
+          routeStopRowsByRoute.set(routeId, rows);
         }
       }
 
@@ -177,9 +214,11 @@ export async function GET(request: NextRequest) {
         console.warn("employee-today-route-version", routeStatesResult.error.message);
       } else {
         for (const state of routeStatesResult.data || []) {
+          const routeId = String((state as any).route_id || "");
           const version = Number((state as any).version || 0);
-          if ((state as any).route_id && Number.isInteger(version) && version > 0) {
-            routeVersions.set(String((state as any).route_id), version);
+          if (routeId && Number.isInteger(version) && version > 0) {
+            routeStateVersions.set(routeId, version);
+            routeStateUpdatedAt.set(routeId, timestampMs((state as any).updated_at));
           }
         }
       }
@@ -189,24 +228,96 @@ export async function GET(request: NextRequest) {
       } else {
         for (const state of smartStatesResult.data || []) {
           const routeId = String((state as any).route_id || "");
-          const stateVersion = Number((state as any).route_version || 0);
-          const canonicalVersion = routeVersions.get(routeId) || 0;
-          const shouldUseSmartState = routeId
-            && Number.isInteger(stateVersion)
-            && stateVersion >= canonicalVersion
-            && Array.isArray((state as any).applied_order)
-            && (state as any).applied_order.length > 0;
-
-          if (shouldUseSmartState) {
-            const count = applyOrderPositions(
-              routeStopPositions,
-              (state as any).applied_order,
-            );
-            if (count > 0) {
-              routeVersions.set(routeId, stateVersion);
-              routeOrderSources.set(routeId, "employee_smart_route_state");
-            }
+          const version = Number((state as any).route_version || 0);
+          const order = Array.isArray((state as any).applied_order)
+            ? (state as any).applied_order.map(String)
+            : [];
+          if (!routeId || !order.length) continue;
+          const updatedAt = Math.max(
+            timestampMs((state as any).updated_at),
+            timestampMs((state as any).applied_at),
+          );
+          const existing = smartStateByRoute.get(routeId);
+          if (!existing || updatedAt >= existing.updatedAt) {
+            smartStateByRoute.set(routeId, {
+              order,
+              version: Number.isInteger(version) && version > 0 ? version : 0,
+              updatedAt,
+            });
           }
+        }
+      }
+
+      for (const routeId of assignedRouteIds) {
+        const expected = assignedVisitIdsByRoute.get(routeId) || new Set<string>();
+        const canonicalRows = (routeStopRowsByRoute.get(routeId) || [])
+          .sort((left, right) => left.position - right.position || left.visitId.localeCompare(right.visitId));
+        const canonicalOrder = canonicalRows.map(row => row.visitId);
+        const canonicalVersion = routeStateVersions.get(routeId) || 0;
+        const canonicalUpdatedAt = Math.max(
+          routeStateUpdatedAt.get(routeId) || 0,
+          ...canonicalRows.map(row => row.updatedAt),
+        );
+        const smart = smartStateByRoute.get(routeId);
+        const canonicalComplete = completeOrder(canonicalOrder, expected);
+        const smartComplete = Boolean(smart && completeOrder(smart.order, expected));
+
+        let selected: {
+          source: string;
+          order: string[];
+          version: number;
+          updatedAt: number;
+        } | null = null;
+
+        if (canonicalComplete && smartComplete && smart) {
+          if (smart.updatedAt > canonicalUpdatedAt) {
+            selected = {
+              source: "employee_smart_route_state",
+              order: smart.order,
+              version: smart.version || canonicalVersion || 1,
+              updatedAt: smart.updatedAt,
+            };
+          } else if (canonicalUpdatedAt > smart.updatedAt) {
+            selected = {
+              source: "route_stops_v2",
+              order: canonicalOrder,
+              version: canonicalVersion || smart.version || 1,
+              updatedAt: canonicalUpdatedAt,
+            };
+          } else if (smart.version > canonicalVersion) {
+            selected = {
+              source: "employee_smart_route_state",
+              order: smart.order,
+              version: smart.version,
+              updatedAt: smart.updatedAt,
+            };
+          } else {
+            selected = {
+              source: "route_stops_v2",
+              order: canonicalOrder,
+              version: canonicalVersion || smart.version || 1,
+              updatedAt: canonicalUpdatedAt,
+            };
+          }
+        } else if (canonicalComplete) {
+          selected = {
+            source: "route_stops_v2",
+            order: canonicalOrder,
+            version: canonicalVersion || 1,
+            updatedAt: canonicalUpdatedAt,
+          };
+        } else if (smartComplete && smart) {
+          selected = {
+            source: "employee_smart_route_state",
+            order: smart.order,
+            version: smart.version || 1,
+            updatedAt: smart.updatedAt,
+          };
+        }
+
+        if (selected && applyOrderPositions(routeStopPositions, selected.order) > 0) {
+          routeVersions.set(routeId, selected.version);
+          routeOrderSources.set(routeId, selected.source);
         }
       }
     }
