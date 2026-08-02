@@ -6,6 +6,7 @@ const files = {
   writers: read("supabase/migrations/202608020510_canonical_route_writer_wrappers_v2.sql"),
   projection: read("supabase/migrations/202608020515_canonical_route_projection_constraint_v2.sql"),
   resetMigration: read("supabase/migrations/202608020520_canonical_route_reset_v2.sql"),
+  stateMigration: read("supabase/migrations/202608020525_canonical_route_state_read_v2.sql"),
   smartApi: read("app/api/mobile/employee/smart-route/route.ts"),
   service: read("lib/services/routeMapService.ts"),
   integrity: read("lib/routes/routeAssignmentIntegrity.ts"),
@@ -118,6 +119,26 @@ requireText(
   "status::text not in ('in_progress', 'completed')",
   "Route reset can discard active or completed work.",
 );
+requireText(
+  "stateMigration",
+  "active = false",
+  "Admin or movement changes do not invalidate a stale Employee Smart Route.",
+);
+requireText(
+  "stateMigration",
+  "Always return one canonical state row",
+  "The database can still fall through to stale local Smart Route state.",
+);
+requireText(
+  "stateMigration",
+  "coalesce(state.version, 1)",
+  "The canonical state reader does not expose the current Route version.",
+);
+requireText(
+  "stateMigration",
+  "v_state.route_version, 0) = v_version",
+  "A stale Smart Route state can still be reported as active.",
+);
 
 requireText(
   "smartApi",
@@ -182,8 +203,28 @@ requireText(
 
 requireText(
   "service",
-  "expectedVersion: params.expectedVersion",
-  "The client does not send the route version it reviewed.",
+  "canonicalRouteVersions",
+  "The reviewed Route version is not retained with the loaded map.",
+);
+requireText(
+  "service",
+  'rpc("get_canonical_route_order_v2"',
+  "The map does not load its canonical Route version.",
+);
+requireText(
+  "service",
+  "expectedVersion: reviewedVersion",
+  "Apply does not send the exact version reviewed by the worker.",
+);
+requireText(
+  "service",
+  "Refresh the route before applying this preview.",
+  "Apply can continue without a reviewed Route version.",
+);
+requireText(
+  "service",
+  "clearLegacySmartRouteStates",
+  "Inactive database state can still resurrect a local Smart Route.",
 );
 requireText(
   "service",
@@ -236,5 +277,7 @@ console.log("Canonical Route Stops V2 validation passed.");
 console.log("Admin, Employee, movement and reset converge on transactional route writers.");
 console.log("Every non-cancelled house is durable, versioned, audited and verified.");
 console.log("Cancelled legacy positions cannot collide with the verified projection.");
+console.log("Stale database and local Smart Route states cannot override the canonical order.");
+console.log("Every Apply is bound to the Route version the worker reviewed.");
 console.log("Post-write integrity checks are read-only.");
 console.log("Critical mobile writes block duplicate input and report working/success/error states.");
