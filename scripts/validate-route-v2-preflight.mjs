@@ -7,10 +7,10 @@ const sql = fs.readFileSync(
 
 const required = [
   "table public.employee_smart_route_state",
-  "column visits.route_order",
-  "column employee_smart_route_state.restored_at",
-  "column employee_smart_route_state.restored_by_profile_id",
-  "column activity_log.metadata",
+  "('route_order')",
+  "('restored_at')",
+  "('restored_by_profile_id')",
+  "('metadata')",
   "function master_has_company_access(uuid,text)",
   "function employee_can_use_route(uuid)",
   "function publish_canonical_route_daily(uuid,uuid,date,uuid[],uuid[])",
@@ -27,6 +27,18 @@ if (missing.length) {
   process.exit(1);
 }
 
+if (!sql.includes("table_name='visits'")) {
+  console.error("Route Stops V2 preflight does not validate Visit columns.");
+  process.exit(1);
+}
+if (!sql.includes("table_name='employee_smart_route_state'")) {
+  console.error("Route Stops V2 preflight does not validate Smart Route columns.");
+  process.exit(1);
+}
+if (!sql.includes("table_name='activity_log'")) {
+  console.error("Route Stops V2 preflight does not validate audit columns.");
+  process.exit(1);
+}
 if (!sql.trimStart().startsWith("begin;")) {
   console.error("Route Stops V2 preflight must run in a transaction.");
   process.exit(1);
