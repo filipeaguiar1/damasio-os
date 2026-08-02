@@ -48,8 +48,8 @@ function sameMembers(left: string[], right: string[]) {
   return right.every(value => expected.has(value));
 }
 
-function missingWrapper(message?: string) {
-  return /apply_canonical_route_order_v2|restore_canonical_route_order_v2|schema cache|could not find the function/i.test(message || "");
+function missingRpc(message?: string) {
+  return /apply_canonical_route_order_v2_service|apply_canonical_route_order_v2|restore_canonical_route_order_v2|replace_canonical_route_order_v2|schema cache|could not find the function/i.test(message || "");
 }
 
 async function requireProfile(request: NextRequest) {
@@ -209,6 +209,16 @@ async function saveSmartState(input: {
   if (result.error) throw new Error(result.error.message);
 }
 
+function normalizedResult(result: any, routeId: string, order: string[], active: boolean) {
+  return {
+    saved: true,
+    routeId,
+    version: Number(result?.version || result?.routeVersion || 0),
+    appliedOrder: result?.appliedOrder || order,
+    active,
+  };
+}
+
 async function applyOrder(input: {
   service: any;
   user: any;
@@ -227,6 +237,21 @@ async function applyOrder(input: {
     throw new Error("Finish the active house before changing this route.");
   }
 
+  const serviceApply = await input.service.rpc("apply_canonical_route_order_v2_service", {
+    p_route_id: input.route.id,
+    p_ordered_visit_ids: input.orderedVisitIds,
+    p_origin_label: input.origin?.label || "",
+    p_origin_latitude: Number.isFinite(input.origin?.latitude) ? Number(input.origin?.latitude) : null,
+    p_origin_longitude: Number.isFinite(input.origin?.longitude) ? Number(input.origin?.longitude) : null,
+    p_expected_version: input.expectedVersion && input.expectedVersion > 0 ? input.expectedVersion : null,
+    p_actor_profile_id: input.profile.id,
+    p_source: "employee_smart_route_global",
+  });
+  if (!serviceApply.error) {
+    return normalizedResult(serviceApply.data, input.route.id, input.orderedVisitIds, true);
+  }
+  if (!missingRpc(serviceApply.error.message)) throw new Error(serviceApply.error.message);
+
   const wrapped = await input.user.rpc("apply_canonical_route_order_v2", {
     p_route_id: input.route.id,
     p_ordered_visit_ids: input.orderedVisitIds,
@@ -236,18 +261,10 @@ async function applyOrder(input: {
     p_expected_version: input.expectedVersion && input.expectedVersion > 0 ? input.expectedVersion : null,
     p_source: "employee_smart_route_global",
   });
-
   if (!wrapped.error) {
-    const result = wrapped.data || {};
-    return {
-      saved: true,
-      routeId: input.route.id,
-      version: Number(result.version || result.routeVersion || 0),
-      appliedOrder: result.appliedOrder || input.orderedVisitIds,
-      active: true,
-    };
+    return normalizedResult(wrapped.data, input.route.id, input.orderedVisitIds, true);
   }
-  if (!missingWrapper(wrapped.error.message)) throw new Error(wrapped.error.message);
+  if (!missingRpc(wrapped.error.message)) throw new Error(wrapped.error.message);
 
   const version = await replaceCanonicalOrder({
     service: input.service,
@@ -297,7 +314,7 @@ async function restoreOrder(input: {
     p_expected_version: input.expectedVersion && input.expectedVersion > 0 ? input.expectedVersion : null,
   });
   if (!wrapped.error) return { ...(wrapped.data || {}), restored: true };
-  if (!missingWrapper(wrapped.error.message)) throw new Error(wrapped.error.message);
+  if (!missingRpc(wrapped.error.message)) throw new Error(wrapped.error.message);
 
   const before = await currentRouteData(input.service, input.companyId, input.route.id);
   const original = normalizeOrder(before.smartState?.original_order || []);
