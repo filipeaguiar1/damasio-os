@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
+type RouteVisit = Record<string, any>;
+
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -24,24 +26,20 @@ function numeric(value: unknown) {
 }
 
 function fullAddress(property: any) {
-  return [
-    property?.address_line1,
-    property?.city,
-    property?.province,
-    property?.postal_code,
-    "Canada",
-  ].filter(Boolean).join(", ");
+  return [property?.address_line1, property?.city, property?.province, property?.postal_code, "Canada"]
+    .filter(Boolean)
+    .join(", ");
 }
 
 function sameOrder(left: string[], right: string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function unique(values: Array<string | null | undefined>) {
+function unique(values: Array<string | null>) {
   return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
-function isRetiredDemoYork(visit: any) {
+function isRetiredDemoYork(visit: RouteVisit) {
   const property = joined(visit.properties);
   const customer = joined(visit.customers);
   const address = String(property?.address_line1 || "").trim().toLowerCase().replace(/\./g, "");
@@ -52,43 +50,102 @@ function isRetiredDemoYork(visit: any) {
   return york && demo;
 }
 
+function projectedOrder(visits: RouteVisit[]) {
+  return [...visits]
+    .sort((left, right) =>
+      Number(left.route_order ?? 9999) - Number(right.route_order ?? 9999)
+      || String(left.created_at || "").localeCompare(String(right.created_at || ""))
+      || String(left.id).localeCompare(String(right.id)))
+    .map(visit => String(visit.id));
+}
+
+async function writeCanonicalOrder(input: {
+  service: any;
+  companyId: string;
+  routeId: string;
+  profileId: string;
+  order: string[];
+  source: string;
+}) {
+  const removed = await input.service.from("route_stops").delete().eq("route_id", input.routeId);
+  if (removed.error) throw new Error(removed.error.message);
+
+  const cleared = await input.service
+    .from("visits")
+    .update({ route_order: null })
+    .eq("route_id", input.routeId)
+    .neq("status", "cancelled");
+  if (cleared.error) throw new Error(cleared.error.message);
+
+  if (input.order.length) {
+    const inserted = await input.service.from("route_stops").insert(
+      input.order.map((visitId: string, index: number) => ({
+        company_id: input.companyId,
+        route_id: input.routeId,
+        visit_id: visitId,
+        position: index + 1,
+        updated_at: new Date().toISOString(),
+      })),
+    );
+    if (inserted.error) throw new Error(inserted.error.message);
+  }
+
+  for (let index = 0; index < input.order.length; index += 1) {
+    const updated = await input.service
+      .from("visits")
+      .update({ route_order: index + 1 })
+      .eq("route_id", input.routeId)
+      .eq("id", input.order[index]);
+    if (updated.error) throw new Error(updated.error.message);
+  }
+
+  const currentVersion = await input.service
+    .from("route_order_state")
+    .select("version")
+    .eq("route_id", input.routeId)
+    .maybeSingle();
+  const nextVersion = Number(currentVersion.error ? 1 : currentVersion.data?.version || 1) + 1;
+  const orderState = await input.service.from("route_order_state").upsert({
+    route_id: input.routeId,
+    company_id: input.companyId,
+    version: nextVersion,
+    last_source: input.source,
+    last_actor_profile_id: input.profileId,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "route_id" });
+  if (orderState.error) throw new Error(orderState.error.message);
+
+  return nextVersion;
+}
+
 async function permanentlyRemoveRetiredDemoYork(input: {
   service: any;
   companyId: string;
   routeId: string;
   profileId: string;
-  visits: any[];
+  visits: RouteVisit[];
 }) {
   const retired = input.visits.filter(isRetiredDemoYork);
-  if (!retired.length) return 0;
-  if (retired.some((visit: any) => String(visit.status) === "in_progress")) return 0;
+  if (!retired.length || retired.some(visit => String(visit.status) === "in_progress")) return 0;
 
-  const retiredIds = retired.map((visit: any) => String(visit.id));
-  const remaining = input.visits.filter((visit: any) => !retiredIds.includes(String(visit.id)));
-  const remainingIds = new Set(remaining.map((visit: any) => String(visit.id)));
-  const jobIds = unique(retired.map((visit: any) => visit.job_id ? String(visit.job_id) : null));
-  const customerIds = unique(retired.map((visit: any) => visit.customer_id ? String(visit.customer_id) : null));
+  const retiredIds = retired.map(visit => String(visit.id));
+  const retiredSet = new Set(retiredIds);
+  const remaining = input.visits.filter(visit => !retiredSet.has(String(visit.id)));
+  const remainingSet = new Set(remaining.map(visit => String(visit.id)));
+  const jobIds = unique(retired.map(visit => visit.job_id ? String(visit.job_id) : null));
+  const customerIds = unique(retired.map(visit => visit.customer_id ? String(visit.customer_id) : null));
 
-  const stopResult = await input.service
+  const stored = await input.service
     .from("route_stops")
     .select("visit_id,position")
     .eq("route_id", input.routeId)
     .order("position");
-  const storedOrder = stopResult.error
+  const storedOrder: string[] = stored.error
     ? []
-    : (stopResult.data || [])
+    : (stored.data || [])
       .map((row: any) => String(row.visit_id))
-      .filter((visitId: string) => remainingIds.has(visitId));
-  const projection = [...remaining]
-    .sort((left: any, right: any) =>
-      Number(left.route_order ?? 9999) - Number(right.route_order ?? 9999)
-      || String(left.created_at || "").localeCompare(String(right.created_at || ""))
-      || String(left.id).localeCompare(String(right.id)))
-    .map((visit: any) => String(visit.id));
-  const order = storedOrder.length === remaining.length ? storedOrder : projection;
-
-  const removedStops = await input.service.from("route_stops").delete().eq("route_id", input.routeId);
-  if (removedStops.error) throw new Error(removedStops.error.message);
+      .filter((visitId: string) => remainingSet.has(visitId));
+  const order = storedOrder.length === remaining.length ? storedOrder : projectedOrder(remaining);
 
   const cancelled = await input.service.from("visits").update({
     status: "cancelled",
@@ -102,49 +159,7 @@ async function permanentlyRemoveRetiredDemoYork(input: {
   }).in("id", retiredIds);
   if (cancelled.error) throw new Error(cancelled.error.message);
 
-  const cleared = await input.service
-    .from("visits")
-    .update({ route_order: null })
-    .eq("route_id", input.routeId)
-    .neq("status", "cancelled");
-  if (cleared.error) throw new Error(cleared.error.message);
-
-  if (order.length) {
-    const inserted = await input.service.from("route_stops").insert(order.map((visitId, index) => ({
-      company_id: input.companyId,
-      route_id: input.routeId,
-      visit_id: visitId,
-      position: index + 1,
-      updated_at: new Date().toISOString(),
-    })));
-    if (inserted.error) throw new Error(inserted.error.message);
-  }
-
-  for (let index = 0; index < order.length; index += 1) {
-    const updated = await input.service
-      .from("visits")
-      .update({ route_order: index + 1 })
-      .eq("id", order[index])
-      .eq("route_id", input.routeId);
-    if (updated.error) throw new Error(updated.error.message);
-  }
-
-  const versionResult = await input.service
-    .from("route_order_state")
-    .select("version")
-    .eq("route_id", input.routeId)
-    .maybeSingle();
-  const nextVersion = Number(versionResult.error ? 1 : versionResult.data?.version || 1) + 1;
-  const state = await input.service.from("route_order_state").upsert({
-    route_id: input.routeId,
-    company_id: input.companyId,
-    version: nextVersion,
-    last_source: "remove_retired_demo_york",
-    last_actor_profile_id: input.profileId,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "route_id" });
-  if (state.error) throw new Error(state.error.message);
-
+  const nextVersion = await writeCanonicalOrder({ ...input, order, source: "remove_retired_demo_york" });
   const smartState = await input.service.from("employee_smart_route_state").update({
     original_order: order,
     applied_order: order,
@@ -168,7 +183,7 @@ async function permanentlyRemoveRetiredDemoYork(input: {
     if (customers.error) throw new Error(customers.error.message);
   }
 
-  try { await input.service.from("route_map_cache").delete().eq("route_id", input.routeId); } catch { /* optional legacy cache */ }
+  try { await input.service.from("route_map_cache").delete().eq("route_id", input.routeId); } catch { /* optional cache */ }
   return retiredIds.length;
 }
 
@@ -176,13 +191,12 @@ async function requireProfile(request: NextRequest, service: any) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) throw new Error("Sign in to view this route.");
 
-  const { data: auth, error: authError } = await service.auth.getUser(token);
-  if (authError || !auth.user) throw new Error("Your session expired. Sign in again.");
-
+  const auth = await service.auth.getUser(token);
+  if (auth.error || !auth.data.user) throw new Error("Your session expired. Sign in again.");
   const profileResult = await service
     .from("profiles")
     .select("id,role,active,company_id,organization_id,full_name,address_line1,route_start_address")
-    .eq("id", auth.user.id)
+    .eq("id", auth.data.user.id)
     .maybeSingle();
   if (profileResult.error) throw new Error(profileResult.error.message);
 
@@ -190,8 +204,7 @@ async function requireProfile(request: NextRequest, service: any) {
   if (!profile?.active) throw new Error("This account is not active.");
   const companyId = profile.company_id || profile.organization_id;
   if (!companyId) throw new Error("This account is not linked to a company.");
-
-  return { profile, companyId };
+  return { profile, companyId: String(companyId) };
 }
 
 export async function GET(request: NextRequest) {
@@ -201,7 +214,6 @@ export async function GET(request: NextRequest) {
 
     const service = serviceClient();
     const { profile, companyId } = await requireProfile(request, service);
-
     const routeResult = await service
       .from("routes")
       .select("id,crew_id,route_date,company_id,organization_id")
@@ -209,44 +221,42 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
     if (routeResult.error) throw new Error(routeResult.error.message);
     const route = routeResult.data;
-    if (!route || (route.company_id || route.organization_id) !== companyId) {
+    if (!route || String(route.company_id || route.organization_id) !== companyId) {
       throw new Error("Route not found in this company.");
     }
 
-    const loadVisits = () => service
-      .from("visits")
-      .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes),properties(address_line1,city,province,postal_code),jobs(service_name)")
-      .eq("route_id", routeId)
-      .neq("status", "cancelled")
-      .or(companyFilter(companyId))
-      .order("route_order", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: true });
+    const loadVisits = async () => {
+      const result = await service
+        .from("visits")
+        .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes),properties(address_line1,city,province,postal_code),jobs(service_name)")
+        .eq("route_id", routeId)
+        .neq("status", "cancelled")
+        .or(companyFilter(companyId))
+        .order("route_order", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: true });
+      if (result.error) throw new Error(result.error.message);
+      return (result.data || []) as RouteVisit[];
+    };
 
-    let visitsResult = await loadVisits();
-    if (visitsResult.error) throw new Error(visitsResult.error.message);
-    let rawVisits = visitsResult.data || [];
+    let rawVisits = await loadVisits();
     let removedRetiredDemoStops = 0;
     if (rawVisits.some(isRetiredDemoYork)) {
       try {
         removedRetiredDemoStops = await permanentlyRemoveRetiredDemoYork({
           service,
-          companyId: String(companyId),
+          companyId,
           routeId,
           profileId: String(profile.id),
           visits: rawVisits,
         });
-        if (removedRetiredDemoStops) {
-          visitsResult = await loadVisits();
-          if (visitsResult.error) throw new Error(visitsResult.error.message);
-          rawVisits = visitsResult.data || [];
-        }
+        if (removedRetiredDemoStops) rawVisits = await loadVisits();
       } catch (cleanupError) {
         console.error("canonical-route-demo-cleanup", cleanupError);
       }
     }
 
-    const visits = rawVisits.filter((visit: any) => !isRetiredDemoYork(visit));
-    const activeVisitIds = new Set(visits.map((visit: any) => String(visit.id)));
+    const visits = rawVisits.filter(visit => !isRetiredDemoYork(visit));
+    const activeVisitIds = new Set(visits.map(visit => String(visit.id)));
 
     let currentEmployee: any = null;
     if (String(profile.role) === "employee") {
@@ -261,7 +271,7 @@ export async function GET(request: NextRequest) {
       currentEmployee = employeeResult.data;
       const allowed = Boolean(currentEmployee) && (
         route.crew_id === currentEmployee.crew_id
-        || visits.some((visit: any) => visit.assigned_employee_id === currentEmployee.id)
+        || visits.some(visit => visit.assigned_employee_id === currentEmployee.id)
       );
       if (!allowed) throw new Error("This route is not assigned to the authenticated Employee.");
     } else if (!["admin", "manager", "master"].includes(String(profile.role))) {
@@ -270,8 +280,7 @@ export async function GET(request: NextRequest) {
 
     const [routeStopsResult, smartStateResult, orderStateResult] = await Promise.all([
       service.from("route_stops").select("visit_id,position").eq("route_id", routeId).order("position"),
-      service
-        .from("employee_smart_route_state")
+      service.from("employee_smart_route_state")
         .select("route_id,applied_order,origin_label,origin_latitude,origin_longitude,active,route_version,updated_at")
         .eq("route_id", routeId)
         .maybeSingle(),
@@ -280,56 +289,37 @@ export async function GET(request: NextRequest) {
 
     const smartState = smartStateResult.error ? null : smartStateResult.data;
     const canonicalVersion = Number(orderStateResult.error
-      ? (smartState?.route_version || 1)
-      : (orderStateResult.data?.version || smartState?.route_version || 1));
-
+      ? smartState?.route_version || 1
+      : orderStateResult.data?.version || smartState?.route_version || 1);
     const routeStopOrder: string[] = routeStopsResult.error
       ? []
       : (routeStopsResult.data || [])
         .map((row: any) => String(row.visit_id))
         .filter((visitId: string) => activeVisitIds.has(visitId));
-    const visitProjection = [...visits]
-      .sort((left: any, right: any) =>
-        Number(left.route_order ?? 9999) - Number(right.route_order ?? 9999)
-        || String(left.created_at || "").localeCompare(String(right.created_at || ""))
-        || String(left.id).localeCompare(String(right.id)))
-      .map((visit: any) => String(visit.id));
+    const visitProjection = projectedOrder(visits);
     const canonicalOrder = routeStopOrder.length === visits.length ? routeStopOrder : visitProjection;
-
     const smartOrder: string[] = Array.isArray(smartState?.applied_order)
       ? smartState.applied_order.map(String).filter((visitId: string) => activeVisitIds.has(visitId))
       : [];
     const smartActive = Boolean(smartState?.active && sameOrder(smartOrder, canonicalOrder));
     const canonicalIndex = new Map<string, number>(
-      canonicalOrder.map((visitId, index): [string, number] => [visitId, index]),
+      canonicalOrder.map((visitId: string, index: number): [string, number] => [visitId, index]),
     );
+    const orderedVisits = [...visits].sort((left, right) =>
+      (canonicalIndex.get(String(left.id)) ?? 9999) - (canonicalIndex.get(String(right.id)) ?? 9999)
+      || String(left.id).localeCompare(String(right.id)));
 
-    const orderedVisits = [...visits].sort((left: any, right: any) => {
-      const leftIndex = canonicalIndex.get(String(left.id));
-      const rightIndex = canonicalIndex.get(String(right.id));
-      if (leftIndex !== undefined || rightIndex !== undefined) {
-        if (leftIndex === undefined) return 1;
-        if (rightIndex === undefined) return -1;
-        return leftIndex - rightIndex;
-      }
-      return Number(left.route_order ?? 9999) - Number(right.route_order ?? 9999)
-        || String(left.created_at || "").localeCompare(String(right.created_at || ""))
-        || String(left.id).localeCompare(String(right.id));
-    });
-
-    const assignedEmployeeId = orderedVisits.find((visit: any) => visit.assigned_employee_id)?.assigned_employee_id;
+    const assignedEmployeeId = orderedVisits.find(visit => visit.assigned_employee_id)?.assigned_employee_id;
     let routeEmployee = currentEmployee;
     if (!routeEmployee && assignedEmployeeId) {
-      const result = await service
-        .from("employees")
+      const result = await service.from("employees")
         .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active")
         .eq("id", assignedEmployeeId)
         .maybeSingle();
       if (!result.error) routeEmployee = result.data;
     }
     if (!routeEmployee && route.crew_id) {
-      const result = await service
-        .from("employees")
+      const result = await service.from("employees")
         .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active")
         .eq("crew_id", route.crew_id)
         .eq("active", true)
@@ -341,8 +331,7 @@ export async function GET(request: NextRequest) {
 
     let employeeProfile: any = null;
     if (routeEmployee?.profile_id) {
-      const result = await service
-        .from("profiles")
+      const result = await service.from("profiles")
         .select("id,full_name,address_line1,route_start_address")
         .eq("id", routeEmployee.profile_id)
         .maybeSingle();
@@ -354,7 +343,6 @@ export async function GET(request: NextRequest) {
       || routeEmployee?.route_start_address
       || routeEmployee?.address_line1
       || "";
-    const fallbackOriginLabel = `${employeeProfile?.full_name || routeEmployee?.full_name || "Employee"} start`;
     const smartLatitude = numeric(smartState?.origin_latitude);
     const smartLongitude = numeric(smartState?.origin_longitude);
     const origin = smartActive && smartLatitude !== null && smartLongitude !== null
@@ -368,12 +356,12 @@ export async function GET(request: NextRequest) {
         ? {
             latitude: null,
             longitude: null,
-            label: fallbackOriginLabel,
+            label: `${employeeProfile?.full_name || routeEmployee?.full_name || "Employee"} start`,
             address: fallbackOriginAddress,
           }
         : null;
 
-    const stops = orderedVisits.map((visit: any, index: number) => {
+    const stops = orderedVisits.map((visit, index) => {
       const property = joined(visit.properties);
       const customer = joined(visit.customers);
       const job = joined(visit.jobs);
