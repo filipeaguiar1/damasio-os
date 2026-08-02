@@ -1,0 +1,41 @@
+name: Source Bundle Audit
+
+on:
+  push:
+    branches:
+      - feature/25-30-homes-simulator-v1
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+          fetch-depth: 0
+
+      - name: Correct final Smart Route state type
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app/mobile/employee/page.tsx')
+          text = path.read_text()
+          old = 'const [activeSmartState,setActiveSmartState]=useState<(ReturnType<typeof getEmployeeSmartRouteState>|EmployeeDatabaseSmartRouteState)>(null);'
+          new = 'const [activeSmartState,setActiveSmartState]=useState<EmployeeDatabaseSmartRouteState | null>(null);'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected one Smart Route state type, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          Path('.github/workflows/source-bundle.yml').unlink()
+          PY
+
+      - name: Publish type correction
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(routes): type canonical Smart Route state"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
