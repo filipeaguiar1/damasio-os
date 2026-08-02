@@ -4,8 +4,12 @@ const read = path => fs.readFileSync(path, "utf8");
 const files = {
   foundation: read("supabase/migrations/202608020500_canonical_route_stops_v2.sql"),
   writers: read("supabase/migrations/202608020510_canonical_route_writer_wrappers_v2.sql"),
+  resetMigration: read("supabase/migrations/202608020520_canonical_route_reset_v2.sql"),
   smartApi: read("app/api/mobile/employee/smart-route/route.ts"),
   service: read("lib/services/routeMapService.ts"),
+  integrity: read("lib/routes/routeAssignmentIntegrity.ts"),
+  resetService: read("lib/routes/resetCompanyRouteOwnership.ts"),
+  resetApi: read("app/api/admin/routes/reset/route.ts"),
   operationStatus: read("lib/mobile/mobileOperationStatus.ts"),
   operationUi: read("components/mobile/MobileOperationStatus.tsx"),
   mobileLayout: read("app/mobile/layout.tsx"),
@@ -89,6 +93,22 @@ requireText(
 );
 
 requireText(
+  "resetMigration",
+  "reset_company_route_ownership_v2",
+  "Route ownership reset is not transactional.",
+);
+requireText(
+  "resetMigration",
+  "sync_canonical_route_stops_v2",
+  "Reset routes are not synchronized after ownership is cleared.",
+);
+requireText(
+  "resetMigration",
+  "status::text not in ('in_progress', 'completed')",
+  "Route reset can discard active or completed work.",
+);
+
+requireText(
   "smartApi",
   'user.rpc("apply_canonical_route_order_v2"',
   "Employee Apply does not use the authenticated canonical transaction.",
@@ -117,6 +137,36 @@ rejectText(
   "smartApi",
   '.from("employee_smart_route_state").upsert',
   "Employee endpoint still writes Smart Route state outside the transaction.",
+);
+rejectText(
+  "integrity",
+  '.from("visits")\n          .update',
+  "A post-RPC integrity helper still mutates Visits.",
+);
+rejectText(
+  "integrity",
+  "findOrCreateRoute",
+  "A verification helper still creates or chooses a second Route writer.",
+);
+requireText(
+  "integrity",
+  '.from("route_stops")',
+  "Post-RPC verification does not compare the canonical Route Stops.",
+);
+requireText(
+  "resetService",
+  'rpc(\n    "reset_company_route_ownership_v2"',
+  "The reset service bypasses the canonical reset transaction.",
+);
+rejectText(
+  "resetService",
+  '.from("visits")',
+  "The reset service still mutates Visits outside the database transaction.",
+);
+requireText(
+  "resetApi",
+  "resetCompanyRouteOwnership(user, companyId",
+  "The reset API is not using the authenticated canonical RPC client.",
 );
 
 requireText(
@@ -172,6 +222,7 @@ if (failures.length) {
 }
 
 console.log("Canonical Route Stops V2 validation passed.");
-console.log("Admin, Employee and route movement converge on one transactional order.");
+console.log("Admin, Employee, movement and reset converge on transactional route writers.");
 console.log("Every non-cancelled house is durable, versioned, audited and verified.");
+console.log("Post-write integrity checks are read-only.");
 console.log("Critical mobile writes block duplicate input and report working/success/error states.");
