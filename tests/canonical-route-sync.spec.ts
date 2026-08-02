@@ -132,6 +132,16 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   expect(employeeSnapshot.stops.every((stop: any) => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude))).toBe(true);
   expect(employeeSnapshot.geometryStatus).toBe("ready");
 
+  // Creating/removing the simulator performs long service-role work. Re-authenticate the
+  // Admin before the independent cross-role comparison so the test never reuses a stale JWT.
+  await adminDesktop.goto(`${baseURL}/login`);
+  await adminDesktop.evaluate(() => { window.localStorage.clear(); window.sessionStorage.clear(); });
+  await adminDesktop.reload();
+  await adminDesktop.getByLabel("Email").fill(process.env.E2E_ADMIN_EMAIL!);
+  await adminDesktop.getByLabel("Password").fill(process.env.E2E_ADMIN_PASSWORD!);
+  await adminDesktop.getByRole("button", { name: "Sign In" }).click();
+  await adminDesktop.waitForURL("**/admin", { timeout: 30_000 });
+
   const adminRoutes = await authRequest<any>(adminDesktop, `/api/admin/routes?date=${encodeURIComponent(routeDate)}`);
   const worker = (adminRoutes.employees || []).find((item: any) =>
     String(item.email || "").toLowerCase() === workerEmail.toLowerCase());

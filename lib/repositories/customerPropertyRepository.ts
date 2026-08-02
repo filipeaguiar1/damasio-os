@@ -48,27 +48,35 @@ export type CreateCustomerPropertyInput = {
   subtotal?: number;
 };
 
-async function accessToken() {
+async function accessToken(refresh = false) {
   const supabase = getSupabaseBrowserClient() as any;
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  const response = refresh
+    ? await supabase.auth.refreshSession()
+    : await supabase.auth.getSession();
+  if (response.error) throw new Error(response.error.message);
+  const token = response.data.session?.access_token;
   if (!token) throw new Error("Your Admin session expired. Sign in again.");
   return token;
 }
 
 async function customerApi(options?: RequestInit) {
-  const response = await fetch("/api/admin/customers", {
-    ...options,
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${await accessToken()}`,
-      ...(options?.headers || {}),
-    },
-    cache: "no-store",
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "Customer operation failed.");
-  return result;
+  let response: Response | null = null;
+  let result: any = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    response = await fetch("/api/admin/customers", {
+      ...options,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${await accessToken(attempt > 0)}`,
+        ...(options?.headers || {}),
+      },
+      cache: "no-store",
+    });
+    result = await response.json().catch(() => ({}));
+    if (response.ok) return result;
+    if (response.status !== 401 || attempt > 0) break;
+  }
+  throw new Error(result?.error || "Customer operation failed.");
 }
 
 export async function listCustomerProperties(): Promise<CustomerPropertyRecord[]> {
