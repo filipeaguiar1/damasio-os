@@ -12,12 +12,12 @@ import {
 
 export type EmployeeRouteMapContext = {
   routeId: string | null;
-  routeVersion: number | null;
+  routeVersion?: number | null;
   routeDate?: string;
-  origin: CanonicalRouteOrigin | null;
-  orderedVisitIds: string[];
-  routeOrder: Array<{ visitId: string; routeOrder: number }>;
-  geometry: RouteLineString | null;
+  origin?: CanonicalRouteOrigin | null;
+  orderedVisitIds?: string[];
+  routeOrder?: Array<{ visitId: string; routeOrder: number }>;
+  geometry?: RouteLineString | null;
   geometryStatus?: CanonicalRouteSnapshot["geometryStatus"];
   stops: Array<{
     visitId: string;
@@ -144,7 +144,8 @@ export function applyEmployeeRouteMapContext(
   route: Lead[],
   context: EmployeeRouteMapContext,
 ): CanonicalRouteLead[] {
-  if (!context.routeId || !context.stops.length) return [];
+  const canonicalRouteId = context.routeId;
+  if (!canonicalRouteId || !context.stops.length) return [];
 
   const byVisitId = new Map(
     route
@@ -182,7 +183,7 @@ export function applyEmployeeRouteMapContext(
       service: stop.serviceName || existing?.service || "Property Service",
       scheduledDate: stop.scheduledDate || existing?.scheduledDate,
       canonicalVisitId: stop.visitId,
-      canonicalRouteId: context.routeId,
+      canonicalRouteId,
       canonicalJobId: stop.jobId || existing?.canonicalJobId,
       canonicalCustomerId: stop.customerId || canonicalExisting?.canonicalCustomerId,
       canonicalPropertyId: stop.propertyId || canonicalExisting?.canonicalPropertyId,
