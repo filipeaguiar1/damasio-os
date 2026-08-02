@@ -185,6 +185,7 @@ export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRou
         service: stop.serviceName || lead?.service || "Property Service",
         scheduledDate: stop.scheduledDate || lead?.scheduledDate,
         canonicalVisitId: stop.visitId,
+        canonicalRouteId: context.routeId || canonicalLead?.canonicalRouteId,
         canonicalJobId: stop.jobId || lead?.canonicalJobId,
         canonicalCustomerId: stop.customerId || canonicalLead?.canonicalCustomerId,
         canonicalPropertyId: stop.propertyId || canonicalLead?.canonicalPropertyId,
