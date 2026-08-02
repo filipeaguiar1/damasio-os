@@ -48,14 +48,14 @@ async function authRequest<T>(page: Page, path: string, init?: { method?: string
     } catch (error) {
       lastError = error instanceof Error ? error.message : lastError;
       const retryable = /fetch failed|failed to fetch|network|abort/i.test(lastError)
-        || /^HTTP_(400|401):Bad Request$/i.test(lastError);
+        || /HTTP_(400|401):Bad Request/i.test(lastError);
       if (attempt === 2 || !retryable) {
-        throw new Error(lastError.replace(/^HTTP_\d+:/, ""));
+        throw new Error(lastError.replace(/^.*HTTP_\d+:/, ""));
       }
       await page.waitForTimeout(500 * (attempt + 1));
     }
   }
-  throw new Error(lastError.replace(/^HTTP_\d+:/, ""));
+  throw new Error(lastError.replace(/^.*HTTP_\d+:/, ""));
 }
 
 async function waitForVersion(page: Page, routeId: string, version: number) {

@@ -58,6 +58,7 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   const adminErrors = watchErrors(admin, "Admin");
   await signIn(admin, process.env.E2E_ADMIN_EMAIL!, process.env.E2E_ADMIN_PASSWORD!);
   await admin.waitForURL("**/admin", { timeout: 30_000 });
+  adminErrors.splice(0); // Ignore requests started by the unauthenticated login page.
   await admin.goto(`${baseURL}/admin/performance/simulator`);
   await expect(admin.getByRole("heading", { name: "Financial & Operational Simulator" })).toBeVisible();
 
@@ -120,6 +121,7 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   const employeeErrors = watchErrors(employee, "Employee");
   await signIn(employee, workerEmail, workerPassword);
   await employee.waitForURL("**/employee", { timeout: 30_000 });
+  employeeErrors.splice(0); // Ignore requests started by the unauthenticated login page.
   await assertHealthy(employee, "Employee home", true);
   await employee.goto(`${baseURL}/employee/route`);
   await expect(employee.locator(".route-list-item").first()).toBeVisible({ timeout: 30_000 });
@@ -139,6 +141,7 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   const customerMobileErrors = watchErrors(customerMobile, "Customer mobile");
   await signIn(customerMobile, customerEmail, customerPassword);
   await customerMobile.waitForURL("**/customer", { timeout: 30_000 });
+  customerMobileErrors.splice(0); // Ignore requests started by the unauthenticated login page.
   await customerMobile.goto(`${baseURL}/customer/feedback`);
   await expect(customerMobile.getByRole("heading", { name: "Review completed services" })).toBeVisible({ timeout: 30_000 });
   await assertHealthy(customerMobile, "Customer feedback mobile", true);
@@ -173,6 +176,7 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   const customerDesktopErrors = watchErrors(customerDesktop, "Customer desktop");
   await signIn(customerDesktop, customerEmail, customerPassword);
   await customerDesktop.waitForURL("**/customer", { timeout: 30_000 });
+  customerDesktopErrors.splice(0); // Ignore requests started by the unauthenticated login page.
   for (const path of ["/customer", "/customer/payments", "/customer/invoices", "/customer/feedback"]) {
     console.log(`QA_CUSTOMER_DESKTOP_PATH: ${path}`);
     await customerDesktop.goto(`${baseURL}${path}`);
