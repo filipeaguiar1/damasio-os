@@ -57,7 +57,7 @@ assert.match(serviceMigration, /security definer/i);
 assert.match(serviceMigration, /from public\.routes[\s\S]*for update;/i);
 assert.match(serviceMigration, /delete from public\.route_stops/);
 assert.match(serviceMigration, /insert into public\.route_stops/);
-assert.match(serviceMigration, /set route_order = s\.position/);
+assert.match(serviceMigration, /set route_order = requested\.position::integer/);
 assert.match(serviceMigration, /insert into public\.route_order_state/);
 assert.match(serviceMigration, /insert into public\.employee_smart_route_state/);
 assert.match(serviceMigration, /Route verification failed\. Nothing was changed\./);
