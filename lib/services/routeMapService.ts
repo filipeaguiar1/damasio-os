@@ -39,6 +39,25 @@ export type EmployeeDatabaseSmartRouteState = {
   routeVersion: number;
 };
 
+type RouteStopPayload = {
+  visitId: string;
+  jobId?: string | null;
+  customerId?: string | null;
+  propertyId?: string | null;
+  address?: string;
+  addressLine1?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  routeOrder?: number | null;
+  status?: string;
+  customerName?: string;
+  serviceName?: string;
+  scheduledDate?: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  durationSeconds?: number | null;
+};
+
 const emptyContext: EmployeeRouteMapContext = { routeId: null, stops: [] };
 
 function torontoParts(date = new Date()) {
@@ -74,6 +93,40 @@ async function accessToken() {
   return data.session?.access_token || null;
 }
 
+function contextFromStops(routeId: string | null | undefined, stops: RouteStopPayload[]): EmployeeRouteMapContext {
+  return {
+    routeId: routeId || null,
+    stops: stops.map(stop => {
+      const execution = normalizeVisitExecutionState({
+        status: stop.status,
+        startedAt: stop.startedAt,
+        finishedAt: stop.finishedAt,
+        durationSeconds: stop.durationSeconds,
+      });
+
+      return {
+        visitId: stop.visitId,
+        jobId: stop.jobId || null,
+        customerId: stop.customerId || null,
+        propertyId: stop.propertyId || null,
+        // Canonical map snapshots return the complete property address. Older
+        // employee payloads use addressLine1, so both remain supported.
+        addressLine1: stop.address || stop.addressLine1 || "",
+        latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : null,
+        longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : null,
+        routeOrder: stop.routeOrder ?? null,
+        status: stop.status || "scheduled",
+        customerName: stop.customerName || "Customer",
+        serviceName: stop.serviceName || "Property Service",
+        scheduledDate: stop.scheduledDate,
+        startedAt: execution.startedAt,
+        finishedAt: execution.finishedAt,
+        durationSeconds: execution.durationSeconds,
+      };
+    }),
+  };
+}
+
 export async function loadEmployeeRouteMapContext(
   routeDate: string,
   _crewName: string,
@@ -94,54 +147,31 @@ export async function loadEmployeeRouteMapContext(
 
   const result = await response.json() as {
     routeId?: string | null;
-    stops?: Array<{
-      visitId: string;
-      jobId?: string | null;
-      customerId?: string | null;
-      propertyId?: string | null;
-      addressLine1?: string;
-      latitude?: number | null;
-      longitude?: number | null;
-      routeOrder?: number | null;
-      status?: string;
-      customerName?: string;
-      serviceName?: string;
-      scheduledDate?: string;
-      startedAt?: string | null;
-      finishedAt?: string | null;
-      durationSeconds?: number | null;
-    }>;
+    stops?: RouteStopPayload[];
   };
+  const fallback = contextFromStops(result.routeId, result.stops || []);
+  if (!result.routeId) return fallback;
 
-  return {
-    routeId: result.routeId || null,
-    stops: (result.stops || []).map(stop => {
-      const execution = normalizeVisitExecutionState({
-        status: stop.status,
-        startedAt: stop.startedAt,
-        finishedAt: stop.finishedAt,
-        durationSeconds: stop.durationSeconds,
-      });
-
-      return {
-        visitId: stop.visitId,
-        jobId: stop.jobId || null,
-        customerId: stop.customerId || null,
-        propertyId: stop.propertyId || null,
-        addressLine1: stop.addressLine1 || "",
-        latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : null,
-        longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : null,
-        routeOrder: stop.routeOrder ?? null,
-        status: stop.status || "scheduled",
-        customerName: stop.customerName || "Customer",
-        serviceName: stop.serviceName || "Property Service",
-        scheduledDate: stop.scheduledDate,
-        startedAt: execution.startedAt,
-        finishedAt: execution.finishedAt,
-        durationSeconds: execution.durationSeconds,
-      };
-    }),
-  };
+  // The same canonical snapshot powers Admin, browser Employee and mobile
+  // Employee. This keeps the visible list, marker numbers, origin and driving
+  // line on one order/version instead of combining API and localStorage data.
+  try {
+    const canonicalResponse = await fetch(
+      `/api/map/canonical-route?routeId=${encodeURIComponent(result.routeId)}`,
+      {
+        headers: { authorization: `Bearer ${token}` },
+        cache: "no-store",
+      },
+    );
+    if (!canonicalResponse.ok) return fallback;
+    const canonical = await canonicalResponse.json() as {
+      routeId?: string | null;
+      stops?: RouteStopPayload[];
+    };
+    return contextFromStops(canonical.routeId || result.routeId, canonical.stops || []);
+  } catch {
+    return fallback;
+  }
 }
 
 export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRouteMapContext): CanonicalRouteLead[] {
