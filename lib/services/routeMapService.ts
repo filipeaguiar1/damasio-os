@@ -45,6 +45,7 @@ export type EmployeeDatabaseSmartRouteState = {
 };
 
 const emptyContext: EmployeeRouteMapContext = { routeId: null, stops: [] };
+const canonicalRouteVersions = new Map<string, number>();
 let smartRouteApplyInFlight = false;
 
 function torontoParts(date = new Date()) {
@@ -56,6 +57,16 @@ function torontoParts(date = new Date()) {
     weekday: "long",
   }).formatToParts(date);
   return Object.fromEntries(parts.map(part => [part.type, part.value]));
+}
+
+function clearLegacySmartRouteStates() {
+  if (typeof window === "undefined") return;
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.localStorage.key(index);
+    if (key?.startsWith("damasio_os_employee_smart_route_")) {
+      window.localStorage.removeItem(key);
+    }
+  }
 }
 
 export function routeDateForWeekday(dayName: string) {
@@ -78,6 +89,25 @@ async function accessToken() {
   const supabase = getSupabaseBrowserClient() as any;
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token || null;
+}
+
+async function rememberCanonicalRouteVersion(routeId: string) {
+  const supabase = getSupabaseBrowserClient() as any;
+  const { data, error } = await supabase.rpc("get_canonical_route_order_v2", {
+    p_route_id: routeId,
+  });
+  if (error) {
+    if (/get_canonical_route_order_v2|schema cache|could not find the function/i.test(error.message || "")) {
+      throw new Error("The Canonical Route Stops V2 database migration is not installed.");
+    }
+    throw new Error(error.message);
+  }
+  const version = Number(data?.version || 0);
+  if (!Number.isInteger(version) || version < 1) {
+    throw new Error("The canonical Route version could not be loaded.");
+  }
+  canonicalRouteVersions.set(routeId, version);
+  return version;
 }
 
 export async function loadEmployeeRouteMapContext(
@@ -119,8 +149,11 @@ export async function loadEmployeeRouteMapContext(
     }>;
   };
 
+  const routeId = result.routeId || null;
+  if (routeId) await rememberCanonicalRouteVersion(routeId);
+
   return {
-    routeId: result.routeId || null,
+    routeId,
     stops: (result.stops || []).map(stop => {
       const execution = normalizeVisitExecutionState({
         status: stop.status,
@@ -240,7 +273,14 @@ export async function loadEmployeeDatabaseSmartRouteState(
   });
   if (error) throw new Error(error.message);
   const row = Array.isArray(data) ? data[0] : null;
-  return row ? smartRouteStateFrom(row) : null;
+  if (!row) return null;
+
+  const state = smartRouteStateFrom(row);
+  if (state.routeVersion > 0) {
+    canonicalRouteVersions.set(routeId, state.routeVersion);
+  }
+  if (!state.active) clearLegacySmartRouteStates();
+  return state;
 }
 
 export async function optimizeEmployeeRoadRoute(params: {
@@ -272,6 +312,13 @@ export async function applyEmployeeDatabaseSmartRoute(params: {
     throw new Error("This route is already being saved. Please wait for confirmation.");
   }
 
+  const reviewedVersion = params.expectedVersion
+    ?? canonicalRouteVersions.get(params.routeId)
+    ?? null;
+  if (!reviewedVersion) {
+    throw new Error("Refresh the route before applying this preview.");
+  }
+
   smartRouteApplyInFlight = true;
   beginMobileOperation(
     "Saving Smart Route",
@@ -291,7 +338,7 @@ export async function applyEmployeeDatabaseSmartRoute(params: {
         originalOrder: params.originalOrder,
         appliedOrder: params.appliedOrder,
         origin: params.origin,
-        expectedVersion: params.expectedVersion ?? null,
+        expectedVersion: reviewedVersion,
       }),
     });
     const result = await response.json();
@@ -306,6 +353,7 @@ export async function applyEmployeeDatabaseSmartRoute(params: {
       version: number;
       appliedOrder: string[];
     };
+    canonicalRouteVersions.set(params.routeId, confirmed.version);
 
     completeMobileOperation(
       "Route saved",
@@ -328,12 +376,23 @@ export async function restoreEmployeeDatabaseSmartRoute(
   expectedVersion?: number | null,
 ) {
   if (!isSupabaseConfigured()) throw new Error("Database route mode is not configured.");
+  const reviewedVersion = expectedVersion
+    ?? canonicalRouteVersions.get(routeId)
+    ?? null;
+  if (!reviewedVersion) {
+    throw new Error("Refresh the route before restoring its original order.");
+  }
+
   const supabase = getSupabaseBrowserClient() as any;
   const { data, error } = await supabase.rpc("restore_employee_smart_route", {
     p_route_id: routeId,
-    p_expected_version: expectedVersion ?? null,
+    p_expected_version: reviewedVersion,
   });
   if (error) throw new Error(error.message);
   const row = Array.isArray(data) ? data[0] : null;
+  if (row?.route_version) {
+    canonicalRouteVersions.set(routeId, Number(row.route_version));
+  }
+  if (row?.restored) clearLegacySmartRouteStates();
   return Boolean(row?.restored);
 }
