@@ -230,7 +230,7 @@ export function EmployeeRouteMap({
         const active = selected?.id === point.id;
         const icon = L.divIcon({
           className: "employee-map-marker-shell",
-          html: `<div class="employee-map-marker ${active ? "active" : ""}" style="background:${point.color}">${point.routeOrder || index + 1}</div>`,
+          html: `<div class="employee-map-marker ${active ? "active" : ""}" style="background:${point.color}">${index + 1}</div>`,
           iconSize: [active ? 40 : 34, active ? 40 : 34],
           iconAnchor: [active ? 20 : 17, active ? 20 : 17],
         });
