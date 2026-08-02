@@ -52,11 +52,15 @@ assert.match(canonicalMigration, /Route verification failed\. Nothing was change
 assert.match(canonicalMigration, /set route_order = s\.position/);
 assert.match(canonicalMigration, /route_order_state/);
 assert.match(canonicalMigration, /employee_smart_route_state/);
-assert.match(serviceMigration, /apply_canonical_route_order_v2_service/);
-assert.match(serviceMigration, /All writes below remain in this one database transaction/i);
+assert.match(serviceMigration, /create or replace function public\.apply_canonical_route_order_v2_service/);
+assert.match(serviceMigration, /security definer/i);
+assert.match(serviceMigration, /from public\.routes[\s\S]*for update;/i);
+assert.match(serviceMigration, /delete from public\.route_stops/);
+assert.match(serviceMigration, /insert into public\.route_stops/);
 assert.match(serviceMigration, /set route_order = s\.position/);
-assert.match(serviceMigration, /route_order_state/);
-assert.match(serviceMigration, /employee_smart_route_state/);
+assert.match(serviceMigration, /insert into public\.route_order_state/);
+assert.match(serviceMigration, /insert into public\.employee_smart_route_state/);
+assert.match(serviceMigration, /Route verification failed\. Nothing was changed\./);
 
 assert.match(routeReader, /from\("route_stops"\)/, "Canonical route reads must start at route_stops.");
 assert.match(routeReader, /No projection fallback is allowed/, "Inconsistent canonical routes must fail closed.");
