@@ -68,6 +68,13 @@ function visualState(lead: CanonicalRouteLead, _isNext: boolean) {
   return { color: "#64748b", label: "Pending" };
 }
 
+function statusLabel(lead: CanonicalRouteLead) {
+  if (lead.canonicalVisitStatus === "completed" || lead.status === "completed") return "Done";
+  if (lead.canonicalVisitStatus === "missed") return "Skipped";
+  if (lead.canonicalVisitStatus === "in_progress") return "Active";
+  return "Scheduled";
+}
+
 export function EmployeeRouteMap({
   route,
   onOpenVisit,
@@ -131,7 +138,7 @@ export function EmployeeRouteMap({
           setSnapshot(result);
         }
       } catch {
-        // The supplied route remains available while synchronization retries.
+        // The supplied route remains usable while synchronization retries.
       }
     }
 
@@ -463,11 +470,23 @@ export function EmployeeRouteMap({
 
   return <section className={`employee-map-panel ${desktop ? "employee-map-desktop" : ""}`}>
     <div className="employee-map-toolbar">
-      <div><strong>{points.length}/{displayRoute.length} properties mapped</strong><span>{mapStatus}{locationMessage ? ` · ${locationMessage}` : ""}</span></div>
+      <div><strong>{points.length}/{displayRoute.length} properties mapped</strong><span>{snapshot ? `Canonical route v${snapshot.version}` : mapStatus}{locationMessage ? ` · ${locationMessage}` : ""}</span></div>
       <div className="employee-map-toolbar-actions"><button type="button" onClick={fitRoute} disabled={!points.length && !effectiveOrigin}>Fit Route</button><button type="button" onClick={recenterMe}>Recenter Me</button></div>
     </div>
     {unmapped.length > 0 && <p className="employee-map-notice">{unmapped.length} {unmapped.length === 1 ? "property is" : "properties are"} Not mapped.</p>}
     <div ref={mapNode} className="employee-route-map" aria-label="Interactive map of assigned visits" />
+
+    {desktop && <aside className="employee-canonical-route-list" aria-label="Canonical route stops">
+      <header><div><strong>Official route</strong><small>{displayRoute.length} stops · {snapshot?.activeSmartRoute ? "Smart Route active" : "Published order"}</small></div><b>{snapshot ? `v${snapshot.version}` : "…"}</b></header>
+      <div className="employee-canonical-route-scroll">
+        {displayRoute.map((lead, index) => <button type="button" key={lead.canonicalVisitId || lead.id} className={selected?.id === lead.id ? "active" : ""} onClick={() => setSelectedId(lead.id)}>
+          <b>{lead.routeOrder || index + 1}</b>
+          <span><strong>{lead.name}</strong><small>{lead.address}</small></span>
+          <em>{statusLabel(lead)}</em>
+        </button>)}
+      </div>
+    </aside>}
+
     {selected && <article className="employee-map-sheet">
       <div className="employee-map-sheet-main">
         <span className="employee-map-sequence" style={{ background: selected.color }}>{selected.routeOrder || points.findIndex(point => point.id === selected.id) + 1}</span>
@@ -476,5 +495,18 @@ export function EmployeeRouteMap({
       </div>
       <div className="employee-map-sheet-actions"><button type="button" onClick={() => onOpenVisit(selected)}>{actionLabel}</button><a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selected.address)}&travelmode=driving`} target="_blank" rel="noreferrer">Directions</a></div>
     </article>}
+
+    {desktop && <style jsx global>{`
+      .employee-web-map-shell:has(.employee-map-desktop){grid-template-columns:1fr!important}
+      .employee-web-map-shell:has(.employee-map-desktop)>.employee-web-map-sidebar{display:none!important}
+      .official-route-focused:has(.employee-map-desktop){grid-template-columns:1fr!important}
+      .official-route-focused:has(.employee-map-desktop)>.official-house-list{display:none!important}
+      .employee-map-desktop{position:relative;min-width:0}
+      .employee-map-desktop .employee-route-map{min-height:620px}
+      .employee-canonical-route-list{position:absolute;z-index:750;top:72px;right:18px;width:min(330px,40%);max-height:calc(100% - 155px);display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;border:1px solid rgba(214,226,220,.95);border-radius:20px;background:rgba(255,255,255,.97);box-shadow:0 18px 45px rgba(20,54,40,.18);backdrop-filter:blur(10px)}
+      .employee-canonical-route-list>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 15px;border-bottom:1px solid #e4ece8}.employee-canonical-route-list>header div{display:grid;gap:2px}.employee-canonical-route-list>header strong{font-size:17px;color:#173d2d}.employee-canonical-route-list>header small{font-size:11px;color:#687a71}.employee-canonical-route-list>header>b{padding:5px 8px;border-radius:999px;background:#e7f6ed;color:#087247;font-size:10px}
+      .employee-canonical-route-scroll{overflow:auto;padding:8px}.employee-canonical-route-scroll>button{width:100%;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:9px;padding:10px 8px;border:1px solid transparent;border-radius:14px;background:transparent;text-align:left}.employee-canonical-route-scroll>button:hover,.employee-canonical-route-scroll>button.active{border-color:#b8ddc9;background:#eff9f3}.employee-canonical-route-scroll>button>b{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:#0c7449;color:#fff}.employee-canonical-route-scroll>button span{min-width:0;display:grid;gap:2px}.employee-canonical-route-scroll>button span strong,.employee-canonical-route-scroll>button span small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.employee-canonical-route-scroll>button span strong{font-size:13px;color:#173d2d}.employee-canonical-route-scroll>button span small{font-size:10px;color:#66766f}.employee-canonical-route-scroll>button em{font-style:normal;font-size:9px;font-weight:800;color:#607169}
+      @media(max-width:900px){.employee-canonical-route-list{width:300px;max-width:45%}.employee-map-desktop .employee-route-map{min-height:560px}}
+    `}</style>}
   </section>;
 }
