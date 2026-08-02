@@ -88,7 +88,9 @@ function publicRecords(context: Awaited<ReturnType<typeof listOperationalCompany
 export async function GET(request: NextRequest) {
   try {
     const { service, companyId } = await companyAdmin(request);
-    const context = await listOperationalCompanyCustomers(service, companyId, { repair: true });
+    // GET is read-only. Ownership repair belongs to explicit write/migration paths;
+    // mutating several tables during every page load caused concurrent Admin reads to fail.
+    const context = await listOperationalCompanyCustomers(service, companyId, { repair: false });
     return NextResponse.json({
       records: publicRecords(context),
       customerCount: context.customers.length,
@@ -98,7 +100,10 @@ export async function GET(request: NextRequest) {
       source: "canonical-company-customer-directory",
     });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Customers could not be loaded." }, { status: 401 });
+    const message = error instanceof Error ? error.message : "Customers could not be loaded.";
+    const status = /sign in|session expired|only a company admin|customer manager/i.test(message) ? 401 : 500;
+    console.error("admin-customers-get", error);
+    return NextResponse.json({ error: message }, { status });
   }
 }
 

@@ -402,8 +402,10 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Route request failed.";
+    const status = /sign in|session expired|only an active company admin/i.test(message) ? 401 : 500;
     console.error("admin-routes-get", error);
-    return fail(error, 401);
+    return fail(error, status);
   }
 }
 
