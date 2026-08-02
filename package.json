@@ -7,8 +7,8 @@
     "build": "pnpm typecheck && next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm typecheck",
-    "qa": "pnpm build"
+    "check": "pnpm typecheck && node scripts/validate-canonical-route.mjs && node scripts/validate-route-stops-v2.mjs",
+    "qa": "pnpm check && next build"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.110.0",
