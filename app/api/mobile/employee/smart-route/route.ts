@@ -198,8 +198,21 @@ export async function POST(request: NextRequest) {
     if (body.action !== "apply") throw new Error("Choose a valid Smart Route action.");
     const originalOrder = (body.originalOrder || []).filter(id => allowed.has(id));
     const selected = (body.appliedOrder || []).filter((id, index, values) => allowed.has(id) && values.indexOf(id) === index);
-    const finalOrder = [...selected, ...originalOrder.filter(id => !selected.includes(id)), ...visits.map((visit: any) => visit.id).filter((id: string) => !selected.includes(id) && !originalOrder.includes(id))];
+    const finalOrder = [
+      ...selected,
+      ...originalOrder.filter(id => !selected.includes(id)),
+      ...visits.map((visit: any) => visit.id).filter((id: string) => !selected.includes(id) && !originalOrder.includes(id)),
+    ];
     if (!finalOrder.length) throw new Error("The Smart Route has no valid visits.");
+
+    const { data: route, error: routeError } = await service
+      .from("routes")
+      .select("route_date,crew_id")
+      .eq("id", body.routeId)
+      .maybeSingle();
+    if (routeError) throw new Error(routeError.message);
+    if (!route?.route_date) throw new Error("The canonical route date could not be loaded.");
+
     const previousOrders = new Map(visits.map((visit: any) => [visit.id, visit.route_order]));
     try {
       for (let index = 0; index < finalOrder.length; index += 1) {
@@ -216,29 +229,65 @@ export async function POST(request: NextRequest) {
           .eq("route_id", body.routeId);
         if (error) throw new Error(error.message);
       }
+
+      const now = new Date().toISOString();
+      const { error: stateError } = await service.from("employee_smart_route_state").upsert({
+        company_id: companyId,
+        route_id: body.routeId,
+        crew_id: route.crew_id || employee.crew_id,
+        route_date: route.route_date,
+        original_order: originalOrder.length ? originalOrder : visits.map((visit: any) => visit.id),
+        applied_order: finalOrder,
+        origin_label: body.origin?.label || "",
+        origin_latitude: body.origin?.latitude ?? null,
+        origin_longitude: body.origin?.longitude ?? null,
+        active: true,
+        applied_by_profile_id: userId,
+        applied_at: now,
+        updated_at: now,
+      }, { onConflict: "route_id" });
+      if (stateError) throw new Error(`Smart Route state was not saved: ${stateError.message}`);
+
+      const { data: savedState, error: savedStateError } = await service
+        .from("employee_smart_route_state")
+        .select("route_id,active,applied_order,route_date")
+        .eq("route_id", body.routeId)
+        .maybeSingle();
+      if (savedStateError) throw new Error(savedStateError.message);
+      if (!savedState?.active) throw new Error("Smart Route state was not activated.");
+      const savedOrder = Array.isArray(savedState.applied_order) ? savedState.applied_order : [];
+      if (savedOrder.length !== finalOrder.length || savedOrder.some((id: string, index: number) => id !== finalOrder[index])) {
+        throw new Error("Smart Route state did not preserve the applied preview order.");
+      }
+
+      const { data: persistedVisits, error: verifyError } = await service
+        .from("visits")
+        .select("id,route_order")
+        .eq("route_id", body.routeId)
+        .in("id", finalOrder)
+        .order("route_order", { ascending: true, nullsFirst: false });
+      if (verifyError) throw new Error(verifyError.message);
+      const persistedOrder = (persistedVisits || []).map((visit: any) => visit.id);
+      if (persistedOrder.length !== finalOrder.length || persistedOrder.some((id: string, index: number) => id !== finalOrder[index])) {
+        throw new Error("The database did not preserve the applied Smart Route order.");
+      }
+
+      console.info("employee-smart-route-applied", {
+        routeId: body.routeId,
+        routeDate: route.route_date,
+        count: finalOrder.length,
+        appliedOrder: finalOrder,
+      });
     } catch (error) {
       for (const [visitId, routeOrder] of previousOrders) {
         await service.from("visits").update({ route_order: routeOrder }).eq("id", visitId).eq("route_id", body.routeId);
       }
       throw error;
     }
-    await service.from("employee_smart_route_state").upsert({
-      company_id: companyId,
-      route_id: body.routeId,
-      crew_id: employee.crew_id,
-      route_date: new Date().toISOString().slice(0, 10),
-      original_order: originalOrder.length ? originalOrder : visits.map((visit: any) => visit.id),
-      applied_order: finalOrder,
-      origin_label: body.origin?.label || "",
-      origin_latitude: body.origin?.latitude ?? null,
-      origin_longitude: body.origin?.longitude ?? null,
-      active: true,
-      applied_by_profile_id: userId,
-      applied_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "route_id" });
+
     return NextResponse.json({ ok: true, count: finalOrder.length, appliedOrder: finalOrder });
   } catch (error) {
+    console.error("employee-smart-route", error);
     return failure(error, /expired|sign in|active Employee|linked/i.test(error instanceof Error ? error.message : "") ? 401 : 400);
   }
 }
