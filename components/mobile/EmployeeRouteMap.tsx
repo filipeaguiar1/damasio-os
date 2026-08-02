@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getEmployeeTasks, getSessionForLead } from "@/lib/storage";
 import type { CanonicalRouteLead } from "@/lib/routes/canonicalRouteIdentity";
-import { loadCachedRouteGeometry } from "@/lib/services/routeMapService";
 import type { RouteLineString } from "@/lib/maps/types";
 import { readRoadGeometry, saveRoadGeometry } from "@/lib/maps/clientMapCache";
 
@@ -65,12 +64,7 @@ export function EmployeeRouteMap({
     async function locateAndRoute() {
       const alreadyLocated = route.filter(lead => Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude));
       setResolvedRoute(alreadyLocated);
-      setMapStatus(routeId
-        ? "Loading saved driving route..."
-        : alreadyLocated.length === route.length
-          ? "Map ready"
-          : "Locating new properties...");
-
+      setMapStatus(alreadyLocated.length === route.length ? "Map ready" : "Locating new properties...");
 
       const located = await Promise.all(route.map(async lead => {
         if (Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude)) return lead;
@@ -129,23 +123,6 @@ export function EmployeeRouteMap({
     void locateAndRoute();
     return () => { cancelled = true; };
   }, [routeKey, routeId, originKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!routeId) return () => { cancelled = true; };
-
-    loadCachedRouteGeometry(routeId)
-      .then(cache => {
-        if (cancelled) return;
-        if (cache?.status === "ready" && cache.geometry) {
-          setGeometry(cache.geometry);
-          setMapStatus("Driving route");
-        }
-      })
-      .catch(() => { /* direct road calculation remains the fallback */ });
-
-    return () => { cancelled = true; };
-  }, [routeId]);
 
   const nextVisitId = useMemo(() => resolvedRoute.find(lead => {
     if (lead.canonicalVisitId) return lead.status !== "completed";
