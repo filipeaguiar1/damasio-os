@@ -3,7 +3,7 @@ import { test, expect, type Page } from "@playwright/test";
 const baseURL = "http://127.0.0.1:3000";
 const torontoContext = { timezoneId: "America/Toronto" } as const;
 
-test.setTimeout(300_000);
+test.setTimeout(420_000);
 
 async function signIn(page: Page, email: string, password: string) {
   await page.goto(`${baseURL}/login`);
@@ -72,11 +72,18 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await signIn(adminDesktop, process.env.E2E_ADMIN_EMAIL!, process.env.E2E_ADMIN_PASSWORD!);
   await adminDesktop.waitForURL("**/admin", { timeout: 30_000 });
 
-  await adminDesktop.goto(`${baseURL}/admin/performance/simulator`);
-  const codes = adminDesktop.locator("code");
-  await expect(codes.nth(1)).toBeVisible({ timeout: 30_000 });
-  const workerEmail = (await codes.nth(0).innerText()).trim();
-  const workerPassword = (await codes.nth(1).innerText()).trim();
+  await authRequest(adminDesktop, "/api/admin/operational-simulator", {
+    method: "POST",
+    body: { action: "remove" },
+  }).catch(() => undefined);
+  const simulation = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
+    method: "POST",
+    body: { action: "create" },
+  });
+  expect(simulation.created).toBe(true);
+  expect(simulation.workers?.length).toBe(2);
+  const workerEmail = String(simulation.workers[0].email);
+  const workerPassword = String(simulation.workers[0].password);
 
   const employeeDesktopContext = await browser.newContext({ ...torontoContext, viewport: { width: 1440, height: 1000 } });
   const employeeDesktop = await employeeDesktopContext.newPage();
@@ -197,6 +204,11 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await adminMobile.screenshot({ path: "canonical-admin-mobile.png", fullPage: true });
   await employeeDesktop.screenshot({ path: "canonical-employee-web.png", fullPage: true });
   await employeeMobile.screenshot({ path: "canonical-employee-mobile.png", fullPage: true });
+
+  await authRequest(adminDesktop, "/api/admin/operational-simulator", {
+    method: "POST",
+    body: { action: "remove" },
+  });
 
   await employeeMobileContext.close();
   await adminMobileContext.close();

@@ -22,6 +22,16 @@ function serviceClient() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
 }
 
+function authenticatedClient(token: string) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) throw new Error("Canonical route authentication is not configured.");
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  }) as any;
+}
+
 function companyFilter(companyId: string) {
   return `company_id.eq.${companyId},organization_id.eq.${companyId}`;
 }
@@ -128,6 +138,7 @@ async function requireAdmin(request: NextRequest) {
   if (!companyId) throw new Error("Your Admin profile is not linked to a company.");
   return {
     service,
+    writer: authenticatedClient(token),
     companyId: String(companyId),
     actorId: String(auth.data.user.id),
     actorName: String(profile.data.full_name || "Márcio"),
@@ -475,6 +486,58 @@ function createCompletedOperations(
   return { routes, visits, photos, notes, lastVisits, simulationStart, simulationEnd: addDays(currentMonday, -4), liveDate };
 }
 
+async function initializeCanonicalRoutes(
+  writer: any,
+  operations: ReturnType<typeof createCompletedOperations>,
+  workers: WorkerRecord[],
+) {
+  const visitsByRoute = new Map<string, Record<string, unknown>[]>();
+  for (const visit of operations.visits) {
+    const routeId = String(visit.route_id || "");
+    if (!routeId) throw new Error("Simulation Visit is missing routeId.");
+    const rows = visitsByRoute.get(routeId) || [];
+    rows.push(visit);
+    visitsByRoute.set(routeId, rows);
+  }
+  const workerByCrew = new Map(workers.map(worker => [worker.crewId, worker]));
+
+  for (const routeBatch of chunks(operations.routes, 8)) {
+    await Promise.all(routeBatch.map(async route => {
+      const routeId = String(route.id || "");
+      const orderedVisitIds = (visitsByRoute.get(routeId) || [])
+        .sort((left, right) => Number(left.route_order || 0) - Number(right.route_order || 0))
+        .map(visit => String(visit.id || ""))
+        .filter(Boolean);
+      if (!routeId || !orderedVisitIds.length || new Set(orderedVisitIds).size !== orderedVisitIds.length) {
+        throw new Error(`Simulation Route ${routeId || "unknown"} has an invalid canonical Visit order.`);
+      }
+
+      const worker = workerByCrew.get(String(route.crew_id || ""));
+      const applied = await writer.rpc("apply_canonical_route_order_v2", {
+        p_route_id: routeId,
+        p_ordered_visit_ids: orderedVisitIds,
+        p_origin_label: `${worker?.name || "Employee"} start`,
+        p_origin_latitude: null,
+        p_origin_longitude: null,
+        p_expected_version: null,
+        p_source: "operational_simulator_initialization",
+      });
+      if (applied.error) {
+        throw new Error(`Canonical Route ${routeId}: ${applied.error.message}`);
+      }
+      const savedOrder = Array.isArray(applied.data?.appliedOrder)
+        ? applied.data.appliedOrder.map(String)
+        : [];
+      if (
+        savedOrder.length !== orderedVisitIds.length
+        || savedOrder.some((visitId: string, index: number) => visitId !== orderedVisitIds[index])
+      ) {
+        throw new Error(`Canonical Route ${routeId} did not confirm the exact simulation order.`);
+      }
+    }));
+  }
+}
+
 function createBillingRows(
   companyId: string,
   runId: string,
@@ -602,10 +665,13 @@ async function removeSimulation(service: any, companyId: string) {
   const employeeIds = (employees.data || []).map((row: any) => String(row.id));
   const crewIds = [...new Set((employees.data || []).map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];
 
-  if (visitIds.length) {
-    await service.from("photos").delete().in("visit_id", visitIds);
-  }
+  if (visitIds.length) await service.from("photos").delete().in("visit_id", visitIds);
   if (propertyIds.length) await service.from("photos").delete().in("property_id", propertyIds);
+  if (routeIds.length) {
+    await service.from("route_stops").delete().in("route_id", routeIds);
+    await service.from("employee_smart_route_state").delete().in("route_id", routeIds);
+    await service.from("route_order_state").delete().in("route_id", routeIds);
+  }
   if (customerIds.length) {
     await service.from("invoices").delete().in("customer_id", customerIds);
     await service.from("visits").delete().in("customer_id", customerIds);
@@ -645,7 +711,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { service, companyId } = await requireAdmin(request);
+    const { service, writer, companyId } = await requireAdmin(request);
     const body = await request.json() as { action?: "create" | "remove"; assumptions?: Partial<OperationalSimulationInput> };
 
     if (body.action === "remove") {
@@ -687,6 +753,8 @@ export async function POST(request: NextRequest) {
       const operations = createCompletedOperations(companyId, input, workers, customerRows.chains);
       await insertRowsWithFallback(service, "routes", operations.routes, ["company_id"]);
       await insertRowsWithFallback(service, "visits", operations.visits, ["company_id", "employee_notes", "customer_visible_summary"]);
+      await initializeCanonicalRoutes(writer, operations, workers);
+
       const photoStoragePath = `${companyId}/operational-simulation/after.svg`;
       const photoAsset = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800"><rect width="1200" height="800" fill="#dce9f5"/><rect y="470" width="1200" height="330" fill="#4d8f4b"/><rect x="180" y="260" width="430" height="260" fill="#f4efe4"/><polygon points="140,280 395,90 650,280" fill="#744d3b"/><text x="60" y="735" font-family="Arial" font-size="42" fill="#ffffff">4Ever Seasons · Employee After-Service Photo · Simulation</text></svg>`;
       const uploadedPhoto = await service.storage.from("work-photos").upload(photoStoragePath, photoAsset, {
