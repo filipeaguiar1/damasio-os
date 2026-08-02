@@ -12,8 +12,14 @@ def replace_once(path: str, old: str, new: str) -> None:
 
 replace_once(
     "app/api/admin/customers/route.ts",
-    '''    const context = await listOperationalCompanyCustomers(service, companyId, { repair: true });''',
-    '''    // GET is read-only. Ownership repair belongs to explicit write/migration paths;
+    '''export async function GET(request: NextRequest) {
+  try {
+    const { service, companyId } = await companyAdmin(request);
+    const context = await listOperationalCompanyCustomers(service, companyId, { repair: true });''',
+    '''export async function GET(request: NextRequest) {
+  try {
+    const { service, companyId } = await companyAdmin(request);
+    // GET is read-only. Ownership repair belongs to explicit write/migration paths;
     // mutating several tables during every page load caused concurrent Admin reads to fail.
     const context = await listOperationalCompanyCustomers(service, companyId, { repair: false });''',
 )
