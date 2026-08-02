@@ -234,7 +234,7 @@ export async function loadEmployeeRouteMapContext(
     }),
   } satisfies EmployeeRouteMapContext;
 
-  let resolvedContext = context;
+  let resolvedContext: EmployeeRouteMapContext = context;
   if (routeId) {
     const confirmed = confirmedRouteOrders.get(routeId);
     if (confirmed && context.routeVersion && context.routeVersion > confirmed.version) {
