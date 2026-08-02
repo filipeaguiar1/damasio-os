@@ -46,25 +46,33 @@ export async function GET() {
     const demoPropertyIds = york.filter(property => demoIds.has(String(property.customer_id))).map(property => String(property.id));
     const activeYork = demoPropertyIds.length
       ? await must<any[]>(
-          service.from("visits").select("id,route_id,status,property_id").in("property_id", demoPropertyIds).neq("status", "cancelled"),
+          service.from("visits").select("id,route_id,status,property_id,route_order").in("property_id", demoPropertyIds).neq("status", "cancelled"),
           "verify York visits",
         )
       : [];
 
     const visits = await must<any[]>(
-      service.from("visits").select("id,route_order,status").eq("route_id", ROUTE_ID).neq("status", "cancelled").order("route_order"),
+      service.from("visits")
+        .select("id,route_order,status,created_at")
+        .eq("route_id", ROUTE_ID)
+        .neq("status", "cancelled")
+        .order("route_order", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: true }),
       "load canonical visits",
     );
     const stops = await must<any[]>(
-      service.from("route_stops").select("visit_id,position").eq("route_id", ROUTE_ID).order("position"),
+      service.from("route_stops").select("id,visit_id,position,updated_at").eq("route_id", ROUTE_ID).order("position"),
       "load canonical stops",
     );
     const state = await must<any>(
-      service.from("route_order_state").select("version,last_source").eq("route_id", ROUTE_ID).maybeSingle(),
+      service.from("route_order_state").select("version,last_source,updated_at").eq("route_id", ROUTE_ID).maybeSingle(),
       "load canonical version",
     );
     const smart = await must<any>(
-      service.from("employee_smart_route_state").select("active,applied_order,route_version,origin_label,origin_latitude,origin_longitude").eq("route_id", ROUTE_ID).maybeSingle(),
+      service.from("employee_smart_route_state")
+        .select("active,applied_order,original_order,route_version,origin_label,origin_latitude,origin_longitude,updated_at")
+        .eq("route_id", ROUTE_ID)
+        .maybeSingle(),
       "load Smart Route state",
     );
 
@@ -86,14 +94,20 @@ export async function GET() {
       routeId: ROUTE_ID,
       version: Number(state?.version || 0),
       source: state?.last_source || null,
-      activeYorkVisits: (activeYork || []).length,
-      visits: visits.length,
-      stops: stops.length,
+      stateUpdatedAt: state?.updated_at || null,
+      activeYorkVisits: activeYork || [],
+      visits: visits || [],
+      stops: stops || [],
+      visitOrder,
+      stopOrder,
+      smartOrder,
       uniqueStops,
       projectionMatches,
       smartActive: Boolean(smart?.active),
       smartMatches,
       routeVersion: Number(smart?.route_version || 0),
+      smartUpdatedAt: smart?.updated_at || null,
+      originalOrder: Array.isArray(smart?.original_order) ? smart.original_order.map(String) : [],
       origin: smart ? {
         label: smart.origin_label,
         latitude: smart.origin_latitude,
