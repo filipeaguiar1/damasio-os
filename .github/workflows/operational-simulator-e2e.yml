@@ -1,5 +1,6 @@
 name: Operational Simulator E2E
 # Final authenticated release gate for the canonical Route.
+# Exercises Admin and Employee web/mobile against one versioned snapshot.
 
 on:
   pull_request:
