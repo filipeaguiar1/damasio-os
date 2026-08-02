@@ -32,16 +32,17 @@ assert.match(canonicalApi, /roadGeometry\(String\(route\.id\), routeVersion, rou
 assert.doesNotMatch(canonicalApi, /route_map_cache/, "The read endpoint cannot accept routeId-only geometry cache.");
 assert.doesNotMatch(canonicalApi, /\.from\([^\n]+\)\.(?:insert|upsert|update|delete)\(/, "The canonical GET endpoint must remain read-only.");
 
-assert.match(canonicalWriter, /rpc\("apply_canonical_route_order_v2"/, "All route applies must use the one database transaction.");
-assert.match(canonicalWriter, /rpc\("restore_canonical_route_order_v2"/, "All restores must use the one database transaction.");
-assert.doesNotMatch(canonicalWriter, /apply_canonical_route_order_v2_service|replace_canonical_route_order_v2|employee_smart_route_state.*upsert/, "The API cannot use independent compatibility writers.");
+assert.match(canonicalWriter, /rpc\("apply_canonical_route_order_v2_service"/, "All route applies must use the one service transaction.");
+assert.match(canonicalWriter, /p_actor_profile_id: context\.profile\.id/, "The service writer must audit the authenticated actor.");
+assert.match(canonicalWriter, /rpc\("restore_canonical_route_order_v2"/, "All restores must use the canonical restore transaction.");
+assert.doesNotMatch(canonicalWriter, /replace_canonical_route_order_v2|employee_smart_route_state.*upsert/, "The API cannot use independent compatibility writers.");
 assert.doesNotMatch(canonicalWriter, /\.from\("route_stops"\)|\.from\("visits"\)\.(?:insert|upsert|update|delete)/, "The browser API cannot manually rewrite canonical tables.");
 assert.match(canonicalWriter, /A reviewed routeVersion is required/, "Stale clients must not write without optimistic concurrency.");
 assert.match(canonicalWriter, /sameOrder\(savedOrder, orderedVisitIds\)/, "The exact stored order must be confirmed before success.");
 
-assert.match(operationalSimulator, /writer: authenticatedClient\(token\)/, "The simulator must write routes as the authenticated Admin.");
-assert.match(operationalSimulator, /rpc\("apply_canonical_route_order_v2"/, "Every simulated Route must use the same canonical transaction.");
-assert.match(operationalSimulator, /await initializeCanonicalRoutes\(writer, operations, workers\)/, "Simulation creation cannot finish before canonical initialization.");
+assert.match(operationalSimulator, /rpc\("apply_canonical_route_order_v2_service"/, "Every simulated Route must use the same service transaction.");
+assert.match(operationalSimulator, /p_actor_profile_id: actorId/, "Simulation writes must preserve the authenticated Admin actor.");
+assert.match(operationalSimulator, /await initializeCanonicalRoutes\(service, operations, workers, actorId\)/, "Simulation creation cannot finish before canonical initialization.");
 assert.match(operationalSimulator, /savedOrder\.some/, "The simulator must verify the exact saved Visit order.");
 assert.match(operationalSimulator, /from\("route_stops"\)\.delete/, "Simulation cleanup must remove canonical stops.");
 assert.match(operationalSimulator, /from\("route_order_state"\)\.delete/, "Simulation cleanup must remove canonical route versions.");
