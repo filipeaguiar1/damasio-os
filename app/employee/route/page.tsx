@@ -114,7 +114,24 @@ export default function EmployeeRoutePage(){
   },[]);
 
   const localRouteLeads=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&(l.scheduledDate===selectedDate||l.nextVisitDate===selectedDate||l.serviceDay===day)).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,day,selectedDate]);
-  useEffect(()=>{let cancelled=false;if(!selectedDate||!crew)return;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[selectedDate,crew]);
+  useEffect(()=>{
+    let cancelled=false;
+    if(!selectedDate||!crew)return()=>{cancelled=true};
+    const loadContext=()=>void loadEmployeeRouteMapContext(selectedDate,crew)
+      .then(context=>{if(!cancelled)setMapContext(context)})
+      .catch(error=>{if(!cancelled)setMenuMessage(error instanceof Error?error.message:"Route synchronization is temporarily unavailable.")});
+    const loadVisible=()=>{if(document.visibilityState==="visible")loadContext()};
+    loadContext();
+    const timer=window.setInterval(loadContext,5_000);
+    window.addEventListener("focus",loadVisible);
+    document.addEventListener("visibilitychange",loadVisible);
+    return()=>{
+      cancelled=true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus",loadVisible);
+      document.removeEventListener("visibilitychange",loadVisible);
+    };
+  },[selectedDate,crew]);
   useEffect(()=>{let cancelled=false;if(!routeStartAddress){setRouteOrigin(null);return()=>{cancelled=true}}void fetch(`/api/map/geocode?address=${encodeURIComponent(routeStartAddress)}`,{cache:"no-store"}).then(response=>{if(!response.ok)throw new Error("not mapped");return response.json()}).then((point:{latitude:number;longitude:number})=>{if(!cancelled)setRouteOrigin({...point,label:`${profile.name||"Employee"} start`})}).catch(()=>{if(!cancelled)setRouteOrigin(null)});return()=>{cancelled=true}},[routeStartAddress,profile.name]);
   const allRouteLeads=useMemo(()=>applyEmployeeRouteMapContext(localRouteLeads,mapContext) as CanonicalRouteLead[],[localRouteLeads,mapContext]);
   const routeLeads=useMemo(()=>allRouteLeads.filter(l=>routeFilter==="all"?true:routeFilter==="open"?l.status!=="completed":routeFilter==="done"?l.status==="completed":true),[allRouteLeads,routeFilter]);
