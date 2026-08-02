@@ -5,37 +5,78 @@ on:
     branches:
       - feature/25-30-homes-simulator-v1
     paths:
+      - "app/api/map/**"
+      - "app/api/admin/demo-sandbox/route.ts"
+      - "app/mobile/admin/routes/page.tsx"
+      - "app/mobile/employee/page.tsx"
+      - "app/employee/route/page.tsx"
+      - "components/admin/OfficialRoutePlanMap.tsx"
+      - "components/mobile/EmployeeRouteMap.tsx"
+      - "lib/hooks/useCanonicalRouteSnapshot.ts"
+      - "lib/routes/canonicalRouteSnapshot.ts"
+      - "lib/services/routeMapService.ts"
+      - "scripts/validate-canonical-map-sync.mjs"
+      - "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql"
+      - "tests/canonical-route-sync.spec.ts"
+      - "package.json"
+      - "pnpm-lock.yaml"
       - ".github/workflows/canonical-map-qa.yml"
-  workflow_dispatch:
-
-permissions:
-  contents: write
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/api/map/**"
+      - "app/api/admin/demo-sandbox/route.ts"
+      - "app/mobile/admin/routes/page.tsx"
+      - "app/mobile/employee/page.tsx"
+      - "app/employee/route/page.tsx"
+      - "components/admin/OfficialRoutePlanMap.tsx"
+      - "components/mobile/EmployeeRouteMap.tsx"
+      - "lib/hooks/useCanonicalRouteSnapshot.ts"
+      - "lib/routes/canonicalRouteSnapshot.ts"
+      - "lib/services/routeMapService.ts"
+      - "scripts/validate-canonical-map-sync.mjs"
+      - "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql"
+      - "tests/canonical-route-sync.spec.ts"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/canonical-map-qa.yml"
 
 concurrency:
-  group: canonical-map-repair-${{ github.ref }}
+  group: canonical-map-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  repair:
-    if: github.actor != 'github-actions[bot]'
+  canonical-map:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
         with:
-          ref: feature/25-30-homes-simulator-v1
-          fetch-depth: 0
+          version: 9.15.4
+          run_install: false
 
-      - name: Apply staged repair
-        run: python scripts/apply-route-soft-cleanup.py
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
 
-      - name: Restore workflows and publish repair
-        run: |
-          git show HEAD^:.github/workflows/canonical-map-qa.yml > .github/workflows/canonical-map-qa.yml
-          git show 291ba2876924139e4dd5a5642f921b5d9f1165f3:.github/workflows/operational-simulator-e2e.yml > .github/workflows/operational-simulator-e2e.yml
-          rm -f .github/workflows/source-bundle.yml
-          rm -f scripts/apply-route-soft-cleanup.py
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "fix(simulator): archive legacy rows when protected deletes are unavailable"
-          git push origin HEAD:feature/25-30-homes-simulator-v1
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Canonical synchronization regression
+        run: pnpm test:map-sync
+
+      - name: TypeScript
+        run: pnpm typecheck
+
+      - name: Production build
+        run: pnpm build
