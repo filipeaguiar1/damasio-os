@@ -10,8 +10,8 @@ const SERVICE_BBOX = "-80.35,42.85,-79.35,43.65";
 const geocodeCache = new Map<string, { point: Point | null; expiresAt: number }>();
 const geometryCache = new Map<string, { geometry: RouteLineString | null; expiresAt: number }>();
 
-type RouteVisit = Record<string, any>;
 type Point = { latitude: number; longitude: number };
+type RouteVisit = Record<string, any>;
 type SnapshotStop = {
   visitId: string;
   jobId: string | null;
@@ -55,6 +55,14 @@ function numeric(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
+function normalizedAddress(value: unknown) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\./g, "")
+    .replace(/\s+/g, " ");
+}
+
 function completeAddress(property: any) {
   return [
     property?.address_line1,
@@ -63,14 +71,6 @@ function completeAddress(property: any) {
     property?.postal_code,
     "Canada",
   ].filter(Boolean).join(", ");
-}
-
-function normalizedAddress(value: unknown) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\./g, "")
-    .replace(/\s+/g, " ");
 }
 
 function isRetiredYorkDemo(visit: RouteVisit) {
@@ -88,16 +88,17 @@ function isRetiredYorkDemo(visit: RouteVisit) {
 async function requireProfile(request: NextRequest, service: any) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) throw new Error("Sign in to view this route.");
+
   const auth = await service.auth.getUser(token);
   if (auth.error || !auth.data.user) throw new Error("Your session expired. Sign in again.");
 
-  const profileResult = await service
+  const result = await service
     .from("profiles")
     .select("id,role,active,company_id,organization_id,full_name,address_line1,route_start_address")
     .eq("id", auth.data.user.id)
     .maybeSingle();
-  if (profileResult.error) throw new Error(profileResult.error.message);
-  const profile = profileResult.data;
+  if (result.error) throw new Error(result.error.message);
+  const profile = result.data;
   if (!profile?.active) throw new Error("This account is not active.");
   const companyId = profile.company_id || profile.organization_id;
   if (!companyId) throw new Error("This account is not linked to a company.");
@@ -125,12 +126,12 @@ async function resolveRoute(input: {
 }) {
   const { service, profile, companyId } = input;
   const role = String(profile.role);
-  let currentEmployee: any = null;
+  let employee: any = null;
   let route: any = null;
 
   if (role === "employee") {
-    currentEmployee = await employeeForProfile(service, profile.id, companyId);
-    if (!currentEmployee) throw new Error("No active Employee is linked to this login.");
+    employee = await employeeForProfile(service, profile.id, companyId);
+    if (!employee) throw new Error("No active Employee is linked to this login.");
   } else if (!["admin", "manager", "master"].includes(role)) {
     throw new Error("This account cannot view operational routes.");
   }
@@ -145,13 +146,13 @@ async function resolveRoute(input: {
     route = result.data;
   } else {
     if (!input.routeDate) throw new Error("routeId or date is required.");
-    if (!currentEmployee) throw new Error("Admin route reads require routeId.");
+    if (!employee) throw new Error("Admin route reads require routeId.");
 
     const byCrew = await service
       .from("routes")
       .select("id,crew_id,route_date,company_id,organization_id,created_at")
       .eq("route_date", input.routeDate)
-      .eq("crew_id", currentEmployee.crew_id)
+      .eq("crew_id", employee.crew_id)
       .or(companyFilter(companyId))
       .order("created_at", { ascending: true })
       .limit(2);
@@ -166,7 +167,7 @@ async function resolveRoute(input: {
         .from("visits")
         .select("route_id")
         .eq("scheduled_date", input.routeDate)
-        .eq("assigned_employee_id", currentEmployee.id)
+        .eq("assigned_employee_id", employee.id)
         .neq("status", "cancelled")
         .or(companyFilter(companyId));
       if (assigned.error) throw new Error(assigned.error.message);
@@ -190,20 +191,35 @@ async function resolveRoute(input: {
     throw new Error("Canonical Route not found in this company.");
   }
 
-  if (currentEmployee) {
+  if (employee) {
     const assigned = await service
       .from("visits")
       .select("id", { count: "exact", head: true })
       .eq("route_id", route.id)
-      .eq("assigned_employee_id", currentEmployee.id)
+      .eq("assigned_employee_id", employee.id)
       .neq("status", "cancelled");
     if (assigned.error) throw new Error(assigned.error.message);
-    if (route.crew_id !== currentEmployee.crew_id && !assigned.count) {
+    if (route.crew_id !== employee.crew_id && !assigned.count) {
       throw new Error("This Route is not assigned to the authenticated Employee.");
     }
   }
 
-  return { route, currentEmployee };
+  return { route, employee };
+}
+
+function simulationPoint(address: string): Point | null {
+  if (!/\bsimulation route\b/i.test(address)) return null;
+  const center = /\boakville\b/i.test(address)
+    ? { latitude: 43.4675, longitude: -79.6877 }
+    : /\bburlington\b/i.test(address)
+      ? { latitude: 43.3255, longitude: -79.7990 }
+      : SERVICE_CENTER;
+  let hash = 0;
+  for (const character of address) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  return {
+    latitude: center.latitude + ((hash % 2001) - 1000) / 100000,
+    longitude: center.longitude + (((Math.floor(hash / 2001)) % 2001) - 1000) / 100000,
+  };
 }
 
 async function photonPoint(address: string): Promise<Point | null> {
@@ -252,15 +268,18 @@ async function nominatimPoint(address: string): Promise<Point | null> {
 }
 
 async function geocodeAddress(address: string): Promise<Point | null> {
+  const simulated = simulationPoint(address);
+  if (simulated) return simulated;
+
   const key = normalizedAddress(address);
   if (!key) return null;
   const cached = geocodeCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.point;
 
   let point: Point | null = null;
-  try { point = await photonPoint(address); } catch { /* canonical fallback below */ }
+  try { point = await photonPoint(address); } catch { /* fallback below */ }
   if (!point) {
-    try { point = await nominatimPoint(address); } catch { /* unresolved address */ }
+    try { point = await nominatimPoint(address); } catch { /* unresolved */ }
   }
   geocodeCache.set(key, { point, expiresAt: Date.now() + (point ? 15 * 60_000 : 60_000) });
   return point;
@@ -299,7 +318,7 @@ export async function GET(request: NextRequest) {
     const routeDate = request.nextUrl.searchParams.get("date")?.trim() || null;
     const service = serviceClient();
     const { profile, companyId } = await requireProfile(request, service);
-    const { route, currentEmployee } = await resolveRoute({ service, profile, companyId, routeId, routeDate });
+    const { route, employee } = await resolveRoute({ service, profile, companyId, routeId, routeDate });
 
     const [visitsResult, stopsResult, stateResult, smartResult] = await Promise.all([
       service
@@ -391,7 +410,7 @@ export async function GET(request: NextRequest) {
       && numeric(smartState.origin_longitude) !== null,
     );
 
-    let routeEmployee = currentEmployee;
+    let routeEmployee = employee;
     if (!routeEmployee) {
       const employeeId = orderedVisits.find(visit => Boolean(visit.assigned_employee_id))?.assigned_employee_id;
       if (employeeId) {
