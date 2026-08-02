@@ -20,6 +20,7 @@ const visitMigration = read("supabase/migrations/202607270003_completed_visit_re
 const executionMigration = read("supabase/migrations/202607270004_visit_execution_state_invariants.sql");
 const assignmentMigration = read("supabase/migrations/202607280001_route_assignment_modes.sql");
 const canonicalMigration = read("supabase/migrations/202608020500_canonical_route_stops_v2.sql");
+const serviceMigration = read("supabase/migrations/202608020555_canonical_route_service_apply_v2.sql");
 const cleanupMigration = read("supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql");
 
 for (const field of [
@@ -51,6 +52,11 @@ assert.match(canonicalMigration, /Route verification failed\. Nothing was change
 assert.match(canonicalMigration, /set route_order = s\.position/);
 assert.match(canonicalMigration, /route_order_state/);
 assert.match(canonicalMigration, /employee_smart_route_state/);
+assert.match(serviceMigration, /apply_canonical_route_order_v2_service/);
+assert.match(serviceMigration, /All writes below remain in this one database transaction/i);
+assert.match(serviceMigration, /set route_order = s\.position/);
+assert.match(serviceMigration, /route_order_state/);
+assert.match(serviceMigration, /employee_smart_route_state/);
 
 assert.match(routeReader, /from\("route_stops"\)/, "Canonical route reads must start at route_stops.");
 assert.match(routeReader, /No projection fallback is allowed/, "Inconsistent canonical routes must fail closed.");
@@ -59,11 +65,12 @@ assert.match(routeReader, /roadGeometry\(String\(route\.id\), routeVersion, rout
 assert.match(routeReader, /orderedVisitIds/);
 assert.match(routeReader, /geometryStatus/);
 
-assert.match(routeWriter, /rpc\("apply_canonical_route_order_v2"/);
+assert.match(routeWriter, /rpc\("apply_canonical_route_order_v2_service"/);
+assert.match(routeWriter, /p_actor_profile_id: context\.profile\.id/);
 assert.match(routeWriter, /rpc\("restore_canonical_route_order_v2"/);
 assert.match(routeWriter, /A reviewed routeVersion is required/);
 assert.match(routeWriter, /sameOrder\(savedOrder, orderedVisitIds\)/);
-assert.doesNotMatch(routeWriter, /apply_canonical_route_order_v2_service|replace_canonical_route_order_v2/);
+assert.doesNotMatch(routeWriter, /replace_canonical_route_order_v2/);
 
 assert.match(routeSnapshot, /loadCanonicalRouteSnapshot/);
 assert.match(routeSnapshot, /stop\.visitId === snapshot\.orderedVisitIds\[index\]/);
@@ -112,4 +119,4 @@ assert.match(cleanupMigration, /delete from public\.customers/);
 assert.match(cleanupMigration, /alter publication supabase_realtime add table public\.route_order_state/);
 
 console.log("Canonical Route validation passed.");
-console.log("One route_stops order, one versioned snapshot, one transactional writer and one shared map path are enforced.");
+console.log("One route_stops order, one versioned snapshot, one service transaction and one shared map path are enforced.");
