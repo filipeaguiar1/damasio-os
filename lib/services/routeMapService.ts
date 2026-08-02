@@ -1,4 +1,3 @@
-import { getRouteMapCache } from "@/lib/repositories/routeMapRepository";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { Lead } from "@/lib/storage";
 import type { CanonicalRouteLead, CanonicalVisitStatus } from "@/lib/routes/canonicalRouteIdentity";
@@ -203,9 +202,12 @@ export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRou
       || left.canonicalVisitId!.localeCompare(right.canonicalVisitId!));
 }
 
-export async function loadCachedRouteGeometry(routeId?: string) {
-  if (!routeId) return null;
-  return getRouteMapCache(routeId);
+export async function loadCachedRouteGeometry(_routeId?: string) {
+  // A route-id cache does not encode the current origin or waypoint coordinates.
+  // Using it can overwrite the freshly calculated START → stop 1 → stop 2 geometry
+  // after an address, origin, or route order changes. The map's coordinate-keyed
+  // client cache remains safe and is used by EmployeeRouteMap before recalculation.
+  return null;
 }
 
 function smartRouteStateFrom(row: any): EmployeeDatabaseSmartRouteState {
