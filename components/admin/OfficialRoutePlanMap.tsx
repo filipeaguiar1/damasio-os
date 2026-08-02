@@ -120,9 +120,33 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
   async function refresh() {
     try {
       const accessToken = await token();
-      const response = await fetch(`/api/admin/routes?date=${encodeURIComponent(date)}`, { headers: { authorization: `Bearer ${accessToken}` }, cache: "no-store" });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Routes could not be loaded.");
+      let response: Response | null = null;
+      let result: any = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const controller = new AbortController();
+          const timeout = window.setTimeout(() => controller.abort(), 20_000);
+          try {
+            response = await fetch(`/api/admin/routes?date=${encodeURIComponent(date)}`, {
+              headers: { authorization: `Bearer ${accessToken}` },
+              cache: "no-store",
+              signal: controller.signal,
+            });
+            result = await response.json().catch(() => ({}));
+          } finally {
+            window.clearTimeout(timeout);
+          }
+          if (response.ok) break;
+          if (![502, 503, 504].includes(response.status) || attempt === 2) {
+            throw new Error(result.error || `Routes could not be loaded (${response.status}).`);
+          }
+        } catch (reason) {
+          const retryable = reason instanceof Error && /fetch|network|abort|load failed/i.test(reason.message);
+          if (attempt === 2 || !retryable) throw reason;
+          await new Promise(resolve => window.setTimeout(resolve, 400 * (attempt + 1)));
+        }
+      }
+      if (!response?.ok) throw new Error(result?.error || "Routes could not reach the server. Refresh and try again.");
       setEmployees(result.employees || []);
       setLeads(schedulingBoardToLeads((result.board || {}) as SchedulingDispatchBoard));
       setMessage("");

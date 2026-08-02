@@ -13,25 +13,42 @@ async function signIn(page: Page, email: string, password: string) {
 }
 
 async function authRequest<T>(page: Page, path: string, init?: { method?: string; body?: unknown }): Promise<T> {
-  return page.evaluate(async ({ path, init }) => {
-    const authKey = Object.keys(window.localStorage).find(key => key.startsWith("sb-") && key.endsWith("-auth-token"));
-    if (!authKey) throw new Error("Supabase browser session was not found.");
-    const stored = JSON.parse(window.localStorage.getItem(authKey) || "null");
-    const accessToken = stored?.access_token || stored?.currentSession?.access_token;
-    if (!accessToken) throw new Error("Supabase access token was not found.");
-    const response = await fetch(path, {
-      method: init?.method || "GET",
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        "content-type": "application/json",
-      },
-      cache: "no-store",
-      body: init?.body === undefined ? undefined : JSON.stringify(init.body),
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || `${response.status} ${path}`);
-    return result;
-  }, { path, init }) as Promise<T>;
+  let lastError = "Request failed.";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await page.evaluate(async ({ path, init }) => {
+        const authKey = Object.keys(window.localStorage).find(key => key.startsWith("sb-") && key.endsWith("-auth-token"));
+        if (!authKey) throw new Error("Supabase browser session was not found.");
+        const stored = JSON.parse(window.localStorage.getItem(authKey) || "null");
+        const accessToken = stored?.access_token || stored?.currentSession?.access_token;
+        if (!accessToken) throw new Error("Supabase access token was not found.");
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 30_000);
+        try {
+          const response = await fetch(path, {
+            method: init?.method || "GET",
+            headers: {
+              authorization: `Bearer ${accessToken}`,
+              "content-type": "application/json",
+            },
+            cache: "no-store",
+            signal: controller.signal,
+            body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || `${response.status} ${path}`);
+          return result;
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      }, { path, init }) as T;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : lastError;
+      if (attempt === 2 || !/fetch failed|failed to fetch|network|abort/i.test(lastError)) throw error;
+      await page.waitForTimeout(500 * (attempt + 1));
+    }
+  }
+  throw new Error(lastError);
 }
 
 async function waitForVersion(page: Page, routeId: string, version: number) {

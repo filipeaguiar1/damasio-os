@@ -138,6 +138,16 @@ export default function EmployeeRoutePage(){
   const mapRouteLeads=routeLeads;
   const selected=useMemo(()=>allRouteLeads.find(l=>l.id===selectedId)||allRouteLeads[0]||null,[allRouteLeads,selectedId]);
   const session=selected?getSessionForLead(selected.id):null;
+  const canonicalActive=Boolean(selected?.canonicalVisitId)&&(
+    selected?.canonicalVisitStatus==="in_progress"
+    || (selected?.canonicalVisitStatus as string)==="active"
+    || Boolean(selected?.visitStartedAt&&!selected?.visitFinishedAt)
+  );
+  const canonicalDone=Boolean(selected?.canonicalVisitId)&&(
+    selected?.canonicalVisitStatus==="completed"
+    || Boolean(selected?.visitFinishedAt)
+  );
+  const canonicalMissed=Boolean(selected?.canonicalVisitId)&&selected?.canonicalVisitStatus==="missed";
   const openTasks=tasks.filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===profile.name||t.assignedTo===crew));
 
   const runningSeconds=useMemo(()=>{
@@ -444,7 +454,7 @@ export default function EmployeeRoutePage(){
 
       <h2>{selectedDateLabel}</h2>
       <div className="field-card timer-focus">
-        <div className={(selected.canonicalVisitStatus==="in_progress"||session?.status==="running")?"timer-status running":(selected.canonicalVisitStatus==="completed"||session?.status==="finished")?"timer-status finished":"timer-status"}>{selected.canonicalVisitStatus==="in_progress"||session?.status==="running"?"IN PROGRESS":selected.canonicalVisitStatus==="completed"||session?.status==="finished"?"DONE":selected.canonicalVisitStatus==="missed"?"SKIPPED":"NOT STARTED"}</div>
+        <div className={(canonicalActive||session?.status==="running")?"timer-status running":(canonicalDone||session?.status==="finished")?"timer-status finished":"timer-status"}>{canonicalActive||session?.status==="running"?"IN PROGRESS":canonicalDone||session?.status==="finished"?"DONE":canonicalMissed?"SKIPPED":"NOT STARTED"}</div>
         <div className="timer-big">{formatDuration(runningSeconds)}</div>
         <div className="timer-grid">
           <div className="timer-box"><div className="timer-label">Started</div><div className="timer-value">{formatClock(selected.canonicalVisitId?selected.visitStartedAt:session?.startedAt)}</div></div>
@@ -453,9 +463,9 @@ export default function EmployeeRoutePage(){
       </div>
 
       <div className="row" style={{marginBottom:12}}>
-        <button className="start-btn" onClick={start} disabled={selected.canonicalVisitId?selected.canonicalVisitStatus==="in_progress"||selected.canonicalVisitStatus==="completed"||selected.canonicalVisitStatus==="missed":session?.status==="running"}>Start</button>
+        <button className="start-btn" onClick={start} disabled={selected.canonicalVisitId?canonicalActive||canonicalDone||canonicalMissed:session?.status==="running"}>Start</button>
         <button className="btn btn-outline" onClick={()=>setCommentOpen(!commentOpen)}>💬 Comment</button>
-        <button className="finish-btn" onClick={finish} disabled={selected.canonicalVisitId?selected.canonicalVisitStatus!=="in_progress":!session||session.status==="finished"}>Finish</button>
+        <button className="finish-btn" onClick={finish} disabled={selected.canonicalVisitId?!canonicalActive:!session||session.status==="finished"}>Finish</button>
       </div>
       {commentOpen&&<div className="field-card" style={{padding:16,marginBottom:20}}>
         <label className="feedback-label">Optional employee comment</label>
