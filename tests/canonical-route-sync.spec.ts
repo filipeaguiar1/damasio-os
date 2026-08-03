@@ -183,7 +183,10 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await employeeMobile.waitForURL("**/employee", { timeout: 30_000 });
   await employeeMobile.goto(`${baseURL}/mobile/employee`);
 
-  await employeeDesktop.goto(`${baseURL}/employee/route?view=map`);
+  await employeeDesktop.goto(`${baseURL}/employee/route?view=map&date=${encodeURIComponent(routeDate)}`);
+  const employeeMapTab = employeeDesktop.getByRole("button", { name: "Map", exact: true });
+  await expect(employeeMapTab).toBeVisible({ timeout: 30_000 });
+  await employeeMapTab.click();
 
   await adminDesktop.goto(`${baseURL}/admin/routes?tab=view`);
   await adminDesktop.locator('input[type="date"]').first().fill(routeDate);

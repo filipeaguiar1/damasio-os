@@ -114,6 +114,7 @@ export default function EmployeeRoutePage(){
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
     const qDay=params.get("day");
+    const qDate=params.get("date");
     const qProperty=params.get("property");
     const qView=params.get("view");
     void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setRouteStartAddress(identity.routeStartAddress||"")});
@@ -121,9 +122,16 @@ export default function EmployeeRoutePage(){
     const clientToday=localDateKey(clientNow);
     const clientWeekStart=mondayKey(clientNow);
     const today=DAMASIO_WEEK_DAYS[(clientNow.getDay()+6)%7];
-    setWeekStart(clientWeekStart);
-    if(qDay&&DAMASIO_WEEK_DAYS.includes(qDay)){setDay(qDay);setSelectedDate(routeDateForWeekday(qDay));}
-    else {setDay(today);setSelectedDate(clientToday);}
+    if(qDate&&/^\d{4}-\d{2}-\d{2}$/.test(qDate)){
+      setSelectedDate(qDate);
+      setWeekStart(mondayKey(new Date(`${qDate}T12:00:00`)));
+      const routeDayIndex=(new Date(`${qDate}T12:00:00`).getDay()+6)%7;
+      setDay(DAMASIO_WEEK_DAYS[routeDayIndex]);
+    }else{
+      setWeekStart(clientWeekStart);
+      if(qDay&&DAMASIO_WEEK_DAYS.includes(qDay)){setDay(qDay);setSelectedDate(routeDateForWeekday(qDay));}
+      else {setDay(today);setSelectedDate(clientToday);}
+    }
     refresh();
     if(qProperty){setSelectedId(qProperty);setView("details");}
     else if(qView==="map")setView("map");
