@@ -18,7 +18,7 @@ replacement = r'''async function canonicalVisits(service: any, companyId: string
     .limit(routeDate ? 250 : 500);
   if (routesResult.error) throw new Error(routesResult.error.message);
 
-  const routes = routesResult.data || [];
+  const routes: any[] = routesResult.data || [];
   const routeIds = routes.map((route: any) => String(route.id));
   if (!routeIds.length) return [] as any[];
 
@@ -37,7 +37,7 @@ replacement = r'''async function canonicalVisits(service: any, companyId: string
     .order("position", { ascending: true })));
   for (const result of stopResults) if (result.error) throw new Error(result.error.message);
 
-  const stopRows = stopResults.flatMap(result => result.data || []);
+  const stopRows: any[] = stopResults.flatMap(result => result.data || []);
   const visitIds = [...new Set(stopRows.map((row: any) => String(row.visit_id)).filter(Boolean))];
   if (!visitIds.length) return [] as any[];
 
@@ -53,9 +53,9 @@ replacement = r'''async function canonicalVisits(service: any, companyId: string
   for (const result of visitResults) {
     for (const row of result.data || []) visits.set(String(row.id), row);
   }
-  const routeById = new Map(routes.map((route: any) => [String(route.id), route]));
+  const routeById = new Map<string, any>(routes.map((route: any) => [String(route.id), route]));
 
-  const canonical = stopRows.map((stop: any) => {
+  const canonical: any[] = stopRows.flatMap((stop: any) => {
     const row = visits.get(String(stop.visit_id));
     if (!row) {
       throw new Error(`route_stops references missing or cancelled Visit ${stop.visit_id}.`);
@@ -67,13 +67,13 @@ replacement = r'''async function canonicalVisits(service: any, companyId: string
     const employee = (Array.isArray(row.employees) ? row.employees[0] : row.employees)?.full_name || null;
     const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers;
     const property = Array.isArray(row.properties) ? row.properties[0] : row.properties;
-    const route = routeById.get(String(stop.route_id));
+    const route: any = routeById.get(String(stop.route_id));
 
     // Demo identities are not operational Employees. Customer archived flags are
     // deliberately ignored here: route_stops is the authoritative published Route.
-    if (isDemoLabel(employee)) return null;
+    if (isDemoLabel(employee)) return [];
 
-    return {
+    return [{
       id: row.id,
       jobId: row.job_id,
       routeId: String(stop.route_id),
@@ -98,8 +98,8 @@ replacement = r'''async function canonicalVisits(service: any, companyId: string
       finishedAt: row.finished_at,
       durationSeconds: row.duration_seconds,
       createdAt: row.created_at,
-    };
-  }).filter(Boolean);
+    }];
+  });
 
   const byRoute = new Map<string, any[]>();
   for (const visit of canonical) {
