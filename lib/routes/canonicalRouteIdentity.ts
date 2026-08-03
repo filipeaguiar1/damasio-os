@@ -41,6 +41,25 @@ export function belongsToCanonicalEmployee(
   return employeeMatch || crewMatch;
 }
 
+export function canonicalRouteLeadsForEmployee<T extends CanonicalRouteLead>(
+  leads: T[],
+  employee: CanonicalEmployeeIdentity,
+) {
+  // Resolve the Employee to a canonical route once, then return every stop from
+  // that routeId. This prevents legacy duplicate Employee/Crew rows from splitting
+  // one published route into partial lists on Admin web or mobile.
+  const routeIds = new Set(
+    leads
+      .filter(lead => lead.canonicalRouteId && belongsToCanonicalEmployee(lead, employee))
+      .map(lead => String(lead.canonicalRouteId)),
+  );
+  if (!routeIds.size) return [] as T[];
+  return leads.filter(lead => Boolean(
+    lead.canonicalRouteId
+    && routeIds.has(String(lead.canonicalRouteId)),
+  ));
+}
+
 export function canonicalRouteWarnings(leads: CanonicalRouteLead[]): CanonicalRouteWarning[] {
   const warnings: CanonicalRouteWarning[] = [];
 
