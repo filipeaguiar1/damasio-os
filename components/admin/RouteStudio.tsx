@@ -14,6 +14,8 @@ type RouteEmployee = {
   id: string;
   employeeId: string | null;
   crewId: string;
+  employeeIds?: string[];
+  crewIds?: string[];
   name: string;
   email: string;
   routeStartAddress: string | null;
@@ -101,7 +103,7 @@ export function RouteStudio() {
   const sourceEmployee = employees.find(item => item.id === employeeId) || null;
   const targetEmployee = employees.find(item => item.id === targetEmployeeId) || null;
   const sourceIdentity = sourceEmployee
-    ? { id: sourceEmployee.employeeId || sourceEmployee.id, crewId: sourceEmployee.crewId }
+    ? { id: sourceEmployee.employeeId || sourceEmployee.id, crewId: sourceEmployee.crewId, employeeIds: sourceEmployee.employeeIds, crewIds: sourceEmployee.crewIds }
     : null;
   const normalized = query.trim().toLowerCase();
   const visibleAvailable = useMemo(() => available.filter(item =>

@@ -16,6 +16,8 @@ type RouteEmployee = {
   id: string;
   employeeId: string | null;
   crewId: string;
+  employeeIds?: string[];
+  crewIds?: string[];
   name: string;
   email: string;
   routeStartAddress: string | null;
@@ -175,7 +177,7 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
     && item.scheduledDate === date
     && item.canonicalVisitStatus !== "cancelled"), [leads, date]);
   const selectedEmployee = employees.find(item => item.id === selectedId) || null;
-  const selectedIdentity = selectedEmployee ? { id: selectedEmployee.employeeId || selectedEmployee.id, crewId: selectedEmployee.crewId } : null;
+  const selectedIdentity = selectedEmployee ? { id: selectedEmployee.employeeId || selectedEmployee.id, crewId: selectedEmployee.crewId, employeeIds: selectedEmployee.employeeIds, crewIds: selectedEmployee.crewIds } : null;
   const selectedRoute = useMemo(() => selectedIdentity
     ? canonicalRouteLeadsForEmployee(visits, selectedIdentity).sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999))
     : [], [visits, selectedIdentity?.id, selectedIdentity?.crewId]);
@@ -183,7 +185,7 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
   const counts = useMemo(() => {
     const result = new Map<string, number>();
     for (const employee of employees) {
-      const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId };
+      const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId, employeeIds: employee.employeeIds, crewIds: employee.crewIds };
       result.set(employee.id, canonicalRouteLeadsForEmployee(visits, identity).length);
     }
     return result;
@@ -192,7 +194,7 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
   useEffect(() => {
     let cancelled = false;
     void Promise.all(employees.map(async (employee, index) => {
-      const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId };
+      const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId, employeeIds: employee.employeeIds, crewIds: employee.crewIds };
       const firstStop = visits.find(item => belongsToCanonicalEmployee(item, identity));
       const address = employee.routeStartAddress || firstStop?.address || "";
       if (!address) return null;

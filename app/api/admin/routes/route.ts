@@ -98,14 +98,18 @@ async function ensureEmployees(service: any, companyId: string) {
 
   if (employeeResult.error) throw new Error(employeeResult.error.message);
 
-  const byProfile = new Map<string, any>();
+  const byProfile = new Map<string, any[]>();
   for (const row of employeeResult.data || []) {
-    if (row.profile_id && !byProfile.has(row.profile_id)) byProfile.set(row.profile_id, row);
+    if (!row.profile_id) continue;
+    const aliases = byProfile.get(String(row.profile_id)) || [];
+    aliases.push(row);
+    byProfile.set(String(row.profile_id), aliases);
   }
 
   const employees: any[] = [];
   for (const profile of profilesResult.data || []) {
-    let employee = byProfile.get(profile.id);
+    let aliases = byProfile.get(String(profile.id)) || [];
+    let employee = aliases[0] || null;
 
     // Old demo logins must never become operational Employees, Crews or Route markers.
     if (isDemoIdentity(profile, employee)) continue;
@@ -129,6 +133,7 @@ async function ensureEmployees(service: any, companyId: string) {
 
       if (created.error) throw new Error(created.error.message);
       employee = created.data;
+      aliases = [employee];
     }
 
     if (!employee.crew_id) {
@@ -153,11 +158,20 @@ async function ensureEmployees(service: any, companyId: string) {
       employee.crew_id = crew.data.id;
     }
 
+    const employeeIds = [...new Set(
+      [...aliases.map(alias => String(alias.id || "")), String(employee.id || "")].filter(Boolean),
+    )];
+    const crewIds = [...new Set(
+      [...aliases.map(alias => String(alias.crew_id || "")), String(employee.crew_id || "")].filter(Boolean),
+    )];
+
     employees.push({
       id: profile.id,
       profileId: profile.id,
       employeeId: employee.id,
       crewId: employee.crew_id,
+      employeeIds,
+      crewIds,
       name: profile.full_name || employee.full_name || "Employee",
       email: profile.email || employee.email || "",
       routeStartAddress:
@@ -342,8 +356,10 @@ async function canonicalVisits(service: any, companyId: string, routeDate?: stri
 }
 
 function canonicalHealth(employees: any[], visits: any[]) {
-  const employeeIds = new Set(employees.map(employee => employee.employeeId).filter(Boolean));
-  const crewIds = new Set(employees.map(employee => employee.crewId).filter(Boolean));
+  const employeeIds = new Set(employees.flatMap(employee =>
+    employee.employeeIds?.length ? employee.employeeIds : [employee.employeeId]).filter(Boolean));
+  const crewIds = new Set(employees.flatMap(employee =>
+    employee.crewIds?.length ? employee.crewIds : [employee.crewId]).filter(Boolean));
   const issues = visits.flatMap(visit => {
     const missing = [
       !visit.customerId && "customerId",

@@ -19,6 +19,8 @@ type RouteEmployee = {
   id: string;
   employeeId: string;
   crewId: string;
+  employeeIds?: string[];
+  crewIds?: string[];
   name: string;
   email: string;
   routeStartAddress: string | null;
@@ -124,7 +126,7 @@ export default function MobileAdminRoutes() {
 
   const route = useMemo(() => {
     if (!employee) return [];
-    const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId };
+    const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId, employeeIds: employee.employeeIds, crewIds: employee.crewIds };
     const datedVisits = leads.filter(item => item.canonicalVisitId
       && item.canonicalRouteId
       && item.scheduledDate === date);

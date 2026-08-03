@@ -9,7 +9,7 @@ import { belongsToCanonicalEmployee } from "@/lib/routes/canonicalRouteIdentity"
 import { operationalDateKey } from "@/lib/dates/operationalDate";
 import styles from "./officialRoutePanels.module.css";
 
-type RouteEmployee = { id: string; employeeId: string | null; crewId: string; name: string };
+type RouteEmployee = { id: string; employeeId: string | null; crewId: string; employeeIds?: string[]; crewIds?: string[]; name: string };
 
 async function token() {
   const supabase = getSupabaseBrowserClient() as any;
@@ -62,7 +62,7 @@ export function OfficialRouteStatus() {
     && item.canonicalVisitStatus !== "cancelled"), [leads, date]);
 
   const rows = useMemo(() => employees.map(employee => {
-    const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId };
+    const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId, employeeIds: employee.employeeIds, crewIds: employee.crewIds };
     const visits = publishedToday.filter(item => belongsToCanonicalEmployee(item, identity));
     const completed = visits.filter(item => item.canonicalVisitStatus === "completed" || item.status === "completed").length;
     const progress = visits.length ? Math.round(completed / visits.length * 100) : 0;
