@@ -29,6 +29,9 @@ function rpcError(message?: string) {
   if (/publish_canonical_route_daily|schema cache|could not find the function/i.test(value)) {
     return new Error("Supabase migration 202607280001_route_assignment_modes.sql is pending.");
   }
+  if (/remove_visits_from_today_route/i.test(value)) {
+    return new Error("Supabase migration 202608031130_route_advisor_pending_removal.sql is pending.");
+  }
   if (/reopen_completed_visit/i.test(value)) {
     return new Error("Supabase migration 202607270003_completed_visit_reopen_guard.sql is pending or not confirmed.");
   }
@@ -50,7 +53,7 @@ async function requireAdmin(request: NextRequest) {
     .single();
 
   if (error || !profile?.active || !["admin", "manager"].includes(profile.role)) {
-    throw new Error("Only an active company Admin can publish or reopen Visits.");
+    throw new Error("Only an active company Admin can publish, remove or reopen Visits.");
   }
 
   const companyId = profile.company_id || profile.organization_id;
@@ -117,13 +120,15 @@ export async function POST(request: NextRequest) {
   try {
     const { service, user, companyId } = await requireAdmin(request);
     const body = await request.json() as {
-      action?: "publish" | "reopen";
+      action?: "publish" | "reopen" | "remove_today";
       employeeId?: string;
       crewId?: string;
       routeDate?: string;
       orderedJobIds?: string[];
       sourceVisitIds?: string[];
       visitId?: string;
+      visitIds?: string[];
+      removalReason?: string;
       reopenReason?: string;
       confirmReopen?: boolean;
       removeFrom?: {
@@ -133,6 +138,20 @@ export async function POST(request: NextRequest) {
         jobIds?: string[];
       };
     };
+
+    if (body.action === "remove_today") {
+      const visitIds = [...new Set((body.visitIds || []).map(String).filter(Boolean))];
+      const reason = String(body.removalReason || "").trim();
+      if (!visitIds.length) throw new Error("Select at least one Scheduled Visit.");
+      if (reason.length < 3) throw new Error("Choose or enter a removal reason.");
+
+      const removed = await user.rpc("remove_visits_from_today_route", {
+        p_visit_ids: visitIds,
+        p_reason: reason,
+      });
+      if (removed.error) throw rpcError(removed.error.message);
+      return NextResponse.json(removed.data || { removed: true, count: visitIds.length, status: "pending" });
+    }
 
     if (body.action === "reopen") {
       const visitId = String(body.visitId || "");
