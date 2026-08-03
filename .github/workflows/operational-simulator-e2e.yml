@@ -1,7 +1,7 @@
 name: Operational Simulator E2E
 # Final authenticated release gate for the canonical Route.
 # Exercises Admin and Employee web/mobile against one versioned snapshot.
-# Confirms Admin selection, Employee Start/Finish, Smart Route apply and restore.
+# Confirms browser-local route date, Smart Route sync and Admin Advisor membership edits.
 
 on:
   pull_request:
