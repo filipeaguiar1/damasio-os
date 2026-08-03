@@ -55,7 +55,7 @@ export async function getCustomerPropertyDirectory() {
     seedDemoLeads();
     return localRecords();
   }
-  return listCustomerProperties();
+  return (await listCustomerProperties()).records;
 }
 
 export async function addCustomerWithProperty(input: CreateCustomerPropertyInput) {
