@@ -96,20 +96,28 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await signIn(adminDesktop, process.env.E2E_ADMIN_EMAIL!, process.env.E2E_ADMIN_PASSWORD!);
   await adminDesktop.waitForURL("**/admin", { timeout: 30_000 });
 
-  const removal = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
-    method: "POST",
-    body: { action: "remove" },
-  });
-  expect(removal.removed).toBe(true);
-  await expect.poll(async () => {
-    const result = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator");
-    return Boolean(result.status?.exists);
-  }, { timeout: 60_000 }).toBe(false);
-  const simulation = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
-    method: "POST",
-    body: { action: "create" },
-  });
-  expect(simulation.created).toBe(true);
+  let simulation: any = null;
+  for (let attempt = 0; attempt < 3 && !simulation; attempt += 1) {
+    const removal = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
+      method: "POST",
+      body: { action: "remove" },
+    });
+    expect(removal.removed).toBe(true);
+    await expect.poll(async () => {
+      const result = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator");
+      return Boolean(result.status?.exists);
+    }, { timeout: 60_000 }).toBe(false);
+    await adminDesktop.waitForTimeout(750 * (attempt + 1));
+    try {
+      simulation = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
+        method: "POST",
+        body: { action: "create" },
+      });
+    } catch (error) {
+      if (attempt === 2 || !/simulation already exists/i.test(String(error))) throw error;
+    }
+  }
+  expect(simulation?.created).toBe(true);
   expect(simulation.workers?.length).toBe(2);
   const workerEmail = String(simulation.workers[0].email);
   const workerPassword = String(simulation.workers[0].password);
