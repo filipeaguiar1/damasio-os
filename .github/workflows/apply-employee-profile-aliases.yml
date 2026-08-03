@@ -1,19 +1,18 @@
 name: Apply Employee Profile Aliases
 
 on:
-  push:
-    branches: [feature/25-30-homes-simulator-v1]
+  pull_request:
+    branches: [main]
     paths:
       - "scripts/apply-employee-profile-aliases.py"
       - ".github/workflows/apply-employee-profile-aliases.yml"
-  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.ref == 'refs/heads/feature/25-30-homes-simulator-v1'
+    if: github.event.pull_request.head.ref == 'feature/25-30-homes-simulator-v1'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
