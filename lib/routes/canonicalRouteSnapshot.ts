@@ -60,6 +60,12 @@ function storedAccessToken() {
 }
 
 async function accessToken() {
+  // The browser session is already persisted by Supabase. Read it synchronously
+  // before asking the SDK to acquire its internal auth lock; this prevents route
+  // rendering from waiting behind a second tab or the mobile surface.
+  const persisted = storedAccessToken();
+  if (persisted) return persisted;
+
   const supabase = getSupabaseBrowserClient() as any;
   const { data, error } = await supabase.auth.getSession();
   const token = data.session?.access_token || storedAccessToken();

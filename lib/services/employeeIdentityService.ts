@@ -19,6 +19,21 @@ function cleanFallbackCrew(value?: string) {
   return /^Crew\s+[A-C]$/i.test(crew) ? "" : crew;
 }
 
+function storedAccessToken() {
+  if (typeof window === "undefined") return null;
+  for (const key of Object.keys(window.localStorage)) {
+    if (!key.startsWith("sb-") || !key.endsWith("-auth-token")) continue;
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(key) || "null");
+      const token = stored?.access_token || stored?.currentSession?.access_token;
+      if (typeof token === "string" && token.length > 20) return token;
+    } catch {
+      // Ignore malformed unrelated browser storage.
+    }
+  }
+  return null;
+}
+
 export async function loadEmployeeOperationalIdentity(): Promise<EmployeeOperationalIdentity> {
   const local = getEmployeeProfile();
   const fallback = {
@@ -29,6 +44,31 @@ export async function loadEmployeeOperationalIdentity(): Promise<EmployeeOperati
     routeStartAddress: local.defaultAddress || null,
   };
   if (!isSupabaseConfigured()) return fallback;
+
+  // Use the same service-backed bootstrap as mobile. It resolves legacy duplicate
+  // Employee rows and does not depend on the browser SDK auth lock.
+  const persistedToken = storedAccessToken();
+  if (persistedToken) {
+    try {
+      const response = await fetch("/api/mobile/employee/bootstrap", {
+        method: "POST",
+        headers: { authorization: `Bearer ${persistedToken}` },
+        cache: "no-store",
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.ok && result.employee?.id) {
+        return {
+          name: result.employee.name || fallback.name,
+          crew: result.employee.crewName || fallback.crew,
+          employeeId: result.employee.id,
+          crewId: result.employee.crewId || null,
+          routeStartAddress: result.employee.routeStartAddress || fallback.routeStartAddress,
+        };
+      }
+    } catch {
+      // Fall through to the browser query for offline/older deployments.
+    }
+  }
 
   try {
     const supabase = getSupabaseBrowserClient() as any;

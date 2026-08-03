@@ -29,9 +29,10 @@ export async function POST(request:NextRequest){
     if(profileError||!profile?.active||profile.role!=="employee")return NextResponse.json({error:"This login is not an active Employee account."},{status:403});
 
     const client=adminClient();
-    const select="id,profile_id,company_id,organization_id,full_name,email,crew_id,active";
-    let{data:employee,error:employeeError}=await client.from("employees").select(select).eq("profile_id",user.id).eq("active",true).maybeSingle();
-    if(employeeError)throw new Error(employeeError.message);
+    const select="id,profile_id,company_id,organization_id,full_name,email,crew_id,address_line1,route_start_address,active,created_at,crews(id,name)";
+    const employeeRows=await client.from("employees").select(select).eq("profile_id",user.id).eq("active",true).order("created_at",{ascending:false}).limit(20);
+    if(employeeRows.error)throw new Error(employeeRows.error.message);
+    let employee=(employeeRows.data||[]).find((candidate:any)=>Boolean(candidate.crew_id))||employeeRows.data?.[0]||null;
 
     if(!employee&&user.email){
       const companyId=profile.company_id||profile.organization_id||null;
@@ -39,7 +40,7 @@ export async function POST(request:NextRequest){
       if(companyId)query=query.or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
       const result=await query.order("created_at",{ascending:true}).limit(2);
       if(result.error)throw new Error(result.error.message);
-      employee=result.data?.[0]||null;
+      employee=(result.data||[]).find((candidate:any)=>Boolean(candidate.crew_id))||result.data?.[0]||null;
       if(employee){
         const{data:linked,error:linkError}=await client.from("employees").update({profile_id:user.id,email:user.email.trim().toLowerCase()}).eq("id",employee.id).select(select).single();
         if(linkError)throw new Error(linkError.message);
@@ -64,7 +65,15 @@ export async function POST(request:NextRequest){
     const visitResult=await visitQuery;
 
     return NextResponse.json({
-      employee:{id:employee.id,profileId:user.id,crewId:employee.crew_id||null,name:employee.full_name,email:normalizedEmail},
+      employee:{
+        id:employee.id,
+        profileId:user.id,
+        crewId:employee.crew_id||null,
+        crewName:(Array.isArray(employee.crews)?employee.crews[0]:employee.crews)?.name||null,
+        name:employee.full_name,
+        email:normalizedEmail,
+        routeStartAddress:employee.route_start_address||employee.address_line1||null,
+      },
       todayVisitCount:visitResult.count||0,
     });
   }catch(error){
