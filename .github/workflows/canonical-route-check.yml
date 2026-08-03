@@ -1,58 +1,48 @@
-name: Apply Canonical Advisor Editor
+name: Canonical Route Check
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: apply-canonical-advisor-${{ github.event.pull_request.number }}
+  group: canonical-route-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: feature/25-30-homes-simulator-v1
-          fetch-depth: 0
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
         with:
           version: 9.15.4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
 
-      - name: Apply canonical Advisor patch
-        run: |
-          sed -i 's/type CanonicalRouteTarget = string | {/type CanonicalRouteTarget = string | null | {/' scripts/apply-advisor-canonical-editor.py
-          python scripts/apply-advisor-canonical-editor.py
-
-      - name: Install dependencies
+      - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Validate implementation
-        run: pnpm build
+      - name: Validate canonical route identity
+        run: node scripts/validate-canonical-route.mjs
 
-      - name: Commit validated implementation
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            lib/hooks/useCanonicalRouteSnapshot.ts \
-            lib/services/routeMapService.ts \
-            app/employee/route/page.tsx \
-            components/admin/RouteAdvisorPanel.tsx \
-            components/admin/OfficialRoutePlanMap.tsx \
-            components/admin/RouteStudio.tsx \
-            app/api/admin/route-advisor/route.ts \
-            tests/canonical-route-sync.spec.ts
-          git commit -m "feat(routes): make Advisor edit the global canonical route"
-          git push origin HEAD:feature/25-30-homes-simulator-v1
+      - name: Simulate canonical operations
+        run: node scripts/simulate-canonical-operations.mjs
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Production build
+        run: pnpm build
