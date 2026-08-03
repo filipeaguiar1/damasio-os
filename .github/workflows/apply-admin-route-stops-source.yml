@@ -1,0 +1,45 @@
+name: Apply Admin Route Stops Source
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/apply-admin-route-stops-source.py"
+      - ".github/workflows/apply-admin-route-stops-source.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.ref == 'feature/25-30-homes-simulator-v1'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+          fetch-depth: 1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Apply route_stops source
+        run: python scripts/apply-admin-route-stops-source.py
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate production build
+        run: pnpm build
+      - name: Commit validated functional change
+        run: |
+          git config user.name "Damasio OS CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/api/admin/routes/route.ts
+          if git diff --cached --quiet; then
+            echo "No functional changes to commit."
+            exit 0
+          fi
+          git commit -m "fix(routes): read Admin published routes from route stops"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
