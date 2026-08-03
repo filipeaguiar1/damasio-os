@@ -117,7 +117,8 @@ export default function EmployeeRoutePage(){
     const qDate=params.get("date");
     const qProperty=params.get("property");
     const qView=params.get("view");
-    void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setRouteStartAddress(identity.routeStartAddress||"")});
+    // Resolve the requested canonical surface before touching legacy browser storage.
+    // A stale or blocked localStorage record must never prevent the web map from hydrating.
     const clientNow=new Date();
     const clientToday=localDateKey(clientNow);
     const clientWeekStart=mondayKey(clientNow);
@@ -132,13 +133,22 @@ export default function EmployeeRoutePage(){
       if(qDay&&DAMASIO_WEEK_DAYS.includes(qDay)){setDay(qDay);setSelectedDate(routeDateForWeekday(qDay));}
       else {setDay(today);setSelectedDate(clientToday);}
     }
-    refresh();
     if(qProperty){setSelectedId(qProperty);setView("details");}
     else if(qView==="map")setView("map");
-    const on=()=>refresh();
+
+    void loadEmployeeOperationalIdentity()
+      .then(identity=>{setCrew(identity.crew);setRouteStartAddress(identity.routeStartAddress||"")})
+      .catch(error=>setMenuMessage(error instanceof Error?error.message:"Employee identity could not be loaded."));
+
+    const safeRefresh=()=>{
+      try{refresh()}
+      catch(error){setMenuMessage(error instanceof Error?error.message:"Legacy route data could not be loaded.")}
+    };
+    safeRefresh();
+    const on=()=>safeRefresh();
     window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener);
     window.addEventListener("storage",on);
-    const timer=setInterval(()=>{if(document.visibilityState==="visible")refresh()},15000);
+    const timer=setInterval(()=>{if(document.visibilityState==="visible")safeRefresh()},15000);
     return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);clearInterval(timer)}
   },[]);
   useEffect(()=>{
