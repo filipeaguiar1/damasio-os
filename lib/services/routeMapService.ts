@@ -117,7 +117,7 @@ function contextStop(stop: CanonicalRouteStop) {
   };
 }
 
-function contextFromSnapshot(snapshot: CanonicalRouteSnapshot): EmployeeRouteMapContext {
+export function employeeRouteMapContextFromSnapshot(snapshot: CanonicalRouteSnapshot): EmployeeRouteMapContext {
   return {
     routeId: snapshot.routeId,
     routeVersion: snapshot.routeVersion,
@@ -137,7 +137,7 @@ export async function loadEmployeeRouteMapContext(
 ): Promise<EmployeeRouteMapContext> {
   if (!routeDate || !isSupabaseConfigured()) return emptyContext;
   const snapshot = await loadCanonicalRouteSnapshot({ routeDate });
-  return contextFromSnapshot(snapshot);
+  return employeeRouteMapContextFromSnapshot(snapshot);
 }
 
 export async function loadEmployeeRouteMapContextUntilStatus(
@@ -272,7 +272,16 @@ async function canonicalOrderRequest(body: Record<string, unknown>) {
         signal: controller.signal,
       });
       const result = await response.json().catch(() => ({}));
-      if (response.ok) return result as Record<string, any>;
+      if (response.ok) {
+        const routeId = String(result.routeId || body.routeId || "");
+        window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeId } }));
+        if (typeof BroadcastChannel !== "undefined") {
+          const broadcast = new BroadcastChannel("damasio-canonical-route");
+          broadcast.postMessage({ routeId, routeVersion: result.routeVersion || result.version || null });
+          broadcast.close();
+        }
+        return result as Record<string, any>;
+      }
       lastMessage = result.error || `Canonical Route request failed (${response.status}).`;
       if (![502, 503, 504].includes(response.status) || attempt === 1) throw new Error(lastMessage);
     } catch (reason) {

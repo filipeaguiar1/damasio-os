@@ -188,7 +188,10 @@ export async function POST(request: NextRequest) {
     });
 
     if (result.error) throw rpcError(result.error.message);
-    return NextResponse.json(result.data);
+    const data = result.data || {};
+    const routeId = String(data.routeId || "");
+    const routeVersion = Number(data.routeVersions?.[routeId] || data.routeVersion || 0);
+    return NextResponse.json({ ...data, routeVersion });
   } catch (error) {
     console.error("admin-route-advisor-post", error);
     return NextResponse.json(

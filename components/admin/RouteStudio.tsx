@@ -6,7 +6,7 @@ import { OfficialRoutePlanMap } from "@/components/admin/OfficialRoutePlanMap";
 import { RouteAdvisorPanel } from "@/components/admin/RouteAdvisorPanel";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { operationalDateKey } from "@/lib/dates/operationalDate";
-import { belongsToCanonicalEmployee, canonicalRouteWarnings } from "@/lib/routes/canonicalRouteIdentity";
+import { canonicalRouteLeadsForEmployee, canonicalRouteWarnings } from "@/lib/routes/canonicalRouteIdentity";
 import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulingService";
 import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
 
@@ -109,9 +109,12 @@ export function RouteStudio() {
   const visibleAvailable = useMemo(() => available.filter(item =>
     !normalized || `${item.name} ${item.address} ${item.service}`.toLowerCase().includes(normalized)),
   [available, normalized]);
-  const sourceRoute = useMemo(() => sourceIdentity ? visits.filter(item =>
-    item.scheduledDate === date && belongsToCanonicalEmployee(item, sourceIdentity))
-    .sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999)) : [],
+  const sourceRoute = useMemo(() => sourceIdentity
+    ? canonicalRouteLeadsForEmployee(
+        visits.filter(item => item.scheduledDate === date),
+        sourceIdentity,
+      ).sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999))
+    : [],
   [visits, date, sourceIdentity?.id, sourceIdentity?.crewId]);
   const movableSource = useMemo(() => sourceRoute.filter(item =>
     (item.canonicalVisitStatus || item.status) === "scheduled"), [sourceRoute]);

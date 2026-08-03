@@ -258,10 +258,69 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   const restoredEmployee = await authRequest<any>(employeeDesktop, `/api/map/canonical-route?routeId=${employeeSnapshot.routeId}`);
   expect(restoredEmployee.orderedVisitIds).toEqual(employeeSnapshot.orderedVisitIds);
 
+  const originalJobIds = restoredEmployee.stops.map((stop: any) => String(stop.jobId || "")).filter(Boolean);
+  expect(originalJobIds.length).toBe(restoredEmployee.stops.length);
+  const reducedJobIds = originalJobIds.slice(0, -1);
+  const adminRemove = await authRequest<any>(adminDesktop, "/api/admin/route-advisor", {
+    method: "POST",
+    body: {
+      action: "publish",
+      employeeId: worker.employeeId || worker.id,
+      crewId: worker.crewId,
+      routeDate,
+      orderedJobIds: reducedJobIds,
+      sourceVisitIds: [],
+    },
+  });
+  expect(adminRemove.count).toBe(reducedJobIds.length);
+  expect(adminRemove.routeVersion).toBeGreaterThan(restoredEmployee.routeVersion);
+  for (const page of [adminDesktop, adminMobile, employeeDesktop, employeeMobile]) {
+    await waitForVersion(page, employeeSnapshot.routeId, adminRemove.routeVersion);
+  }
+  for (const [page, label] of [
+    [adminDesktop, "Admin web after Advisor remove"],
+    [adminMobile, "Admin mobile after Advisor remove"],
+    [employeeDesktop, "Employee web after Advisor remove"],
+    [employeeMobile, "Employee mobile after Advisor remove"],
+  ] as const) {
+    await assertCanonicalScreen(page, adminRemove.routeVersion, reducedJobIds.length, label);
+  }
+
+  const adminAdd = await authRequest<any>(adminDesktop, "/api/admin/route-advisor", {
+    method: "POST",
+    body: {
+      action: "publish",
+      employeeId: worker.employeeId || worker.id,
+      crewId: worker.crewId,
+      routeDate,
+      orderedJobIds: originalJobIds,
+      sourceVisitIds: [],
+    },
+  });
+  expect(adminAdd.count).toBe(originalJobIds.length);
+  expect(adminAdd.routeVersion).toBeGreaterThan(adminRemove.routeVersion);
+  for (const page of [adminDesktop, adminMobile, employeeDesktop, employeeMobile]) {
+    await waitForVersion(page, employeeSnapshot.routeId, adminAdd.routeVersion);
+  }
+  for (const [page, label] of [
+    [adminDesktop, "Admin web after Advisor add"],
+    [adminMobile, "Admin mobile after Advisor add"],
+    [employeeDesktop, "Employee web after Advisor add"],
+    [employeeMobile, "Employee mobile after Advisor add"],
+  ] as const) {
+    await assertCanonicalScreen(page, adminAdd.routeVersion, originalJobIds.length, label);
+  }
+
   await adminDesktop.screenshot({ path: "canonical-admin-web.png", fullPage: true });
   await adminMobile.screenshot({ path: "canonical-admin-mobile.png", fullPage: true });
   await employeeDesktop.screenshot({ path: "canonical-employee-web.png", fullPage: true });
   await employeeMobile.screenshot({ path: "canonical-employee-mobile.png", fullPage: true });
+
+  await adminDesktop.goto(`${baseURL}/admin/routes?tab=advisor`);
+  await expect(adminDesktop.getByText("Create, add, reorder or remove houses.")).toBeVisible({ timeout: 30_000 });
+  await adminDesktop.locator(".advisor-controls select").selectOption(worker.id);
+  await adminDesktop.locator('.advisor-controls input[type="date"]').fill(routeDate);
+  await expect(adminDesktop.locator(".advisor-house-picker")).toContainText(`route ${originalJobIds.length}/`, { timeout: 30_000 });
 
   await authRequest(adminDesktop, "/api/admin/operational-simulator", {
     method: "POST",

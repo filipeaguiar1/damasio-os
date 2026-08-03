@@ -7,7 +7,9 @@ import {
 } from "@/components/admin/InteractiveRoutePreviewMap";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { operationalDateKey } from "@/lib/dates/operationalDate";
-import { belongsToCanonicalEmployee } from "@/lib/routes/canonicalRouteIdentity";
+import { canonicalRouteLeadsForEmployee } from "@/lib/routes/canonicalRouteIdentity";
+import { useCanonicalRouteSnapshot } from "@/lib/hooks/useCanonicalRouteSnapshot";
+import type { CanonicalRouteSnapshot } from "@/lib/routes/canonicalRouteSnapshot";
 import {
   planningDates,
   recommendRoutePlacements,
@@ -102,6 +104,40 @@ async function locate(home: RouteLead) {
   return { ...home, ...point };
 }
 
+function routeLeadsFromSnapshot(snapshot: CanonicalRouteSnapshot | null): RouteLead[] {
+  if (!snapshot) return [];
+  return snapshot.stops.map(stop => ({
+    id: stop.visitId,
+    createdAt: stop.scheduledDate ? `${stop.scheduledDate}T12:00:00.000Z` : snapshot.updatedAt,
+    name: stop.customerName,
+    phone: "",
+    email: "",
+    address: stop.address,
+    service: stop.serviceName,
+    status: stop.status === "completed" ? "completed" as const : "booked" as const,
+    subtotal: 0,
+    tax: 0,
+    total: 0,
+    photos: [],
+    scheduledDate: stop.scheduledDate || snapshot.routeDate,
+    nextVisitDate: stop.scheduledDate || snapshot.routeDate,
+    routeOrder: stop.routeOrder,
+    latitude: stop.latitude ?? undefined,
+    longitude: stop.longitude ?? undefined,
+    canonicalVisitId: stop.visitId,
+    canonicalJobId: stop.jobId || undefined,
+    canonicalRouteId: snapshot.routeId,
+    canonicalCustomerId: stop.customerId || undefined,
+    canonicalPropertyId: stop.propertyId || undefined,
+    canonicalEmployeeId: stop.employeeId || undefined,
+    canonicalCrewId: stop.crewId || undefined,
+    canonicalVisitStatus: stop.status as RouteLead["canonicalVisitStatus"],
+    visitStartedAt: stop.startedAt || undefined,
+    visitFinishedAt: stop.finishedAt || undefined,
+    visitDurationSeconds: stop.durationSeconds ?? undefined,
+  }));
+}
+
 export function RouteAdvisorPanel() {
   const [employees, setEmployees] = useState<RouteEmployee[]>([]);
   const [leads, setLeads] = useState<RouteLead[]>([]);
@@ -131,7 +167,7 @@ export function RouteAdvisorPanel() {
       const token = await accessToken();
       const headers = { authorization: `Bearer ${token}` };
       const [routeResponse, employeeResponse] = await Promise.all([
-        fetch("/api/admin/routes", { headers, cache: "no-store" }),
+        fetch(`/api/admin/routes?date=${encodeURIComponent(date)}`, { headers, cache: "no-store" }),
         fetch("/api/admin/users", { headers, cache: "no-store" }),
       ]);
       const routeResult = await routeResponse.json();
@@ -160,7 +196,7 @@ export function RouteAdvisorPanel() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [date]);
 
   useEffect(() => {
     void refresh();
@@ -204,16 +240,27 @@ export function RouteAdvisorPanel() {
     return map;
   }, [visits]);
 
-  const currentRoute = useMemo(() => {
+  const routeCandidates = useMemo(() => {
     if (!employeeIdentity) return [];
-    return visits
-      .filter(item =>
-        item.scheduledDate === date
-        && belongsToCanonicalEmployee(item, employeeIdentity))
+    const datedVisits = visits.filter(item => item.scheduledDate === date);
+    return canonicalRouteLeadsForEmployee(datedVisits, employeeIdentity)
       .sort((left, right) =>
         (left.routeOrder ?? 9999) - (right.routeOrder ?? 9999)
         || canonicalVisitId(left).localeCompare(canonicalVisitId(right)));
   }, [visits, date, employeeIdentity?.id, employeeIdentity?.crewId]);
+  const currentRouteId = routeCandidates[0]?.canonicalRouteId || null;
+  const {
+    snapshot: liveRouteSnapshot,
+    error: liveRouteError,
+    refresh: refreshLiveRoute,
+  } = useCanonicalRouteSnapshot(currentRouteId);
+  const currentRoute = useMemo(() =>
+    liveRouteSnapshot ? routeLeadsFromSnapshot(liveRouteSnapshot) : routeCandidates,
+  [liveRouteSnapshot, routeCandidates]);
+
+  useEffect(() => {
+    if (liveRouteError) setMessage(liveRouteError);
+  }, [liveRouteError]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const visibleJobs = useMemo(() => jobs
@@ -592,11 +639,19 @@ export function RouteAdvisorPanel() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "The route could not be published.");
 
-      setMessage(`${result.count} houses published for ${employee.name} on ${date}. Capacity ${result.count}/${result.capacity}.`);
+      const routeVersion = Number(result.routeVersion || result.routeVersions?.[result.routeId] || 0);
+      setMessage(`${result.count} houses published for ${employee.name} on ${date}${routeVersion ? ` as canonical route v${routeVersion}` : ""}. Admin and Employee web/mobile update automatically.`);
       setSelectedJobIds([]);
       setRecommendations([]);
       resetPreview();
+      window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeId: result.routeId } }));
+      if (typeof BroadcastChannel !== "undefined") {
+        const broadcast = new BroadcastChannel("damasio-canonical-route");
+        broadcast.postMessage({ routeId: result.routeId, routeVersion });
+        broadcast.close();
+      }
       await refresh(true);
+      if (result.routeId === currentRouteId) await refreshLiveRoute();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "The route could not be published.");
     } finally {
@@ -649,8 +704,8 @@ export function RouteAdvisorPanel() {
     <header className="advisor-hero">
       <div>
         <span>ROUTE ADVISOR</span>
-        <h2>Intelligent suggestion. Full Admin control.</h2>
-        <p>Proximity, capacity, displacement, Employee continuity and due date guide the recommendation. Nothing publishes automatically.</p>
+        <h2>Create, add, reorder or remove houses.</h2>
+        <p>The Advisor edits the same versioned canonical Route used by Admin and Employee on web and mobile. Nothing publishes automatically.</p>
       </div>
       <div className="advisor-guard">
         <strong>Admin approval required</strong>
@@ -826,7 +881,7 @@ export function RouteAdvisorPanel() {
             disabled={busy || !employee}
             onClick={() => void generatePreview()}
           >
-            {busy ? "Calculating..." : "Generate route preview"}
+            {busy ? "Calculating..." : currentRoute.length ? "Edit current canonical route" : "Create route preview"}
           </button>
         </section> : <>
           <section className="advisor-impact">

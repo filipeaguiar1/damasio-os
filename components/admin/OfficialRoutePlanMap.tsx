@@ -162,12 +162,28 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
 
   useEffect(() => {
     void refresh();
+    const client = getSupabaseBrowserClient() as any;
+    let refreshTimer = 0;
+    const refreshSoon = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => void refresh(), 120);
+    };
     const timer = window.setInterval(() => void refresh(), 5000);
-    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    const onVisible = () => { if (document.visibilityState === "visible") refreshSoon(); };
+    const channel = client
+      .channel(`admin-canonical-routes:${date}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "route_order_state" }, refreshSoon)
+      .on("postgres_changes", { event: "*", schema: "public", table: "route_stops" }, refreshSoon)
+      .on("postgres_changes", { event: "*", schema: "public", table: "visits" }, refreshSoon)
+      .subscribe();
+    window.addEventListener("damasio:canonical-route-updated", refreshSoon);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
+      window.clearTimeout(refreshTimer);
       window.clearInterval(timer);
+      window.removeEventListener("damasio:canonical-route-updated", refreshSoon);
       document.removeEventListener("visibilitychange", onVisible);
+      void client.removeChannel(channel);
     };
   }, [date]);
 
