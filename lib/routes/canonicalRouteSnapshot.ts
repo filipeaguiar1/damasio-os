@@ -44,13 +44,32 @@ export type CanonicalRouteSnapshot = {
   updatedAt: string;
 };
 
+function storedAccessToken() {
+  if (typeof window === "undefined") return null;
+  for (const key of Object.keys(window.localStorage)) {
+    if (!key.startsWith("sb-") || !key.endsWith("-auth-token")) continue;
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(key) || "null");
+      const token = stored?.access_token || stored?.currentSession?.access_token;
+      if (typeof token === "string" && token.length > 20) return token;
+    } catch {
+      // A malformed unrelated storage value must not block the canonical route.
+    }
+  }
+  return null;
+}
+
 async function accessToken() {
   const supabase = getSupabaseBrowserClient() as any;
   const { data, error } = await supabase.auth.getSession();
+  const token = data.session?.access_token || storedAccessToken();
+  if (token) return token as string;
   if (error) throw new Error(error.message);
-  const token = data.session?.access_token;
-  if (!token) throw new Error("Your session expired. Sign in again.");
-  return token as string;
+
+  const refreshed = await supabase.auth.refreshSession();
+  const refreshedToken = refreshed.data?.session?.access_token || storedAccessToken();
+  if (!refreshedToken) throw new Error("Your session expired. Sign in again.");
+  return refreshedToken as string;
 }
 
 function validSnapshot(value: unknown): value is CanonicalRouteSnapshot {

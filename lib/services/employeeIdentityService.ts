@@ -36,13 +36,18 @@ export async function loadEmployeeOperationalIdentity(): Promise<EmployeeOperati
     const user = auth?.user;
     if (!user?.id) return fallback;
 
-    const select = "id,full_name,email,crew_id,profile_id,address_line1,route_start_address,crews(id,name)";
-    let { data: employee, error } = await supabase
+    const select = "id,full_name,email,crew_id,profile_id,address_line1,route_start_address,created_at,crews(id,name)";
+    const byProfile = await supabase
       .from("employees")
       .select(select)
       .eq("profile_id", user.id)
       .eq("active", true)
-      .maybeSingle();
+      .order("created_at", { ascending: false })
+      .limit(20);
+    let error = byProfile.error;
+    let employee = (byProfile.data || []).find((candidate: any) => Boolean(candidate.crew_id))
+      || byProfile.data?.[0]
+      || null;
 
     if ((!employee || error) && user.email) {
       const byEmail = await supabase
@@ -50,8 +55,11 @@ export async function loadEmployeeOperationalIdentity(): Promise<EmployeeOperati
         .select(select)
         .ilike("email", user.email.trim())
         .eq("active", true)
-        .maybeSingle();
-      employee = byEmail.data;
+        .order("created_at", { ascending: false })
+        .limit(20);
+      employee = (byEmail.data || []).find((candidate: any) => Boolean(candidate.crew_id))
+        || byEmail.data?.[0]
+        || null;
       error = byEmail.error;
 
       if (employee && !employee.profile_id) {
