@@ -14,6 +14,8 @@ export type CanonicalRouteLead = Lead & {
 export type CanonicalEmployeeIdentity = {
   id: string;
   crewId: string;
+  employeeIds?: string[];
+  crewIds?: string[];
 };
 
 export type CanonicalRouteWarning = {
@@ -25,18 +27,25 @@ export function belongsToCanonicalEmployee(
   lead: CanonicalRouteLead,
   employee: CanonicalEmployeeIdentity,
 ) {
-  // Employee records can have historical duplicate IDs, while the Visit keeps the
-  // same canonical Crew assignment. Either exact canonical identifier therefore
-  // resolves to the same operational Employee route; no email/name fallback exists.
+  // profile_id is the stable login identity. Older databases may contain more than
+  // one Employee/Crew row for that profile, so compare every exact database alias.
+  // Names and email addresses are intentionally never used as operational identity.
+  const employeeIds = new Set([
+    employee.id,
+    ...(employee.employeeIds || []),
+  ].filter(Boolean));
+  const crewIds = new Set([
+    employee.crewId,
+    ...(employee.crewIds || []),
+  ].filter(Boolean));
+
   const employeeMatch = Boolean(
     lead.canonicalEmployeeId
-    && employee.id
-    && lead.canonicalEmployeeId === employee.id,
+    && employeeIds.has(lead.canonicalEmployeeId),
   );
   const crewMatch = Boolean(
     lead.canonicalCrewId
-    && employee.crewId
-    && lead.canonicalCrewId === employee.crewId,
+    && crewIds.has(lead.canonicalCrewId),
   );
   return employeeMatch || crewMatch;
 }
@@ -45,9 +54,9 @@ export function canonicalRouteLeadsForEmployee<T extends CanonicalRouteLead>(
   leads: T[],
   employee: CanonicalEmployeeIdentity,
 ) {
-  // Resolve the Employee to a canonical route once, then return every stop from
-  // that routeId. This prevents legacy duplicate Employee/Crew rows from splitting
-  // one published route into partial lists on Admin web or mobile.
+  // Resolve the profile to a canonical route once, then return every stop from
+  // that routeId. This prevents duplicate historical Employee/Crew rows from
+  // splitting one published route into partial lists on Admin web or mobile.
   const routeIds = new Set(
     leads
       .filter(lead => lead.canonicalRouteId && belongsToCanonicalEmployee(lead, employee))
