@@ -57,6 +57,7 @@ jobs:
       - name: Full operational flow
         run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
       - name: Four-screen canonical Route
+        if: always()
         run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
       - name: Upload evidence
         if: always()
