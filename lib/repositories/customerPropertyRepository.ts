@@ -27,6 +27,21 @@ export type CustomerPropertyRecord = {
   createdAt: string;
 };
 
+export type CustomerDirectoryPagination = {
+  page: number;
+  pageSize: number;
+  total: number;
+  pageCount: number;
+  hasNext: boolean;
+  hasPrevious: boolean;
+};
+
+export type CustomerDirectoryPage = {
+  records: CustomerPropertyRecord[];
+  pagination: CustomerDirectoryPagination;
+  counts: { customers: number; properties: number; pageJobs: number };
+};
+
 export type CreateCustomerPropertyInput = {
   fullName: string;
   email?: string;
@@ -59,11 +74,11 @@ async function accessToken(refresh = false) {
   return token;
 }
 
-async function customerApi(options?: RequestInit) {
+async function customerApi(path: string, options?: RequestInit) {
   let response: Response | null = null;
   let result: any = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    response = await fetch("/api/admin/customers", {
+    response = await fetch(path, {
       ...options,
       headers: {
         "content-type": "application/json",
@@ -79,19 +94,36 @@ async function customerApi(options?: RequestInit) {
   throw new Error(result?.error || "Customer operation failed.");
 }
 
-export async function listCustomerProperties(): Promise<CustomerPropertyRecord[]> {
-  const result = await customerApi();
-  return Array.isArray(result.records) ? result.records as CustomerPropertyRecord[] : [];
+export async function listCustomerProperties(params: {
+  page?: number;
+  pageSize?: number;
+  query?: string;
+  city?: string;
+} = {}): Promise<CustomerDirectoryPage> {
+  const search = new URLSearchParams({
+    page: String(Math.max(1, params.page || 1)),
+    pageSize: String(Math.min(100, Math.max(10, params.pageSize || 50))),
+  });
+  if (params.query?.trim()) search.set("query", params.query.trim());
+  if (params.city?.trim() && params.city !== "all") search.set("city", params.city.trim());
+  const result = await customerApi(`/api/admin/customers/directory?${search.toString()}`);
+  return {
+    records: Array.isArray(result.records) ? result.records as CustomerPropertyRecord[] : [],
+    pagination: result.pagination || {
+      page: 1, pageSize: 50, total: 0, pageCount: 1, hasNext: false, hasPrevious: false,
+    },
+    counts: result.counts || { customers: 0, properties: 0, pageJobs: 0 },
+  };
 }
 
 export async function createCustomerProperty(input: CreateCustomerPropertyInput): Promise<CustomerPropertyRecord> {
-  const result = await customerApi({ method: "POST", body: JSON.stringify(input) });
+  const result = await customerApi("/api/admin/customers", { method: "POST", body: JSON.stringify(input) });
   if (!result.record) throw new Error("Customer chain was created but could not be verified.");
   return result.record as CustomerPropertyRecord;
 }
 
 export async function deleteCustomerRecords(customerIds:string[]):Promise<number>{
-  const result = await customerApi({
+  const result = await customerApi("/api/admin/customers", {
     method: "DELETE",
     body: JSON.stringify({ customerIds }),
   });
