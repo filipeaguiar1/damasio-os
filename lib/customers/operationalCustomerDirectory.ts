@@ -61,6 +61,8 @@ export type OperationalCustomerContext = {
   repairedCustomerIds: string[];
 };
 
+const QUERY_BATCH_SIZE = 40;
+
 const customerColumns = [
   "id", "profile_id", "full_name", "email", "phone", "notes", "company_id",
   "organization_id", "service_company_id", "assignment_status", "offer_status",
@@ -99,6 +101,18 @@ function mergeRows<T extends { id: string }>(groups: T[][]) {
   return [...rows.values()];
 }
 
+function chunks<T>(values: T[], size = QUERY_BATCH_SIZE) {
+  const groups: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    groups.push(values.slice(index, index + size));
+  }
+  return groups;
+}
+
+function byCreatedAt(left: { created_at?: string }, right: { created_at?: string }) {
+  return String(left.created_at || "").localeCompare(String(right.created_at || ""));
+}
+
 async function linkedIds(service: any, companyId: string) {
   const [profiles, properties, jobs] = await Promise.all([
     service.from("profiles").select("id").eq("role", "customer").or(companyFilter(companyId)),
@@ -123,13 +137,14 @@ async function customerCandidates(service: any, companyId: string) {
     service.from("customers").select(customerColumns).is("archived_at", null)
       .or(`${companyFilter(companyId)},service_company_id.eq.${companyId}`),
   ];
-  if (profileIds.size) {
+
+  for (const ids of chunks([...profileIds])) {
     queries.push(service.from("customers").select(customerColumns).is("archived_at", null)
-      .in("profile_id", [...profileIds]));
+      .in("profile_id", ids));
   }
-  if (childCustomerIds.size) {
+  for (const ids of chunks([...childCustomerIds])) {
     queries.push(service.from("customers").select(customerColumns).is("archived_at", null)
-      .in("id", [...childCustomerIds]));
+      .in("id", ids));
   }
 
   const results = await Promise.all(queries);
@@ -152,15 +167,15 @@ async function repairCoreOwnership(service: any, companyId: string, customers: O
   if (!ids.length) return [] as string[];
 
   const patch = { company_id: companyId, organization_id: companyId };
-  const [customerUpdate, propertyUpdate, jobUpdate, quoteUpdate, requestUpdate] = await Promise.all([
-    service.from("customers").update(patch).in("id", ids),
-    service.from("properties").update(patch).in("customer_id", ids),
-    service.from("jobs").update(patch).in("customer_id", ids).eq("active", true),
-    service.from("quotes").update(patch).in("customer_id", ids),
-    service.from("service_requests").update(patch).in("customer_id", ids),
-  ]);
-  for (const result of [customerUpdate, propertyUpdate, jobUpdate, quoteUpdate, requestUpdate]) {
-    if (result.error) throw new Error(result.error.message);
+  for (const batch of chunks(ids)) {
+    const results = await Promise.all([
+      service.from("customers").update(patch).in("id", batch),
+      service.from("properties").update(patch).in("customer_id", batch),
+      service.from("jobs").update(patch).in("customer_id", batch).eq("active", true),
+      service.from("quotes").update(patch).in("customer_id", batch),
+      service.from("service_requests").update(patch).in("customer_id", batch),
+    ]);
+    for (const result of results) if (result.error) throw new Error(result.error.message);
   }
   return ids;
 }
@@ -178,17 +193,26 @@ export async function listOperationalCompanyCustomers(
   const customerIds = candidate.customers.map(customer => customer.id);
   if (!customerIds.length) return { customers: [], properties: [], jobs: [], repairedCustomerIds };
 
-  const [properties, jobs] = await Promise.all([
-    service.from("properties").select(propertyColumns).in("customer_id", customerIds).order("created_at"),
-    service.from("jobs").select(jobColumns).in("customer_id", customerIds).eq("active", true).order("created_at"),
+  const customerBatches = chunks(customerIds);
+  const [propertyResults, jobResults] = await Promise.all([
+    Promise.all(customerBatches.map(ids =>
+      service.from("properties").select(propertyColumns).in("customer_id", ids).order("created_at"))),
+    Promise.all(customerBatches.map(ids =>
+      service.from("jobs").select(jobColumns).in("customer_id", ids).eq("active", true).order("created_at"))),
   ]);
-  if (properties.error) throw new Error(properties.error.message);
-  if (jobs.error) throw new Error(jobs.error.message);
+
+  for (const result of propertyResults) if (result.error) throw new Error(result.error.message);
+  for (const result of jobResults) if (result.error) throw new Error(result.error.message);
+
+  const properties = mergeRows<OperationalProperty>(propertyResults.map(result => result.data || []))
+    .sort(byCreatedAt);
+  const jobs = mergeRows<OperationalJob>(jobResults.map(result => result.data || []))
+    .sort(byCreatedAt);
 
   return {
     customers: candidate.customers,
-    properties: properties.data || [],
-    jobs: jobs.data || [],
+    properties,
+    jobs,
     repairedCustomerIds,
   };
 }
