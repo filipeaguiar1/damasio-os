@@ -1,43 +1,48 @@
-name: Apply Browser Canonical Auth Fix
+name: Canonical Route Check
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: apply-browser-canonical-auth-${{ github.event.pull_request.number }}
+  group: canonical-route-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply:
-    if: github.event.pull_request.head.ref == 'feature/25-30-homes-simulator-v1'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: feature/25-30-homes-simulator-v1
-          fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
         with:
           version: 9.15.4
-      - uses: actions/setup-node@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
-      - name: Apply browser canonical auth fix
-        run: python scripts/fix-browser-canonical-auth.py
-      - name: Install dependencies
+
+      - name: Install
         run: pnpm install --frozen-lockfile
-      - name: Validate production build
+
+      - name: Validate canonical route identity
+        run: node scripts/validate-canonical-route.mjs
+
+      - name: Simulate canonical operations
+        run: node scripts/simulate-canonical-operations.mjs
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Production build
         run: pnpm build
-      - name: Commit validated change
-        run: |
-          git config user.name "Damasio OS CI"
-          git config user.email "actions@users.noreply.github.com"
-          git add lib/routes/canonicalRouteSnapshot.ts lib/services/employeeIdentityService.ts
-          git commit -m "fix(routes): stabilize Employee browser canonical session"
-          git push origin HEAD:feature/25-30-homes-simulator-v1
