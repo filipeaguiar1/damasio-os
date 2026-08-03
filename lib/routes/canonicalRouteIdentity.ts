@@ -25,8 +25,20 @@ export function belongsToCanonicalEmployee(
   lead: CanonicalRouteLead,
   employee: CanonicalEmployeeIdentity,
 ) {
-  if (lead.canonicalEmployeeId) return lead.canonicalEmployeeId === employee.id;
-  return Boolean(lead.canonicalCrewId && lead.canonicalCrewId === employee.crewId);
+  // Employee records can have historical duplicate IDs, while the Visit keeps the
+  // same canonical Crew assignment. Either exact canonical identifier therefore
+  // resolves to the same operational Employee route; no email/name fallback exists.
+  const employeeMatch = Boolean(
+    lead.canonicalEmployeeId
+    && employee.id
+    && lead.canonicalEmployeeId === employee.id,
+  );
+  const crewMatch = Boolean(
+    lead.canonicalCrewId
+    && employee.crewId
+    && lead.canonicalCrewId === employee.crewId,
+  );
+  return employeeMatch || crewMatch;
 }
 
 export function canonicalRouteWarnings(leads: CanonicalRouteLead[]): CanonicalRouteWarning[] {
