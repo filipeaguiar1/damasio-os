@@ -81,6 +81,26 @@ export default function EmployeeRoutePage(){
   const [routeStartAddress,setRouteStartAddress]=useState("");
   const [routeOrigin,setRouteOrigin]=useState<{latitude:number;longitude:number;label:string}|null>(null);
   const photoInputRef=useRef<HTMLInputElement|null>(null);
+  const verifiedExecutionRef=useRef(new Map<string,{
+    status:string;
+    startedAt?:string;
+    finishedAt?:string;
+    durationSeconds?:number;
+  }>());
+
+  function acceptCanonicalContext(context:EmployeeRouteMapContext){
+    const rank=(status:string)=>status==="completed"||status==="missed"?2:status==="in_progress"?1:0;
+    const stops=context.stops.map(stop=>{
+      const verified=verifiedExecutionRef.current.get(stop.visitId);
+      if(!verified)return stop;
+      if(stop.status===verified.status||rank(stop.status)>rank(verified.status)){
+        verifiedExecutionRef.current.delete(stop.visitId);
+        return stop;
+      }
+      return {...stop,...verified};
+    });
+    setMapContext({...context,stops});
+  }
 
   function refresh(){
     const rows=getLeads();
@@ -118,7 +138,7 @@ export default function EmployeeRoutePage(){
     let cancelled=false;
     if(!selectedDate||!crew)return()=>{cancelled=true};
     const loadContext=()=>void loadEmployeeRouteMapContext(selectedDate,crew)
-      .then(context=>{if(!cancelled)setMapContext(context)})
+      .then(context=>{if(!cancelled)acceptCanonicalContext(context)})
       .catch(error=>{if(!cancelled)setMenuMessage(error instanceof Error?error.message:"Route synchronization is temporarily unavailable.")});
     const loadVisible=()=>{if(document.visibilityState==="visible")loadContext()};
     loadContext();
@@ -209,15 +229,19 @@ export default function EmployeeRoutePage(){
         if(verified?.status!=="in_progress"||!verified.started_at||verified.finished_at){
           throw new Error("The server did not confirm this Visit as active.");
         }
-        setMapContext(current=>({...current,stops:current.stops.map(stop=>stop.visitId===visitId?{
-          ...stop,
+        const confirmed={
           status:"in_progress",
           startedAt:verified.started_at||undefined,
           finishedAt:undefined,
           durationSeconds:undefined,
+        };
+        verifiedExecutionRef.current.set(visitId,confirmed);
+        setMapContext(current=>({...current,stops:current.stops.map(stop=>stop.visitId===visitId?{
+          ...stop,
+          ...confirmed,
         }:stop)}));
         void loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,visitId,"in_progress")
-          .then(setMapContext)
+          .then(acceptCanonicalContext)
           .catch(error=>setMenuMessage(error instanceof Error?error.message:"The active Visit could not be refreshed."));
       }else{
         startServiceSession(selected.id,profile.name,crew);
@@ -244,15 +268,19 @@ export default function EmployeeRoutePage(){
         if(verified?.status!=="completed"||!verified.started_at||!verified.finished_at||!Number.isFinite(Number(verified.duration_seconds))){
           throw new Error("The server did not confirm this Visit as completed.");
         }
-        setMapContext(current=>({...current,stops:current.stops.map(stop=>stop.visitId===visitId?{
-          ...stop,
+        const confirmed={
           status:"completed",
           startedAt:verified.started_at||undefined,
           finishedAt:verified.finished_at||undefined,
           durationSeconds:Number(verified.duration_seconds),
+        };
+        verifiedExecutionRef.current.set(visitId,confirmed);
+        setMapContext(current=>({...current,stops:current.stops.map(stop=>stop.visitId===visitId?{
+          ...stop,
+          ...confirmed,
         }:stop)}));
         void loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,visitId,"completed")
-          .then(setMapContext)
+          .then(acceptCanonicalContext)
           .catch(error=>setMenuMessage(error instanceof Error?error.message:"The completed Visit could not be refreshed."));
       }else{
         finishServiceSession(selected.id,serviceComment);
@@ -266,7 +294,8 @@ export default function EmployeeRoutePage(){
     try{
       if(selected.canonicalVisitId){
         await runVisitStatusOrQueue(selected.canonicalVisitId,"scheduled");
-        setMapContext(await loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,selected.canonicalVisitId,"scheduled"));
+        verifiedExecutionRef.current.delete(selected.canonicalVisitId);
+        acceptCanonicalContext(await loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,selected.canonicalVisitId,"scheduled"));
       }else{
         resetServiceSession(selected.id);
       }
