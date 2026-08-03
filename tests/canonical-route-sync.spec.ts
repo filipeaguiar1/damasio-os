@@ -6,10 +6,21 @@ const torontoContext = { timezoneId: "America/Toronto" } as const;
 test.setTimeout(420_000);
 
 async function signIn(page: Page, email: string, password: string) {
-  await page.goto(`${baseURL}/login`);
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign In" }).click();
+  let lastMessage = "";
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await page.goto(`${baseURL}/login`);
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Sign In" }).click();
+    try {
+      await page.waitForURL(url => url.pathname !== "/login", { timeout: 15_000 });
+      return;
+    } catch {
+      lastMessage = (await page.locator("body").innerText().catch(() => "")).slice(-600);
+      await page.waitForTimeout(1_000 * (attempt + 1));
+    }
+  }
+  throw new Error(`Sign in did not complete for ${email}. ${lastMessage}`.trim());
 }
 
 async function authRequest<T>(page: Page, path: string, init?: { method?: string; body?: unknown }): Promise<T> {
