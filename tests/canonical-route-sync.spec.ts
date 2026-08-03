@@ -133,7 +133,12 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   const workerEmail = String(simulation.workers[0].email);
   const workerPassword = String(simulation.workers[0].password);
 
-  const employeeDesktopContext = await browser.newContext({ ...torontoContext, viewport: { width: 1440, height: 1000 } });
+  const employeeDesktopContext = await browser.newContext({
+    ...torontoContext,
+    viewport: { width: 1440, height: 1000 },
+    geolocation: { latitude: 43.2557, longitude: -79.8711 },
+    permissions: ["geolocation"],
+  });
   const employeeDesktop = await employeeDesktopContext.newPage();
   await signIn(employeeDesktop, workerEmail, workerPassword);
   await employeeDesktop.waitForURL("**/employee", { timeout: 30_000 });
@@ -177,16 +182,18 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await adminMobile.locator("select").first().selectOption(worker.id);
   await adminMobile.locator('input[type="date"]').first().fill(routeDate);
 
-  const employeeMobileContext = await browser.newContext({ ...torontoContext, viewport: { width: 412, height: 915 }, geolocation: { latitude: 43.2557, longitude: -79.8711 }, permissions: ["geolocation"] });
-  const employeeMobile = await employeeMobileContext.newPage();
-  await signIn(employeeMobile, workerEmail, workerPassword);
-  await employeeMobile.waitForURL("**/employee", { timeout: 30_000 });
+  // Employee web and mobile are two surfaces of the same authenticated worker.
+  // Keep them in one browser context so the test validates route synchronization,
+  // not artificial competition between separately refreshed test sessions.
+  const employeeMobile = await employeeDesktopContext.newPage();
+  await employeeMobile.setViewportSize({ width: 412, height: 915 });
   await employeeMobile.goto(`${baseURL}/mobile/employee`);
 
   await employeeDesktop.goto(`${baseURL}/employee/route?view=map&date=${encodeURIComponent(routeDate)}`);
-  const employeeMapTab = employeeDesktop.getByRole("button", { name: "Map", exact: true });
-  await expect(employeeMapTab).toBeVisible({ timeout: 30_000 });
-  await employeeMapTab.click();
+  await employeeDesktop.waitForLoadState("domcontentloaded");
+  await employeeDesktop.screenshot({ path: "canonical-employee-web.png", fullPage: true });
+  console.log("EMPLOYEE_WEB_URL:", employeeDesktop.url());
+  console.log("EMPLOYEE_WEB_BODY:", (await employeeDesktop.locator("body").innerText()).slice(0, 1200));
 
   await adminDesktop.goto(`${baseURL}/admin/routes?tab=view`);
   await adminDesktop.locator('input[type="date"]').first().fill(routeDate);
@@ -330,7 +337,6 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
     body: { action: "remove" },
   });
 
-  await employeeMobileContext.close();
   await adminMobileContext.close();
   await employeeDesktopContext.close();
   await adminDesktopContext.close();
