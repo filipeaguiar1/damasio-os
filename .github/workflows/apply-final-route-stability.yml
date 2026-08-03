@@ -32,11 +32,11 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Validate production build
         run: pnpm build
-      - name: Commit validated changes
+      - name: Commit validated functional changes
         run: |
           git config user.name "Damasio OS CI"
           git config user.email "actions@users.noreply.github.com"
-          git add app/api/admin/routes/route.ts tests/operational-simulator.spec.ts tests/canonical-route-sync.spec.ts .github/workflows/final-canonical-release-gate.yml
+          git add app/api/admin/routes/route.ts tests/operational-simulator.spec.ts tests/canonical-route-sync.spec.ts
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
