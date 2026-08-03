@@ -31,7 +31,9 @@ jobs:
           cache: pnpm
 
       - name: Apply canonical Advisor patch
-        run: python scripts/apply-advisor-canonical-editor.py
+        run: |
+          sed -i 's/type CanonicalRouteTarget = string | {/type CanonicalRouteTarget = string | null | {/' scripts/apply-advisor-canonical-editor.py
+          python scripts/apply-advisor-canonical-editor.py
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
