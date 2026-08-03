@@ -1,0 +1,46 @@
+name: Apply Canonical Route Grouping
+
+on:
+  push:
+    branches: [feature/25-30-homes-simulator-v1]
+    paths:
+      - "scripts/apply-canonical-route-grouping.py"
+      - ".github/workflows/apply-canonical-route-grouping.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/feature/25-30-homes-simulator-v1'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+          fetch-depth: 1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Apply canonical route grouping
+        run: python scripts/apply-canonical-route-grouping.py
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate production build
+        run: pnpm build
+      - name: Commit validated screen changes
+        run: |
+          git config user.name "Damasio OS CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add components/admin/OfficialRoutePlanMap.tsx app/mobile/admin/routes/page.tsx
+          if git diff --cached --quiet; then
+            echo "No functional changes to commit."
+            exit 0
+          fi
+          git commit -m "fix(routes): render complete canonical route by route id"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
