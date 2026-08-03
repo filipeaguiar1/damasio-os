@@ -1,4 +1,5 @@
 name: Apply Canonical Advisor Editor
+# One-time validated application of the shared Advisor route editor.
 
 on:
   push:
