@@ -6,7 +6,7 @@ import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulingService";
 import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
-import { belongsToCanonicalEmployee } from "@/lib/routes/canonicalRouteIdentity";
+import { belongsToCanonicalEmployee, canonicalRouteLeadsForEmployee } from "@/lib/routes/canonicalRouteIdentity";
 import { operationalDateKey } from "@/lib/dates/operationalDate";
 import styles from "./officialRoutePanels.module.css";
 
@@ -177,14 +177,14 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
   const selectedEmployee = employees.find(item => item.id === selectedId) || null;
   const selectedIdentity = selectedEmployee ? { id: selectedEmployee.employeeId || selectedEmployee.id, crewId: selectedEmployee.crewId } : null;
   const selectedRoute = useMemo(() => selectedIdentity
-    ? visits.filter(item => belongsToCanonicalEmployee(item, selectedIdentity)).sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999))
+    ? canonicalRouteLeadsForEmployee(visits, selectedIdentity).sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999))
     : [], [visits, selectedIdentity?.id, selectedIdentity?.crewId]);
 
   const counts = useMemo(() => {
     const result = new Map<string, number>();
     for (const employee of employees) {
       const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId };
-      result.set(employee.id, visits.filter(item => belongsToCanonicalEmployee(item, identity)).length);
+      result.set(employee.id, canonicalRouteLeadsForEmployee(visits, identity).length);
     }
     return result;
   }, [employees, visits]);

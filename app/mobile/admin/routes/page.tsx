@@ -9,7 +9,7 @@ import { RouteAdvisorPanel } from "@/components/admin/RouteAdvisorPanel";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulingService";
 import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
-import { belongsToCanonicalEmployee } from "@/lib/routes/canonicalRouteIdentity";
+import { canonicalRouteLeadsForEmployee } from "@/lib/routes/canonicalRouteIdentity";
 import { operationalDateKey } from "@/lib/dates/operationalDate";
 
 type Mode = "view" | "build" | "advisor" | "move";
@@ -125,11 +125,10 @@ export default function MobileAdminRoutes() {
   const route = useMemo(() => {
     if (!employee) return [];
     const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId };
-    return leads
-      .filter(item => item.canonicalVisitId
-        && item.canonicalRouteId
-        && item.scheduledDate === date
-        && belongsToCanonicalEmployee(item, identity))
+    const datedVisits = leads.filter(item => item.canonicalVisitId
+      && item.canonicalRouteId
+      && item.scheduledDate === date);
+    return canonicalRouteLeadsForEmployee(datedVisits, identity)
       .sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999)
         || a.address.localeCompare(b.address));
   }, [leads, employee, date]);
