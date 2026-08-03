@@ -117,9 +117,13 @@ export default function EmployeeRoutePage(){
     const qProperty=params.get("property");
     const qView=params.get("view");
     void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setRouteStartAddress(identity.routeStartAddress||"")});
-    const today=DAMASIO_WEEK_DAYS[(new Date().getDay()+6)%7];
+    const clientNow=new Date();
+    const clientToday=localDateKey(clientNow);
+    const clientWeekStart=mondayKey(clientNow);
+    const today=DAMASIO_WEEK_DAYS[(clientNow.getDay()+6)%7];
+    setWeekStart(clientWeekStart);
     if(qDay&&DAMASIO_WEEK_DAYS.includes(qDay)){setDay(qDay);setSelectedDate(routeDateForWeekday(qDay));}
-    else setDay(today);
+    else {setDay(today);setSelectedDate(clientToday);}
     refresh();
     if(qProperty){setSelectedId(qProperty);setView("details");}
     else if(qView==="map")setView("map");
