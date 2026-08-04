@@ -112,8 +112,6 @@ export async function GET(request: NextRequest) {
       stopsByRoute.set(routeId, values);
     }
 
-    // Older publication paths could save Visits without materializing route_stops.
-    // Repair only Routes that unambiguously belong to this authenticated Employee.
     for (const route of routesResult.data || []) {
       const routeId = String(route.id);
       const visits = (visitRowsByRoute.get(routeId) || []).sort((left, right) =>
@@ -148,25 +146,25 @@ export async function GET(request: NextRequest) {
         route_id: routeId,
         visit_id: visit.id,
         position: index + 1,
-        updated_at: new Date().toISOString(),
       })));
       if (inserted.error) throw new Error(inserted.error.message);
 
       const currentState: any = stateByRoute.get(routeId);
       const repairedVersion = Math.max(1, Number(currentState?.version || 0) + 1);
+      const repairedAt = new Date().toISOString();
       const stateWrite = await service.from("route_order_state").upsert({
         route_id: routeId,
         company_id: companyId,
         version: repairedVersion,
         last_source: "employee_route_materialization_repair",
-        updated_at: new Date().toISOString(),
+        updated_at: repairedAt,
       }, { onConflict: "route_id" });
       if (stateWrite.error) throw new Error(stateWrite.error.message);
 
       stateByRoute.set(routeId, {
         route_id: routeId,
         version: repairedVersion,
-        updated_at: new Date().toISOString(),
+        updated_at: repairedAt,
       });
       stopsByRoute.set(routeId, visits.map((visit: any, index: number) => ({
         visitId: String(visit.id),
