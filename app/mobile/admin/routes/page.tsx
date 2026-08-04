@@ -382,6 +382,6 @@ function RouteList({ homes, selected, onToggle, selectable }: {
         <i className={complete ? "done" : ""}>{complete ? "Done" : home.canonicalRouteId ? home.assignedCrew || "Scheduled" : "Available"}</i>
       </button>;
     })}
-    {!homes.length && <div className="mobile-native-empty"><i>⌖</i><strong>{canonicalLoading ? "Loading official route" : "No houses found"}</strong><p>{canonicalLoading ? "Reading the latest canonical route version…" : "Only canonical Jobs and dated Visits appear here."}</p></div>}
+    {!homes.length && <div className="mobile-native-empty"><i>⌖</i><strong>No houses found</strong><p>Only canonical Jobs and dated Visits appear here.</p></div>}
   </section>;
 }
