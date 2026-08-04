@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 const read = path => readFileSync(path, "utf8");
 const canonicalApi = read("app/api/map/canonical-route/route.ts");
 const canonicalWriter = read("app/api/map/canonical-route/order/route.ts");
+const employeeResolver = read("app/api/employee/canonical-route/route.ts");
+const adminResolver = read("app/api/admin/canonical-route/route.ts");
 const routeMap = read("components/mobile/EmployeeRouteMap.tsx");
 const routeService = read("lib/services/routeMapService.ts");
 const snapshotClient = read("lib/routes/canonicalRouteSnapshot.ts");
@@ -40,6 +42,18 @@ assert.doesNotMatch(canonicalWriter, /\.from\("route_stops"\)|\.from\("visits"\)
 assert.match(canonicalWriter, /A reviewed routeVersion is required/, "Stale clients must not write without optimistic concurrency.");
 assert.match(canonicalWriter, /sameOrder\(savedOrder, orderedVisitIds\)/, "The exact stored order must be confirmed before success.");
 
+for (const [label, resolver] of [["Employee", employeeResolver], ["Admin", adminResolver]]) {
+  assert.match(resolver, /from\("route_order_state"\)/, `${label} route resolution must compare canonical routeVersion.`);
+  assert.match(resolver, /from\("route_stops"\)/, `${label} route resolution must validate canonical stops.`);
+  assert.match(resolver, /right\.routeVersion - left\.routeVersion/, `${label} must prefer the newest canonical version.`);
+  assert.match(resolver, /right\.updatedAt\.localeCompare\(left\.updatedAt\)/, `${label} must break version ties by canonical update time.`);
+  assert.match(resolver, /left\.stopCount - right\.stopCount/, `${label} must prefer the active reduced membership over a stale alias route.`);
+  assert.match(resolver, /Cache-Control.*no-store/, `${label} resolver responses cannot be cached.`);
+}
+assert.match(adminResolver, /profileId/, "Admin route resolution must target the selected Employee profile explicitly.");
+assert.match(adminResolver, /Only an active company Admin/, "Admin route resolution must enforce company Admin authorization.");
+assert.match(adminResolver, /stops\.length === visits\.size/, "Admin cannot select a route whose stops and active Visits disagree.");
+
 assert.match(operationalSimulator, /service\.rpc\(\s*"apply_canonical_route_order_v2_service"/, "Every simulated Route must use the same service transaction.");
 assert.match(operationalSimulator, /p_actor_profile_id: actorId/, "Simulation writes must preserve the authenticated Admin actor.");
 assert.match(operationalSimulator, /await initializeCanonicalRoutes\(service, operations, workers, actorId\)/, "Simulation creation cannot finish before canonical initialization.");
@@ -55,10 +69,11 @@ assert.match(snapshotHook, /table: "visits"/, "Realtime must listen to Visit sta
 assert.match(snapshotHook, /setInterval\(refreshCurrent, 5_000\)/, "Polling must remain as a safety net.");
 assert.match(snapshotHook, /current\.routeVersion > next\.routeVersion/, "An older snapshot cannot overwrite a newer version.");
 
-assert.match(routeService, /loadCanonicalRouteSnapshot\(\{ routeDate \}\)/, "Employee lists must read the same endpoint as the maps.");
+assert.match(routeService, /loadCanonicalRouteSnapshot/, "Employee lists must read the shared canonical snapshot loader.");
 assert.doesNotMatch(routeService, /\/api\/mobile\/employee\/(?:route|today-route)/, "Employee route data cannot fall back to a second endpoint.");
 assert.doesNotMatch(routeService, /localStorage|confirmedRouteOrders|canonicalRouteVersions|smartRoutePreviewVersions/, "Local route order state is forbidden.");
 assert.doesNotMatch(routeService, /getRouteMapCache|loadCachedRouteGeometry/, "Legacy geometry cache cannot overwrite the snapshot.");
+assert.match(routeService, /Canonical stops are the only membership and order source/, "Employee lists must use canonical stops as their full membership.");
 
 assert.match(routeMap, /useCanonicalRouteSnapshot\(effectiveRouteId\)/, "All maps must consume the shared canonical hook.");
 assert.match(routeMap, /sameVisitMembership\(operationalRoute, snapshot\)/, "A snapshot must match the current Visit membership before it can become authoritative.");
@@ -67,6 +82,12 @@ assert.match(routeMap, /snapshotByVisit\.get\(visitId\)/, "Removed Visit IDs can
 assert.match(routeMap, /currentCoordinates\.length >= 2/, "The current active stops must produce an immediate drawable route line.");
 assert.match(routeMap, /point\.routeOrder/, "Marker labels must use the current canonical routeOrder.");
 assert.doesNotMatch(routeMap, /\/api\/map\/geocode|\/api\/map\/route|readRoadGeometry|saveRoadGeometry|clientMapCache/, "No screen may use a second route membership source.");
+
+assert.match(adminMobile, /\/api\/admin\/canonical-route\?profileId=/, "Admin mobile must resolve the authoritative routeId for the selected Employee and date.");
+assert.match(adminMobile, /useCanonicalRouteSnapshot\(canonicalRouteId\)/, "Admin mobile must subscribe to that exact routeId and routeVersion.");
+assert.match(adminMobile, /employeeRouteMapContextFromSnapshot\(canonicalSnapshot\)/, "Admin mobile list and map must be projected from the same snapshot.");
+assert.match(adminMobile, /applyEmployeeRouteMapContext\(/, "Admin mobile cannot keep an independently ordered operational list.");
+assert.match(adminMobile, /canonicalSnapshot\.routeId !== canonicalRouteId/, "A snapshot from a previously selected Employee cannot render after switching.");
 
 for (const [label, source] of [
   ["Admin web", adminWeb],
@@ -77,7 +98,7 @@ for (const [label, source] of [
   assert.match(source, /EmployeeRouteMap/, `${label} must render the shared canonical map component.`);
 }
 for (const [label, source] of [["Employee web", employeeWeb], ["Employee mobile", employeeMobile]]) {
-  assert.match(source, /loadEmployeeRouteMapContext/, `${label} list must use the canonical route service.`);
+  assert.match(source, /loadEmployeeRouteMapContext|useCanonicalRouteSnapshot/, `${label} list must use the canonical route service.`);
 }
 
 assert.doesNotMatch(demoSandbox, /\["55 York Blvd"/, "Demo tooling must not recreate 55 York Blvd.");
