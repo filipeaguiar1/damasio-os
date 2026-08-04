@@ -85,8 +85,6 @@ begin
     order by v.route_order nulls last, v.created_at, v.id
     limit 1;
 
-    -- Retire every active Visit on older alias Routes. They are stale copies of
-    -- the same worker/day and must never be allowed back into Admin readers.
     delete from public.route_stops s
     where s.route_id = any(group_row.route_ids)
       and s.route_id <> target_route_id;
@@ -102,7 +100,6 @@ begin
       and v.route_id <> target_route_id
       and v.status::text <> 'cancelled';
 
-    -- Rebuild the authoritative Route strictly from its current active Visits.
     delete from public.route_stops
     where route_id = target_route_id;
 
@@ -158,8 +155,7 @@ begin
     returning version into target_version;
 
     update public.employee_smart_route_state
-    set employee_id = target_employee_id,
-        crew_id = target_crew_id,
+    set crew_id = target_crew_id,
         applied_order = coalesce((
           select array_agg(s.visit_id order by s.position)
           from public.route_stops s
