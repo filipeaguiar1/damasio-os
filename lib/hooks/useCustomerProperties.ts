@@ -22,6 +22,8 @@ export function useCustomerProperties(options: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [query, setQuery] = useState(options.query || "");
+  const [city, setCity] = useState(options.city || "all");
   const [pagination, setPagination] = useState<CustomerDirectoryPagination>(emptyPagination);
   const [counts, setCounts] = useState({ customers: 0, properties: 0, pageJobs: 0 });
 
@@ -32,8 +34,8 @@ export function useCustomerProperties(options: {
       const result = await getCustomerPropertyDirectoryPage({
         page,
         pageSize: options.pageSize || 50,
-        query: options.query,
-        city: options.city,
+        query,
+        city,
       });
       setRecords(result.records);
       setPagination(result.pagination);
@@ -44,9 +46,9 @@ export function useCustomerProperties(options: {
     } finally {
       setLoading(false);
     }
-  }, [page, options.pageSize, options.query, options.city]);
+  }, [page, options.pageSize, query, city]);
 
-  useEffect(() => { setPage(1); }, [options.query, options.city]);
+  useEffect(() => { setPage(1); }, [query, city]);
   useEffect(() => { void refresh(); }, [refresh]);
 
   const nextPage = useCallback(() => {
@@ -63,6 +65,10 @@ export function useCustomerProperties(options: {
     refresh,
     page,
     setPage,
+    query,
+    setQuery,
+    city,
+    setCity,
     pagination,
     counts,
     nextPage,
