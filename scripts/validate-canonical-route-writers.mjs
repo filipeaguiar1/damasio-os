@@ -4,14 +4,18 @@ import path from "node:path";
 const roots = ["app", "components", "lib"];
 const extensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);
 
-// These files do not publish or reorder a canonical Route. They perform
-// audited Visit lifecycle maintenance such as cancellation, simulator reset,
-// or clearing route_order when a Visit leaves a Route.
+// Every direct canonical writer must be deliberate and independently verified.
+// Most files below perform audited lifecycle maintenance. Route Advisor performs
+// verified publication materialization, while the Employee resolver may repair a
+// legacy publication only after proving the Route belongs to the authenticated
+// profile and date. No UI component or generic repository is allowed to write.
 const allowed = new Set([
   "app/api/mobile/employee/smart-route/route.ts",
   "app/api/admin/customers/route.ts",
   "app/api/admin/operational-simulator/route.ts",
   "app/api/mobile/employee/route/route.ts",
+  "app/api/admin/route-advisor/route.ts",
+  "app/api/employee/canonical-route/route.ts",
 ]);
 
 const mutationPatterns = [
