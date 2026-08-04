@@ -62,11 +62,12 @@ assert.doesNotMatch(routeService, /getRouteMapCache|loadCachedRouteGeometry/, "L
 assert.equal(routeService.includes("return context.stops.map"), true, "Employee lists must preserve the exact snapshot order.");
 
 assert.match(routeMap, /useCanonicalRouteSnapshot\(effectiveRouteId\)/, "All maps must consume the shared canonical hook.");
-assert.match(routeMap, /snapshot\.stops\.map/, "List and markers must be derived from the same ordered stop array.");
-assert.match(routeMap, /snapshot\.geometry\.coordinates/, "The blue line must come from the same snapshot.");
+assert.match(routeMap, /sameVisitMembership\(operationalRoute, snapshot\)/, "A snapshot must match the current Visit membership before it can render.");
+assert.match(routeMap, /snapshotMatches/, "List, markers, origin and geometry must share the same snapshot validity guard.");
+assert.match(routeMap, /if \(preview \|\| !snapshotMatches\) return operationalRoute/, "Current operational membership must win over a stale snapshot.");
+assert.match(routeMap, /!snapshotMatches \|\| !snapshot\?\.geometry/, "Stale geometry must be discarded with stale stop membership.");
 assert.match(routeMap, /point\.routeOrder/, "Marker labels must use canonical routeOrder.");
 assert.doesNotMatch(routeMap, /\/api\/map\/geocode|\/api\/map\/route|readRoadGeometry|saveRoadGeometry|clientMapCache/, "No screen may geocode or rebuild geometry independently.");
-assert.doesNotMatch(routeMap, /if \(!snapshot\) return route/, "The shared map cannot silently fall back to supplied stale data.");
 
 for (const [label, source] of [
   ["Admin web", adminWeb],
