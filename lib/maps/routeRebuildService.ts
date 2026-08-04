@@ -52,7 +52,7 @@ async function rebuildOne(queue: QueueRow) {
     .from("visits")
     .select("route_order,property_id,properties(latitude,longitude)")
     .eq("route_id", queue.route_id)
-    .eq("company_id", queue.company_id)
+    .or(`company_id.eq.${queue.company_id},organization_id.eq.${queue.company_id}`)
     .order("route_order", { ascending: true, nullsFirst: false });
   if (error) throw new Error(error.message);
 
@@ -91,13 +91,47 @@ async function rebuildOne(queue: QueueRow) {
   return "rebuilt";
 }
 
+async function claimPendingRouteMaps(limit: number): Promise<QueueRow[]> {
+  const supabase = serverClient() as any;
+  const safeLimit = Math.max(1, Math.min(limit, 25));
+  const claimed = await supabase.rpc("claim_route_map_rebuilds", { p_limit: safeLimit });
+  if (!claimed.error) return (claimed.data || []) as QueueRow[];
+
+  if (!/claim_route_map_rebuilds|schema cache|could not find the function/i.test(claimed.error.message || "")) {
+    throw new Error(claimed.error.message);
+  }
+
+  const now = new Date().toISOString();
+  const fallback = await supabase
+    .from("route_map_rebuild_queue")
+    .select("route_id,company_id,attempts")
+    .is("locked_at", null)
+    .lte("requested_at", now)
+    .order("requested_at", { ascending: true })
+    .limit(safeLimit);
+  if (fallback.error) throw new Error(fallback.error.message);
+
+  const rows = (fallback.data || []) as QueueRow[];
+  const locked: QueueRow[] = [];
+  for (const row of rows) {
+    const result = await supabase
+      .from("route_map_rebuild_queue")
+      .update({ locked_at: now })
+      .eq("route_id", row.route_id)
+      .is("locked_at", null)
+      .select("route_id")
+      .maybeSingle();
+    if (!result.error && result.data) locked.push(row);
+  }
+  return locked;
+}
+
 export async function rebuildPendingRouteMaps(limit = 10) {
   const supabase = serverClient() as any;
-  const { data, error } = await supabase.rpc("claim_route_map_rebuilds", { p_limit: Math.max(1, Math.min(limit, 25)) });
-  if (error) throw new Error(error.message);
+  const queues = await claimPendingRouteMaps(limit);
 
   const results: Array<{ routeId: string; result: string }> = [];
-  for (const queue of (data || []) as QueueRow[]) {
+  for (const queue of queues) {
     try {
       const result = await rebuildOne(queue);
       results.push({ routeId: queue.route_id, result });
