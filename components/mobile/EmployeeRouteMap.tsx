@@ -124,13 +124,26 @@ export function EmployeeRouteMap({
     && snapshot?.routeId === effectiveRouteId
     && sameVisitMembership(operationalRoute, snapshot);
 
-  // Membership and order from the operational route are authoritative. A map
-  // snapshot may enrich coordinates/geometry only when it contains exactly the
-  // same Visit IDs. This prevents removed houses or legacy alias Routes from
-  // reappearing on Admin/Employee web and mobile.
+  // Membership and order always come from the current operational route. A stale
+  // snapshot may lend coordinates only to matching Visit IDs; it can never add
+  // removed houses or restore an old order.
   const displayRoute = useMemo<CanonicalRouteLead[]>(() => {
-    if (preview || !snapshotMatches) return operationalRoute;
-    return normalizeRoute(routeFromSnapshot(snapshot));
+    if (preview) return operationalRoute;
+    if (snapshotMatches) return normalizeRoute(routeFromSnapshot(snapshot));
+
+    const snapshotByVisit = new Map(
+      (snapshot?.stops || []).map((stop: any) => [String(stop.visitId), stop]),
+    );
+    return operationalRoute.map(lead => {
+      const visitId = String(lead.canonicalVisitId || lead.id || "");
+      const matchingStop: any = snapshotByVisit.get(visitId);
+      if (!matchingStop) return lead;
+      return {
+        ...lead,
+        latitude: Number.isFinite(matchingStop.latitude) ? Number(matchingStop.latitude) : lead.latitude,
+        longitude: Number.isFinite(matchingStop.longitude) ? Number(matchingStop.longitude) : lead.longitude,
+      };
+    });
   }, [preview, operationalRoute, snapshot, snapshotMatches]);
 
   const points = useMemo<Point[]>(() => displayRoute.flatMap(lead => {
@@ -145,9 +158,7 @@ export function EmployeeRouteMap({
 
   const origin = preview
     ? originPoint
-    : snapshotMatches
-      ? snapshot?.origin || originPoint || null
-      : originPoint || null;
+    : snapshot?.origin || originPoint || null;
   const unmapped = displayRoute.filter(lead => !points.some(point => point.id === lead.id));
   const selected = points.find(point => point.id === selectedId) || points[0] || null;
 
@@ -277,23 +288,34 @@ export function EmployeeRouteMap({
       mapRef.current.removeLayer(routeLayerRef.current);
       routeLayerRef.current = null;
     }
-    if (preview || !snapshotMatches || !snapshot?.geometry?.coordinates?.length) return;
+    if (preview) return;
+
+    const coordinates: [number, number][] = snapshotMatches && snapshot?.geometry?.coordinates?.length
+      ? snapshot.geometry.coordinates.map(([longitude, latitude]: [number, number]) => [latitude, longitude])
+      : [
+          ...(origin ? [[origin.latitude, origin.longitude] as [number, number]] : []),
+          ...points.map(point => [point.latitude, point.longitude] as [number, number]),
+        ];
+    if (coordinates.length < 2) return;
+
     routeLayerRef.current = window.L.polyline(
-      snapshot.geometry.coordinates.map(([longitude, latitude]: [number, number]) => [latitude, longitude]),
+      coordinates,
       { color: "#2563eb", weight: 5, opacity: .82, lineJoin: "round" },
     ).addTo(mapRef.current);
     routeLayerRef.current.bringToBack();
-  }, [mapReady, preview, snapshotMatches, snapshot?.routeVersion, snapshot?.geometry]);
+  }, [mapReady, preview, snapshotMatches, snapshot?.routeVersion, snapshot?.geometry, points, origin?.latitude, origin?.longitude]);
 
   const mapStatus = preview
     ? "Smart Route preview · not published"
     : snapshotMatches
       ? `Canonical route v${snapshot?.routeVersion}`
-      : loading
-        ? "Loading map snapshot…"
-        : error
-          ? "Current route loaded · map snapshot unavailable"
-          : "Current canonical route · geometry refreshing";
+      : points.length
+        ? "Current canonical route · live order"
+        : loading
+          ? "Loading map snapshot…"
+          : error
+            ? "Current route loaded · map coordinates unavailable"
+            : "Current canonical route · geometry refreshing";
 
   return <section className={`employee-map-panel ${desktop ? "employee-map-desktop" : ""}`}>
     <div className="employee-map-toolbar">
