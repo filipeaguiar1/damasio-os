@@ -27,6 +27,21 @@ async function accessToken() {
   return token as string;
 }
 
+function announceRouteUpdates(routeIds: string[]) {
+  for (const routeId of routeIds) {
+    window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", {
+      detail: { routeId, source: "admin_remove_from_today" },
+    }));
+  }
+  if (typeof BroadcastChannel !== "undefined") {
+    const channel = new BroadcastChannel("damasio-canonical-route");
+    for (const routeId of routeIds) {
+      channel.postMessage({ routeId, source: "admin_remove_from_today" });
+    }
+    channel.close();
+  }
+}
+
 export function RouteTodayRemovalPanel() {
   const searchParams = useSearchParams();
   const visible = searchParams.get("tab") === "advisor";
@@ -42,7 +57,7 @@ export function RouteTodayRemovalPanel() {
   async function refresh(silent = false) {
     try {
       const token = await accessToken();
-      const response = await fetch(`/api/admin/routes?date=${encodeURIComponent(date)}`, {
+      const response = await fetch(`/api/admin/routes?date=${encodeURIComponent(date)}&t=${Date.now()}`, {
         headers: { authorization: `Bearer ${token}` },
         cache: "no-store",
       });
@@ -95,7 +110,7 @@ export function RouteTodayRemovalPanel() {
     if (!confirmed) return;
 
     setBusy(true);
-    setMessage("Removing selected visits from today and rebuilding the canonical route...");
+    setMessage("Removing selected visits and rebuilding the canonical route now...");
     try {
       const token = await accessToken();
       const response = await fetch("/api/admin/route-advisor", {
@@ -104,6 +119,7 @@ export function RouteTodayRemovalPanel() {
           "content-type": "application/json",
           authorization: `Bearer ${token}`,
         },
+        cache: "no-store",
         body: JSON.stringify({
           action: "remove_today",
           visitIds: selected,
@@ -114,15 +130,20 @@ export function RouteTodayRemovalPanel() {
       if (!response.ok) throw new Error(result.error || "Visits could not be removed from today.");
 
       const count = Number(result.count || selected.length);
-      setMessage(`${count} visit${count === 1 ? "" : "s"} removed from today. They remain pending for rescheduling.`);
+      const routeIds = [...new Set([
+        ...(Array.isArray(result.routeIds) ? result.routeIds : []),
+        result.routeId,
+      ].map(String).filter(Boolean))];
+
       setSelected([]);
-      window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeIds: result.routeIds || [] } }));
-      if (typeof BroadcastChannel !== "undefined") {
-        const channel = new BroadcastChannel("damasio-canonical-route");
-        channel.postMessage({ routeIds: result.routeIds || [], source: "admin_remove_from_today" });
-        channel.close();
-      }
+      announceRouteUpdates(routeIds);
       await refresh(true);
+      window.setTimeout(() => {
+        announceRouteUpdates(routeIds);
+        void refresh(true);
+      }, 500);
+
+      setMessage(`${count} visit${count === 1 ? "" : "s"} removed. The worker route and map were rebuilt automatically.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Visits could not be removed from today.");
     } finally {
