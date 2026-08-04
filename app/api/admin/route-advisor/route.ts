@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { rebuildPendingRouteMaps } from "@/lib/maps/routeRebuildService";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
 
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -28,11 +26,11 @@ function companyFilter(companyId: string) {
 
 function rpcError(message?: string) {
   const value = message || "Canonical route operation failed.";
-  if (/publish_canonical_route_daily|schema cache|could not find the function/i.test(value)) {
-    return new Error("Supabase migration 202607280001_route_assignment_modes.sql is pending.");
-  }
   if (/remove_visits_from_today_route/i.test(value)) {
     return new Error("Supabase migration 202608031130_route_advisor_pending_removal.sql is pending.");
+  }
+  if (/publish_canonical_route_daily|schema cache|could not find the function/i.test(value)) {
+    return new Error("Supabase migration 202607280001_route_assignment_modes.sql is pending.");
   }
   if (/reopen_completed_visit/i.test(value)) {
     return new Error("Supabase migration 202607270003_completed_visit_reopen_guard.sql is pending or not confirmed.");
@@ -155,18 +153,15 @@ export async function POST(request: NextRequest) {
 
       const payload = removed.data || { removed: true, count: visitIds.length, status: "pending" };
       const routeIds = [...new Set((payload.routeIds || []).map(String).filter(Boolean))];
-      let rebuildResults: Array<{ routeId: string; result: string }> = [];
-      if (routeIds.length) {
-        rebuildResults = await rebuildPendingRouteMaps(Math.min(25, Math.max(10, routeIds.length)));
-      }
 
+      // The canonical snapshot endpoint builds geometry directly from the current
+      // route_stops order. The optional Instant Map Engine tables/functions must
+      // never block a route mutation or leave Admin/Employee on an old snapshot.
       return NextResponse.json({
         ...payload,
         routeId: routeIds[0] || null,
         routeIds,
-        rebuildResults,
-        mapRebuilt: routeIds.every(routeId =>
-          rebuildResults.some(item => item.routeId === routeId && item.result !== "failed")),
+        canonicalChanged: true,
       });
     }
 
