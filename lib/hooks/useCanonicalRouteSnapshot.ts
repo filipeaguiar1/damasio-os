@@ -78,11 +78,14 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
     setError("");
     setLoading(true);
 
-    for (const delay of [0, 150, 350, 700, 1200]) {
+    // A database transaction, Realtime delivery, server geocoding and road
+    // geometry generation do not necessarily become visible at the same instant.
+    // Complete the whole convergence burst instead of stopping on the first
+    // successful response, which may still be the previous route membership.
+    for (const delay of [0, 150, 350, 700, 1200, 2000, 3000]) {
       if (delay) await sleep(delay);
       if (burst !== burstRef.current) return;
-      const next = await refresh();
-      if (next) return;
+      await refresh();
     }
   }, [refresh]);
 
