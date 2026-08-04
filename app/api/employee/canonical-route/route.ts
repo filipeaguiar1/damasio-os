@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
       service.from("routes").select("id,created_at").in("id", ids).or(companyFilter(companyId)),
       service.from("route_order_state").select("route_id,version,updated_at").in("route_id", ids),
       service.from("visits").select("route_id,id").in("route_id", ids).neq("status", "cancelled").or(companyFilter(companyId)),
+      service.from("route_stops").select("route_id,visit_id,position").in("route_id", ids),
     ]);
     if (routesResult.error) throw new Error(routesResult.error.message);
     if (statesResult.error) throw new Error(statesResult.error.message);
