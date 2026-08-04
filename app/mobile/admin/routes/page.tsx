@@ -11,6 +11,8 @@ import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulin
 import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
 import { canonicalRouteLeadsForEmployee } from "@/lib/routes/canonicalRouteIdentity";
 import { operationalDateKey } from "@/lib/dates/operationalDate";
+import { useCanonicalRouteSnapshot } from "@/lib/hooks/useCanonicalRouteSnapshot";
+import { applyEmployeeRouteMapContext, employeeRouteMapContextFromSnapshot } from "@/lib/services/routeMapService";
 
 type Mode = "view" | "build" | "advisor" | "move";
 type MoveMode = "temporary" | "permanent";
@@ -70,6 +72,7 @@ export default function MobileAdminRoutes() {
   const [query, setQuery] = useState("");
   const [advisorHelp, setAdvisorHelp] = useState<AdvisorHelp>(null);
   const [routeOrigin, setRouteOrigin] = useState<RouteOrigin | null>(null);
+  const [canonicalRouteId, setCanonicalRouteId] = useState<string | null>(null);
 
   async function refresh(clearMessage = true) {
     try {
@@ -100,6 +103,26 @@ export default function MobileAdminRoutes() {
 
   useEffect(() => {
     let cancelled = false;
+    setCanonicalRouteId(null);
+    if (!employee?.id || !date) return () => { cancelled = true; };
+    void api(`/api/admin/canonical-route?profileId=${encodeURIComponent(employee.id)}&date=${encodeURIComponent(date)}`)
+      .then(result => {
+        if (!cancelled) setCanonicalRouteId(String(result.routeId || "") || null);
+      })
+      .catch(error => {
+        if (!cancelled) setMessage(error instanceof Error ? error.message : "Canonical Route could not be resolved.");
+      });
+    return () => { cancelled = true; };
+  }, [employee?.id, date]);
+
+  const { snapshot: canonicalSnapshot, error: canonicalError, loading: canonicalLoading } = useCanonicalRouteSnapshot(canonicalRouteId);
+
+  useEffect(() => {
+    if (canonicalError) setMessage(canonicalError);
+  }, [canonicalError]);
+
+  useEffect(() => {
+    let cancelled = false;
     setRouteOrigin(null);
     const address = employee?.routeStartAddress?.trim();
     if (!address) return () => { cancelled = true; };
@@ -124,7 +147,7 @@ export default function MobileAdminRoutes() {
     return () => { cancelled = true; };
   }, [employee?.id, employee?.name, employee?.routeStartAddress]);
 
-  const route = useMemo(() => {
+  const operationalRoute = useMemo(() => {
     if (!employee) return [];
     const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId, employeeIds: employee.employeeIds, crewIds: employee.crewIds };
     const datedVisits = leads.filter(item => item.canonicalVisitId
@@ -134,6 +157,14 @@ export default function MobileAdminRoutes() {
       .sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999)
         || a.address.localeCompare(b.address));
   }, [leads, employee, date]);
+
+  const route = useMemo(() => {
+    if (!canonicalSnapshot || canonicalSnapshot.routeId !== canonicalRouteId) return [] as RouteLead[];
+    return applyEmployeeRouteMapContext(
+      operationalRoute,
+      employeeRouteMapContextFromSnapshot(canonicalSnapshot),
+    ) as RouteLead[];
+  }, [operationalRoute, canonicalSnapshot, canonicalRouteId]);
 
   const jobs = useMemo(() => leads.filter(item => !item.canonicalVisitId), [leads]);
   const availableJobs = useMemo(() => jobs.filter(item => !item.canonicalCrewId), [jobs]);
@@ -223,7 +254,9 @@ export default function MobileAdminRoutes() {
     ? "Assign new customers."
     : mode === "move"
       ? "Temporary or permanent move."
-      : `${route.length} published stops for ${employee?.name || "Employee"}.`;
+      : canonicalLoading
+        ? `Loading the official route for ${employee?.name || "Employee"}…`
+        : `${route.length} published stops for ${employee?.name || "Employee"}.`;
 
   const helpText = advisorHelp === "recommend"
     ? "Recommendation compares distance, workload, capacity, due date and the regular Employee. It never publishes automatically."
@@ -245,7 +278,7 @@ export default function MobileAdminRoutes() {
         <span>LIVE DATABASE</span>
         <h1>{heroTitle}</h1>
         <p>{mode === "view"
-          ? `${done} completed · ${route.length - done} remaining`
+          ? `${done} completed · ${route.length - done} remaining${canonicalSnapshot ? ` · v${canonicalSnapshot.routeVersion}` : ""}`
           : mode === "build"
             ? "Customer Job → permanent Employee"
             : "Scheduled Visit → chosen Employee"}</p>
@@ -274,7 +307,7 @@ export default function MobileAdminRoutes() {
         {mapView
           ? <EmployeeRouteMap
               route={route}
-              routeId={route[0]?.canonicalRouteId}
+              routeId={canonicalRouteId || undefined}
               originPoint={routeOrigin}
               actionLabel="Show in list"
               onOpenVisit={() => setMapView(false)}
@@ -349,6 +382,6 @@ function RouteList({ homes, selected, onToggle, selectable }: {
         <i className={complete ? "done" : ""}>{complete ? "Done" : home.canonicalRouteId ? home.assignedCrew || "Scheduled" : "Available"}</i>
       </button>;
     })}
-    {!homes.length && <div className="mobile-native-empty"><i>⌖</i><strong>No houses found</strong><p>Only canonical Jobs and dated Visits appear here.</p></div>}
+    {!homes.length && <div className="mobile-native-empty"><i>⌖</i><strong>{canonicalLoading ? "Loading official route" : "No houses found"}</strong><p>{canonicalLoading ? "Reading the latest canonical route version…" : "Only canonical Jobs and dated Visits appear here."}</p></div>}
   </section>;
 }
