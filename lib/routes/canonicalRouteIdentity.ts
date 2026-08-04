@@ -9,6 +9,8 @@ export type CanonicalRouteLead = Lead & {
   canonicalEmployeeId?: string;
   canonicalCrewId?: string;
   canonicalVisitStatus?: CanonicalVisitStatus;
+  canonicalRouteVersion?: number;
+  canonicalRouteUpdatedAt?: string;
 };
 
 export type CanonicalEmployeeIdentity = {
@@ -50,23 +52,55 @@ export function belongsToCanonicalEmployee(
   return employeeMatch || crewMatch;
 }
 
+function routeAuthority<T extends CanonicalRouteLead>(routeId: string, leads: T[]) {
+  const version = Math.max(0, ...leads.map(lead => Number(lead.canonicalRouteVersion || 0)));
+  const updatedAt = leads.reduce((latest, lead) => {
+    const value = String(lead.canonicalRouteUpdatedAt || "");
+    return value > latest ? value : latest;
+  }, "");
+  const latestVisit = leads.reduce((latest, lead) => {
+    const value = String(lead.createdAt || "");
+    return value > latest ? value : latest;
+  }, "");
+  return { routeId, leads, version, updatedAt, latestVisit };
+}
+
 export function canonicalRouteLeadsForEmployee<T extends CanonicalRouteLead>(
   leads: T[],
   employee: CanonicalEmployeeIdentity,
 ) {
-  // Resolve the profile to a canonical route once, then return every stop from
-  // that routeId. This prevents duplicate historical Employee/Crew rows from
-  // splitting one published route into partial lists on Admin web or mobile.
-  const routeIds = new Set(
-    leads
-      .filter(lead => lead.canonicalRouteId && belongsToCanonicalEmployee(lead, employee))
-      .map(lead => String(lead.canonicalRouteId)),
-  );
-  if (!routeIds.size) return [] as T[];
-  return leads.filter(lead => Boolean(
-    lead.canonicalRouteId
-    && routeIds.has(String(lead.canonicalRouteId)),
-  ));
+  const matching = leads.filter(lead =>
+    Boolean(lead.canonicalRouteId)
+    && belongsToCanonicalEmployee(lead, employee));
+  if (!matching.length) return [] as T[];
+
+  const byRoute = new Map<string, T[]>();
+  for (const lead of matching) {
+    const routeId = String(lead.canonicalRouteId || "");
+    if (!routeId) continue;
+    const route = byRoute.get(routeId) || [];
+    route.push(lead);
+    byRoute.set(routeId, route);
+  }
+
+  // A legacy profile can have several Employee/Crew aliases and, consequently,
+  // more than one Route for the same day. Never merge those routes in the UI.
+  // Prefer explicit canonical metadata. During legacy cleanup, the authoritative
+  // route is the smaller active set because Remove from today reduces membership
+  // on the current Route while stale alias Routes retain the removed houses.
+  const authority = [...byRoute.entries()]
+    .map(([routeId, routeLeads]) => routeAuthority(routeId, routeLeads))
+    .sort((left, right) =>
+      right.version - left.version
+      || right.updatedAt.localeCompare(left.updatedAt)
+      || left.leads.length - right.leads.length
+      || right.latestVisit.localeCompare(left.latestVisit)
+      || left.routeId.localeCompare(right.routeId))[0];
+
+  if (!authority) return [] as T[];
+  return [...authority.leads].sort((left, right) =>
+    (left.routeOrder ?? 9999) - (right.routeOrder ?? 9999)
+    || String(left.canonicalVisitId || left.id).localeCompare(String(right.canonicalVisitId || right.id)));
 }
 
 export function canonicalRouteWarnings(leads: CanonicalRouteLead[]): CanonicalRouteWarning[] {
