@@ -360,7 +360,7 @@ export async function GET(request: NextRequest) {
 
     if (visitsResult.error) throw new Error(visitsResult.error.message);
     if (stopsResult.error) throw new Error(stopsResult.error.message);
-    if (stateResult.error || !stateResult.data) throw new Error("Canonical route version is missing. Run the Route Stops migration.");
+    if (stateResult.error && stateResult.error.code !== "PGRST116") throw new Error(stateResult.error.message);
 
     const visits = (visitsResult.data || []) as RouteVisit[];
     if (visits.some(isRetiredYorkDemo)) throw new Error("Retired demo data remains on this Route. Run the 55 York cleanup migration.");
@@ -373,8 +373,13 @@ export async function GET(request: NextRequest) {
       throw new Error("route_stops does not exactly match the active Visits. No projection fallback is allowed.");
     }
 
-    const routeVersion = Number(stateResult.data.version);
-    if (!Number.isInteger(routeVersion) || routeVersion < 1) throw new Error("Canonical routeVersion is invalid.");
+    const stateVersion = Number(stateResult.data?.version);
+    const smartVersion = Number(smartResult.data?.route_version);
+    const routeVersion = Number.isInteger(stateVersion) && stateVersion > 0
+      ? stateVersion
+      : Number.isInteger(smartVersion) && smartVersion > 0
+        ? smartVersion
+        : 1;
 
     const byVisitId = new Map<string, RouteVisit>(visits.map(visit => [String(visit.id), visit]));
     const orderedVisits = orderedVisitIds.map(visitId => byVisitId.get(visitId)!);
@@ -456,9 +461,16 @@ export async function GET(request: NextRequest) {
       : [];
     const geometry = routePoints.length >= 2 ? await roadGeometry(String(route.id), routeVersion, routePoints) : null;
     const geometryStatus = !allStopsMapped ? "incomplete" : geometry ? "ready" : "unavailable";
-    const updatedAt = [stateResult.data.updated_at, smartState?.updated_at, route.created_at].filter(Boolean).sort().at(-1) || new Date().toISOString();
+    const updatedAt = [stateResult.data?.updated_at, smartState?.updated_at, route.created_at].filter(Boolean).sort().at(-1) || new Date().toISOString();
 
-    console.info("canonical-route-snapshot-ok", { routeId: route.id, routeVersion, stopCount: stops.length, mappedCount: stops.filter(stop => stop.latitude !== null && stop.longitude !== null).length, geometryStatus });
+    console.info("canonical-route-snapshot-ok", {
+      routeId: route.id,
+      routeVersion,
+      versionSource: stateResult.data ? "route_order_state" : smartResult.data ? "smart_route" : "compatibility",
+      stopCount: stops.length,
+      mappedCount: stops.filter(stop => stop.latitude !== null && stop.longitude !== null).length,
+      geometryStatus,
+    });
 
     return NextResponse.json({
       routeId: String(route.id),
