@@ -143,12 +143,8 @@ export async function loadEmployeeRouteMapContextUntilStatus(routeDate: string, 
 
 export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRouteMapContext): CanonicalRouteLead[] {
   const orderedOperational = [...route]
-    .filter(lead => lead.status !== "cancelled")
     .sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999) || a.address.localeCompare(b.address));
 
-  // The operational list is the authoritative membership. A date-only snapshot
-  // may belong to a retired alias Route, so it may enrich matching Visits but may
-  // never add houses that are absent from the worker's current operational list.
   if (orderedOperational.length) {
     const stopByVisit = new Map(context.stops.map(stop => [stop.visitId, stop]));
     const stopByJob = new Map(context.stops.filter(stop => stop.jobId).map(stop => [String(stop.jobId), stop]));
