@@ -29,12 +29,8 @@ function visualState(lead: CanonicalRouteLead) {
   if (lead.canonicalVisitStatus === "completed" || lead.status === "completed") {
     return { color: "#16a34a", label: "Completed" };
   }
-  if (lead.canonicalVisitStatus === "missed") {
-    return { color: "#eab308", label: "Skipped" };
-  }
-  if (lead.canonicalVisitStatus === "in_progress") {
-    return { color: "#2563eb", label: "Active" };
-  }
+  if (lead.canonicalVisitStatus === "missed") return { color: "#eab308", label: "Skipped" };
+  if (lead.canonicalVisitStatus === "in_progress") return { color: "#2563eb", label: "Active" };
   return { color: "#64748b", label: "Pending" };
 }
 
@@ -43,6 +39,60 @@ function statusLabel(lead: CanonicalRouteLead) {
   if (lead.canonicalVisitStatus === "missed") return "Skipped";
   if (lead.canonicalVisitStatus === "in_progress") return "Active";
   return "Scheduled";
+}
+
+function normalizeRoute(route: CanonicalRouteLead[]) {
+  return [...route]
+    .sort((left, right) =>
+      (left.routeOrder ?? 9999) - (right.routeOrder ?? 9999)
+      || String(left.canonicalVisitId || left.id).localeCompare(String(right.canonicalVisitId || right.id)))
+    .map((lead, index) => ({ ...lead, routeOrder: index + 1 }));
+}
+
+function sameVisitMembership(route: CanonicalRouteLead[], snapshot: any) {
+  if (!snapshot) return false;
+  const routeIds = route
+    .map(lead => String(lead.canonicalVisitId || lead.id || ""))
+    .filter(Boolean)
+    .sort();
+  const snapshotIds = (snapshot.stops || [])
+    .map((stop: any) => String(stop.visitId || ""))
+    .filter(Boolean)
+    .sort();
+  return routeIds.length === snapshotIds.length
+    && routeIds.every((id, index) => id === snapshotIds[index]);
+}
+
+function routeFromSnapshot(snapshot: any): CanonicalRouteLead[] {
+  return (snapshot?.stops || []).map((stop: any) => ({
+    id: stop.visitId,
+    createdAt: stop.scheduledDate ? `${stop.scheduledDate}T12:00:00.000Z` : "1970-01-01T00:00:00.000Z",
+    name: stop.customerName,
+    phone: "",
+    email: "",
+    address: stop.address,
+    service: stop.serviceName,
+    status: stop.status === "completed" ? "completed" as const : "booked" as const,
+    subtotal: 0,
+    tax: 0,
+    total: 0,
+    photos: [],
+    scheduledDate: stop.scheduledDate,
+    routeOrder: stop.routeOrder,
+    latitude: stop.latitude ?? undefined,
+    longitude: stop.longitude ?? undefined,
+    canonicalVisitId: stop.visitId,
+    canonicalJobId: stop.jobId || undefined,
+    canonicalRouteId: snapshot.routeId,
+    canonicalCustomerId: stop.customerId || undefined,
+    canonicalPropertyId: stop.propertyId || undefined,
+    canonicalEmployeeId: stop.employeeId || undefined,
+    canonicalCrewId: stop.crewId || undefined,
+    canonicalVisitStatus: stop.status as CanonicalRouteLead["canonicalVisitStatus"],
+    visitStartedAt: stop.startedAt || undefined,
+    visitFinishedAt: stop.finishedAt || undefined,
+    visitDurationSeconds: stop.durationSeconds ?? undefined,
+  }));
 }
 
 export function EmployeeRouteMap({
@@ -63,48 +113,25 @@ export function EmployeeRouteMap({
   const [selectedId, setSelectedId] = useState("");
   const [mapReady, setMapReady] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
+
+  const operationalRoute = useMemo(() => normalizeRoute(route), [route]);
   const effectiveRouteId = preview
     ? null
-    : routeId || route.find(lead => Boolean(lead.canonicalRouteId))?.canonicalRouteId || null;
+    : routeId || operationalRoute.find(lead => Boolean(lead.canonicalRouteId))?.canonicalRouteId || null;
   const { snapshot, error, loading, refresh } = useCanonicalRouteSnapshot(effectiveRouteId);
+  const snapshotMatches = !preview
+    && Boolean(snapshot)
+    && snapshot?.routeId === effectiveRouteId
+    && sameVisitMembership(operationalRoute, snapshot);
 
+  // Membership and order from the operational route are authoritative. A map
+  // snapshot may enrich coordinates/geometry only when it contains exactly the
+  // same Visit IDs. This prevents removed houses or legacy alias Routes from
+  // reappearing on Admin/Employee web and mobile.
   const displayRoute = useMemo<CanonicalRouteLead[]>(() => {
-    if (preview) {
-      return [...route]
-        .sort((left, right) => (left.routeOrder ?? 9999) - (right.routeOrder ?? 9999))
-        .map((lead, index) => ({ ...lead, routeOrder: index + 1 }));
-    }
-    if (!snapshot) return [];
-    return snapshot.stops.map(stop => ({
-      id: stop.visitId,
-      createdAt: stop.scheduledDate ? `${stop.scheduledDate}T12:00:00.000Z` : "1970-01-01T00:00:00.000Z",
-      name: stop.customerName,
-      phone: "",
-      email: "",
-      address: stop.address,
-      service: stop.serviceName,
-      status: stop.status === "completed" ? "completed" as const : "booked" as const,
-      subtotal: 0,
-      tax: 0,
-      total: 0,
-      photos: [],
-      scheduledDate: stop.scheduledDate,
-      routeOrder: stop.routeOrder,
-      latitude: stop.latitude ?? undefined,
-      longitude: stop.longitude ?? undefined,
-      canonicalVisitId: stop.visitId,
-      canonicalJobId: stop.jobId || undefined,
-      canonicalRouteId: snapshot.routeId,
-      canonicalCustomerId: stop.customerId || undefined,
-      canonicalPropertyId: stop.propertyId || undefined,
-      canonicalEmployeeId: stop.employeeId || undefined,
-      canonicalCrewId: stop.crewId || undefined,
-      canonicalVisitStatus: stop.status as CanonicalRouteLead["canonicalVisitStatus"],
-      visitStartedAt: stop.startedAt || undefined,
-      visitFinishedAt: stop.finishedAt || undefined,
-      visitDurationSeconds: stop.durationSeconds ?? undefined,
-    }));
-  }, [preview, route, snapshot]);
+    if (preview || !snapshotMatches) return operationalRoute;
+    return normalizeRoute(routeFromSnapshot(snapshot));
+  }, [preview, operationalRoute, snapshot, snapshotMatches]);
 
   const points = useMemo<Point[]>(() => displayRoute.flatMap(lead => {
     if (!Number.isFinite(lead.latitude) || !Number.isFinite(lead.longitude)) return [];
@@ -116,14 +143,18 @@ export function EmployeeRouteMap({
     }];
   }), [displayRoute]);
 
-  const origin = preview ? originPoint : snapshot?.origin || originPoint || null;
+  const origin = preview
+    ? originPoint
+    : snapshotMatches
+      ? snapshot?.origin || originPoint || null
+      : originPoint || null;
   const unmapped = displayRoute.filter(lead => !points.some(point => point.id === lead.id));
   const selected = points.find(point => point.id === selectedId) || points[0] || null;
 
   useEffect(() => {
     didInitialFit.current = false;
     setSelectedId("");
-  }, [snapshot?.routeId, snapshot?.routeVersion]);
+  }, [effectiveRouteId, snapshotMatches ? snapshot?.routeVersion : operationalRoute.length]);
 
   function fitRoute() {
     if (!mapRef.current || !window.L || (!points.length && !origin)) return;
@@ -246,23 +277,23 @@ export function EmployeeRouteMap({
       mapRef.current.removeLayer(routeLayerRef.current);
       routeLayerRef.current = null;
     }
-    if (preview || !snapshot?.geometry?.coordinates?.length) return;
+    if (preview || !snapshotMatches || !snapshot?.geometry?.coordinates?.length) return;
     routeLayerRef.current = window.L.polyline(
-      snapshot.geometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]),
+      snapshot.geometry.coordinates.map(([longitude, latitude]: [number, number]) => [latitude, longitude]),
       { color: "#2563eb", weight: 5, opacity: .82, lineJoin: "round" },
     ).addTo(mapRef.current);
     routeLayerRef.current.bringToBack();
-  }, [mapReady, preview, snapshot?.routeVersion, snapshot?.geometry]);
+  }, [mapReady, preview, snapshotMatches, snapshot?.routeVersion, snapshot?.geometry]);
 
   const mapStatus = preview
     ? "Smart Route preview · not published"
-    : loading
-      ? "Loading canonical route…"
-      : error
-        ? error
-        : snapshot
-          ? `Canonical route v${snapshot.routeVersion}`
-          : "No canonical Route selected";
+    : snapshotMatches
+      ? `Canonical route v${snapshot?.routeVersion}`
+      : loading
+        ? "Loading map snapshot…"
+        : error
+          ? "Current route loaded · map snapshot unavailable"
+          : "Current canonical route · geometry refreshing";
 
   return <section className={`employee-map-panel ${desktop ? "employee-map-desktop" : ""}`}>
     <div className="employee-map-toolbar">
@@ -277,7 +308,7 @@ export function EmployeeRouteMap({
       </div>
     </div>
     {unmapped.length > 0 && <p className="employee-map-notice">
-      {unmapped.length} {unmapped.length === 1 ? "property is" : "properties are"} Not mapped.
+      {unmapped.length} {unmapped.length === 1 ? "property is" : "properties are"} not mapped.
     </p>}
     <div ref={mapNode} className="employee-route-map" aria-label="Interactive map of assigned visits" />
 
@@ -285,9 +316,9 @@ export function EmployeeRouteMap({
       <header>
         <div>
           <strong>Official route</strong>
-          <small>{displayRoute.length} stops · one global snapshot</small>
+          <small>{displayRoute.length} stops · one canonical membership</small>
         </div>
-        <b>{snapshot ? `v${snapshot.routeVersion}` : "…"}</b>
+        <b>{snapshotMatches ? `v${snapshot?.routeVersion}` : "LIVE"}</b>
       </header>
       <div className="employee-canonical-route-scroll">
         {displayRoute.map(lead => <button
