@@ -207,14 +207,6 @@ async function resolveRoute(input: {
   }
 
   if (!route || String(route.company_id || route.organization_id) !== companyId) {
-    console.warn("canonical-route-identity-miss", {
-      profileId: String(profile.id),
-      companyId,
-      routeDate: input.routeDate || null,
-      requestedRouteId: input.routeId || null,
-      employeeIds: employeeCandidates.map(candidate => String(candidate.id)),
-      crewIds: employeeCandidates.map(candidate => String(candidate.crew_id || "")).filter(Boolean),
-    });
     throw new Error("Canonical Route not found in this company.");
   }
 
@@ -269,9 +261,7 @@ async function photonPoint(address: string): Promise<Point | null> {
     cache: "no-store",
   });
   if (!response.ok) return null;
-  const data = await response.json() as {
-    features?: Array<{ geometry?: { coordinates?: [number, number] } }>;
-  };
+  const data = await response.json() as { features?: Array<{ geometry?: { coordinates?: [number, number] } }> };
   const coordinates = data.features?.[0]?.geometry?.coordinates;
   const longitude = numeric(coordinates?.[0]);
   const latitude = numeric(coordinates?.[1]);
@@ -304,12 +294,10 @@ async function nominatimPoint(address: string): Promise<Point | null> {
 async function geocodeAddress(address: string): Promise<Point | null> {
   const simulated = simulationPoint(address);
   if (simulated) return simulated;
-
   const key = normalizedAddress(address);
   if (!key) return null;
   const cached = geocodeCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.point;
-
   let point: Point | null = null;
   try { point = await photonPoint(address); } catch { /* fallback below */ }
   if (!point) {
@@ -324,7 +312,6 @@ async function roadGeometry(routeId: string, routeVersion: number, points: Point
   const signature = `${routeId}:${routeVersion}:${points.map(point => `${point.longitude},${point.latitude}`).join(";")}`;
   const cached = geometryCache.get(signature);
   if (cached && cached.expiresAt > Date.now()) return cached.geometry;
-
   const fallback: RouteLineString = {
     type: "LineString",
     coordinates: points.map(point => [point.longitude, point.latitude]),
@@ -334,21 +321,13 @@ async function roadGeometry(routeId: string, routeVersion: number, points: Point
     const encoded = points.map(point => `${point.longitude},${point.latitude}`).join(";");
     const response = await fetch(
       `https://router.project-osrm.org/route/v1/driving/${encoded}?overview=full&geometries=geojson&steps=false`,
-      {
-        headers: { Accept: "application/json", "User-Agent": "DamasioOS/CanonicalRouteSnapshot" },
-        cache: "no-store",
-        signal: AbortSignal.timeout(10_000),
-      },
+      { headers: { Accept: "application/json", "User-Agent": "DamasioOS/CanonicalRouteSnapshot" }, cache: "no-store", signal: AbortSignal.timeout(10_000) },
     );
     if (response.ok) {
       const result = await response.json() as { code?: string; routes?: Array<{ geometry?: RouteLineString }> };
-      if (result.code === "Ok" && result.routes?.[0]?.geometry?.coordinates?.length) {
-        geometry = result.routes[0].geometry;
-      }
+      if (result.code === "Ok" && result.routes?.[0]?.geometry?.coordinates?.length) geometry = result.routes[0].geometry;
     }
-  } catch {
-    // Keep the deterministic fallback. A provider outage cannot blank the Route.
-  }
+  } catch { /* keep fallback */ }
   geometryCache.set(signature, { geometry, expiresAt: Date.now() + 60_000 });
   return geometry;
 }
@@ -370,70 +349,44 @@ export async function GET(request: NextRequest) {
     const [visitsResult, stopsResult, stateResult, smartResult] = await Promise.all([
       service
         .from("visits")
-        .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes),properties(address_line1,city,province,postal_code,latitude,longitude),jobs(service_name)")
+        .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes),properties(address_line1,city,province,postal_code),jobs(service_name)")
         .eq("route_id", route.id)
         .neq("status", "cancelled")
         .or(companyFilter(companyId)),
-      service
-        .from("route_stops")
-        .select("visit_id,position")
-        .eq("route_id", route.id)
-        .order("position", { ascending: true }),
-      service
-        .from("route_order_state")
-        .select("version,updated_at")
-        .eq("route_id", route.id)
-        .maybeSingle(),
-      service
-        .from("employee_smart_route_state")
-        .select("origin_label,origin_latitude,origin_longitude,active,route_version,updated_at")
-        .eq("route_id", route.id)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+      service.from("route_stops").select("visit_id,position").eq("route_id", route.id).order("position", { ascending: true }),
+      service.from("route_order_state").select("version,updated_at").eq("route_id", route.id).maybeSingle(),
+      service.from("employee_smart_route_state").select("origin_label,origin_latitude,origin_longitude,active,route_version,updated_at").eq("route_id", route.id).order("updated_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
 
     if (visitsResult.error) throw new Error(visitsResult.error.message);
     if (stopsResult.error) throw new Error(stopsResult.error.message);
-    if (stateResult.error || !stateResult.data) {
-      throw new Error("Canonical route version is missing. Run the Route Stops migration.");
-    }
+    if (stateResult.error || !stateResult.data) throw new Error("Canonical route version is missing. Run the Route Stops migration.");
 
     const visits = (visitsResult.data || []) as RouteVisit[];
-    if (visits.some(isRetiredYorkDemo)) {
-      throw new Error("Retired demo data remains on this Route. Run the 55 York cleanup migration.");
-    }
+    if (visits.some(isRetiredYorkDemo)) throw new Error("Retired demo data remains on this Route. Run the 55 York cleanup migration.");
 
     const activeVisitIds = visits.map(visit => String(visit.id));
     const stopRows = stopsResult.data || [];
     const orderedVisitIds: string[] = stopRows.map((row: any) => String(row.visit_id));
     const sequential = stopRows.every((row: any, index: number) => Number(row.position) === index + 1);
-    if (
-      new Set(orderedVisitIds).size !== orderedVisitIds.length
-      || !sequential
-      || !sameMembers(activeVisitIds, orderedVisitIds)
-    ) {
+    if (new Set(orderedVisitIds).size !== orderedVisitIds.length || !sequential || !sameMembers(activeVisitIds, orderedVisitIds)) {
       throw new Error("route_stops does not exactly match the active Visits. No projection fallback is allowed.");
     }
 
     const routeVersion = Number(stateResult.data.version);
-    if (!Number.isInteger(routeVersion) || routeVersion < 1) {
-      throw new Error("Canonical routeVersion is invalid.");
-    }
+    if (!Number.isInteger(routeVersion) || routeVersion < 1) throw new Error("Canonical routeVersion is invalid.");
 
     const byVisitId = new Map<string, RouteVisit>(visits.map(visit => [String(visit.id), visit]));
     const orderedVisits = orderedVisitIds.map(visitId => byVisitId.get(visitId)!);
-    const stops: SnapshotStop[] = await Promise.all(orderedVisits.map(async (visit, index) => {
+    const stops: SnapshotStop[] = [];
+    for (let index = 0; index < orderedVisits.length; index += 1) {
+      const visit = orderedVisits[index];
       const property = joined(visit.properties);
       const customer = joined(visit.customers);
       const job = joined(visit.jobs);
       const address = completeAddress(property);
-      const storedLatitude = numeric(property?.latitude);
-      const storedLongitude = numeric(property?.longitude);
-      const point = storedLatitude !== null && storedLongitude !== null
-        ? { latitude: storedLatitude, longitude: storedLongitude }
-        : await geocodeAddress(address);
-      return {
+      const point = await geocodeAddress(address);
+      stops.push({
         visitId: String(visit.id),
         jobId: visit.job_id || null,
         routeId: String(route.id),
@@ -452,114 +405,60 @@ export async function GET(request: NextRequest) {
         startedAt: visit.started_at,
         finishedAt: visit.finished_at,
         durationSeconds: visit.duration_seconds,
-      };
-    }));
+      });
+      if (index < orderedVisits.length - 1) await new Promise(resolve => setTimeout(resolve, 80));
+    }
 
     const smartState: any = smartResult.error ? null : smartResult.data;
-    const smartOriginIsCurrent = Boolean(
-      smartState?.active
-      && Number(smartState.route_version) === routeVersion
-      && numeric(smartState.origin_latitude) !== null
-      && numeric(smartState.origin_longitude) !== null,
-    );
+    const smartOriginIsCurrent = Boolean(smartState?.active && Number(smartState.route_version) === routeVersion && numeric(smartState.origin_latitude) !== null && numeric(smartState.origin_longitude) !== null);
 
     let routeEmployee = employee;
     if (!routeEmployee) {
       const employeeId = orderedVisits.find(visit => Boolean(visit.assigned_employee_id))?.assigned_employee_id;
       if (employeeId) {
-        const result = await service
-          .from("employees")
-          .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active")
-          .eq("id", employeeId)
-          .maybeSingle();
+        const result = await service.from("employees").select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active").eq("id", employeeId).maybeSingle();
         if (!result.error) routeEmployee = result.data;
       }
     }
     if (!routeEmployee && route.crew_id) {
-      const result = await service
-        .from("employees")
-        .select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active")
-        .eq("crew_id", route.crew_id)
-        .eq("active", true)
-        .or(companyFilter(companyId))
-        .limit(1)
-        .maybeSingle();
+      const result = await service.from("employees").select("id,profile_id,crew_id,full_name,address_line1,route_start_address,active").eq("crew_id", route.crew_id).eq("active", true).or(companyFilter(companyId)).limit(1).maybeSingle();
       if (!result.error) routeEmployee = result.data;
     }
 
     let employeeProfile: any = null;
     if (routeEmployee?.profile_id) {
-      const result = await service
-        .from("profiles")
-        .select("id,full_name,address_line1,route_start_address")
-        .eq("id", routeEmployee.profile_id)
-        .maybeSingle();
+      const result = await service.from("profiles").select("id,full_name,address_line1,route_start_address").eq("id", routeEmployee.profile_id).maybeSingle();
       if (!result.error) employeeProfile = result.data;
     }
 
     let origin: { label: string; address: string | null; latitude: number; longitude: number } | null = null;
     let originIsFirstStop = false;
     if (smartOriginIsCurrent) {
-      origin = {
-        label: smartState.origin_label || "Route start",
-        address: null,
-        latitude: Number(smartState.origin_latitude),
-        longitude: Number(smartState.origin_longitude),
-      };
+      origin = { label: smartState.origin_label || "Route start", address: null, latitude: Number(smartState.origin_latitude), longitude: Number(smartState.origin_longitude) };
     } else {
-      const startAddress = employeeProfile?.route_start_address
-        || employeeProfile?.address_line1
-        || routeEmployee?.route_start_address
-        || routeEmployee?.address_line1
-        || "";
-      const fullStartAddress = startAddress
-        ? /\bcanada\b/i.test(startAddress) ? startAddress : `${startAddress}, Canada`
-        : "";
+      const startAddress = employeeProfile?.route_start_address || employeeProfile?.address_line1 || routeEmployee?.route_start_address || routeEmployee?.address_line1 || "";
+      const fullStartAddress = startAddress ? /\bcanada\b/i.test(startAddress) ? startAddress : `${startAddress}, Canada` : "";
       const startPoint = fullStartAddress ? await geocodeAddress(fullStartAddress) : null;
       if (startPoint) {
-        origin = {
-          label: `${employeeProfile?.full_name || routeEmployee?.full_name || "Employee"} start`,
-          address: fullStartAddress,
-          latitude: startPoint.latitude,
-          longitude: startPoint.longitude,
-        };
+        origin = { label: `${employeeProfile?.full_name || routeEmployee?.full_name || "Employee"} start`, address: fullStartAddress, latitude: startPoint.latitude, longitude: startPoint.longitude };
       } else {
         const first = stops[0];
         if (first && first.latitude !== null && first.longitude !== null) {
           originIsFirstStop = true;
-          origin = {
-            label: "First canonical stop",
-            address: first.address,
-            latitude: first.latitude,
-            longitude: first.longitude,
-          };
+          origin = { label: "First canonical stop", address: first.address, latitude: first.latitude, longitude: first.longitude };
         }
       }
     }
 
     const allStopsMapped = stops.every(stop => stop.latitude !== null && stop.longitude !== null);
     const routePoints: Point[] = allStopsMapped
-      ? [
-          ...(!origin || originIsFirstStop ? [] : [{ latitude: origin.latitude, longitude: origin.longitude }]),
-          ...stops.map(stop => ({ latitude: stop.latitude!, longitude: stop.longitude! })),
-        ]
+      ? [...(!origin || originIsFirstStop ? [] : [{ latitude: origin.latitude, longitude: origin.longitude }]), ...stops.map(stop => ({ latitude: stop.latitude!, longitude: stop.longitude! }))]
       : [];
-    const geometry = routePoints.length >= 2
-      ? await roadGeometry(String(route.id), routeVersion, routePoints)
-      : null;
+    const geometry = routePoints.length >= 2 ? await roadGeometry(String(route.id), routeVersion, routePoints) : null;
     const geometryStatus = !allStopsMapped ? "incomplete" : geometry ? "ready" : "unavailable";
-    const updatedAt = [stateResult.data.updated_at, smartState?.updated_at, route.created_at]
-      .filter(Boolean)
-      .sort()
-      .at(-1) || new Date().toISOString();
+    const updatedAt = [stateResult.data.updated_at, smartState?.updated_at, route.created_at].filter(Boolean).sort().at(-1) || new Date().toISOString();
 
-    console.info("canonical-route-snapshot-ok", {
-      routeId: route.id,
-      routeVersion,
-      stopCount: stops.length,
-      mappedStopCount: stops.filter(stop => stop.latitude !== null && stop.longitude !== null).length,
-      geometryStatus,
-    });
+    console.info("canonical-route-snapshot-ok", { routeId: route.id, routeVersion, stopCount: stops.length, mappedCount: stops.filter(stop => stop.latitude !== null && stop.longitude !== null).length, geometryStatus });
 
     return NextResponse.json({
       routeId: String(route.id),
@@ -575,9 +474,6 @@ export async function GET(request: NextRequest) {
     }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("canonical-route-snapshot", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Canonical route snapshot could not be loaded." },
-      { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } },
-    );
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Canonical route snapshot could not be loaded." }, { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } });
   }
 }
