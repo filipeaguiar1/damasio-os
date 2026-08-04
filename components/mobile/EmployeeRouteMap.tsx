@@ -23,8 +23,6 @@ type Props = {
   preview?: boolean;
 };
 
-type Coordinates = { latitude: number; longitude: number };
-
 const HAMILTON: [number, number] = [43.2557, -79.8711];
 
 function visualState(lead: CanonicalRouteLead) {
@@ -121,20 +119,6 @@ function routeKey(lead: CanonicalRouteLead) {
   return String(lead.canonicalVisitId || lead.id);
 }
 
-async function geocodeAddress(address: string): Promise<Coordinates | null> {
-  const value = address.trim();
-  if (!value) return null;
-  try {
-    const response = await fetch(`/api/map/geocode?address=${encodeURIComponent(value)}`, { cache: "no-store" });
-    if (!response.ok) return null;
-    const point = await response.json() as Partial<Coordinates>;
-    if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) return null;
-    return { latitude: Number(point.latitude), longitude: Number(point.longitude) };
-  } catch {
-    return null;
-  }
-}
-
 export function EmployeeRouteMap({
   route,
   onOpenVisit,
@@ -153,7 +137,6 @@ export function EmployeeRouteMap({
   const [selectedId, setSelectedId] = useState("");
   const [mapReady, setMapReady] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
-  const [resolvedCoordinates, setResolvedCoordinates] = useState<Record<string, Coordinates>>({});
 
   const operationalRoute = useMemo(() => normalizeRoute(route), [route]);
   const effectiveRouteId = preview
@@ -171,42 +154,7 @@ export function EmployeeRouteMap({
     return normalizeRoute(enrichCurrentMembership(operationalRoute, snapshot));
   }, [preview, operationalRoute, snapshot, snapshotMatches]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const missing = displayRoute.filter(lead =>
-      (!Number.isFinite(lead.latitude) || !Number.isFinite(lead.longitude))
-      && !resolvedCoordinates[routeKey(lead)]
-      && Boolean(lead.address?.trim()));
-    if (!missing.length) return () => { cancelled = true; };
-
-    void Promise.all(missing.map(async lead => ({
-      id: routeKey(lead),
-      point: await geocodeAddress(lead.address),
-    }))).then(results => {
-      if (cancelled) return;
-      const successful = results.filter((item): item is { id: string; point: Coordinates } => Boolean(item.point));
-      if (!successful.length) return;
-      setResolvedCoordinates(current => {
-        const next = { ...current };
-        successful.forEach(item => { next[item.id] = item.point; });
-        return next;
-      });
-    });
-
-    return () => { cancelled = true; };
-  }, [displayRoute, resolvedCoordinates]);
-
-  const mappedRoute = useMemo(() => displayRoute.map(lead => {
-    const fallback = resolvedCoordinates[routeKey(lead)];
-    if (!fallback) return lead;
-    return {
-      ...lead,
-      latitude: Number.isFinite(lead.latitude) ? lead.latitude : fallback.latitude,
-      longitude: Number.isFinite(lead.longitude) ? lead.longitude : fallback.longitude,
-    };
-  }), [displayRoute, resolvedCoordinates]);
-
-  const points = useMemo<Point[]>(() => mappedRoute.flatMap(lead => {
+  const points = useMemo<Point[]>(() => displayRoute.flatMap(lead => {
     if (!Number.isFinite(lead.latitude) || !Number.isFinite(lead.longitude)) return [];
     return [{
       ...lead,
@@ -214,16 +162,15 @@ export function EmployeeRouteMap({
       longitude: Number(lead.longitude),
       ...visualState(lead),
     }];
-  }), [mappedRoute]);
+  }), [displayRoute]);
 
   const origin = preview ? originPoint : snapshot?.origin || originPoint || null;
-  const unmapped = mappedRoute.filter(lead => !points.some(point => routeKey(point) === routeKey(lead)));
+  const unmapped = displayRoute.filter(lead => !points.some(point => routeKey(point) === routeKey(lead)));
   const selected = points.find(point => routeKey(point) === selectedId) || points[0] || null;
 
   useEffect(() => {
     didInitialFit.current = false;
     setSelectedId("");
-    setResolvedCoordinates({});
   }, [effectiveRouteId, snapshotMatches ? snapshot?.routeVersion : operationalRoute.length]);
 
   function fitRoute() {
@@ -371,7 +318,7 @@ export function EmployeeRouteMap({
     ? "Smart Route preview · not published"
     : snapshotMatches
       ? `Canonical route v${snapshot?.routeVersion}`
-      : points.length === mappedRoute.length && mappedRoute.length > 0
+      : points.length === displayRoute.length && displayRoute.length > 0
         ? "Current route · geometry rebuilt from active stops"
         : loading
           ? "Loading map snapshot…"
@@ -382,7 +329,7 @@ export function EmployeeRouteMap({
   return <section className={`employee-map-panel ${desktop ? "employee-map-desktop" : ""}`}>
     <div className="employee-map-toolbar">
       <div>
-        <strong>{points.length}/{mappedRoute.length} properties mapped</strong>
+        <strong>{points.length}/{displayRoute.length} properties mapped</strong>
         <span>{mapStatus}{locationMessage ? ` · ${locationMessage}` : ""}</span>
       </div>
       <div className="employee-map-toolbar-actions">
@@ -392,7 +339,7 @@ export function EmployeeRouteMap({
       </div>
     </div>
     {unmapped.length > 0 && <p className="employee-map-notice">
-      Mapping {unmapped.length} remaining {unmapped.length === 1 ? "property" : "properties"}…
+      {unmapped.length} {unmapped.length === 1 ? "property is" : "properties are"} not mapped.
     </p>}
     <div ref={mapNode} className="employee-route-map" aria-label="Interactive map of assigned visits" />
 
@@ -400,12 +347,12 @@ export function EmployeeRouteMap({
       <header>
         <div>
           <strong>Official route</strong>
-          <small>{mappedRoute.length} stops · one canonical membership</small>
+          <small>{displayRoute.length} stops · one canonical membership</small>
         </div>
         <b>{snapshotMatches ? `v${snapshot?.routeVersion}` : "LIVE"}</b>
       </header>
       <div className="employee-canonical-route-scroll">
-        {mappedRoute.map(lead => {
+        {displayRoute.map(lead => {
           const id = routeKey(lead);
           return <button
             type="button"
