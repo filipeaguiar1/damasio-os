@@ -78,10 +78,15 @@ export async function GET(request: NextRequest) {
     const ids = [...routeIds];
 
     const [routesResult, statesResult, stopsResult, visitsResult] = await Promise.all([
-      service.from("routes").select("id,created_at").in("id", ids).or(companyFilter(companyId)),
+      service.from("routes").select("id,crew_id,created_at").in("id", ids).or(companyFilter(companyId)),
       service.from("route_order_state").select("route_id,version,updated_at").in("route_id", ids),
       service.from("route_stops").select("route_id,visit_id,position").in("route_id", ids),
-      service.from("visits").select("route_id,id,status").in("route_id", ids).neq("status", "cancelled").or(companyFilter(companyId)),
+      service.from("visits")
+        .select("route_id,id,status,route_order,assigned_employee_id,crew_id,scheduled_date")
+        .in("route_id", ids)
+        .eq("scheduled_date", date)
+        .neq("status", "cancelled")
+        .or(companyFilter(companyId)),
     ]);
     if (routesResult.error) throw new Error(routesResult.error.message);
     if (statesResult.error) throw new Error(statesResult.error.message);
@@ -89,14 +94,15 @@ export async function GET(request: NextRequest) {
     if (visitsResult.error) throw new Error(visitsResult.error.message);
 
     const stateByRoute = new Map((statesResult.data || []).map((row: any) => [String(row.route_id), row]));
-    const visitsByRoute = new Map<string, Set<string>>();
+    const visitRowsByRoute = new Map<string, any[]>();
     for (const row of visitsResult.data || []) {
       const routeId = String(row.route_id || "");
       if (!routeId) continue;
-      const values = visitsByRoute.get(routeId) || new Set<string>();
-      values.add(String(row.id));
-      visitsByRoute.set(routeId, values);
+      const values = visitRowsByRoute.get(routeId) || [];
+      values.push(row);
+      visitRowsByRoute.set(routeId, values);
     }
+
     const stopsByRoute = new Map<string, Array<{ visitId: string; position: number }>>();
     for (const row of stopsResult.data || []) {
       const routeId = String(row.route_id || "");
@@ -106,18 +112,81 @@ export async function GET(request: NextRequest) {
       stopsByRoute.set(routeId, values);
     }
 
+    // Older publication paths could save Visits without materializing route_stops.
+    // Repair only Routes that unambiguously belong to this authenticated Employee.
+    for (const route of routesResult.data || []) {
+      const routeId = String(route.id);
+      const visits = (visitRowsByRoute.get(routeId) || []).sort((left, right) =>
+        Number(left.route_order || 9999) - Number(right.route_order || 9999)
+        || String(left.id).localeCompare(String(right.id)));
+      if (!visits.length) continue;
+
+      const belongs = visits.every((visit: any) =>
+        employeeIds.includes(String(visit.assigned_employee_id || ""))
+        || crewIds.includes(String(visit.crew_id || route.crew_id || "")));
+      if (!belongs) continue;
+
+      const currentStops = (stopsByRoute.get(routeId) || []).sort((a, b) => a.position - b.position);
+      const visitIds = new Set(visits.map((visit: any) => String(visit.id)));
+      const valid = currentStops.length === visits.length
+        && currentStops.every((stop, index) => stop.position === index + 1 && visitIds.has(stop.visitId));
+      if (valid) continue;
+
+      for (let index = 0; index < visits.length; index += 1) {
+        const position = index + 1;
+        if (Number(visits[index].route_order) !== position) {
+          const updated = await service.from("visits").update({ route_order: position }).eq("id", visits[index].id);
+          if (updated.error) throw new Error(updated.error.message);
+          visits[index].route_order = position;
+        }
+      }
+
+      const deleted = await service.from("route_stops").delete().eq("route_id", routeId);
+      if (deleted.error) throw new Error(deleted.error.message);
+      const inserted = await service.from("route_stops").insert(visits.map((visit: any, index: number) => ({
+        company_id: companyId,
+        route_id: routeId,
+        visit_id: visit.id,
+        position: index + 1,
+        updated_at: new Date().toISOString(),
+      })));
+      if (inserted.error) throw new Error(inserted.error.message);
+
+      const currentState: any = stateByRoute.get(routeId);
+      const repairedVersion = Math.max(1, Number(currentState?.version || 0) + 1);
+      const stateWrite = await service.from("route_order_state").upsert({
+        route_id: routeId,
+        company_id: companyId,
+        version: repairedVersion,
+        last_source: "employee_route_materialization_repair",
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "route_id" });
+      if (stateWrite.error) throw new Error(stateWrite.error.message);
+
+      stateByRoute.set(routeId, {
+        route_id: routeId,
+        version: repairedVersion,
+        updated_at: new Date().toISOString(),
+      });
+      stopsByRoute.set(routeId, visits.map((visit: any, index: number) => ({
+        visitId: String(visit.id),
+        position: index + 1,
+      })));
+    }
+
     const candidates = (routesResult.data || []).flatMap((route: any) => {
       const routeId = String(route.id);
-      const visits = visitsByRoute.get(routeId) || new Set<string>();
+      const visits = visitRowsByRoute.get(routeId) || [];
+      const visitIds = new Set(visits.map((visit: any) => String(visit.id)));
       const stops = (stopsByRoute.get(routeId) || []).sort((a, b) => a.position - b.position);
-      const valid = visits.size > 0
-        && stops.length === visits.size
-        && stops.every((stop, index) => stop.position === index + 1 && visits.has(stop.visitId));
+      const valid = visits.length > 0
+        && stops.length === visits.length
+        && stops.every((stop, index) => stop.position === index + 1 && visitIds.has(stop.visitId));
       if (!valid) return [];
       const state: any = stateByRoute.get(routeId);
       return [{
         routeId,
-        routeVersion: Number(state?.version || 0),
+        routeVersion: Math.max(1, Number(state?.version || 0)),
         updatedAt: String(state?.updated_at || route.created_at || ""),
         stopCount: stops.length,
       }];
