@@ -116,6 +116,103 @@ async function sourceVisitIdsForMove(
   return jobIds.map(jobId => byJob.get(jobId)![0].id as string);
 }
 
+async function materializePublishedRoute(input: {
+  service: any;
+  companyId: string;
+  routeId: string;
+  routeDate: string;
+  employeeId: string;
+  crewId: string;
+  orderedJobIds: string[];
+}) {
+  const { service, companyId, routeId, routeDate, employeeId, crewId, orderedJobIds } = input;
+  if (!routeId) throw new Error("Publication returned no canonical routeId.");
+
+  const visitsResult = await service
+    .from("visits")
+    .select("id,job_id,route_id,route_order,status,assigned_employee_id,crew_id,scheduled_date")
+    .eq("route_id", routeId)
+    .eq("scheduled_date", routeDate)
+    .neq("status", "cancelled")
+    .or(companyFilter(companyId))
+    .order("route_order", { ascending: true });
+  if (visitsResult.error) throw new Error(visitsResult.error.message);
+
+  const visits = visitsResult.data || [];
+  if (visits.length !== orderedJobIds.length) {
+    throw new Error(`Published Route verification failed: expected ${orderedJobIds.length} Visits, received ${visits.length}.`);
+  }
+
+  const byJob = new Map(visits.map((visit: any) => [String(visit.job_id || ""), visit]));
+  const orderedVisits = orderedJobIds.map((jobId, index) => {
+    const visit: any = byJob.get(jobId);
+    if (!visit) throw new Error(`Published Route is missing the Visit for Job ${jobId}.`);
+    if (String(visit.assigned_employee_id || "") !== employeeId
+      || String(visit.crew_id || "") !== crewId
+      || String(visit.route_id || "") !== routeId
+      || String(visit.scheduled_date || "") !== routeDate) {
+      throw new Error("Published Route identity verification failed.");
+    }
+    return { ...visit, expectedPosition: index + 1 };
+  });
+
+  const orderUpdates = await Promise.all(orderedVisits.map((visit: any) => service
+    .from("visits")
+    .update({ route_order: visit.expectedPosition })
+    .eq("id", visit.id)
+    .eq("route_id", routeId)));
+  for (const update of orderUpdates) if (update.error) throw new Error(update.error.message);
+
+  const deletedStops = await service.from("route_stops").delete().eq("route_id", routeId);
+  if (deletedStops.error) throw new Error(deletedStops.error.message);
+
+  const stopRows = orderedVisits.map((visit: any) => ({
+    company_id: companyId,
+    route_id: routeId,
+    visit_id: visit.id,
+    position: visit.expectedPosition,
+    updated_at: new Date().toISOString(),
+  }));
+  const insertedStops = await service.from("route_stops").insert(stopRows);
+  if (insertedStops.error) throw new Error(insertedStops.error.message);
+
+  const stateResult = await service
+    .from("route_order_state")
+    .select("version")
+    .eq("route_id", routeId)
+    .maybeSingle();
+  if (stateResult.error) throw new Error(stateResult.error.message);
+  const routeVersion = Math.max(1, Number(stateResult.data?.version || 0) + 1);
+  const stateWrite = await service.from("route_order_state").upsert({
+    route_id: routeId,
+    company_id: companyId,
+    version: routeVersion,
+    last_source: "route_advisor_publish",
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "route_id" });
+  if (stateWrite.error) throw new Error(stateWrite.error.message);
+
+  const verification = await service
+    .from("route_stops")
+    .select("visit_id,position")
+    .eq("route_id", routeId)
+    .order("position", { ascending: true });
+  if (verification.error) throw new Error(verification.error.message);
+  const verifiedStops = verification.data || [];
+  if (verifiedStops.length !== orderedVisits.length
+    || verifiedStops.some((stop: any, index: number) =>
+      String(stop.visit_id) !== String(orderedVisits[index].id)
+      || Number(stop.position) !== index + 1)) {
+    throw new Error("Canonical route_stops verification failed after publication.");
+  }
+
+  return {
+    routeVersion,
+    orderedVisitIds: orderedVisits.map((visit: any) => String(visit.id)),
+    count: orderedVisits.length,
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { service, user, companyId } = await requireAdmin(request);
@@ -153,10 +250,6 @@ export async function POST(request: NextRequest) {
 
       const payload = removed.data || { removed: true, count: visitIds.length, status: "pending" };
       const routeIds = [...new Set((payload.routeIds || []).map(String).filter(Boolean))];
-
-      // The canonical snapshot endpoint builds geometry directly from the current
-      // route_stops order. The optional Instant Map Engine tables/functions must
-      // never block a route mutation or leave Admin/Employee on an old snapshot.
       return NextResponse.json({
         ...payload,
         routeId: routeIds[0] || null,
@@ -221,8 +314,24 @@ export async function POST(request: NextRequest) {
     if (result.error) throw rpcError(result.error.message);
     const data = result.data || {};
     const routeId = String(data.routeId || "");
-    const routeVersion = Number(data.routeVersions?.[routeId] || data.routeVersion || 0);
-    return NextResponse.json({ ...data, routeVersion });
+    const canonical = await materializePublishedRoute({
+      service,
+      companyId,
+      routeId,
+      routeDate,
+      employeeId,
+      crewId,
+      orderedJobIds,
+    });
+
+    return NextResponse.json({
+      ...data,
+      routeId,
+      routeVersion: canonical.routeVersion,
+      orderedVisitIds: canonical.orderedVisitIds,
+      count: canonical.count,
+      canonicalVerified: true,
+    });
   } catch (error) {
     console.error("admin-route-advisor-post", error);
     return NextResponse.json(
