@@ -22,11 +22,13 @@ assert.match(canonicalApi, /from\("route_stops"\)/, "route_stops must be the onl
 assert.match(canonicalApi, /No projection fallback is allowed/, "An inconsistent route must fail instead of falling back.");
 assert.doesNotMatch(canonicalApi, /visitProjection|projectedOrder|canonicalOrder\s*=.*\?.*:/, "The reader cannot reconstruct order from Visits.");
 assert.doesNotMatch(canonicalApi, /applied_order/, "employee_smart_route_state cannot supply route order.");
-assert.match(canonicalApi, /properties\(address_line1,city,province,postal_code\)/, "Every stop must use the same complete address fields.");
-assert.match(canonicalApi, /const point = await geocodeAddress\(address\)/, "Coordinates must be resolved once by the canonical snapshot service.");
+assert.match(canonicalApi, /properties\(address_line1,city,province,postal_code,latitude,longitude\)/, "Every stop must load its complete address and persisted coordinates.");
+assert.match(canonicalApi, /storedLatitude !== null && storedLongitude !== null/, "Persisted property coordinates must be preferred before external geocoding.");
+assert.match(canonicalApi, /: await geocodeAddress\(address\)/, "External geocoding must remain a server-side fallback.");
 assert.match(canonicalApi, /photonPoint/, "Canonical server geocoding needs a primary provider.");
 assert.match(canonicalApi, /nominatimPoint/, "Canonical server geocoding needs a fallback provider.");
-assert.doesNotMatch(canonicalApi, /properties\([^)]*latitude|properties\([^)]*longitude/, "Canonical reads cannot depend on optional coordinate columns.");
+assert.match(canonicalApi, /property\?\.latitude/, "Canonical reads must use persisted latitude when available.");
+assert.match(canonicalApi, /property\?\.longitude/, "Canonical reads must use persisted longitude when available.");
 assert.match(canonicalApi, /orderedVisitIds/, "The snapshot must publish the canonical ordered Visit IDs.");
 assert.match(canonicalApi, /routeOrder: orderedVisitIds\.map/, "Marker numbers and lists must use the same routeOrder projection.");
 assert.match(canonicalApi, /geometryStatus/, "The canonical response must include geometry state.");
