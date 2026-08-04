@@ -95,6 +95,26 @@ function routeFromSnapshot(snapshot: any): CanonicalRouteLead[] {
   }));
 }
 
+function enrichCurrentMembership(route: CanonicalRouteLead[], snapshot: any) {
+  if (!snapshot?.stops?.length) return route;
+  const snapshotByVisit = new Map<string, any>(
+    snapshot.stops.map((stop: any) => [String(stop.visitId), stop]),
+  );
+  return route.map(lead => {
+    const visitId = String(lead.canonicalVisitId || lead.id || "");
+    const stop = snapshotByVisit.get(visitId);
+    if (!stop) return lead;
+    return {
+      ...lead,
+      latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : lead.latitude,
+      longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : lead.longitude,
+      canonicalCustomerId: lead.canonicalCustomerId || stop.customerId || undefined,
+      canonicalPropertyId: lead.canonicalPropertyId || stop.propertyId || undefined,
+      canonicalJobId: lead.canonicalJobId || stop.jobId || undefined,
+    };
+  });
+}
+
 export function EmployeeRouteMap({
   route,
   onOpenVisit,
@@ -124,26 +144,10 @@ export function EmployeeRouteMap({
     && snapshot?.routeId === effectiveRouteId
     && sameVisitMembership(operationalRoute, snapshot);
 
-  // Membership and order always come from the current operational route. A stale
-  // snapshot may lend coordinates only to matching Visit IDs; it can never add
-  // removed houses or restore an old order.
   const displayRoute = useMemo<CanonicalRouteLead[]>(() => {
     if (preview) return operationalRoute;
     if (snapshotMatches) return normalizeRoute(routeFromSnapshot(snapshot));
-
-    const snapshotByVisit = new Map(
-      (snapshot?.stops || []).map((stop: any) => [String(stop.visitId), stop]),
-    );
-    return operationalRoute.map(lead => {
-      const visitId = String(lead.canonicalVisitId || lead.id || "");
-      const matchingStop: any = snapshotByVisit.get(visitId);
-      if (!matchingStop) return lead;
-      return {
-        ...lead,
-        latitude: Number.isFinite(matchingStop.latitude) ? Number(matchingStop.latitude) : lead.latitude,
-        longitude: Number.isFinite(matchingStop.longitude) ? Number(matchingStop.longitude) : lead.longitude,
-      };
-    });
+    return normalizeRoute(enrichCurrentMembership(operationalRoute, snapshot));
   }, [preview, operationalRoute, snapshot, snapshotMatches]);
 
   const points = useMemo<Point[]>(() => displayRoute.flatMap(lead => {
@@ -156,9 +160,7 @@ export function EmployeeRouteMap({
     }];
   }), [displayRoute]);
 
-  const origin = preview
-    ? originPoint
-    : snapshot?.origin || originPoint || null;
+  const origin = preview ? originPoint : snapshot?.origin || originPoint || null;
   const unmapped = displayRoute.filter(lead => !points.some(point => point.id === lead.id));
   const selected = points.find(point => point.id === selectedId) || points[0] || null;
 
@@ -290,13 +292,15 @@ export function EmployeeRouteMap({
     }
     if (preview) return;
 
-    const coordinates: [number, number][] = snapshotMatches && snapshot?.geometry?.coordinates?.length
+    const canonicalCoordinates = snapshotMatches && snapshot?.geometry?.coordinates?.length
       ? snapshot.geometry.coordinates.map(([longitude, latitude]: [number, number]) => [latitude, longitude])
-      : [
-          ...(origin ? [[origin.latitude, origin.longitude] as [number, number]] : []),
-          ...points.map(point => [point.latitude, point.longitude] as [number, number]),
-        ];
-    if (coordinates.length < 2) return;
+      : null;
+    const currentCoordinates = [
+      ...(origin ? [[origin.latitude, origin.longitude] as [number, number]] : []),
+      ...points.map(point => [point.latitude, point.longitude] as [number, number]),
+    ];
+    const coordinates = canonicalCoordinates || (currentCoordinates.length >= 2 ? currentCoordinates : null);
+    if (!coordinates) return;
 
     routeLayerRef.current = window.L.polyline(
       coordinates,
@@ -309,12 +313,12 @@ export function EmployeeRouteMap({
     ? "Smart Route preview · not published"
     : snapshotMatches
       ? `Canonical route v${snapshot?.routeVersion}`
-      : points.length
-        ? "Current canonical route · live order"
+      : points.length === displayRoute.length && displayRoute.length > 0
+        ? "Current route · geometry rebuilt from active stops"
         : loading
           ? "Loading map snapshot…"
           : error
-            ? "Current route loaded · map coordinates unavailable"
+            ? "Current route loaded · some coordinates unavailable"
             : "Current canonical route · geometry refreshing";
 
   return <section className={`employee-map-panel ${desktop ? "employee-map-desktop" : ""}`}>
