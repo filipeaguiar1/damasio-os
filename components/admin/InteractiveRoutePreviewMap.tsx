@@ -56,6 +56,7 @@ export function InteractiveRoutePreviewMap({
     durationSeconds: null,
   });
   const [status, setStatus] = useState("Preparing preview...");
+  const [roadReady, setRoadReady] = useState(false);
   const locked = useMemo(() => new Set(lockedJobIds), [lockedJobIds]);
   const routeKey = route
     .map(item => `${jobId(item)}:${item.latitude}:${item.longitude}:${item.routeOrder || ""}`)
@@ -75,6 +76,7 @@ export function InteractiveRoutePreviewMap({
     if (coordinates.length < 2) {
       const next = { distanceMeters: null, durationSeconds: null };
       setGeometry(null);
+      setRoadReady(false);
       setMetrics(next);
       onMetricsChange?.(next);
       setStatus(route.length
@@ -83,7 +85,11 @@ export function InteractiveRoutePreviewMap({
       return () => { cancelled = true; };
     }
 
-    setStatus("Recalculating road distance and duration...");
+    const fallback: RouteLineString = { type: "LineString", coordinates };
+    setGeometry(fallback);
+    setRoadReady(false);
+    setStatus("Preview ready. Refining the line along public roads...");
+
     void fetch("/api/map/route", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -103,18 +109,20 @@ export function InteractiveRoutePreviewMap({
           distanceMeters: Number.isFinite(result.distance) ? result.distance : null,
           durationSeconds: Number.isFinite(result.duration) ? result.duration : null,
         };
-        setGeometry(result.geometry);
+        setGeometry(result.geometry?.coordinates?.length ? result.geometry : fallback);
+        setRoadReady(Boolean(result.geometry?.coordinates?.length));
         setMetrics(next);
         onMetricsChange?.(next);
-        setStatus("Map, numbers, road line, distance and duration match the current manual order.");
+        setStatus("Preview confirmed: markers, order, road line, distance and duration match.");
       })
       .catch(() => {
         if (cancelled) return;
         const next = { distanceMeters: null, durationSeconds: null };
-        setGeometry(null);
+        setGeometry(fallback);
+        setRoadReady(false);
         setMetrics(next);
         onMetricsChange?.(next);
-        setStatus("Houses are mapped, but road metrics are temporarily unavailable.");
+        setStatus("Preview is visible with the reviewed order. Road metrics are temporarily unavailable.");
       });
 
     return () => { cancelled = true; };
@@ -217,16 +225,22 @@ export function InteractiveRoutePreviewMap({
     if (!geometry?.coordinates?.length) return;
     lineLayer.current = window.L.polyline(
       geometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]),
-      { color: "#2563eb", weight: 5, opacity: .82, lineJoin: "round" },
+      {
+        color: "#2563eb",
+        weight: roadReady ? 5 : 4,
+        opacity: roadReady ? .82 : .58,
+        dashArray: roadReady ? undefined : "9 8",
+        lineJoin: "round",
+      },
     ).addTo(map.current);
     lineLayer.current.bringToBack();
-  }, [geometry]);
+  }, [geometry, roadReady]);
 
   const safeCapacity = Math.max(1, capacity || 1);
 
   return <section className="advisor-preview-map">
     <div className="advisor-preview-status">
-      <div><strong>{route.length}/{safeCapacity} houses</strong><span>{status}</span></div>
+      <div><strong>{route.length}/{safeCapacity} houses · {roadReady ? "road preview" : "order preview"}</strong><span>{status}</span></div>
       <dl>
         <div><dt>Distance</dt><dd>{formatDistance(metrics.distanceMeters)}</dd></div>
         <div><dt>Driving</dt><dd>{formatDuration(metrics.durationSeconds)}</dd></div>
@@ -234,8 +248,8 @@ export function InteractiveRoutePreviewMap({
     </div>
     <div ref={node} className="advisor-preview-leaflet" aria-label="Synchronized canonical route preview" />
     <style jsx global>{`
-      .advisor-preview-map{overflow:hidden;border:1px solid #dbe7e1;border-radius:22px;background:#fff}
-      .advisor-preview-status{display:flex;justify-content:space-between;gap:16px;padding:13px 16px;border-bottom:1px solid #e4ece8}
+      .advisor-preview-map{overflow:hidden;border:2px solid #b9d8c8;border-radius:22px;background:#fff;box-shadow:0 12px 30px rgba(19,52,39,.08)}
+      .advisor-preview-status{display:flex;justify-content:space-between;gap:16px;padding:13px 16px;border-bottom:1px solid #e4ece8;background:#f7fbf9}
       .advisor-preview-status>div strong,.advisor-preview-status>div span{display:block}.advisor-preview-status>div span{margin-top:3px;color:#64748b;font-size:12px}
       .advisor-preview-status dl{display:flex;gap:18px;margin:0}.advisor-preview-status dl div{display:grid;gap:2px}.advisor-preview-status dt{color:#64748b;font-size:9px;font-weight:900;text-transform:uppercase}.advisor-preview-status dd{margin:0;color:#173a2c;font-weight:950}
       .advisor-preview-leaflet{height:520px;min-height:400px}
@@ -244,7 +258,7 @@ export function InteractiveRoutePreviewMap({
       .advisor-stop{background:#2563eb;color:#fff;cursor:pointer}.advisor-stop:hover{background:#dc2626;transform:scale(1.08)}
       .advisor-stop.locked{background:#16a34a;cursor:not-allowed}.advisor-stop.locked:hover{background:#16a34a;transform:none}
       .advisor-origin{background:#111827;color:#fff}
-      @media(max-width:800px){.advisor-preview-leaflet{height:420px}.advisor-preview-status{align-items:flex-start;flex-direction:column}}
+      @media(max-width:800px){.advisor-preview-leaflet{height:390px;min-height:340px}.advisor-preview-status{align-items:flex-start;flex-direction:column}.advisor-preview-status dl{width:100%;justify-content:space-between}}
     `}</style>
   </section>;
 }
