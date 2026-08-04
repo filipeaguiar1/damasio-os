@@ -142,61 +142,65 @@ export async function loadEmployeeRouteMapContextUntilStatus(routeDate: string, 
 }
 
 export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRouteMapContext): CanonicalRouteLead[] {
-  const orderedOperational = [...route]
-    .sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999) || a.address.localeCompare(b.address));
-
-  if (orderedOperational.length) {
-    const stopByVisit = new Map(context.stops.map(stop => [stop.visitId, stop]));
-    const stopByJob = new Map(context.stops.filter(stop => stop.jobId).map(stop => [String(stop.jobId), stop]));
-    return orderedOperational.map((lead, index) => {
-      const canonical = lead as CanonicalRouteLead;
-      const stop = (canonical.canonicalVisitId ? stopByVisit.get(canonical.canonicalVisitId) : undefined)
-        || (canonical.canonicalJobId ? stopByJob.get(canonical.canonicalJobId) : undefined);
-      return {
-        ...lead,
-        canonicalRouteId: canonical.canonicalRouteId || context.routeId || undefined,
-        canonicalVisitId: canonical.canonicalVisitId || stop?.visitId,
-        canonicalJobId: canonical.canonicalJobId || stop?.jobId || undefined,
-        canonicalCustomerId: canonical.canonicalCustomerId || stop?.customerId || undefined,
-        canonicalPropertyId: canonical.canonicalPropertyId || stop?.propertyId || undefined,
-        canonicalVisitStatus: (stop?.status || canonical.canonicalVisitStatus) as CanonicalVisitStatus | undefined,
-        latitude: stop?.latitude ?? lead.latitude,
-        longitude: stop?.longitude ?? lead.longitude,
-        routeOrder: index + 1,
-        status: stop?.status === "completed" ? "completed" as const : lead.status,
-      };
-    });
-  }
-
   const canonicalRouteId = context.routeId;
   if (!canonicalRouteId || !context.stops.length) return [];
-  return context.stops.map(stop => ({
-    id: stop.visitId,
-    createdAt: stop.scheduledDate ? `${stop.scheduledDate}T12:00:00.000Z` : "1970-01-01T00:00:00.000Z",
-    name: stop.customerName || "Customer",
-    phone: "",
-    email: "",
-    address: stop.addressLine1,
-    service: stop.serviceName || "Property Service",
-    status: stop.status === "completed" ? "completed" as const : "booked" as const,
-    subtotal: 0,
-    tax: 0,
-    total: 0,
-    photos: [],
-    scheduledDate: stop.scheduledDate,
-    canonicalVisitId: stop.visitId,
-    canonicalRouteId,
-    canonicalJobId: stop.jobId || undefined,
-    canonicalCustomerId: stop.customerId || undefined,
-    canonicalPropertyId: stop.propertyId || undefined,
-    canonicalVisitStatus: stop.status as CanonicalVisitStatus,
-    visitStartedAt: stop.startedAt,
-    visitFinishedAt: stop.finishedAt,
-    visitDurationSeconds: stop.durationSeconds,
-    latitude: stop.latitude ?? undefined,
-    longitude: stop.longitude ?? undefined,
-    routeOrder: stop.routeOrder,
-  }));
+
+  const byVisitId = new Map(
+    route
+      .filter(lead => Boolean((lead as CanonicalRouteLead).canonicalVisitId))
+      .map(lead => [String((lead as CanonicalRouteLead).canonicalVisitId), lead]),
+  );
+  const byJobId = new Map(
+    route
+      .filter(lead => Boolean((lead as CanonicalRouteLead).canonicalJobId))
+      .map(lead => [String((lead as CanonicalRouteLead).canonicalJobId), lead]),
+  );
+
+  // Canonical stops are the only membership and order source for Employee web/mobile.
+  // Local Lead data may enrich presentation fields, but it can never re-add a house
+  // removed from today's Route or change the canonical sequence.
+  return context.stops
+    .slice()
+    .sort((left, right) => left.routeOrder - right.routeOrder)
+    .map(stop => {
+      const existing = byVisitId.get(stop.visitId)
+        || (stop.jobId ? byJobId.get(String(stop.jobId)) : undefined);
+      const canonicalExisting = existing as CanonicalRouteLead | undefined;
+      return {
+        ...(existing || {
+          id: stop.visitId,
+          createdAt: stop.scheduledDate ? `${stop.scheduledDate}T12:00:00.000Z` : "1970-01-01T00:00:00.000Z",
+          name: stop.customerName || "Customer",
+          phone: "",
+          email: "",
+          address: stop.addressLine1,
+          service: stop.serviceName || "Property Service",
+          status: "booked" as const,
+          subtotal: 0,
+          tax: 0,
+          total: 0,
+          photos: [],
+        }),
+        id: stop.visitId,
+        name: stop.customerName || existing?.name || "Customer",
+        address: stop.addressLine1,
+        service: stop.serviceName || existing?.service || "Property Service",
+        scheduledDate: stop.scheduledDate || existing?.scheduledDate,
+        canonicalVisitId: stop.visitId,
+        canonicalRouteId,
+        canonicalJobId: stop.jobId || canonicalExisting?.canonicalJobId,
+        canonicalCustomerId: stop.customerId || canonicalExisting?.canonicalCustomerId,
+        canonicalPropertyId: stop.propertyId || canonicalExisting?.canonicalPropertyId,
+        canonicalVisitStatus: stop.status as CanonicalVisitStatus,
+        visitStartedAt: stop.startedAt,
+        visitFinishedAt: stop.finishedAt,
+        visitDurationSeconds: stop.durationSeconds,
+        latitude: stop.latitude ?? undefined,
+        longitude: stop.longitude ?? undefined,
+        routeOrder: stop.routeOrder,
+        status: stop.status === "completed" ? "completed" as const : "booked" as const,
+      };
+    });
 }
 
 function smartRouteStateFrom(row: any): EmployeeDatabaseSmartRouteState {
