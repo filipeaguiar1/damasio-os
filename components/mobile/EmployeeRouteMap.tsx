@@ -23,6 +23,8 @@ type Props = {
   preview?: boolean;
 };
 
+type Coordinates = { latitude: number; longitude: number };
+
 const HAMILTON: [number, number] = [43.2557, -79.8711];
 
 function visualState(lead: CanonicalRouteLead) {
@@ -115,6 +117,24 @@ function enrichCurrentMembership(route: CanonicalRouteLead[], snapshot: any) {
   });
 }
 
+function routeKey(lead: CanonicalRouteLead) {
+  return String(lead.canonicalVisitId || lead.id);
+}
+
+async function geocodeAddress(address: string): Promise<Coordinates | null> {
+  const value = address.trim();
+  if (!value) return null;
+  try {
+    const response = await fetch(`/api/map/geocode?address=${encodeURIComponent(value)}`, { cache: "no-store" });
+    if (!response.ok) return null;
+    const point = await response.json() as Partial<Coordinates>;
+    if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) return null;
+    return { latitude: Number(point.latitude), longitude: Number(point.longitude) };
+  } catch {
+    return null;
+  }
+}
+
 export function EmployeeRouteMap({
   route,
   onOpenVisit,
@@ -133,6 +153,7 @@ export function EmployeeRouteMap({
   const [selectedId, setSelectedId] = useState("");
   const [mapReady, setMapReady] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
+  const [resolvedCoordinates, setResolvedCoordinates] = useState<Record<string, Coordinates>>({});
 
   const operationalRoute = useMemo(() => normalizeRoute(route), [route]);
   const effectiveRouteId = preview
@@ -150,7 +171,42 @@ export function EmployeeRouteMap({
     return normalizeRoute(enrichCurrentMembership(operationalRoute, snapshot));
   }, [preview, operationalRoute, snapshot, snapshotMatches]);
 
-  const points = useMemo<Point[]>(() => displayRoute.flatMap(lead => {
+  useEffect(() => {
+    let cancelled = false;
+    const missing = displayRoute.filter(lead =>
+      (!Number.isFinite(lead.latitude) || !Number.isFinite(lead.longitude))
+      && !resolvedCoordinates[routeKey(lead)]
+      && Boolean(lead.address?.trim()));
+    if (!missing.length) return () => { cancelled = true; };
+
+    void Promise.all(missing.map(async lead => ({
+      id: routeKey(lead),
+      point: await geocodeAddress(lead.address),
+    }))).then(results => {
+      if (cancelled) return;
+      const successful = results.filter((item): item is { id: string; point: Coordinates } => Boolean(item.point));
+      if (!successful.length) return;
+      setResolvedCoordinates(current => {
+        const next = { ...current };
+        successful.forEach(item => { next[item.id] = item.point; });
+        return next;
+      });
+    });
+
+    return () => { cancelled = true; };
+  }, [displayRoute, resolvedCoordinates]);
+
+  const mappedRoute = useMemo(() => displayRoute.map(lead => {
+    const fallback = resolvedCoordinates[routeKey(lead)];
+    if (!fallback) return lead;
+    return {
+      ...lead,
+      latitude: Number.isFinite(lead.latitude) ? lead.latitude : fallback.latitude,
+      longitude: Number.isFinite(lead.longitude) ? lead.longitude : fallback.longitude,
+    };
+  }), [displayRoute, resolvedCoordinates]);
+
+  const points = useMemo<Point[]>(() => mappedRoute.flatMap(lead => {
     if (!Number.isFinite(lead.latitude) || !Number.isFinite(lead.longitude)) return [];
     return [{
       ...lead,
@@ -158,15 +214,16 @@ export function EmployeeRouteMap({
       longitude: Number(lead.longitude),
       ...visualState(lead),
     }];
-  }), [displayRoute]);
+  }), [mappedRoute]);
 
   const origin = preview ? originPoint : snapshot?.origin || originPoint || null;
-  const unmapped = displayRoute.filter(lead => !points.some(point => point.id === lead.id));
-  const selected = points.find(point => point.id === selectedId) || points[0] || null;
+  const unmapped = mappedRoute.filter(lead => !points.some(point => routeKey(point) === routeKey(lead)));
+  const selected = points.find(point => routeKey(point) === selectedId) || points[0] || null;
 
   useEffect(() => {
     didInitialFit.current = false;
     setSelectedId("");
+    setResolvedCoordinates({});
   }, [effectiveRouteId, snapshotMatches ? snapshot?.routeVersion : operationalRoute.length]);
 
   function fitRoute() {
@@ -264,7 +321,8 @@ export function EmployeeRouteMap({
     }
 
     points.forEach(point => {
-      const active = selected?.id === point.id;
+      const id = routeKey(point);
+      const active = selected && routeKey(selected) === id;
       const icon = L.divIcon({
         className: "employee-map-marker-shell",
         html: `<div class="employee-map-marker ${active ? "active" : ""}" style="background:${point.color}">${point.routeOrder}</div>`,
@@ -273,7 +331,7 @@ export function EmployeeRouteMap({
       });
       L.marker([point.latitude, point.longitude], { icon })
         .bindTooltip(`${point.name} · ${point.label}`, { direction: "top" })
-        .on("click", () => setSelectedId(point.id))
+        .on("click", () => setSelectedId(id))
         .addTo(markerLayerRef.current);
     });
 
@@ -282,7 +340,7 @@ export function EmployeeRouteMap({
       fitRoute();
     }
     window.setTimeout(() => mapRef.current?.invalidateSize(), 50);
-  }, [mapReady, points, selected?.id, origin?.latitude, origin?.longitude, origin?.label]);
+  }, [mapReady, points, selected, origin?.latitude, origin?.longitude, origin?.label]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !window.L) return;
@@ -313,7 +371,7 @@ export function EmployeeRouteMap({
     ? "Smart Route preview · not published"
     : snapshotMatches
       ? `Canonical route v${snapshot?.routeVersion}`
-      : points.length === displayRoute.length && displayRoute.length > 0
+      : points.length === mappedRoute.length && mappedRoute.length > 0
         ? "Current route · geometry rebuilt from active stops"
         : loading
           ? "Loading map snapshot…"
@@ -324,7 +382,7 @@ export function EmployeeRouteMap({
   return <section className={`employee-map-panel ${desktop ? "employee-map-desktop" : ""}`}>
     <div className="employee-map-toolbar">
       <div>
-        <strong>{points.length}/{displayRoute.length} properties mapped</strong>
+        <strong>{points.length}/{mappedRoute.length} properties mapped</strong>
         <span>{mapStatus}{locationMessage ? ` · ${locationMessage}` : ""}</span>
       </div>
       <div className="employee-map-toolbar-actions">
@@ -334,7 +392,7 @@ export function EmployeeRouteMap({
       </div>
     </div>
     {unmapped.length > 0 && <p className="employee-map-notice">
-      {unmapped.length} {unmapped.length === 1 ? "property is" : "properties are"} not mapped.
+      Mapping {unmapped.length} remaining {unmapped.length === 1 ? "property" : "properties"}…
     </p>}
     <div ref={mapNode} className="employee-route-map" aria-label="Interactive map of assigned visits" />
 
@@ -342,21 +400,27 @@ export function EmployeeRouteMap({
       <header>
         <div>
           <strong>Official route</strong>
-          <small>{displayRoute.length} stops · one canonical membership</small>
+          <small>{mappedRoute.length} stops · one canonical membership</small>
         </div>
         <b>{snapshotMatches ? `v${snapshot?.routeVersion}` : "LIVE"}</b>
       </header>
       <div className="employee-canonical-route-scroll">
-        {displayRoute.map(lead => <button
-          type="button"
-          key={lead.canonicalVisitId || lead.id}
-          className={selected?.id === lead.id ? "active" : ""}
-          onClick={() => setSelectedId(lead.id)}
-        >
-          <b>{lead.routeOrder}</b>
-          <span><strong>{lead.name}</strong><small>{lead.address}</small></span>
-          <em>{statusLabel(lead)}</em>
-        </button>)}
+        {mappedRoute.map(lead => {
+          const id = routeKey(lead);
+          return <button
+            type="button"
+            key={id}
+            className={selected && routeKey(selected) === id ? "active" : ""}
+            onClick={() => {
+              setSelectedId(id);
+              onOpenVisit(lead);
+            }}
+          >
+            <b>{lead.routeOrder}</b>
+            <span><strong>{lead.name}</strong><small>{lead.address}</small></span>
+            <em>{statusLabel(lead)}</em>
+          </button>;
+        })}
       </div>
     </aside>}
 
@@ -379,10 +443,10 @@ export function EmployeeRouteMap({
       .official-route-focused:has(.employee-map-desktop)>.official-house-list{display:none!important}
       .employee-map-desktop{position:relative;min-width:0}
       .employee-map-desktop .employee-route-map{min-height:620px}
-      .employee-canonical-route-list{position:absolute;z-index:750;top:72px;right:18px;width:min(330px,40%);max-height:calc(100% - 155px);display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;border:1px solid rgba(214,226,220,.95);border-radius:20px;background:rgba(255,255,255,.97);box-shadow:0 18px 45px rgba(20,54,40,.18);backdrop-filter:blur(10px)}
-      .employee-canonical-route-list>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 15px;border-bottom:1px solid #e4ece8}.employee-canonical-route-list>header div{display:grid;gap:2px}.employee-canonical-route-list>header strong{font-size:17px;color:#173d2d}.employee-canonical-route-list>header small{font-size:11px;color:#687a71}.employee-canonical-route-list>header>b{padding:5px 8px;border-radius:999px;background:#e7f6ed;color:#087247;font-size:10px}
-      .employee-canonical-route-scroll{overflow:auto;padding:8px}.employee-canonical-route-scroll>button{width:100%;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:9px;padding:10px 8px;border:1px solid transparent;border-radius:14px;background:transparent;text-align:left}.employee-canonical-route-scroll>button:hover,.employee-canonical-route-scroll>button.active{border-color:#b8ddc9;background:#eff9f3}.employee-canonical-route-scroll>button>b{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:#0c7449;color:#fff}.employee-canonical-route-scroll>button span{min-width:0;display:grid;gap:2px}.employee-canonical-route-scroll>button span strong,.employee-canonical-route-scroll>button span small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.employee-canonical-route-scroll>button span strong{font-size:13px;color:#173d2d}.employee-canonical-route-scroll>button span small{font-size:10px;color:#66766f}.employee-canonical-route-scroll>button em{font-style:normal;font-size:9px;font-weight:800;color:#607169}
-      @media(max-width:900px){.employee-canonical-route-list{width:300px;max-width:45%}.employee-map-desktop .employee-route-map{min-height:560px}}
+      .employee-canonical-route-list{position:absolute;z-index:750;top:108px;right:18px;width:min(300px,38%);height:360px;display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;border:1px solid rgba(214,226,220,.95);border-radius:18px;background:rgba(255,255,255,.97);box-shadow:0 18px 45px rgba(20,54,40,.18);backdrop-filter:blur(10px)}
+      .employee-canonical-route-list>header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;border-bottom:1px solid #e4ece8}.employee-canonical-route-list>header div{display:grid;gap:2px}.employee-canonical-route-list>header strong{font-size:16px;color:#173d2d}.employee-canonical-route-list>header small{font-size:10px;color:#687a71}.employee-canonical-route-list>header>b{padding:4px 7px;border-radius:999px;background:#e7f6ed;color:#087247;font-size:9px}
+      .employee-canonical-route-scroll{overflow:auto;padding:6px}.employee-canonical-route-scroll>button{width:100%;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:8px;padding:8px 7px;border:1px solid transparent;border-radius:12px;background:transparent;text-align:left;cursor:pointer}.employee-canonical-route-scroll>button:hover,.employee-canonical-route-scroll>button.active{border-color:#b8ddc9;background:#eff9f3}.employee-canonical-route-scroll>button>b{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:#0c7449;color:#fff}.employee-canonical-route-scroll>button span{min-width:0;display:grid;gap:1px}.employee-canonical-route-scroll>button span strong,.employee-canonical-route-scroll>button span small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.employee-canonical-route-scroll>button span strong{font-size:12px;color:#173d2d}.employee-canonical-route-scroll>button span small{font-size:9px;color:#66766f}.employee-canonical-route-scroll>button em{font-style:normal;font-size:8px;font-weight:800;color:#607169}
+      @media(max-width:900px){.employee-canonical-route-list{top:104px;width:278px;max-width:44%;height:340px}.employee-map-desktop .employee-route-map{min-height:560px}}
     `}</style>}
   </section>;
 }
