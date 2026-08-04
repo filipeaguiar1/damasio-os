@@ -126,6 +126,7 @@ export async function GET(request: NextRequest) {
       || right.updatedAt.localeCompare(left.updatedAt)
       || right.routeVersion - left.routeVersion
       || right.visitCount - left.visitCount
+      || left.stopCount - right.stopCount
       || left.routeId.localeCompare(right.routeId),
     );
 
