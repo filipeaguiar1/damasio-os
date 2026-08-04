@@ -1,4 +1,4 @@
-import { createCustomerProperty, deleteCustomerRecords, listCustomerProperties, type CreateCustomerPropertyInput, type CustomerPropertyRecord } from "@/lib/repositories/customerPropertyRepository";
+import { createCustomerProperty, deleteCustomerRecords, listCustomerProperties, type CreateCustomerPropertyInput, type CustomerDirectoryPage, type CustomerPropertyRecord } from "@/lib/repositories/customerPropertyRepository";
 import { createManualCustomer, getLeads, Lead, seedDemoLeads, setLeads } from "@/lib/storage";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { readDemoSession } from "@/lib/auth/demoAuth";
@@ -50,12 +50,43 @@ function usesLocalDemoData(){
   return Boolean(readDemoSession()) || !isSupabaseConfigured();
 }
 
-export async function getCustomerPropertyDirectory() {
-  if(usesLocalDemoData()){
+export async function getCustomerPropertyDirectoryPage(params: {
+  page?: number;
+  pageSize?: number;
+  query?: string;
+  city?: string;
+} = {}): Promise<CustomerDirectoryPage> {
+  if (usesLocalDemoData()) {
     seedDemoLeads();
-    return localRecords();
+    const page = Math.max(1, params.page || 1);
+    const pageSize = Math.min(100, Math.max(10, params.pageSize || 50));
+    const query = normalize(params.query);
+    const city = normalize(params.city === "all" ? "" : params.city);
+    const filtered = localRecords().filter(record => {
+      const haystack = normalize(`${record.fullName} ${record.email || ""} ${record.phone || ""} ${record.addressLine1} ${record.city}`);
+      return (!query || haystack.includes(query)) && (!city || normalize(record.city) === city);
+    });
+    const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+    const safePage = Math.min(page, pageCount);
+    const start = (safePage - 1) * pageSize;
+    return {
+      records: filtered.slice(start, start + pageSize),
+      pagination: {
+        page: safePage,
+        pageSize,
+        total: filtered.length,
+        pageCount,
+        hasNext: safePage < pageCount,
+        hasPrevious: safePage > 1,
+      },
+      counts: { customers: filtered.length, properties: filtered.length, pageJobs: 0 },
+    };
   }
-  return (await listCustomerProperties()).records;
+  return listCustomerProperties(params);
+}
+
+export async function getCustomerPropertyDirectory() {
+  return (await getCustomerPropertyDirectoryPage()).records;
 }
 
 export async function addCustomerWithProperty(input: CreateCustomerPropertyInput) {
