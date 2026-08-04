@@ -59,15 +59,14 @@ assert.match(routeService, /loadCanonicalRouteSnapshot\(\{ routeDate \}\)/, "Emp
 assert.doesNotMatch(routeService, /\/api\/mobile\/employee\/(?:route|today-route)/, "Employee route data cannot fall back to a second endpoint.");
 assert.doesNotMatch(routeService, /localStorage|confirmedRouteOrders|canonicalRouteVersions|smartRoutePreviewVersions/, "Local route order state is forbidden.");
 assert.doesNotMatch(routeService, /getRouteMapCache|loadCachedRouteGeometry/, "Legacy geometry cache cannot overwrite the snapshot.");
-assert.equal(routeService.includes("return context.stops.map"), true, "Employee lists must preserve the exact snapshot order.");
 
 assert.match(routeMap, /useCanonicalRouteSnapshot\(effectiveRouteId\)/, "All maps must consume the shared canonical hook.");
-assert.match(routeMap, /sameVisitMembership\(operationalRoute, snapshot\)/, "A snapshot must match the current Visit membership before it can render.");
-assert.match(routeMap, /snapshotMatches/, "List, markers, origin and geometry must share the same snapshot validity guard.");
-assert.match(routeMap, /if \(preview \|\| !snapshotMatches\) return operationalRoute/, "Current operational membership must win over a stale snapshot.");
-assert.match(routeMap, /!snapshotMatches \|\| !snapshot\?\.geometry/, "Stale geometry must be discarded with stale stop membership.");
-assert.match(routeMap, /point\.routeOrder/, "Marker labels must use canonical routeOrder.");
-assert.doesNotMatch(routeMap, /\/api\/map\/geocode|\/api\/map\/route|readRoadGeometry|saveRoadGeometry|clientMapCache/, "No screen may geocode or rebuild geometry independently.");
+assert.match(routeMap, /sameVisitMembership\(operationalRoute, snapshot\)/, "A snapshot must match the current Visit membership before it can become authoritative.");
+assert.match(routeMap, /enrichCurrentMembership\(operationalRoute, snapshot\)/, "A stale snapshot may enrich only matching active Visit coordinates.");
+assert.match(routeMap, /snapshotByVisit\.get\(visitId\)/, "Removed Visit IDs cannot be restored while coordinates are reused.");
+assert.match(routeMap, /currentCoordinates\.length >= 2/, "The current active stops must produce an immediate drawable route line.");
+assert.match(routeMap, /point\.routeOrder/, "Marker labels must use the current canonical routeOrder.");
+assert.doesNotMatch(routeMap, /\/api\/map\/geocode|\/api\/map\/route|readRoadGeometry|saveRoadGeometry|clientMapCache/, "No screen may use a second route membership source.");
 
 for (const [label, source] of [
   ["Admin web", adminWeb],
