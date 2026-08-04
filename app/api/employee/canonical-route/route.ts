@@ -77,31 +77,51 @@ export async function GET(request: NextRequest) {
     if (!routeIds.size) throw new Error("No route is assigned for this date.");
     const ids = [...routeIds];
 
-    const [routesResult, statesResult, visitsResult] = await Promise.all([
+    const [routesResult, statesResult, stopsResult, visitsResult] = await Promise.all([
       service.from("routes").select("id,created_at").in("id", ids).or(companyFilter(companyId)),
       service.from("route_order_state").select("route_id,version,updated_at").in("route_id", ids),
-      service.from("visits").select("route_id,id").in("route_id", ids).neq("status", "cancelled").or(companyFilter(companyId)),
+      service.from("route_stops").select("route_id,visit_id,position").in("route_id", ids),
+      service.from("visits").select("route_id,id,status").in("route_id", ids).neq("status", "cancelled").or(companyFilter(companyId)),
     ]);
     if (routesResult.error) throw new Error(routesResult.error.message);
     if (statesResult.error) throw new Error(statesResult.error.message);
+    if (stopsResult.error) throw new Error(stopsResult.error.message);
     if (visitsResult.error) throw new Error(visitsResult.error.message);
 
     const stateByRoute = new Map((statesResult.data || []).map((row: any) => [String(row.route_id), row]));
-    const countByRoute = new Map<string, number>();
+    const visitsByRoute = new Map<string, Set<string>>();
     for (const row of visitsResult.data || []) {
-      const id = String(row.route_id || "");
-      if (id) countByRoute.set(id, (countByRoute.get(id) || 0) + 1);
+      const routeId = String(row.route_id || "");
+      if (!routeId) continue;
+      const values = visitsByRoute.get(routeId) || new Set<string>();
+      values.add(String(row.id));
+      visitsByRoute.set(routeId, values);
+    }
+    const stopsByRoute = new Map<string, Array<{ visitId: string; position: number }>>();
+    for (const row of stopsResult.data || []) {
+      const routeId = String(row.route_id || "");
+      if (!routeId) continue;
+      const values = stopsByRoute.get(routeId) || [];
+      values.push({ visitId: String(row.visit_id), position: Number(row.position) });
+      stopsByRoute.set(routeId, values);
     }
 
-    const candidates = (routesResult.data || []).map((route: any) => {
-      const state: any = stateByRoute.get(String(route.id));
-      return {
-        routeId: String(route.id),
+    const candidates = (routesResult.data || []).flatMap((route: any) => {
+      const routeId = String(route.id);
+      const visits = visitsByRoute.get(routeId) || new Set<string>();
+      const stops = (stopsByRoute.get(routeId) || []).sort((a, b) => a.position - b.position);
+      const valid = visits.size > 0
+        && stops.length === visits.size
+        && stops.every((stop, index) => stop.position === index + 1 && visits.has(stop.visitId));
+      if (!valid) return [];
+      const state: any = stateByRoute.get(routeId);
+      return [{
+        routeId,
         routeVersion: Number(state?.version || 0),
         updatedAt: String(state?.updated_at || route.created_at || ""),
-        stopCount: countByRoute.get(String(route.id)) || 0,
-      };
-    }).filter((candidate: any) => candidate.stopCount > 0);
+        stopCount: stops.length,
+      }];
+    });
 
     candidates.sort((left: any, right: any) =>
       right.routeVersion - left.routeVersion
@@ -111,7 +131,7 @@ export async function GET(request: NextRequest) {
     );
 
     const selected = candidates[0];
-    if (!selected) throw new Error("No active canonical route remains for this date.");
+    if (!selected) throw new Error("No valid canonical route remains for this date.");
 
     return NextResponse.json(selected, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
