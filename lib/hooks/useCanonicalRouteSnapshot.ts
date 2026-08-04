@@ -53,7 +53,12 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
       });
       if (request !== requestRef.current) return null;
       setResolvedRouteId(next.routeId);
-      setSnapshot(next);
+      setSnapshot(current => {
+        if (current?.routeId === next.routeId && current.routeVersion > next.routeVersion) {
+          return current;
+        }
+        return next;
+      });
       setError("");
       return next;
     } catch (reason) {
