@@ -44,33 +44,22 @@ export type CanonicalRouteSnapshot = {
   updatedAt: string;
 };
 
-function storedAccessToken() {
-  if (typeof window === "undefined") return null;
-  for (const key of Object.keys(window.localStorage)) {
-    if (!key.startsWith("sb-") || !key.endsWith("-auth-token")) continue;
-    try {
-      const stored = JSON.parse(window.localStorage.getItem(key) || "null");
-      const token = stored?.access_token || stored?.currentSession?.access_token;
-      if (typeof token === "string" && token.length > 20) return token;
-    } catch {
-      // A malformed unrelated storage value must not block the canonical route.
-    }
-  }
-  return null;
-}
-
-async function accessToken() {
-  const persisted = storedAccessToken();
-  if (persisted) return persisted;
-
+async function accessToken(forceRefresh = false) {
   const supabase = getSupabaseBrowserClient() as any;
-  const { data, error } = await supabase.auth.getSession();
-  const token = data.session?.access_token || storedAccessToken();
-  if (token) return token as string;
-  if (error) throw new Error(error.message);
+
+  if (!forceRefresh) {
+    const current = await supabase.auth.getSession();
+    if (current.error) throw new Error(current.error.message);
+    const session = current.data?.session;
+    const expiresAt = Number(session?.expires_at || 0);
+    const stillValid = Boolean(session?.access_token)
+      && (!expiresAt || expiresAt * 1000 > Date.now() + 60_000);
+    if (stillValid) return session.access_token as string;
+  }
 
   const refreshed = await supabase.auth.refreshSession();
-  const refreshedToken = refreshed.data?.session?.access_token || storedAccessToken();
+  if (refreshed.error) throw new Error(refreshed.error.message);
+  const refreshedToken = refreshed.data?.session?.access_token;
   if (!refreshedToken) throw new Error("Your session expired. Sign in again.");
   return refreshedToken as string;
 }
@@ -92,12 +81,27 @@ function validSnapshot(value: unknown): value is CanonicalRouteSnapshot {
   );
 }
 
-async function resolveEmployeeRouteId(routeDate: string, token: string) {
-  const response = await fetch(`/api/employee/canonical-route?date=${encodeURIComponent(routeDate)}`, {
+async function authorizedJson(path: string, token: string) {
+  let response = await fetch(path, {
     headers: { authorization: `Bearer ${token}` },
     cache: "no-store",
   });
+
+  if (response.status === 401) {
+    const refreshedToken = await accessToken(true);
+    response = await fetch(path, {
+      headers: { authorization: `Bearer ${refreshedToken}` },
+      cache: "no-store",
+    });
+  }
+
   const result = await response.json().catch(() => ({}));
+  return { response, result };
+}
+
+async function resolveEmployeeRouteId(routeDate: string, token: string) {
+  const path = `/api/employee/canonical-route?date=${encodeURIComponent(routeDate)}`;
+  const { response, result } = await authorizedJson(path, token);
   if (!response.ok) throw new Error(result.error || "The Employee route could not be resolved.");
   const routeId = String(result.routeId || "").trim();
   if (!routeId) throw new Error("The Employee route resolver returned no routeId.");
@@ -116,11 +120,7 @@ export async function loadCanonicalRouteSnapshot(input: {
   if (!routeId && routeDate) routeId = await resolveEmployeeRouteId(routeDate, token);
 
   const query = new URLSearchParams({ routeId });
-  const response = await fetch(`/api/map/canonical-route?${query.toString()}`, {
-    headers: { authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  const result = await response.json().catch(() => ({}));
+  const { response, result } = await authorizedJson(`/api/map/canonical-route?${query.toString()}`, token);
   if (!response.ok) throw new Error(result.error || "The canonical route could not be loaded.");
   if (!validSnapshot(result)) throw new Error("The canonical route snapshot failed its identity check.");
   return result;
