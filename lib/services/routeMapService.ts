@@ -78,15 +78,8 @@ export function routeDateForWeekday(dayName: string) {
   const current = torontoParts();
   const currentIndex = days.indexOf(current.weekday);
   const targetIndex = days.indexOf(dayName);
-  const base = new Date(Date.UTC(
-    Number(current.year),
-    Number(current.month) - 1,
-    Number(current.day),
-    17,
-  ));
-  if (currentIndex >= 0 && targetIndex >= 0) {
-    base.setUTCDate(base.getUTCDate() + targetIndex - currentIndex);
-  }
+  const base = new Date(Date.UTC(Number(current.year), Number(current.month) - 1, Number(current.day), 17));
+  if (currentIndex >= 0 && targetIndex >= 0) base.setUTCDate(base.getUTCDate() + targetIndex - currentIndex);
   const result = torontoParts(base);
   return `${result.year}-${result.month}-${result.day}`;
 }
@@ -131,21 +124,13 @@ export function employeeRouteMapContextFromSnapshot(snapshot: CanonicalRouteSnap
   };
 }
 
-export async function loadEmployeeRouteMapContext(
-  routeDate: string,
-  _crewName: string,
-): Promise<EmployeeRouteMapContext> {
+export async function loadEmployeeRouteMapContext(routeDate: string, _crewName: string): Promise<EmployeeRouteMapContext> {
   if (!routeDate || !isSupabaseConfigured()) return emptyContext;
   const snapshot = await loadCanonicalRouteSnapshot({ routeDate });
   return employeeRouteMapContextFromSnapshot(snapshot);
 }
 
-export async function loadEmployeeRouteMapContextUntilStatus(
-  routeDate: string,
-  crewName: string,
-  visitId: string,
-  expectedStatus: string,
-): Promise<EmployeeRouteMapContext> {
+export async function loadEmployeeRouteMapContextUntilStatus(routeDate: string, crewName: string, visitId: string, expectedStatus: string): Promise<EmployeeRouteMapContext> {
   let latest = await loadEmployeeRouteMapContext(routeDate, crewName);
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const stop = latest.stops.find(item => item.visitId === visitId);
@@ -156,63 +141,66 @@ export async function loadEmployeeRouteMapContextUntilStatus(
   throw new Error(`The Visit was saved, but the canonical Route did not converge to ${expectedStatus}. Refresh and verify before continuing.`);
 }
 
-export function applyEmployeeRouteMapContext(
-  route: Lead[],
-  context: EmployeeRouteMapContext,
-): CanonicalRouteLead[] {
+export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRouteMapContext): CanonicalRouteLead[] {
+  const orderedOperational = [...route]
+    .filter(lead => lead.status !== "cancelled")
+    .sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999) || a.address.localeCompare(b.address));
+
+  // The operational list is the authoritative membership. A date-only snapshot
+  // may belong to a retired alias Route, so it may enrich matching Visits but may
+  // never add houses that are absent from the worker's current operational list.
+  if (orderedOperational.length) {
+    const stopByVisit = new Map(context.stops.map(stop => [stop.visitId, stop]));
+    const stopByJob = new Map(context.stops.filter(stop => stop.jobId).map(stop => [String(stop.jobId), stop]));
+    return orderedOperational.map((lead, index) => {
+      const canonical = lead as CanonicalRouteLead;
+      const stop = (canonical.canonicalVisitId ? stopByVisit.get(canonical.canonicalVisitId) : undefined)
+        || (canonical.canonicalJobId ? stopByJob.get(canonical.canonicalJobId) : undefined);
+      return {
+        ...lead,
+        canonicalRouteId: canonical.canonicalRouteId || context.routeId || undefined,
+        canonicalVisitId: canonical.canonicalVisitId || stop?.visitId,
+        canonicalJobId: canonical.canonicalJobId || stop?.jobId || undefined,
+        canonicalCustomerId: canonical.canonicalCustomerId || stop?.customerId || undefined,
+        canonicalPropertyId: canonical.canonicalPropertyId || stop?.propertyId || undefined,
+        canonicalVisitStatus: (stop?.status || canonical.canonicalVisitStatus) as CanonicalVisitStatus | undefined,
+        latitude: stop?.latitude ?? lead.latitude,
+        longitude: stop?.longitude ?? lead.longitude,
+        routeOrder: index + 1,
+        status: stop?.status === "completed" ? "completed" as const : lead.status,
+      };
+    });
+  }
+
   const canonicalRouteId = context.routeId;
   if (!canonicalRouteId || !context.stops.length) return [];
-
-  const byVisitId = new Map(
-    route
-      .filter(lead => Boolean(lead.canonicalVisitId))
-      .map(lead => [lead.canonicalVisitId as string, lead]),
-  );
-  const byJobId = new Map(
-    route
-      .filter(lead => Boolean(lead.canonicalJobId))
-      .map(lead => [lead.canonicalJobId as string, lead]),
-  );
-
-  return context.stops.map(stop => {
-    const existing = byVisitId.get(stop.visitId)
-      || (stop.jobId ? byJobId.get(stop.jobId) : undefined);
-    const canonicalExisting = existing as CanonicalRouteLead | undefined;
-    return {
-      ...(existing || {
-        id: stop.visitId,
-        createdAt: stop.scheduledDate ? `${stop.scheduledDate}T12:00:00.000Z` : "1970-01-01T00:00:00.000Z",
-        name: stop.customerName || "Customer",
-        phone: "",
-        email: "",
-        address: stop.addressLine1,
-        service: stop.serviceName || "Property Service",
-        status: "booked" as const,
-        subtotal: 0,
-        tax: 0,
-        total: 0,
-        photos: [],
-      }),
-      id: stop.visitId,
-      name: stop.customerName || existing?.name || "Customer",
-      address: stop.addressLine1,
-      service: stop.serviceName || existing?.service || "Property Service",
-      scheduledDate: stop.scheduledDate || existing?.scheduledDate,
-      canonicalVisitId: stop.visitId,
-      canonicalRouteId,
-      canonicalJobId: stop.jobId || existing?.canonicalJobId,
-      canonicalCustomerId: stop.customerId || canonicalExisting?.canonicalCustomerId,
-      canonicalPropertyId: stop.propertyId || canonicalExisting?.canonicalPropertyId,
-      canonicalVisitStatus: stop.status as CanonicalVisitStatus,
-      visitStartedAt: stop.startedAt,
-      visitFinishedAt: stop.finishedAt,
-      visitDurationSeconds: stop.durationSeconds,
-      latitude: stop.latitude ?? undefined,
-      longitude: stop.longitude ?? undefined,
-      routeOrder: stop.routeOrder,
-      status: stop.status === "completed" ? "completed" as const : "booked" as const,
-    };
-  });
+  return context.stops.map(stop => ({
+    id: stop.visitId,
+    createdAt: stop.scheduledDate ? `${stop.scheduledDate}T12:00:00.000Z` : "1970-01-01T00:00:00.000Z",
+    name: stop.customerName || "Customer",
+    phone: "",
+    email: "",
+    address: stop.addressLine1,
+    service: stop.serviceName || "Property Service",
+    status: stop.status === "completed" ? "completed" as const : "booked" as const,
+    subtotal: 0,
+    tax: 0,
+    total: 0,
+    photos: [],
+    scheduledDate: stop.scheduledDate,
+    canonicalVisitId: stop.visitId,
+    canonicalRouteId,
+    canonicalJobId: stop.jobId || undefined,
+    canonicalCustomerId: stop.customerId || undefined,
+    canonicalPropertyId: stop.propertyId || undefined,
+    canonicalVisitStatus: stop.status as CanonicalVisitStatus,
+    visitStartedAt: stop.startedAt,
+    visitFinishedAt: stop.finishedAt,
+    visitDurationSeconds: stop.durationSeconds,
+    latitude: stop.latitude ?? undefined,
+    longitude: stop.longitude ?? undefined,
+    routeOrder: stop.routeOrder,
+  }));
 }
 
 function smartRouteStateFrom(row: any): EmployeeDatabaseSmartRouteState {
@@ -231,14 +219,10 @@ function smartRouteStateFrom(row: any): EmployeeDatabaseSmartRouteState {
   };
 }
 
-export async function loadEmployeeDatabaseSmartRouteState(
-  routeId?: string | null,
-): Promise<EmployeeDatabaseSmartRouteState | null> {
+export async function loadEmployeeDatabaseSmartRouteState(routeId?: string | null): Promise<EmployeeDatabaseSmartRouteState | null> {
   if (!routeId || !isSupabaseConfigured()) return null;
   const supabase = getSupabaseBrowserClient() as any;
-  const { data, error } = await supabase.rpc("get_employee_smart_route_state", {
-    p_route_id: routeId,
-  });
+  const { data, error } = await supabase.rpc("get_employee_smart_route_state", { p_route_id: routeId });
   if (error) throw new Error(error.message);
   const row = Array.isArray(data) ? data[0] : null;
   return row ? smartRouteStateFrom(row) : null;
@@ -256,17 +240,13 @@ async function accessToken() {
 async function canonicalOrderRequest(body: Record<string, unknown>) {
   const token = await accessToken();
   let lastMessage = "Canonical Route could not be saved.";
-
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 15_000);
     try {
       const response = await fetch("/api/map/canonical-route/order", {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${token}`,
-        },
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
         cache: "no-store",
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -286,45 +266,23 @@ async function canonicalOrderRequest(body: Record<string, unknown>) {
       if (![502, 503, 504].includes(response.status) || attempt === 1) throw new Error(lastMessage);
     } catch (reason) {
       lastMessage = reason instanceof Error ? reason.message : lastMessage;
-      if (attempt === 1 || (reason instanceof Error && !/fetch|network|abort|load failed/i.test(reason.message))) {
-        throw new Error(lastMessage);
-      }
+      if (attempt === 1 || (reason instanceof Error && !/fetch|network|abort|load failed/i.test(reason.message))) throw new Error(lastMessage);
     } finally {
       window.clearTimeout(timeout);
     }
     await new Promise(resolve => window.setTimeout(resolve, 350));
   }
-
   throw new Error(`${lastMessage} No route change was saved. Refresh and try again.`);
 }
 
-export async function applyEmployeeDatabaseSmartRoute(params: {
-  routeId: string;
-  originalOrder: string[];
-  appliedOrder: string[];
-  origin: { label: string; latitude: number; longitude: number };
-  expectedVersion?: number | null;
-}) {
+export async function applyEmployeeDatabaseSmartRoute(params: { routeId: string; originalOrder: string[]; appliedOrder: string[]; origin: { label: string; latitude: number; longitude: number }; expectedVersion?: number | null }) {
   if (!isSupabaseConfigured()) throw new Error("Database route mode is not configured.");
-  const result = await canonicalOrderRequest({
-    action: "apply",
-    routeId: params.routeId,
-    orderedVisitIds: params.appliedOrder,
-    origin: params.origin,
-    expectedVersion: params.expectedVersion ?? null,
-  });
+  const result = await canonicalOrderRequest({ action: "apply", routeId: params.routeId, orderedVisitIds: params.appliedOrder, origin: params.origin, expectedVersion: params.expectedVersion ?? null });
   return Number(result.routeVersion || result.version || 0);
 }
 
-export async function restoreEmployeeDatabaseSmartRoute(
-  routeId: string,
-  expectedVersion?: number | null,
-) {
+export async function restoreEmployeeDatabaseSmartRoute(routeId: string, expectedVersion?: number | null) {
   if (!isSupabaseConfigured()) throw new Error("Database route mode is not configured.");
-  const result = await canonicalOrderRequest({
-    action: "restore",
-    routeId,
-    expectedVersion: expectedVersion ?? null,
-  });
+  const result = await canonicalOrderRequest({ action: "restore", routeId, expectedVersion: expectedVersion ?? null });
   return Boolean(result.restored);
 }
