@@ -60,9 +60,6 @@ function storedAccessToken() {
 }
 
 async function accessToken() {
-  // The browser session is already persisted by Supabase. Read it synchronously
-  // before asking the SDK to acquire its internal auth lock; this prevents route
-  // rendering from waiting behind a second tab or the mobile surface.
   const persisted = storedAccessToken();
   if (persisted) return persisted;
 
@@ -95,29 +92,36 @@ function validSnapshot(value: unknown): value is CanonicalRouteSnapshot {
   );
 }
 
+async function resolveEmployeeRouteId(routeDate: string, token: string) {
+  const response = await fetch(`/api/employee/canonical-route?date=${encodeURIComponent(routeDate)}`, {
+    headers: { authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || "The Employee route could not be resolved.");
+  const routeId = String(result.routeId || "").trim();
+  if (!routeId) throw new Error("The Employee route resolver returned no routeId.");
+  return routeId;
+}
+
 export async function loadCanonicalRouteSnapshot(input: {
   routeId?: string | null;
   routeDate?: string | null;
 }): Promise<CanonicalRouteSnapshot> {
-  const routeId = String(input.routeId || "").trim();
+  let routeId = String(input.routeId || "").trim();
   const routeDate = String(input.routeDate || "").trim();
   if (!routeId && !routeDate) throw new Error("A routeId or route date is required.");
 
   const token = await accessToken();
-  const query = new URLSearchParams();
-  if (routeId) query.set("routeId", routeId);
-  else query.set("date", routeDate);
+  if (!routeId && routeDate) routeId = await resolveEmployeeRouteId(routeDate, token);
 
+  const query = new URLSearchParams({ routeId });
   const response = await fetch(`/api/map/canonical-route?${query.toString()}`, {
     headers: { authorization: `Bearer ${token}` },
     cache: "no-store",
   });
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(result.error || "The canonical route could not be loaded.");
-  }
-  if (!validSnapshot(result)) {
-    throw new Error("The canonical route snapshot failed its identity check.");
-  }
+  if (!response.ok) throw new Error(result.error || "The canonical route could not be loaded.");
+  if (!validSnapshot(result)) throw new Error("The canonical route snapshot failed its identity check.");
   return result;
 }
