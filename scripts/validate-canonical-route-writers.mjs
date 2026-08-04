@@ -3,8 +3,15 @@ import path from "node:path";
 
 const roots = ["app", "components", "lib"];
 const extensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);
+
+// These files do not publish or reorder a canonical Route. They perform
+// audited Visit lifecycle maintenance such as cancellation, simulator reset,
+// or clearing route_order when a Visit leaves a Route.
 const allowed = new Set([
   "app/api/mobile/employee/smart-route/route.ts",
+  "app/api/admin/customers/route.ts",
+  "app/api/admin/operational-simulator/route.ts",
+  "app/api/mobile/employee/route/route.ts",
 ]);
 
 const mutationPatterns = [
