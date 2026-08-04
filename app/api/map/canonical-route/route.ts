@@ -150,9 +150,6 @@ async function resolveRoute(input: {
     if (!input.routeDate) throw new Error("routeId or date is required.");
     if (!employeeCandidates.length) throw new Error("Admin route reads require routeId.");
 
-    // The Visit assignment is the canonical Employee → Route relation. A login may
-    // have legacy duplicate Employee rows, so resolve across every active row linked
-    // to the authenticated profile instead of trusting the newest row or crew alone.
     const employeeIds = employeeCandidates.map(candidate => String(candidate.id));
     const assigned = await service
       .from("visits")
@@ -328,9 +325,6 @@ async function roadGeometry(routeId: string, routeVersion: number, points: Point
   const cached = geometryCache.get(signature);
   if (cached && cached.expiresAt > Date.now()) return cached.geometry;
 
-  // The canonical snapshot must always include drawable geometry when every stop
-  // is mapped. OSRM supplies the road-following line; a deterministic LineString
-  // keeps all four screens usable during a transient routing-provider outage.
   const fallback: RouteLineString = {
     type: "LineString",
     coordinates: points.map(point => [point.longitude, point.latitude]),
@@ -376,7 +370,7 @@ export async function GET(request: NextRequest) {
     const [visitsResult, stopsResult, stateResult, smartResult] = await Promise.all([
       service
         .from("visits")
-        .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes),properties(address_line1,city,province,postal_code),jobs(service_name)")
+        .select("id,job_id,route_id,customer_id,property_id,crew_id,assigned_employee_id,route_order,status,scheduled_date,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes),properties(address_line1,city,province,postal_code,latitude,longitude),jobs(service_name)")
         .eq("route_id", route.id)
         .neq("status", "cancelled")
         .or(companyFilter(companyId)),
@@ -434,7 +428,11 @@ export async function GET(request: NextRequest) {
       const customer = joined(visit.customers);
       const job = joined(visit.jobs);
       const address = completeAddress(property);
-      const point = await geocodeAddress(address);
+      const storedLatitude = numeric(property?.latitude);
+      const storedLongitude = numeric(property?.longitude);
+      const point = storedLatitude !== null && storedLongitude !== null
+        ? { latitude: storedLatitude, longitude: storedLongitude }
+        : await geocodeAddress(address);
       return {
         visitId: String(visit.id),
         jobId: visit.job_id || null,
@@ -559,6 +557,7 @@ export async function GET(request: NextRequest) {
       routeId: route.id,
       routeVersion,
       stopCount: stops.length,
+      mappedStopCount: stops.filter(stop => stop.latitude !== null && stop.longitude !== null).length,
       geometryStatus,
     });
 
