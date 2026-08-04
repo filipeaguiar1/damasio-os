@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { rebuildPendingRouteMaps } from "@/lib/maps/routeRebuildService";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -150,7 +152,22 @@ export async function POST(request: NextRequest) {
         p_reason: reason,
       });
       if (removed.error) throw rpcError(removed.error.message);
-      return NextResponse.json(removed.data || { removed: true, count: visitIds.length, status: "pending" });
+
+      const payload = removed.data || { removed: true, count: visitIds.length, status: "pending" };
+      const routeIds = [...new Set((payload.routeIds || []).map(String).filter(Boolean))];
+      let rebuildResults: Array<{ routeId: string; result: string }> = [];
+      if (routeIds.length) {
+        rebuildResults = await rebuildPendingRouteMaps(Math.min(25, Math.max(10, routeIds.length)));
+      }
+
+      return NextResponse.json({
+        ...payload,
+        routeId: routeIds[0] || null,
+        routeIds,
+        rebuildResults,
+        mapRebuilt: routeIds.every(routeId =>
+          rebuildResults.some(item => item.routeId === routeId && item.result !== "failed")),
+      });
     }
 
     if (body.action === "reopen") {
