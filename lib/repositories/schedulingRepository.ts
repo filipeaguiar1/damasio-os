@@ -57,18 +57,27 @@ function normalizeBoard(data: unknown): SchedulingDispatchBoard {
   };
 }
 
+function localDateKey(value = new Date()) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 async function rpcBoard(name: string, args?: Record<string, unknown>) {
   const supabase = getSupabaseBrowserClient();
   const data = await reliableRpc(supabase, name, args, { attempts: 2, timeoutMs: 18000 });
   return normalizeBoard(data || emptyBoard);
 }
 
-async function canonicalRouteBoard() {
+async function canonicalRouteBoard(routeDate = localDateKey()) {
   const supabase = getSupabaseBrowserClient() as any;
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error("Your Admin session expired.");
-  const response = await fetch("/api/admin/routes", {
+  const search = new URLSearchParams();
+  if (routeDate) search.set("date", routeDate);
+  const response = await fetch(`/api/admin/routes?${search.toString()}`, {
     headers: { authorization: `Bearer ${token}` },
     cache: "no-store",
   });
@@ -77,11 +86,11 @@ async function canonicalRouteBoard() {
   return normalizeBoard(result.board || emptyBoard);
 }
 
-export async function getSchedulingDispatchBoard() {
+export async function getSchedulingDispatchBoard(options: { routeDate?: string } = {}) {
   let board = emptyBoard;
   try { board = await rpcBoard("get_scheduling_dispatch_board"); } catch { /* canonical API remains authoritative */ }
   try {
-    const canonical = await canonicalRouteBoard();
+    const canonical = await canonicalRouteBoard(options.routeDate || localDateKey());
     return {
       ...board,
       crews: canonical.crews,
