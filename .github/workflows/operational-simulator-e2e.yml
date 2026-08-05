@@ -20,10 +20,14 @@ on:
       - "lib/hooks/useCanonicalRouteSnapshot.ts"
       - "lib/repositories/customerPortalRepository.ts"
       - "lib/routes/canonicalRouteSnapshot.ts"
+      - "lib/routes/verifyCanonicalRoutePersistence.ts"
       - "lib/services/routeMapService.ts"
       - "lib/simulator/**"
       - "supabase/migrations/202607290001_customer_portal_action_contract.sql"
       - "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql"
+      - "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql"
+      - "supabase/migrations/202608031030_canonical_route_one_way_projection.sql"
+      - "supabase/migrations/202608031100_lock_active_canonical_route_order.sql"
       - "tests/operational-simulator.spec.ts"
       - "tests/canonical-route-sync.spec.ts"
       - "public/demo/simulation-lawn-after.svg"
@@ -81,6 +85,9 @@ jobs:
           migrations = [
               "supabase/migrations/202607290001_customer_portal_action_contract.sql",
               "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql",
+              "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql",
+              "supabase/migrations/202608031030_canonical_route_one_way_projection.sql",
+              "supabase/migrations/202608031100_lock_active_canonical_route_order.sql",
           ]
           query = "\n\n".join(Path(path).read_text() for path in migrations)
           request = urllib.request.Request(
