@@ -92,7 +92,7 @@ function validSnapshot(value: unknown): value is CanonicalRouteSnapshot {
   );
 }
 
-async function resolveEmployeeRouteId(routeDate: string, token: string) {
+async function resolveEmployeeRoute(routeDate: string, token: string) {
   const response = await fetch(`/api/employee/canonical-route?date=${encodeURIComponent(routeDate)}`, {
     headers: { authorization: `Bearer ${token}` },
     cache: "no-store",
@@ -101,7 +101,10 @@ async function resolveEmployeeRouteId(routeDate: string, token: string) {
   if (!response.ok) throw new Error(result.error || "The Employee route could not be resolved.");
   const routeId = String(result.routeId || "").trim();
   if (!routeId) throw new Error("The Employee route resolver returned no routeId.");
-  return routeId;
+  return {
+    routeId,
+    routeVersion: Number(result.routeVersion || 0),
+  };
 }
 
 export async function loadCanonicalRouteSnapshot(input: {
@@ -113,15 +116,23 @@ export async function loadCanonicalRouteSnapshot(input: {
   if (!routeId && !routeDate) throw new Error("A routeId or route date is required.");
 
   const token = await accessToken();
-  if (!routeId && routeDate) routeId = await resolveEmployeeRouteId(routeDate, token);
+  let resolvedVersion = 0;
+  if (!routeId && routeDate) {
+    const resolved = await resolveEmployeeRoute(routeDate, token);
+    routeId = resolved.routeId;
+    resolvedVersion = resolved.routeVersion;
+  }
 
   const query = new URLSearchParams({ routeId });
-  const response = await fetch(`/api/map/canonical-route?${query.toString()}`, {
+  const response = await fetch(`/api/map/canonical-route-current?${query.toString()}`, {
     headers: { authorization: `Bearer ${token}` },
     cache: "no-store",
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || "The canonical route could not be loaded.");
   if (!validSnapshot(result)) throw new Error("The canonical route snapshot failed its identity check.");
+  if (resolvedVersion > 0 && result.routeVersion < resolvedVersion) {
+    throw new Error("The canonical route snapshot is older than the resolved routeVersion. Refresh and try again.");
+  }
   return result;
 }
