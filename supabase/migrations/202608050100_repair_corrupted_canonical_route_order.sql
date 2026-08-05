@@ -43,7 +43,8 @@ begin
     end if;
 
     -- Recovery is permitted only when both arrays contain exactly the same
-    -- active Visit IDs. Membership changes remain outside this migration.
+    -- active Visit IDs. A legitimate membership change must not block repair
+    -- of other Routes and must never be overwritten by this migration.
     if cardinality(current_order) <> cardinality(expected_order)
        or exists (
          select 1
@@ -68,9 +69,10 @@ begin
            and visit.status::text <> 'cancelled'
            and not visit.id = any(expected_order)
        ) then
-      raise exception
-        'Canonical Route % cannot be recovered because membership changed.',
+      raise notice
+        'Skipping Canonical Route % because membership changed; no data was modified for this Route.',
         candidate.route_id;
+      continue;
     end if;
 
     update public.route_stops
