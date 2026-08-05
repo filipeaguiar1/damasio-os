@@ -28,75 +28,23 @@ jobs:
           path = Path("app/api/mobile/employee/smart-route/route.ts")
           source = path.read_text()
 
-          source = source.replace(
-              'import { createClient } from "@supabase/supabase-js";\n',
-              'import { createClient } from "@supabase/supabase-js";\n'
-              'import { verifyCanonicalRoutePersistence } from "@/lib/routes/verifyCanonicalRoutePersistence";\n',
-              1,
+          import_line = 'import { verifyCanonicalRoutePersistence } from "@/lib/routes/verifyCanonicalRoutePersistence";'
+          if import_line not in source:
+              source = source.replace(
+                  'import { createClient } from "@supabase/supabase-js";\n',
+                  'import { createClient } from "@supabase/supabase-js";\n'
+                  f'{import_line}\n',
+                  1,
+              )
+
+          verifier_start = source.index('function sameOrder(')
+          post_start = source.index('export async function POST', verifier_start)
+          source = source[:verifier_start] + source[post_start:]
+
+          rpc_start = source.index(
+              '    const { data, error } = await service.rpc("apply_canonical_route_order_v2_service", {'
           )
-
-          old_verifier = '''function sameOrder(left: string[], right: string[]) {
-            return left.length === right.length
-              && left.every((id, index) => id === right[index]);
-          }
-
-          async function verifyOfficialRouteOrder(
-            service: any,
-            routeId: string,
-            expectedOrder: string[],
-            expectedVersion?: number,
-          ) {
-            const [stateResult, stopsResult] = await Promise.all([
-              service
-                .from("route_order_state")
-                .select("version")
-                .eq("route_id", routeId)
-                .maybeSingle(),
-              service
-                .from("route_stops")
-                .select("visit_id,position")
-                .eq("route_id", routeId)
-                .order("position", { ascending: true }),
-            ]);
-
-            if (stateResult.error) throw new Error(stateResult.error.message);
-            if (stopsResult.error) throw new Error(stopsResult.error.message);
-
-            const storedVersion = Number((stateResult.data as any)?.version || 0);
-            const storedOrder = (stopsResult.data || [])
-              .map((stop: any) => String(stop.visit_id));
-            const versionMatches = !expectedVersion || storedVersion === expectedVersion;
-
-            if (!sameOrder(storedOrder, expectedOrder) || !versionMatches) {
-              console.error("employee-smart-route-v2-readback-mismatch", {
-                routeId,
-                expectedVersion,
-                storedVersion,
-                expectedOrder,
-                storedOrder,
-              });
-              throw new Error("The official route order was not persisted.");
-            }
-
-            return { version: storedVersion, appliedOrder: storedOrder };
-          }
-
-          '''
-          if old_verifier not in source:
-              raise SystemExit("Existing mobile verifier block was not found.")
-          source = source.replace(old_verifier, "", 1)
-
-          old_rpc = '''    const { data, error } = await service.rpc("apply_canonical_route_order_v2_service", {
-              p_route_id: body.routeId,
-              p_ordered_visit_ids: requestedOrder,
-              p_origin_label: body.origin?.label || "",
-              p_origin_latitude: body.origin?.latitude ?? null,
-              p_origin_longitude: body.origin?.longitude ?? null,
-              p_expected_version: body.expectedVersion ?? null,
-              p_actor_profile_id: profileId,
-              p_source: "employee_smart_route",
-            });
-          '''
+          rpc_end = source.index('    });', rpc_start) + len('    });')
           new_rpc = '''    const origin = body.origin;
             if (
               !origin
@@ -123,24 +71,11 @@ jobs:
               p_expected_version: body.expectedVersion ?? null,
               p_actor_profile_id: profileId,
               p_source: "employee_smart_route",
-            });
-          '''
-          if old_rpc not in source:
-              raise SystemExit("Mobile canonical RPC block was not found.")
-          source = source.replace(old_rpc, new_rpc, 1)
+            });'''
+          source = source[:rpc_start] + new_rpc + source[rpc_end:]
 
-          old_readback = '''    const verified = await verifyOfficialRouteOrder(
-              service,
-              body.routeId,
-              requestedOrder,
-              Number(result.version || 0) || undefined,
-            );
-            const response = {
-              ...result,
-              version: verified.version,
-              appliedOrder: verified.appliedOrder,
-            };
-          '''
+          readback_start = source.index('    const verified = await verifyOfficialRouteOrder(')
+          response_end = source.index('    };', readback_start) + len('    };')
           new_readback = '''    const routeVersion = Number(result.version || 0);
             if (!Number.isInteger(routeVersion) || routeVersion < 1) {
               throw new Error("The database did not confirm a canonical routeVersion.");
@@ -159,22 +94,17 @@ jobs:
               appliedOrder: verified.orderedVisitIds,
               orderedVisitIds: verified.orderedVisitIds,
               origin: verified.origin,
-            };
-          '''
-          if old_readback not in source:
-              raise SystemExit("Mobile readback block was not found.")
-          source = source.replace(old_readback, new_readback, 1)
+            };'''
+          source = source[:readback_start] + new_readback + source[response_end:]
 
-          old_log = '''      appliedOrder: response.appliedOrder,
-            });
-          '''
-          new_log = '''      appliedOrder: response.appliedOrder,
-              origin: response.origin,
-            });
-          '''
-          if old_log not in source:
-              raise SystemExit("Mobile success log block was not found.")
-          source = source.replace(old_log, new_log, 1)
+          log_marker = '      appliedOrder: response.appliedOrder,\n'
+          if log_marker not in source:
+              raise SystemExit("Mobile success log marker was not found.")
+          source = source.replace(
+              log_marker,
+              log_marker + '      origin: response.origin,\n',
+              1,
+          )
 
           path.write_text(source)
           PY
