@@ -1,10 +1,10 @@
 name: Admin polish and performance
-on:
+"on":
   push:
     branches:
       - feature/25-30-homes-simulator-v1
     paths:
-      - ".github/workflows/agent-admin-polish-performance.yml"
+      - .github/workflows/agent-admin-polish-performance.yml
 permissions:
   contents: write
 jobs:
@@ -21,133 +21,14 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Apply focused improvements
-        shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re
-
-          shell_path = Path('components/admin/AdminShell.tsx')
-          shell = shell_path.read_text()
-          shell = shell.replace('  ["Dashboard", "/admin/command"],\n', '', 1)
-          shell = shell.replace(' || (label === "Operations Studio" && active === "Dashboard")', '')
-          old_style = re.search(r'<style jsx global>\{`.*?`\}</style>', shell, re.S)
-          if not old_style:
-              raise SystemExit('Quick Actions style block not found')
-          new_style = '''<style jsx global>{`
-        .studio-rail > nav a {
-          display: grid !important;
-          grid-template-columns: 32px minmax(0, 1fr);
-          align-items: center;
-          gap: 10px;
-          height: 44px;
-          min-height: 44px;
-          padding: 5px 10px !important;
-          overflow: hidden;
-        }
-        .studio-rail > nav a > .quick-action-icon {
-          display: grid !important;
-          place-items: center;
-          width: 32px;
-          height: 32px;
-          min-width: 32px;
-          line-height: 1;
-          align-self: center;
-          justify-self: center;
-        }
-        .studio-rail > nav a > .quick-action-label {
-          display: flex !important;
-          align-items: center;
-          min-width: 0;
-          height: 34px;
-          font-size: 12px !important;
-          line-height: 1.05 !important;
-          font-weight: 900;
-          white-space: normal !important;
-          word-break: normal !important;
-          overflow-wrap: normal !important;
-          hyphens: none !important;
-          overflow: visible !important;
-        }
-      `}</style>'''
-          shell = shell[:old_style.start()] + new_style + shell[old_style.end():]
-          shell_path.write_text(shell)
-
-          profile_path = Path('app/admin/customers/[id]/page.tsx')
-          profile = profile_path.read_text()
-          old = '''    const board = await loadSchedulingDispatchBoard({ force: true });
-    const jobs = [...board.unscheduledJobs, ...board.assignedJobs];'''
-          new = '''    const [board, nextPhotoHistory] = await Promise.all([
-      loadSchedulingDispatchBoard(),
-      getPropertyPhotoHistory(next.property.id).catch(() => null),
-    ]);
-    const jobs = [...board.unscheduledJobs, ...board.assignedJobs];'''
-          if old not in profile:
-              raise SystemExit('Profile board load anchor not found')
-          profile = profile.replace(old, new, 1)
-          old_photo = '''    await getPropertyPhotoHistory(next.property.id).then(setPhotoHistory).catch(() => setPhotoHistory(null));
-    setMessage("");'''
-          new_photo = '''    setPhotoHistory(nextPhotoHistory);
-    setMessage("");'''
-          if old_photo not in profile:
-              raise SystemExit('Photo history anchor not found')
-          profile = profile.replace(old_photo, new_photo, 1)
-          profile_path.write_text(profile)
-
-          customers_path = Path('app/admin/customers/page.tsx')
-          customers = customers_path.read_text()
-          customers = customers.replace('loadSchedulingDispatchBoard({force:true})', 'loadSchedulingDispatchBoard()', 1)
-          customers_path.write_text(customers)
-
-          css_path = Path('app/globals.css')
-          css = css_path.read_text()
-          marker = '/* V52.8 focused Admin polish and performance */'
-          if marker not in css:
-              css += '''
-
-/* V52.8 focused Admin polish and performance */
-.studio-main:has(.property-profile-card){background:linear-gradient(145deg,#eef7f1 0%,#e4f1e9 55%,#edf6f0 100%)}
-.property-profile-card{box-shadow:0 22px 58px rgba(8,70,43,.13)!important;border-color:#cfe2d6!important}
-.property-main-photo{background:#dfece4!important}
-
-/* Keep Quick Actions in their original compact proportions. */
-.studio-rail>nav{gap:7px!important}
-.studio-rail>nav a{border-radius:13px!important}
-
-/* Customers: improve hierarchy without changing the directory workflow. */
-.studio-main .app-top{padding:22px 24px;border:1px solid #dce9e1;border-radius:22px;background:linear-gradient(135deg,#ffffff,#f1f8f4);box-shadow:0 12px 32px rgba(8,68,42,.06)}
-.studio-main .app-top .toolbar-inline{align-items:center;gap:9px}
-.customer-directory-person{align-items:center!important}
-.customer-directory-person>div{box-shadow:0 5px 16px rgba(8,68,42,.10)}
-.table-card{border-color:#dce7e1!important;box-shadow:0 12px 34px rgba(7,55,35,.055)}
-.table-card tbody tr:not(:has(td[colspan])):hover{background:#f2f8f4}
-
-/* Tasks: clearer operational cards while retaining every current action. */
-.task-center-card,.task-summary-actions .quick-action{border-color:#d9e7df!important;box-shadow:0 12px 30px rgba(8,64,40,.07)!important}
-.task-center-card{border-radius:20px!important;overflow:hidden}
-.task-center-card .task-main-clean{padding:18px!important}
-.task-center-card .task-meta-strip{padding:10px 14px!important;border-radius:13px!important;background:#f1f7f3!important}
-.task-summary-actions{gap:10px!important}
-.task-summary-actions .quick-action{border-radius:18px!important;background:linear-gradient(145deg,#fff,#f2f8f4)!important}
-
-/* Operations Studio becomes the sole primary desktop entry. */
-.studio-page-head{padding:24px 26px;border:1px solid #d9e7df;border-radius:24px;background:linear-gradient(135deg,#ffffff,#edf7f1);box-shadow:0 14px 38px rgba(7,64,39,.07)}
-.studio-page-head h1{letter-spacing:-.035em}
-.studio-main .studio-grid .card,.studio-main .studio-kpi{border-color:#d9e7df;box-shadow:0 10px 28px rgba(8,58,38,.055)}
-
-@media(max-width:760px){
-  .studio-main:has(.property-profile-card){background:#edf6f0}
-  .studio-main .app-top{padding:17px;border-radius:19px}
-}
-'''
-          css_path.write_text(css)
-          PY
+          echo 'ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCmltcG9ydCByZQoKc2hlbGxfcGF0aCA9IFBhdGgoImNvbXBvbmVudHMvYWRtaW4vQWRtaW5TaGVsbC50c3giKQpzaGVsbCA9IHNoZWxsX3BhdGgucmVhZF90ZXh0KCkKc2hlbGwgPSBzaGVsbC5yZXBsYWNlKCcgIFsiRGFzaGJvYXJkIiwgIi9hZG1pbi9jb21tYW5kIl0sXG4nLCAnJywgMSkKc2hlbGwgPSBzaGVsbC5yZXBsYWNlKCcgfHwgKGxhYmVsID09PSAiT3BlcmF0aW9ucyBTdHVkaW8iICYmIGFjdGl2ZSA9PT0gIkRhc2hib2FyZCIpJywgJycpCm0gPSByZS5zZWFyY2gocic8c3R5bGUganN4IGdsb2JhbD5cXHtgLio/YFxcfTwvc3R5bGU+Jywgc2hlbGwsIHJlLlMpCmlmIG5vdCBtOgogICAgcmFpc2UgU3lzdGVtRXhpdCgiUXVpY2sgQWN0aW9ucyBzdHlsZSBibG9jayBub3QgZm91bmQiKQpuZXdfc3R5bGUgPSAiIiI8c3R5bGUganN4IGdsb2JhbD57YAogICAgICAgIC5zdHVkaW8tcmFpbCA+IG5hdiBhIHsKICAgICAgICAgIGRpc3BsYXk6IGdyaWQgIWltcG9ydGFudDsKICAgICAgICAgIGdyaWQtdGVtcGxhdGUtY29sdW1uczogMzJweCBtaW5tYXgoMCwgMWZyKTsKICAgICAgICAgIGFsaWduLWl0ZW1zOiBjZW50ZXI7CiAgICAgICAgICBnYXA6IDEwcHg7CiAgICAgICAgICBoZWlnaHQ6IDQ0cHg7CiAgICAgICAgICBtaW4taGVpZ2h0OiA0NHB4OwogICAgICAgICAgcGFkZGluZzogNXB4IDEwcHggIWltcG9ydGFudDsKICAgICAgICAgIG92ZXJmbG93OiBoaWRkZW47CiAgICAgICAgfQogICAgICAgIC5zdHVkaW8tcmFpbCA+IG5hdiBhID4gLnF1aWNrLWFjdGlvbi1pY29uIHsKICAgICAgICAgIGRpc3BsYXk6IGdyaWQgIWltcG9ydGFudDsKICAgICAgICAgIHBsYWNlLWl0ZW1zOiBjZW50ZXI7CiAgICAgICAgICB3aWR0aDogMzJweDsKICAgICAgICAgIGhlaWdodDogMzJweDsKICAgICAgICAgIG1pbi13aWR0aDogMzJweDsKICAgICAgICAgIGxpbmUtaGVpZ2h0OiAxOwogICAgICAgICAgYWxpZ24tc2VsZjogY2VudGVyOwogICAgICAgICAganVzdGlmeS1zZWxmOiBjZW50ZXI7CiAgICAgICAgfQogICAgICAgIC5zdHVkaW8tcmFpbCA+IG5hdiBhID4gLnF1aWNrLWFjdGlvbi1sYWJlbCB7CiAgICAgICAgICBkaXNwbGF5OiBmbGV4ICFpbXBvcnRhbnQ7CiAgICAgICAgICBhbGlnbi1pdGVtczogY2VudGVyOwogICAgICAgICAgbWluLXdpZHRoOiAwOwogICAgICAgICAgaGVpZ2h0OiAzNHB4OwogICAgICAgICAgZm9udC1zaXplOiAxMnB4ICFpbXBvcnRhbnQ7CiAgICAgICAgICBsaW5lLWhlaWdodDogMS4wNSAhaW1wb3J0YW50OwogICAgICAgICAgZm9udC13ZWlnaHQ6IDkwMDsKICAgICAgICAgIHdoaXRlLXNwYWNlOiBub3JtYWwgIWltcG9ydGFudDsKICAgICAgICAgIHdvcmQtYnJlYWs6IG5vcm1hbCAhaW1wb3J0YW50OwogICAgICAgICAgb3ZlcmZsb3ctd3JhcDogbm9ybWFsICFpbXBvcnRhbnQ7CiAgICAgICAgICBoeXBoZW5zOiBub25lICFpbXBvcnRhbnQ7CiAgICAgICAgICBvdmVyZmxvdzogdmlzaWJsZSAhaW1wb3J0YW50OwogICAgICAgIH0KICAgICAgYH08L3N0eWxlPiIiIgpzaGVsbCA9IHNoZWxsWzptLnN0YXJ0KCldICsgbmV3X3N0eWxlICsgc2hlbGxbbS5lbmQoKTpdCnNoZWxsX3BhdGgud3JpdGVfdGV4dChzaGVsbCkKCnByb2ZpbGVfcGF0aCA9IFBhdGgoImFwcC9hZG1pbi9jdXN0b21lcnMvW2lkXS9wYWdlLnRzeCIpCnByb2ZpbGUgPSBwcm9maWxlX3BhdGgucmVhZF90ZXh0KCkKb2xkID0gIiIiICAgIGNvbnN0IGJvYXJkID0gYXdhaXQgbG9hZFNjaGVkdWxpbmdEaXNwYXRjaEJvYXJkKHsgZm9yY2U6IHRydWUgfSk7CiAgICBjb25zdCBqb2JzID0gWy4uLmJvYXJkLnVuc2NoZWR1bGVkSm9icywgLi4uYm9hcmQuYXNzaWduZWRKb2JzXTsiIiIKbmV3ID0gIiIiICAgIGNvbnN0IFtib2FyZCwgbmV4dFBob3RvSGlzdG9yeV0gPSBhd2FpdCBQcm9taXNlLmFsbChbCiAgICAgIGxvYWRTY2hlZHVsaW5nRGlzcGF0Y2hCb2FyZCgpLAogICAgICBnZXRQcm9wZXJ0eVBob3RvSGlzdG9yeShuZXh0LnByb3BlcnR5LmlkKS5jYXRjaCgoKSA9PiBudWxsKSwKICAgIF0pOwogICAgY29uc3Qgam9icyA9IFsuLi5ib2FyZC51bnNjaGVkdWxlZEpvYnMsIC4uLmJvYXJkLmFzc2lnbmVkSm9ic107IiIiCmlmIG9sZCBub3QgaW4gcHJvZmlsZToKICAgIHJhaXNlIFN5c3RlbUV4aXQoIlByb2ZpbGUgYm9hcmQgbG9hZCBhbmNob3Igbm90IGZvdW5kIikKcHJvZmlsZSA9IHByb2ZpbGUucmVwbGFjZShvbGQsIG5ldywgMSkKb2xkMiA9ICIiIiAgICBhd2FpdCBnZXRQcm9wZXJ0eVBob3RvSGlzdG9yeShuZXh0LnByb3BlcnR5LmlkKS50aGVuKHNldFBob3RvSGlzdG9yeSkuY2F0Y2goKCkgPT4gc2V0UGhvdG9IaXN0b3J5KG51bGwpKTsKICAgIHNldE1lc3NhZ2UoIiIpOyIiIgpuZXcyID0gIiIiICAgIHNldFBob3RvSGlzdG9yeShuZXh0UGhvdG9IaXN0b3J5KTsKICAgIHNldE1lc3NhZ2UoIiIpOyIiIgppZiBvbGQyIG5vdCBpbiBwcm9maWxlOgogICAgcmFpc2UgU3lzdGVtRXhpdCgiUGhvdG8gaGlzdG9yeSBhbmNob3Igbm90IGZvdW5kIikKcHJvZmlsZSA9IHByb2ZpbGUucmVwbGFjZShvbGQyLCBuZXcyLCAxKQpwcm9maWxlX3BhdGgud3JpdGVfdGV4dChwcm9maWxlKQoKY3VzdG9tZXJzX3BhdGggPSBQYXRoKCJhcHAvYWRtaW4vY3VzdG9tZXJzL3BhZ2UudHN4IikKY3VzdG9tZXJzID0gY3VzdG9tZXJzX3BhdGgucmVhZF90ZXh0KCkucmVwbGFjZSgibG9hZFNjaGVkdWxpbmdEaXNwYXRjaEJvYXJkKHtmb3JjZTp0cnVlfSkiLCAibG9hZFNjaGVkdWxpbmdEaXNwYXRjaEJvYXJkKCkiLCAxKQpjdXN0b21lcnNfcGF0aC53cml0ZV90ZXh0KGN1c3RvbWVycykKCmNzc19wYXRoID0gUGF0aCgiYXBwL2dsb2JhbHMuY3NzIikKY3NzID0gY3NzX3BhdGgucmVhZF90ZXh0KCkKbWFya2VyID0gIi8qIFY1Mi44IGZvY3VzZWQgQWRtaW4gcG9saXNoIGFuZCBwZXJmb3JtYW5jZSAqLyIKaWYgbWFya2VyIG5vdCBpbiBjc3M6CiAgICBjc3MgKz0gIiIiCgovKiBWNTIuOCBmb2N1c2VkIEFkbWluIHBvbGlzaCBhbmQgcGVyZm9ybWFuY2UgKi8KLnN0dWRpby1tYWluOmhhcygucHJvcGVydHktcHJvZmlsZS1jYXJkKXtiYWNrZ3JvdW5kOmxpbmVhci1ncmFkaWVudCgxNDVkZWcsI2VlZjdmMSAwJSwjZTRmMWU5IDU1JSwjZWRmNmYwIDEwMCUpfQoucHJvcGVydHktcHJvZmlsZS1jYXJke2JveC1zaGFkb3c6MCAyMnB4IDU4cHggcmdiYSg4LDcwLDQzLC4xMykhaW1wb3J0YW50O2JvcmRlci1jb2xvcjojY2ZlMmQ2IWltcG9ydGFudH0KLnByb3BlcnR5LW1haW4tcGhvdG97YmFja2dyb3VuZDojZGZlY2U0IWltcG9ydGFudH0KLnN0dWRpby1yYWlsPm5hdntnYXA6N3B4IWltcG9ydGFudH0KLnN0dWRpby1yYWlsPm5hdiBhe2JvcmRlci1yYWRpdXM6MTNweCFpbXBvcnRhbnR9Ci5zdHVkaW8tbWFpbiAuYXBwLXRvcHtwYWRkaW5nOjIycHggMjRweDtib3JkZXI6MXB4IHNvbGlkICNkY2U5ZTE7Ym9yZGVyLXJhZGl1czoyMnB4O2JhY2tncm91bmQ6bGluZWFyLWdyYWRpZW50KDEzNWRlZywjZmZmZmZmLCNmMWY4ZjQpO2JveC1zaGFkb3c6MCAxMnB4IDMycHggcmdiYSg4LDY4LDQyLC4wNil9Ci5zdHVkaW8tbWFpbiAuYXBwLXRvcCAudG9vbGJhci1pbmxpbmV7YWxpZ24taXRlbXM6Y2VudGVyO2dhcDo5cHh9Ci5jdXN0b21lci1kaXJlY3RvcnktcGVyc29ue2FsaWduLWl0ZW1zOmNlbnRlciFpbXBvcnRhbnR9Ci5jdXN0b21lci1kaXJlY3RvcnktcGVyc29uPmRpdntib3gtc2hhZG93OjAgNXB4IDE2cHggcmdiYSg4LDY4LDQyLC4xMCl9Ci50YWJsZS1jYXJke2JvcmRlci1jb2xvcjojZGNlN2UxIWltcG9ydGFudDtib3gtc2hhZG93OjAgMTJweCAzNHB4IHJnYmEoNyw1NSwzNSwuMDU1KX0KLnRhYmxlLWNhcmQgdGJvZHkgdHI6bm90KDpoYXModGRbY29sc3Bhbl0pKTpob3ZlcntiYWNrZ3JvdW5kOiNmMmY4ZjR9Ci50YXNrLWNlbnRlci1jYXJkLC50YXNrLXN1bW1hcnktYWN0aW9ucyAucXVpY2stYWN0aW9ue2JvcmRlci1jb2xvcjojZDllN2RmIWltcG9ydGFudDtib3gtc2hhZG93OjAgMTJweCAzMHB4IHJnYmEoOCw2NCw0MCwuMDcpIWltcG9ydGFudH0KLnRhc2stY2VudGVyLWNhcmR7Ym9yZGVyLXJhZGl1czoyMHB4IWltcG9ydGFudDtvdmVyZmxvdzpoaWRkZW59Ci50YXNrLWNlbnRlci1jYXJkIC50YXNrLW1haW4tY2xlYW57cGFkZGluZzoxOHB4IWltcG9ydGFudH0KLnRhc2stY2VudGVyLWNhcmQgLnRhc2stbWV0YS1zdHJpcHtwYWRkaW5nOjEwcHggMTRweCFpbXBvcnRhbnQ7Ym9yZGVyLXJhZGl1czoxM3B4IWltcG9ydGFudDtiYWNrZ3JvdW5kOiNmMWY3ZjMhaW1wb3J0YW50fQoudGFzay1zdW1tYXJ5LWFjdGlvbnN7Z2FwOjEwcHghaW1wb3J0YW50fQoudGFzay1zdW1tYXJ5LWFjdGlvbnMgLnF1aWNrLWFjdGlvbntib3JkZXItcmFkaXVzOjE4cHghaW1wb3J0YW50O2JhY2tncm91bmQ6bGluZWFyLWdyYWRpZW50KDE0NWRlZywjZmZmLCNmMmY4ZjQpIWltcG9ydGFudH0KLnN0dWRpby1wYWdlLWhlYWR7cGFkZGluZzoyNHB4IDI2cHg7Ym9yZGVyOjFweCBzb2xpZCAjZDllN2RmO2JvcmRlci1yYWRpdXM6MjRweDtiYWNrZ3JvdW5kOmxpbmVhci1ncmFkaWVudCgxMzVkZWcsI2ZmZmZmZiwjZWRmN2YxKTtib3gtc2hhZG93OjAgMTRweCAzOHB4IHJnYmEoNyw2NCwzOSwuMDcpfQouc3R1ZGlvLXBhZ2UtaGVhZCBoMXtsZXR0ZXItc3BhY2luZzotLjAzNWVtfQouc3R1ZGlvLW1haW4gLnN0dWRpby1ncmlkIC5jYXJkLC5zdHVkaW8tbWFpbiAuc3R1ZGlvLWtwaXtib3JkZXItY29sb3I6I2Q5ZTdkZjtib3gtc2hhZG93OjAgMTBweCAyOHB4IHJnYmEoOCw1OCwzOCwuMDU1KX0KQG1lZGlhKG1heC13aWR0aDo3NjBweCl7CiAgLnN0dWRpby1tYWluOmhhcygucHJvcGVydHktcHJvZmlsZS1jYXJkKXtiYWNrZ3JvdW5kOiNlZGY2ZjB9CiAgLnN0dWRpby1tYWluIC5hcHAtdG9we3BhZGRpbmc6MTdweDtib3JkZXItcmFkaXVzOjE5cHh9Cn0KIiIiCmNzc19wYXRoLndyaXRlX3RleHQoY3NzKQo=' | base64 -d > /tmp/admin-polish.py
+          python /tmp/admin-polish.py
       - name: Verify source changes
         run: |
-          git diff --exit-code --quiet && { echo "No source changes were applied"; exit 1; } || true
-          git diff -- components/admin/AdminShell.tsx app/admin/customers/'[id]'/page.tsx app/admin/customers/page.tsx app/globals.css
-          grep -q 'loadSchedulingDispatchBoard(),' app/admin/customers/'[id]'/page.tsx
-          ! grep -q '\["Dashboard", "/admin/command"\]' components/admin/AdminShell.tsx
+          test -n "$(git status --short -- components/admin/AdminShell.tsx app/admin/customers/[id]/page.tsx app/admin/customers/page.tsx app/globals.css)"
+          grep -q 'loadSchedulingDispatchBoard(),' 'app/admin/customers/[id]/page.tsx'
+          if grep -q '\["Dashboard", "/admin/command"\]' components/admin/AdminShell.tsx; then exit 1; fi
           grep -q 'V52.8 focused Admin polish' app/globals.css
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -160,6 +41,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           rm .github/workflows/agent-admin-polish-performance.yml
-          git add components/admin/AdminShell.tsx app/admin/customers/'[id]'/page.tsx app/admin/customers/page.tsx app/globals.css .github/workflows/agent-admin-polish-performance.yml
+          git add -A
           git commit -m "Polish Admin UI and speed up property profiles"
           git push origin HEAD:feature/25-30-homes-simulator-v1
