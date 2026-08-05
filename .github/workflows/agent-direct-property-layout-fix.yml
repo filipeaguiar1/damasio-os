@@ -1,0 +1,106 @@
+name: Direct property layout repair
+on:
+  push:
+    branches:
+      - feature/25-30-homes-simulator-v1
+    paths:
+      - ".github/workflows/agent-direct-property-layout-fix.yml"
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Apply direct layout fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          shell_path = Path('components/admin/AdminShell.tsx')
+          shell = shell_path.read_text()
+          shell = re.sub(
+              r'<style jsx global>\{`.*?`\}</style>',
+              '''<style jsx global>{`\n        .studio-rail > nav a {\n          display: grid !important;\n          grid-template-columns: 34px minmax(0, 1fr);\n          align-items: center;\n          gap: 10px;\n          min-height: 52px;\n          height: auto;\n          padding: 8px 10px !important;\n          overflow: visible;\n        }\n        .studio-rail > nav a > .quick-action-icon {\n          display: grid !important;\n          place-items: center;\n          width: 34px;\n          height: 34px;\n          min-width: 34px;\n          line-height: 1;\n          text-align: center;\n          align-self: center;\n          justify-self: center;\n          font-size: 13px;\n        }\n        .studio-rail > nav a > .quick-action-label {\n          display: block !important;\n          min-width: 0;\n          font-size: 13px !important;\n          line-height: 1.08 !important;\n          font-weight: 900;\n          letter-spacing: 0;\n          white-space: normal !important;\n          word-break: normal !important;\n          overflow-wrap: normal !important;\n          hyphens: none !important;\n          overflow: visible !important;\n        }\n      `}</style>''',
+              shell,
+              count=1,
+              flags=re.S,
+          )
+          shell_path.write_text(shell)
+
+          page_path = Path('app/admin/customers/[id]/page.tsx')
+          page = page_path.read_text()
+
+          state_anchor = '  const [responseNote, setResponseNote] = useState("");\n'
+          if 'expandedVisitIds' not in page:
+              page = page.replace(state_anchor, state_anchor + '  const [expandedVisitIds, setExpandedVisitIds] = useState<string[]>([]);\n', 1)
+
+          function_anchor = '  if (!record || !lead) return <AdminShell active="Customers"><div className="card profile-card"><h2>{message || "Property not found"}</h2></div></AdminShell>;\n'
+          if 'function toggleVisit' not in page:
+              toggle = '''  function toggleVisit(visitId: string) {\n    setExpandedVisitIds((current) => current.includes(visitId) ? current.filter((id) => id !== visitId) : [...current, visitId]);\n  }\n\n'''
+              page = page.replace(function_anchor, toggle + function_anchor, 1)
+
+          property_block = '''    {tab === "property" && <section className="property-profile-card">\n      <div className="property-main-photo">\n        {lead.propertyPhoto ? <img src={lead.propertyPhoto} alt={`Front view of ${lead.address}`} /> : <div className="property-photo-placeholder"><span>⌂</span><strong>No house photo yet</strong><small>Customer or Admin can add the main property photo.</small></div>}\n      </div>\n      <div className="property-address-row"><div><small>Property</small><h2>{lead.address}</h2></div><span className={`visit-badge ${visitStatus}`}><i></i>{lead.status === "completed" ? "Done" : "Open"}</span></div>\n      <div className="property-client-row"><span>Client</span><strong>{lead.name}</strong></div>\n      <div className="property-contract-head"><div><small>Contract</small><h3>{lead.service}</h3><p>{plan.frequency} · {lead.nextVisitDate || lead.scheduledDate || "Route day pending"}</p></div><button type="button" onClick={() => setDetailsOpen((value) => !value)} aria-expanded={detailsOpen}>{detailsOpen ? "Hide details" : "Show details"}</button></div>\n      {detailsOpen && <div className="property-contract-details">\n        {details.accessNotes && <div className="property-access-banner">ⓘ {details.accessNotes}</div>}\n        <dl><div><dt>Cut height</dt><dd>{String(details.grassHeight || "").replace("in", "")} inches</dd></div><div><dt>Lot size</dt><dd>{lotLabel(property.lot_size)}</dd></div><div><dt>Gate</dt><dd>{property.gate ? "Yes" : "No"}</dd></div><div><dt>Dog</dt><dd>{property.dog ? "Yes" : "No"}</dd></div><div><dt>Irrigation</dt><dd>{property.irrigation ? "Yes" : "No"}</dd></div><div><dt>Service level</dt><dd>{plan.frequency}</dd></div></dl>\n      </div>}\n      <div className="property-master-note">Property details are Master-only</div>\n    </section>}\n\n'''
+          page, count = re.subn(
+              r'    \{tab === "property" && <section className="property-reference-layout">.*?</section>\}\n\n(?=    \{tab === "service")',
+              property_block,
+              page,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit('Property block replacement failed')
+
+          history_block = '''    {tab === "history" && <section className="card profile-card service-history-card"><div className="table-head service-history-head"><div><h2>Service history</h2><p className="section-intro">Every service completed for this property while assigned to this company.</p></div><span className="pill history-count-pill">{visits.length} visits</span></div><div className="property-visit-history">{visits.map((visit) => { const open = expandedVisitIds.includes(visit.id); return <article key={visit.id} className={open ? "history-visit open" : "history-visit"}><button type="button" className="history-visit-summary" onClick={() => toggleVisit(visit.id)} aria-expanded={open}><div><small>{new Date(`${visit.scheduled_date}T12:00:00`).toLocaleDateString()}</small><strong>{visit.service_name}</strong></div><span className="history-visit-status">{visit.status}</span><b aria-hidden="true">{open ? "⌃" : "⌄"}</b></button>{open && <div className="history-visit-body"><div className="property-visit-meta"><span>Started <strong>{clock(visit.started_at)}</strong></span><span>Finished <strong>{clock(visit.finished_at)}</strong></span><span>Duration <strong>{formatDuration(visit.duration_seconds || 0)}</strong></span></div><p>{visit.customer_visible_summary || visit.employee_notes || "No completion notes recorded."}</p>{visit.photos.length ? <div className="property-visit-photos">{visit.photos.map((photo) => <figure key={photo.id}><img src={photo.url} alt={photo.caption || `${visit.service_name} ${photo.type}`} /><figcaption>{photo.caption || photo.type}</figcaption></figure>)}</div> : <div className="property-no-images">No service photos for this visit</div>}</div>}</article> })}{!visits.length && <div className="empty-state"><strong>No service history yet.</strong><p>Completed visits for this company will appear here.</p></div>}</div></section>}\n'''
+          page, count = re.subn(
+              r'    \{tab === "history" && <section className="card profile-card">.*?</section>\}\n(?=  </AdminShell>)',
+              history_block,
+              page,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit('History block replacement failed')
+
+          page_path.write_text(page)
+
+          css_path = Path('app/globals.css')
+          css = css_path.read_text()
+          marker = '/* Direct property profile + compact history fix */'
+          if marker not in css:
+              css += '''\n\n/* Direct property profile + compact history fix */\n.property-profile-card{max-width:980px;margin:0 auto;padding:0 0 18px;border:1px solid #dbe7df;border-radius:28px;background:#fff;overflow:hidden;box-shadow:0 18px 45px rgba(10,58,39,.08)}\n.property-main-photo{width:100%;aspect-ratio:16/7;background:#edf4ef;overflow:hidden}.property-main-photo img{width:100%;height:100%;object-fit:cover;display:block}.property-photo-placeholder{height:100%;min-height:280px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:#6f8177}.property-photo-placeholder span{font-size:54px;color:#0c6b43}.property-photo-placeholder strong{font-size:18px;color:#17372a}.property-photo-placeholder small{font-size:13px}\n.property-address-row,.property-client-row,.property-contract-head{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:20px 24px;border-bottom:1px solid #e5ece7}.property-address-row small,.property-contract-head small{display:block;color:#77877e;font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}.property-address-row h2{margin:5px 0 0;font-size:25px;line-height:1.15}.property-client-row span{color:#7c8b83;font-size:14px}.property-client-row strong{font-size:16px}.property-contract-head h3{margin:5px 0 2px;font-size:20px}.property-contract-head p{margin:0;color:#6f8077;font-size:13px}.property-contract-head button{min-height:42px;padding:0 16px;border:1px solid #d5e1da;border-radius:999px;background:#fff;color:#0a5f3b;font-weight:900;cursor:pointer}\n.property-contract-details{margin:18px 24px;padding:18px;border:1px solid #e1eae4;border-radius:20px;background:#fbfdfb}.property-contract-details dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin:14px 0 0}.property-contract-details dl div{padding:14px;border-right:1px solid #e5ece7;border-bottom:1px solid #e5ece7}.property-contract-details dt{color:#788880;font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}.property-contract-details dd{margin:7px 0 0;font-weight:900}.property-access-banner{padding:13px 15px;border-radius:13px;background:#eaf6ee;color:#075f39;font-weight:800}.property-master-note{display:inline-flex;margin:0 24px;padding:8px 12px;border-radius:999px;background:#e5f5dd;color:#0a5d36;font-size:12px;font-weight:900}\n.service-history-head{align-items:flex-start!important}.history-count-pill{align-self:flex-start!important;height:auto!important;min-height:0!important;padding:8px 12px!important;white-space:nowrap}.property-visit-history{display:grid;gap:10px;margin-top:18px}.history-visit{border:1px solid #e0e8e3;border-radius:16px;background:#fff;overflow:hidden}.history-visit-summary{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto 28px;align-items:center;gap:14px;padding:15px 17px;border:0;background:#fff;text-align:left;cursor:pointer}.history-visit-summary div small,.history-visit-summary div strong{display:block}.history-visit-summary div small{color:#798981;font-size:11px}.history-visit-summary div strong{margin-top:3px;font-size:16px}.history-visit-status{padding:6px 10px;border-radius:999px;background:#e8f5ec;color:#08613c;font-size:11px;font-weight:900;text-transform:capitalize}.history-visit-summary b{font-size:20px;text-align:center}.history-visit-body{padding:0 17px 17px;border-top:1px solid #edf1ee}.history-visit-body .property-visit-meta{margin-top:15px}.history-visit-body>p{margin:14px 0}\n@media(max-width:760px){.property-profile-card{border-radius:20px}.property-main-photo{aspect-ratio:4/3}.property-photo-placeholder{min-height:220px}.property-address-row,.property-client-row,.property-contract-head{padding:16px;align-items:flex-start}.property-address-row,.property-contract-head{flex-direction:column}.property-contract-head button{width:100%}.property-contract-details{margin:14px 16px;padding:12px}.property-contract-details dl{grid-template-columns:repeat(2,minmax(0,1fr))}.property-master-note{margin:0 16px}.history-visit-summary{grid-template-columns:minmax(0,1fr) auto 24px;gap:8px;padding:14px}.history-visit-status{font-size:10px}}\n'''
+          css_path.write_text(css)
+          PY
+      - name: Verify real file changes
+        run: |
+          git diff --check
+          git diff --exit-code --quiet && { echo "No source files changed"; exit 1; } || true
+          git diff --name-only | grep -q '^components/admin/AdminShell.tsx$'
+          git diff --name-only | grep -q '^app/admin/customers/\[id\]/page.tsx$'
+          git diff --name-only | grep -q '^app/globals.css$'
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate
+        run: |
+          pnpm check
+          pnpm build
+      - name: Commit source changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add components/admin/AdminShell.tsx 'app/admin/customers/[id]/page.tsx' app/globals.css
+          git commit -m "Rebuild property profile and compact history"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
+          git rm .github/workflows/agent-direct-property-layout-fix.yml
+          git commit -m "Remove direct property layout workflow"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
