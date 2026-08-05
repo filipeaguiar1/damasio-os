@@ -1,0 +1,63 @@
+name: Supabase capability check
+
+on:
+  push:
+    branches:
+      - feature/25-30-homes-simulator-v1
+    paths:
+      - ".github/workflows/supabase-capability-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect administrative RPC capabilities
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "").rstrip("/")
+          key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+          if not url or not key:
+              raise SystemExit("Supabase URL and service role are required.")
+
+          request = urllib.request.Request(
+              f"{url}/rest/v1/",
+              headers={
+                  "apikey": key,
+                  "Authorization": f"Bearer {key}",
+                  "Accept": "application/openapi+json",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              schema = json.load(response)
+
+          paths = schema.get("paths", {})
+          candidates = {}
+          for path, definition in paths.items():
+              if not path.startswith("/rpc/"):
+                  continue
+              name = path.removeprefix("/rpc/")
+              if any(term in name.lower() for term in (
+                  "sql", "query", "exec", "database", "migration", "admin", "schema"
+              )):
+                  candidates[name] = definition
+
+          print("Administrative RPC candidates:")
+          if not candidates:
+              print("NONE")
+          else:
+              for name, definition in sorted(candidates.items()):
+                  print(json.dumps({"name": name, "definition": definition}, sort_keys=True))
+          PY
