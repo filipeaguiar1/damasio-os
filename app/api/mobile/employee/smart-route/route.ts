@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { verifyCanonicalRoutePersistence } from "@/lib/routes/verifyCanonicalRoutePersistence";
 
 export const dynamic = "force-dynamic";
 
@@ -235,52 +236,6 @@ function migrationMissing(message?: string) {
     .test(message || "");
 }
 
-function sameOrder(left: string[], right: string[]) {
-  return left.length === right.length
-    && left.every((id, index) => id === right[index]);
-}
-
-async function verifyOfficialRouteOrder(
-  service: any,
-  routeId: string,
-  expectedOrder: string[],
-  expectedVersion?: number,
-) {
-  const [stateResult, stopsResult] = await Promise.all([
-    service
-      .from("route_order_state")
-      .select("version")
-      .eq("route_id", routeId)
-      .maybeSingle(),
-    service
-      .from("route_stops")
-      .select("visit_id,position")
-      .eq("route_id", routeId)
-      .order("position", { ascending: true }),
-  ]);
-
-  if (stateResult.error) throw new Error(stateResult.error.message);
-  if (stopsResult.error) throw new Error(stopsResult.error.message);
-
-  const storedVersion = Number((stateResult.data as any)?.version || 0);
-  const storedOrder = (stopsResult.data || [])
-    .map((stop: any) => String(stop.visit_id));
-  const versionMatches = !expectedVersion || storedVersion === expectedVersion;
-
-  if (!sameOrder(storedOrder, expectedOrder) || !versionMatches) {
-    console.error("employee-smart-route-v2-readback-mismatch", {
-      routeId,
-      expectedVersion,
-      storedVersion,
-      expectedOrder,
-      storedOrder,
-    });
-    throw new Error("The official route order was not persisted.");
-  }
-
-  return { version: storedVersion, appliedOrder: storedOrder };
-}
-
 export async function POST(request: NextRequest) {
   try {
     const { service, employee, companyId, profileId } = await context(request);
@@ -392,16 +347,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data, error } = await service.rpc("apply_canonical_route_order_v2_service", {
-      p_route_id: body.routeId,
-      p_ordered_visit_ids: requestedOrder,
-      p_origin_label: body.origin?.label || "",
-      p_origin_latitude: body.origin?.latitude ?? null,
-      p_origin_longitude: body.origin?.longitude ?? null,
-      p_expected_version: body.expectedVersion ?? null,
-      p_actor_profile_id: profileId,
-      p_source: "employee_smart_route",
-    });
+    const origin = body.origin;
+  if (
+    !origin
+    || !origin.label
+    || !Number.isFinite(origin.latitude)
+    || !Number.isFinite(origin.longitude)
+  ) {
+    throw new Error("A valid canonical Route origin is required.");
+  }
+
+  console.info("employee-smart-route-v2-request", {
+    routeId: body.routeId,
+    expectedVersion: body.expectedVersion ?? null,
+    orderedVisitIds: requestedOrder,
+    origin,
+  });
+
+  const { data, error } = await service.rpc("apply_canonical_route_order_v2_service", {
+    p_route_id: body.routeId,
+    p_ordered_visit_ids: requestedOrder,
+    p_origin_label: origin.label,
+    p_origin_latitude: origin.latitude,
+    p_origin_longitude: origin.longitude,
+    p_expected_version: body.expectedVersion ?? null,
+    p_actor_profile_id: profileId,
+    p_source: "employee_smart_route",
+  });
 
     if (error) {
       if (migrationMissing(error.message)) {
@@ -430,23 +402,32 @@ export async function POST(request: NextRequest) {
       throw new Error("The database did not confirm the reviewed route.");
     }
 
-    const verified = await verifyOfficialRouteOrder(
-      service,
-      body.routeId,
-      requestedOrder,
-      Number(result.version || 0) || undefined,
-    );
-    const response = {
-      ...result,
-      version: verified.version,
-      appliedOrder: verified.appliedOrder,
-    };
+    const routeVersion = Number(result.version || 0);
+  if (!Number.isInteger(routeVersion) || routeVersion < 1) {
+    throw new Error("The database did not confirm a canonical routeVersion.");
+  }
+
+  const verified = await verifyCanonicalRoutePersistence(service, {
+    routeId: body.routeId,
+    orderedVisitIds: requestedOrder,
+    routeVersion,
+    origin,
+  });
+  const response = {
+    ...result,
+    version: verified.routeVersion,
+    routeVersion: verified.routeVersion,
+    appliedOrder: verified.orderedVisitIds,
+    orderedVisitIds: verified.orderedVisitIds,
+    origin: verified.origin,
+  };
 
     console.info("employee-smart-route-v2-applied", {
       routeId: response.routeId,
       count: response.count,
       version: response.version,
       appliedOrder: response.appliedOrder,
+      origin: response.origin,
     });
 
     return NextResponse.json(response);
