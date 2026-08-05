@@ -1,17 +1,20 @@
 name: Consolidated UI polish
+
 on:
   push:
-    branches: [feature/25-30-homes-simulator-v1]
-    paths: [.github/workflows/agent-ui-polish-batch.yml]
+    branches:
+      - "feature/25-30-homes-simulator-v1"
+
 permissions:
   contents: write
+
 jobs:
   patch:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: feature/25-30-homes-simulator-v1
+          ref: "feature/25-30-homes-simulator-v1"
           token: ${{ secrets.GITHUB_TOKEN }}
       - uses: pnpm/action-setup@v4
         with:
@@ -41,17 +44,15 @@ jobs:
 
           page = Path('app/admin/customers/[id]/page.tsx')
           text = page.read_text()
-          history_variants = [
+          variants = [
               '<span className="pill">{visits.length} visits</span>',
               '<span className="pill">{visits.length} {visits.length === 1 ? "visit" : "visits"}</span>',
           ]
-          replaced = False
-          for old in history_variants:
+          for old in variants:
               if old in text:
                   text = text.replace(old, old.replace('className="pill"', 'className="pill history-count-pill"'), 1)
-                  replaced = True
                   break
-          if not replaced:
+          else:
               raise SystemExit('History count badge not found')
           page.write_text(text)
 
@@ -104,6 +105,6 @@ jobs:
           rm -f .github/workflows/agent-ui-polish-batch.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add components/admin/AdminShell.tsx app/admin/customers/[id]/page.tsx app/globals.css .github/workflows/agent-ui-polish-batch.yml
+          git add components/admin/AdminShell.tsx "app/admin/customers/[id]/page.tsx" app/globals.css .github/workflows/agent-ui-polish-batch.yml
           git commit -m "Polish admin navigation and property profile UI"
           git push origin HEAD:feature/25-30-homes-simulator-v1
