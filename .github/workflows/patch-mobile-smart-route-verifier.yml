@@ -1,0 +1,188 @@
+name: Patch mobile Smart Route verifier
+
+on:
+  push:
+    branches:
+      - feature/25-30-homes-simulator-v1
+    paths:
+      - ".github/workflows/patch-mobile-smart-route-verifier.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Patch canonical mobile verification
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/api/mobile/employee/smart-route/route.ts")
+          source = path.read_text()
+
+          source = source.replace(
+              'import { createClient } from "@supabase/supabase-js";\n',
+              'import { createClient } from "@supabase/supabase-js";\n'
+              'import { verifyCanonicalRoutePersistence } from "@/lib/routes/verifyCanonicalRoutePersistence";\n',
+              1,
+          )
+
+          old_verifier = '''function sameOrder(left: string[], right: string[]) {
+            return left.length === right.length
+              && left.every((id, index) => id === right[index]);
+          }
+
+          async function verifyOfficialRouteOrder(
+            service: any,
+            routeId: string,
+            expectedOrder: string[],
+            expectedVersion?: number,
+          ) {
+            const [stateResult, stopsResult] = await Promise.all([
+              service
+                .from("route_order_state")
+                .select("version")
+                .eq("route_id", routeId)
+                .maybeSingle(),
+              service
+                .from("route_stops")
+                .select("visit_id,position")
+                .eq("route_id", routeId)
+                .order("position", { ascending: true }),
+            ]);
+
+            if (stateResult.error) throw new Error(stateResult.error.message);
+            if (stopsResult.error) throw new Error(stopsResult.error.message);
+
+            const storedVersion = Number((stateResult.data as any)?.version || 0);
+            const storedOrder = (stopsResult.data || [])
+              .map((stop: any) => String(stop.visit_id));
+            const versionMatches = !expectedVersion || storedVersion === expectedVersion;
+
+            if (!sameOrder(storedOrder, expectedOrder) || !versionMatches) {
+              console.error("employee-smart-route-v2-readback-mismatch", {
+                routeId,
+                expectedVersion,
+                storedVersion,
+                expectedOrder,
+                storedOrder,
+              });
+              throw new Error("The official route order was not persisted.");
+            }
+
+            return { version: storedVersion, appliedOrder: storedOrder };
+          }
+
+          '''
+          if old_verifier not in source:
+              raise SystemExit("Existing mobile verifier block was not found.")
+          source = source.replace(old_verifier, "", 1)
+
+          old_rpc = '''    const { data, error } = await service.rpc("apply_canonical_route_order_v2_service", {
+              p_route_id: body.routeId,
+              p_ordered_visit_ids: requestedOrder,
+              p_origin_label: body.origin?.label || "",
+              p_origin_latitude: body.origin?.latitude ?? null,
+              p_origin_longitude: body.origin?.longitude ?? null,
+              p_expected_version: body.expectedVersion ?? null,
+              p_actor_profile_id: profileId,
+              p_source: "employee_smart_route",
+            });
+          '''
+          new_rpc = '''    const origin = body.origin;
+            if (
+              !origin
+              || !origin.label
+              || !Number.isFinite(origin.latitude)
+              || !Number.isFinite(origin.longitude)
+            ) {
+              throw new Error("A valid canonical Route origin is required.");
+            }
+
+            console.info("employee-smart-route-v2-request", {
+              routeId: body.routeId,
+              expectedVersion: body.expectedVersion ?? null,
+              orderedVisitIds: requestedOrder,
+              origin,
+            });
+
+            const { data, error } = await service.rpc("apply_canonical_route_order_v2_service", {
+              p_route_id: body.routeId,
+              p_ordered_visit_ids: requestedOrder,
+              p_origin_label: origin.label,
+              p_origin_latitude: origin.latitude,
+              p_origin_longitude: origin.longitude,
+              p_expected_version: body.expectedVersion ?? null,
+              p_actor_profile_id: profileId,
+              p_source: "employee_smart_route",
+            });
+          '''
+          if old_rpc not in source:
+              raise SystemExit("Mobile canonical RPC block was not found.")
+          source = source.replace(old_rpc, new_rpc, 1)
+
+          old_readback = '''    const verified = await verifyOfficialRouteOrder(
+              service,
+              body.routeId,
+              requestedOrder,
+              Number(result.version || 0) || undefined,
+            );
+            const response = {
+              ...result,
+              version: verified.version,
+              appliedOrder: verified.appliedOrder,
+            };
+          '''
+          new_readback = '''    const routeVersion = Number(result.version || 0);
+            if (!Number.isInteger(routeVersion) || routeVersion < 1) {
+              throw new Error("The database did not confirm a canonical routeVersion.");
+            }
+
+            const verified = await verifyCanonicalRoutePersistence(service, {
+              routeId: body.routeId,
+              orderedVisitIds: requestedOrder,
+              routeVersion,
+              origin,
+            });
+            const response = {
+              ...result,
+              version: verified.routeVersion,
+              routeVersion: verified.routeVersion,
+              appliedOrder: verified.orderedVisitIds,
+              orderedVisitIds: verified.orderedVisitIds,
+              origin: verified.origin,
+            };
+          '''
+          if old_readback not in source:
+              raise SystemExit("Mobile readback block was not found.")
+          source = source.replace(old_readback, new_readback, 1)
+
+          old_log = '''      appliedOrder: response.appliedOrder,
+            });
+          '''
+          new_log = '''      appliedOrder: response.appliedOrder,
+              origin: response.origin,
+            });
+          '''
+          if old_log not in source:
+              raise SystemExit("Mobile success log block was not found.")
+          source = source.replace(old_log, new_log, 1)
+
+          path.write_text(source)
+          PY
+      - name: Commit patch and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/patch-mobile-smart-route-verifier.yml
+          git add app/api/mobile/employee/smart-route/route.ts
+          git commit -m "fix(routes): verify mobile Smart Route after stable reread"
+          git push
