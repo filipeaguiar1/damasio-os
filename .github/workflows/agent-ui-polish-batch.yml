@@ -1,0 +1,109 @@
+name: Consolidated UI polish
+on:
+  push:
+    branches: [feature/25-30-homes-simulator-v1]
+    paths: [.github/workflows/agent-ui-polish-batch.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Apply consolidated visual fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          shell = Path('components/admin/AdminShell.tsx')
+          text = shell.read_text()
+          old = '<nav>{quickActions.map(([label, href], index) => <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} className={index === 0 ? "primary" : ""}><span>{index === 0 ? "+" : String(index)}</span>{label}</Link>)}</nav>'
+          new = '<nav>{quickActions.map(([label, href], index) => <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} className={index === 0 ? "primary" : ""}><span className="quick-action-icon">{index === 0 ? "+" : String(index)}</span><span className="quick-action-label">{label}</span></Link>)}</nav>'
+          if old not in text:
+              raise SystemExit('Quick Actions markup not found')
+          text = text.replace(old, new, 1)
+          old_style = '''        .studio-rail>nav a{display:grid!important;grid-template-columns:32px minmax(0,1fr);align-items:center;min-height:44px;gap:10px}\n        .studio-rail>nav a>span{display:grid!important;place-items:center;width:32px;height:32px;line-height:1;text-align:center;align-self:center;justify-self:center}'''
+          new_style = '''        .studio-rail>nav a{display:grid!important;grid-template-columns:32px minmax(0,1fr);align-items:center;height:44px;min-height:44px;gap:10px;padding:5px 10px!important;overflow:hidden}\n        .studio-rail>nav a>.quick-action-icon{display:grid!important;place-items:center;width:32px;height:32px;min-width:32px;line-height:1;text-align:center;align-self:center;justify-self:center}\n        .studio-rail>nav a>.quick-action-label{display:flex!important;align-items:center;min-width:0;height:34px;line-height:1.02;font-weight:900;overflow:hidden}'''
+          if old_style not in text:
+              raise SystemExit('Quick Actions style block not found')
+          shell.write_text(text.replace(old_style, new_style, 1))
+
+          page = Path('app/admin/customers/[id]/page.tsx')
+          text = page.read_text()
+          history_variants = [
+              '<span className="pill">{visits.length} visits</span>',
+              '<span className="pill">{visits.length} {visits.length === 1 ? "visit" : "visits"}</span>',
+          ]
+          replaced = False
+          for old in history_variants:
+              if old in text:
+                  text = text.replace(old, old.replace('className="pill"', 'className="pill history-count-pill"'), 1)
+                  replaced = True
+                  break
+          if not replaced:
+              raise SystemExit('History count badge not found')
+          page.write_text(text)
+
+          css = Path('app/globals.css')
+          styles = css.read_text()
+          marker = '/* consolidated-admin-ui-polish-20260805 */'
+          if marker not in styles:
+              styles += r'''
+
+/* consolidated-admin-ui-polish-20260805 */
+.table-head{align-items:center}
+.pill,.status,.pay-pill,.tag,.recurrence-pill,.expense-category,.estimate-status{display:inline-flex;align-items:center;justify-content:center;align-self:center;width:auto;max-width:100%;min-height:28px;height:auto;white-space:nowrap;line-height:1}
+.history-count-pill{flex:0 0 auto;padding:8px 13px!important;border-radius:999px!important;min-width:auto!important;min-height:32px!important;height:32px!important;background:#d8f0d4!important;color:#0d3d2c!important}
+.property-reference-layout{display:grid;gap:14px;padding:22px;border:1px solid rgba(13,61,44,.12);border-radius:28px;background:linear-gradient(145deg,#ffffff 0%,#f3faf6 100%);box-shadow:0 18px 50px rgba(13,61,44,.09)}
+.property-reference-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 2px}
+.property-reference-head h2{margin:0;font-size:24px;letter-spacing:-.035em;color:#082a1f}
+.property-reference-head button{border:1px solid rgba(13,61,44,.16);border-radius:999px;background:#fff;padding:9px 13px;color:#0d3d2c;font-weight:900;cursor:pointer}
+.property-contract-summary{display:grid;grid-template-columns:72px minmax(0,1fr) 34px;align-items:center;gap:14px;padding:14px;border:1px solid rgba(13,61,44,.12);border-radius:22px;background:#fff;box-shadow:0 10px 28px rgba(13,61,44,.07)}
+.property-contract-thumb{width:72px;height:72px;border-radius:18px;overflow:hidden;display:grid;place-items:center;background:#e4f3e8;font-size:30px;color:#0d3d2c}
+.property-contract-thumb img{width:100%;height:100%;object-fit:cover}
+.property-contract-summary>div:nth-child(2){display:grid;gap:6px;min-width:0}
+.property-contract-summary strong{font-size:17px;line-height:1.2;color:#082a1f}
+.property-contract-summary small{color:#66766e;line-height:1.4}
+.property-contract-summary>i{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#eef7f1;color:#0d6849;font-style:normal}
+.property-compact-card{overflow:hidden;border:1px solid rgba(13,61,44,.12);border-radius:22px;background:#fff}
+.property-access-banner{padding:12px 15px;background:#edf8f1;color:#0c6848;font-weight:850;border-bottom:1px solid rgba(13,61,44,.09)}
+.property-compact-card dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin:0;background:rgba(13,61,44,.08)}
+.property-compact-card dl>div{display:grid;gap:5px;padding:15px;background:#fff;min-height:76px}
+.property-compact-card dt{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#728078;font-weight:950}
+.property-compact-card dd{margin:0;color:#082a1f;font-weight:900}
+.property-images{display:grid;gap:10px}
+.property-images h3{margin:0 2px;font-size:16px;color:#082a1f}
+.property-images>div{overflow:hidden;min-height:150px;border:1px solid rgba(13,61,44,.12);border-radius:22px;background:#eef5f0}
+.property-images img{display:block;width:100%;max-height:340px;object-fit:cover}
+.property-no-images{min-height:150px;display:grid;place-items:center;color:#708078}
+.property-edit-toggle{display:flex;justify-content:flex-end}
+@media(max-width:760px){.property-reference-layout{padding:14px;border-radius:22px}.property-contract-summary{grid-template-columns:58px minmax(0,1fr) 30px;padding:11px}.property-contract-thumb{width:58px;height:58px;border-radius:15px}.property-compact-card dl{grid-template-columns:repeat(2,minmax(0,1fr))}.history-count-pill{height:30px!important;min-height:30px!important}.table-head{align-items:flex-start}.table-head>.history-count-pill{align-self:flex-start}}
+'''
+              css.write_text(styles)
+          PY
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate
+        run: |
+          pnpm check
+          pnpm build
+      - name: Commit final batch and remove workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/agent-ui-polish-batch.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add components/admin/AdminShell.tsx app/admin/customers/[id]/page.tsx app/globals.css .github/workflows/agent-ui-polish-batch.yml
+          git commit -m "Polish admin navigation and property profile UI"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
