@@ -82,6 +82,10 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
         <section className="studio-rail-filler" aria-label="Workspace status"><div><small>Workspace</small><strong>Company isolated</strong></div><p>Admin tools are being wired through company-scoped data so each company stays separated.</p><Link href="/admin/saas">Tenant readiness</Link></section>
       </aside>
       <main className="studio-main">{children}</main>
+      <style jsx global>{`
+        .studio-rail>nav a{display:grid!important;grid-template-columns:32px minmax(0,1fr);align-items:center;min-height:44px;gap:10px}
+        .studio-rail>nav a>span{display:grid!important;place-items:center;width:32px;height:32px;line-height:1;text-align:center;align-self:center;justify-self:center}
+      `}</style>
       <footer className="studio-bottom-status"><span><i></i> Live sync active</span><span>{pendingRequests} approvals waiting</span><span>{unread} unread alerts</span><Link href="/admin/finance">Payments queue</Link></footer>
       <nav className="mobile-shell-bottom" aria-label="Admin subpage navigation">
         <Link className={active === "Dashboard" || active === "Operations Studio" ? "active" : ""} href="/admin"><i>H</i><span>Home</span></Link>
