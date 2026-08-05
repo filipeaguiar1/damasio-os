@@ -1,0 +1,58 @@
+name: Employee contract routing
+
+on:
+  push:
+    branches:
+      - feature/25-30-homes-simulator-v1
+    paths:
+      - scripts/patch-employee-contract-routing.py
+      - .github/workflows/agent-employee-contract-routing.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Apply Employee contract routing patch
+        run: python scripts/patch-employee-contract-routing.py
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate
+        run: pnpm check
+
+      - name: Commit patch and remove temporary files
+        shell: bash
+        run: |
+          rm .github/workflows/agent-employee-contract-routing.yml
+          rm scripts/patch-employee-contract-routing.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- \
+            components/admin/RouteAdvisorPanel.tsx \
+            app/admin/employees/page.tsx \
+            scripts/validate-employee-contract-routing.mjs \
+            docs/checkpoints/2026-08-05-smart-route-canonical-stable.md \
+            package.json \
+            scripts/patch-employee-contract-routing.py \
+            .github/workflows/agent-employee-contract-routing.yml
+          git commit -m "Filter Route Advisor by Employee contracts"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
