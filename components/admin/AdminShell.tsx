@@ -76,15 +76,16 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
       <aside className={`studio-rail ${mobileMenuOpen ? "mobile-menu-open" : ""}`}>
         <button type="button" className="mobile-menu-close" onClick={() => setMobileMenuOpen(false)} aria-label="Close menu">x</button>
         <strong>Quick Actions</strong>
-        <nav>{quickActions.map(([label, href], index) => <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} className={index === 0 ? "primary" : ""}><span>{index === 0 ? "+" : String(index)}</span>{label}</Link>)}</nav>
+        <nav>{quickActions.map(([label, href], index) => <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} className={index === 0 ? "primary" : ""}><span className="quick-action-icon">{index === 0 ? "+" : String(index)}</span><span className="quick-action-label">{label}</span></Link>)}</nav>
         <section className="studio-rail-summary"><span>Today</span><div><small>Pending Requests</small><b>{pendingRequests}</b></div><div><small>Unread Alerts</small><b>{unread}</b></div></section>
         <Link href="/admin/production" className="studio-system-status"><i></i><span>System Status</span><small>Production checklist</small></Link>
         <section className="studio-rail-filler" aria-label="Workspace status"><div><small>Workspace</small><strong>Company isolated</strong></div><p>Admin tools are being wired through company-scoped data so each company stays separated.</p><Link href="/admin/saas">Tenant readiness</Link></section>
       </aside>
       <main className="studio-main">{children}</main>
       <style jsx global>{`
-        .studio-rail>nav a{display:grid!important;grid-template-columns:32px minmax(0,1fr);align-items:center;min-height:44px;gap:10px}
-        .studio-rail>nav a>span{display:grid!important;place-items:center;width:32px;height:32px;line-height:1;text-align:center;align-self:center;justify-self:center}
+        .studio-rail>nav a{display:grid!important;grid-template-columns:32px minmax(0,1fr);align-items:center;height:44px;min-height:44px;gap:10px;padding:5px 10px!important;overflow:hidden}
+        .studio-rail>nav a>.quick-action-icon{display:grid!important;place-items:center;width:32px;height:32px;min-width:32px;line-height:1;text-align:center;align-self:center;justify-self:center}
+        .studio-rail>nav a>.quick-action-label{display:flex!important;align-items:center;min-width:0;height:34px;line-height:1.02;font-weight:900;overflow:hidden}
       `}</style>
       <footer className="studio-bottom-status"><span><i></i> Live sync active</span><span>{pendingRequests} approvals waiting</span><span>{unread} unread alerts</span><Link href="/admin/finance">Payments queue</Link></footer>
       <nav className="mobile-shell-bottom" aria-label="Admin subpage navigation">
