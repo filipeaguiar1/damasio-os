@@ -28,6 +28,7 @@ on:
       - "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql"
       - "supabase/migrations/202608031030_canonical_route_one_way_projection.sql"
       - "supabase/migrations/202608031100_lock_active_canonical_route_order.sql"
+      - "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql"
       - "tests/operational-simulator.spec.ts"
       - "tests/canonical-route-sync.spec.ts"
       - "public/demo/simulation-lawn-after.svg"
@@ -86,6 +87,7 @@ jobs:
               "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql",
               "supabase/migrations/202608031030_canonical_route_one_way_projection.sql",
               "supabase/migrations/202608031100_lock_active_canonical_route_order.sql",
+              "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql",
           ]
           verification = r"""
           do $canonical_contract$
@@ -129,6 +131,27 @@ jobs:
                or position('delete from public.route_stops' in lower(sync_definition)) > 0
                or position('insert into public.route_stops' in lower(sync_definition)) > 0 then
               raise exception 'Canonical projection is not one-way from route_stops to visits.';
+            end if;
+
+            if exists (
+              select 1
+              from public.route_order_state state
+              join lateral (
+                select audit.next_order
+                from public.route_order_audit audit
+                where audit.route_id = state.route_id
+                  and audit.route_version = state.version
+                  and cardinality(audit.next_order) > 0
+                order by audit.created_at desc, audit.id desc
+                limit 1
+              ) latest on true
+              where latest.next_order is distinct from coalesce((
+                select array_agg(stop.visit_id order by stop.position)
+                from public.route_stops stop
+                where stop.route_id = state.route_id
+              ), '{}'::uuid[])
+            ) then
+              raise exception 'A canonical Route still differs from its latest committed audit.';
             end if;
           end
           $canonical_contract$;
