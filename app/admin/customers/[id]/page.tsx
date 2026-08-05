@@ -66,7 +66,10 @@ export default function CustomerProfilePage({ params }: { params: { id: string }
     const next = result as AdminRecord;
     setRecord(next);
 
-    const board = await loadSchedulingDispatchBoard({ force: true });
+    const [board, nextPhotoHistory] = await Promise.all([
+      loadSchedulingDispatchBoard(),
+      getPropertyPhotoHistory(next.property.id).catch(() => null),
+    ]);
     const jobs = [...board.unscheduledJobs, ...board.assignedJobs];
     const job = jobs.find((item) => item.propertyId === next.property.id);
     const visits = board.visits.filter((item) => item.propertyId === next.property.id).sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate));
@@ -104,7 +107,7 @@ export default function CustomerProfilePage({ params }: { params: { id: string }
         adminNotes: plan.notes || undefined,
       },
     });
-    await getPropertyPhotoHistory(next.property.id).then(setPhotoHistory).catch(() => setPhotoHistory(null));
+    setPhotoHistory(nextPhotoHistory);
     setMessage("");
   }
 
