@@ -6,11 +6,12 @@
     "dev": "next dev",
     "test:route-writers": "node scripts/validate-canonical-route-writers.mjs",
     "test:map-sync": "node scripts/validate-canonical-map-sync.mjs",
-    "build": "pnpm test:route-writers && pnpm test:map-sync && pnpm typecheck && next build",
+    "build": "pnpm test:route-writers && pnpm test:map-sync && pnpm test:smart-route-capacity && pnpm typecheck && next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm test:route-writers && pnpm test:map-sync && pnpm typecheck",
-    "qa": "pnpm build"
+    "check": "pnpm test:route-writers && pnpm test:map-sync && pnpm test:smart-route-capacity && pnpm typecheck",
+    "qa": "pnpm build",
+    "test:smart-route-capacity": "node scripts/validate-smart-route-capacity.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.110.0",

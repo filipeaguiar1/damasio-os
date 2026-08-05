@@ -138,7 +138,7 @@ export default function EmployeesPage() {
   }
 
   async function save() {
-    const capacity = Math.max(1, Math.min(60, Math.trunc(Number(form.dailyRouteCapacity || 0))));
+    const capacity = Math.max(1, Math.trunc(Number(form.dailyRouteCapacity || 0)));
     setBusy(true);
     try {
       const payload = {
@@ -199,7 +199,7 @@ export default function EmployeesPage() {
       <label>Province<input value={form.province} onChange={event => setForm({ ...form, province: event.target.value })} /></label>
       <label>Postal code<input value={form.postalCode} onChange={event => setForm({ ...form, postalCode: event.target.value })} /></label>
       <label>Default route start address<AddressAutocomplete value={form.routeStartAddress} onChange={value => setForm({ ...form, routeStartAddress: value })} placeholder="Where this employee normally starts routes" /></label>
-      <label>Maximum houses per day<input type="number" min="1" max="60" step="1" value={form.dailyRouteCapacity} onChange={event => setForm({ ...form, dailyRouteCapacity: Number(event.target.value) })} /><small>Company Admin control. Used everywhere routes are suggested or published.</small></label>
+      <label>Maximum houses per day<input type="number" min="1" step="1" value={form.dailyRouteCapacity} onChange={event => setForm({ ...form, dailyRouteCapacity: Number(event.target.value) })} /><small>Company Admin control. Used everywhere routes are suggested or published.</small></label>
       {!creating && <label>Status<select value={form.active ? "active" : "inactive"} onChange={event => setForm({ ...form, active: event.target.value === "active" })}><option value="active">Active</option><option value="inactive">Inactive</option></select></label>}
       <button disabled={busy} onClick={() => void save()}>{busy ? "Saving…" : creating ? "Send invitation" : "Save profile"}</button>
       {!creating && selected && <button className="btn btn-danger" disabled={busy} onClick={() => void remove(selected)}>Delete employee</button>}

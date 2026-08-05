@@ -14,7 +14,7 @@ const employeeSchema = z.object({
   postalCode: z.string().trim().max(20).nullable().optional(),
   routeStartAddress: z.string().trim().max(400).nullable().optional(),
   avatarUrl: z.string().trim().url().nullable().optional(),
-  dailyRouteCapacity: z.number().int().min(1).max(60).default(16),
+  dailyRouteCapacity: z.number().int().min(1).default(16),
   active: z.boolean().optional(),
 });
 
