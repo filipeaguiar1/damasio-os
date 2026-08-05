@@ -60,12 +60,11 @@ jobs:
         with:
           ref: feature/25-30-homes-simulator-v1
 
-      - name: Apply database contracts when authorized
+      - name: Apply and verify canonical database contracts
         run: |
           python - <<'PY'
           import json
           import os
-          import sys
           import urllib.error
           import urllib.parse
           import urllib.request
@@ -73,8 +72,7 @@ jobs:
 
           token = os.environ.get("SUPABASE_ACCESS_TOKEN") or os.environ.get("SUPABASE_MANAGEMENT_ACCESS_TOKEN")
           if not token:
-              print("Supabase management token is not configured; using the database's current migration state.")
-              sys.exit(0)
+              raise SystemExit("A Supabase management token is required to install and verify canonical Route contracts.")
 
           project_url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
           hostname = urllib.parse.urlparse(project_url).hostname or ""
@@ -89,7 +87,53 @@ jobs:
               "supabase/migrations/202608031030_canonical_route_one_way_projection.sql",
               "supabase/migrations/202608031100_lock_active_canonical_route_order.sql",
           ]
-          query = "\n\n".join(Path(path).read_text() for path in migrations)
+          verification = r"""
+          do $canonical_contract$
+          declare
+            sync_definition text;
+          begin
+            if exists (
+              select 1
+              from pg_trigger
+              where not tgisinternal
+                and tgname in (
+                  'route_stops_sync_visit_order_insert',
+                  'route_stops_sync_visit_order_update',
+                  'route_stops_sync_visit_order_delete'
+                )
+            ) then
+              raise exception 'Recursive route_stops synchronization triggers are still installed.';
+            end if;
+
+            if not exists (
+              select 1
+              from pg_trigger
+              where not tgisinternal
+                and tgname = 'guard_active_canonical_route_order_trigger'
+                and tgrelid = 'public.route_stops'::regclass
+            ) then
+              raise exception 'Canonical route overwrite guard is not installed.';
+            end if;
+
+            select pg_get_functiondef(proc.oid)
+            into sync_definition
+            from pg_proc proc
+            join pg_namespace namespace on namespace.oid = proc.pronamespace
+            where namespace.nspname = 'public'
+              and proc.proname = 'sync_canonical_route_stops_v2'
+            limit 1;
+
+            if sync_definition is null
+               or position('update public.visits' in lower(sync_definition)) = 0
+               or position('replace_canonical_route_order_v2' in lower(sync_definition)) > 0
+               or position('delete from public.route_stops' in lower(sync_definition)) > 0
+               or position('insert into public.route_stops' in lower(sync_definition)) > 0 then
+              raise exception 'Canonical projection is not one-way from route_stops to visits.';
+            end if;
+          end
+          $canonical_contract$;
+          """
+          query = "\n\n".join([*(Path(path).read_text() for path in migrations), verification])
           request = urllib.request.Request(
               f"https://api.supabase.com/v1/projects/{project_ref}/database/query",
               data=json.dumps({"query": query, "read_only": False}).encode(),
@@ -101,10 +145,11 @@ jobs:
           )
           try:
               with urllib.request.urlopen(request, timeout=240) as response:
-                  print(f"Database contracts applied: HTTP {response.status}")
+                  response.read()
+                  print(f"Canonical database contracts installed and verified: HTTP {response.status}")
           except urllib.error.HTTPError as error:
               detail = error.read().decode(errors="replace")
-              raise SystemExit(f"Supabase migration failed: HTTP {error.code}: {detail[:2000]}")
+              raise SystemExit(f"Supabase migration failed: HTTP {error.code}: {detail[:3000]}")
           PY
 
       - uses: pnpm/action-setup@v4
