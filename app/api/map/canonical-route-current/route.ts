@@ -28,28 +28,45 @@ export async function GET(request: NextRequest) {
     if (!routeId) throw new Error("Canonical snapshot returned no routeId.");
 
     const service = serviceClient();
-    const [statesResult, smartResult] = await Promise.all([
+    const [statesResult, smartResult, stopsResult, auditsResult] = await Promise.all([
       service
         .from("route_order_state")
-        .select("version,updated_at")
+        .select("version,last_source,last_actor_profile_id,updated_at")
         .eq("route_id", routeId)
         .order("version", { ascending: false })
         .order("updated_at", { ascending: false })
-        .limit(1),
+        .limit(10),
       service
         .from("employee_smart_route_state")
-        .select("active,route_version,origin_label,origin_latitude,origin_longitude,updated_at")
+        .select("active,route_version,origin_label,origin_latitude,origin_longitude,original_order,applied_order,applied_at,updated_at")
         .eq("route_id", routeId)
         .order("route_version", { ascending: false })
         .order("updated_at", { ascending: false })
-        .limit(1),
+        .limit(10),
+      service
+        .from("route_stops")
+        .select("visit_id,position,updated_at")
+        .eq("route_id", routeId)
+        .order("position", { ascending: true }),
+      service
+        .from("route_order_audit")
+        .select("source,previous_order,next_order,route_version,created_at")
+        .eq("route_id", routeId)
+        .order("created_at", { ascending: false })
+        .limit(5),
     ]);
 
     if (statesResult.error) throw new Error(statesResult.error.message);
     if (smartResult.error) throw new Error(smartResult.error.message);
+    if (stopsResult.error) throw new Error(stopsResult.error.message);
+    if (auditsResult.error) {
+      console.warn("canonical-route-current-audit", auditsResult.error.message);
+    }
 
-    const state = statesResult.data?.[0] || null;
-    const smart = smartResult.data?.[0] || null;
+    const stateRows = statesResult.data || [];
+    const smartRows = smartResult.data || [];
+    const state = stateRows[0] || null;
+    const smart = smartRows[0] || null;
     const stateVersion = numeric(state?.version) || 0;
     const smartVersion = numeric(smart?.route_version) || 0;
     const snapshotVersion = numeric(snapshot.routeVersion) || 0;
@@ -84,6 +101,43 @@ export async function GET(request: NextRequest) {
       origin,
       updatedAt,
     };
+
+    console.info("canonical-route-current-persistence", {
+      routeId,
+      stateRowCount: stateRows.length,
+      stateRows: stateRows.map((row: any) => ({
+        version: Number(row.version || 0),
+        lastSource: row.last_source || null,
+        lastActorProfileId: row.last_actor_profile_id || null,
+        updatedAt: row.updated_at || null,
+      })),
+      smartRowCount: smartRows.length,
+      smartRows: smartRows.map((row: any) => ({
+        active: Boolean(row.active),
+        routeVersion: Number(row.route_version || 0),
+        appliedAt: row.applied_at || null,
+        updatedAt: row.updated_at || null,
+        origin: {
+          label: row.origin_label || "",
+          latitude: numeric(row.origin_latitude),
+          longitude: numeric(row.origin_longitude),
+        },
+        originalOrder: Array.isArray(row.original_order) ? row.original_order.map(String) : [],
+        appliedOrder: Array.isArray(row.applied_order) ? row.applied_order.map(String) : [],
+      })),
+      routeStops: (stopsResult.data || []).map((row: any) => ({
+        visitId: String(row.visit_id),
+        position: Number(row.position),
+        updatedAt: row.updated_at || null,
+      })),
+      audits: (auditsResult.data || []).map((row: any) => ({
+        source: row.source || null,
+        routeVersion: Number(row.route_version || 0),
+        createdAt: row.created_at || null,
+        previousOrder: Array.isArray(row.previous_order) ? row.previous_order.map(String) : [],
+        nextOrder: Array.isArray(row.next_order) ? row.next_order.map(String) : [],
+      })),
+    });
 
     console.info("canonical-route-current-ok", {
       routeId,
