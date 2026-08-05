@@ -83,9 +83,37 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
       </aside>
       <main className="studio-main">{children}</main>
       <style jsx global>{`
-        .studio-rail>nav a{display:grid!important;grid-template-columns:32px minmax(0,1fr);align-items:center;height:44px;min-height:44px;gap:10px;padding:5px 10px!important;overflow:hidden}
-        .studio-rail>nav a>.quick-action-icon{display:grid!important;place-items:center;width:32px;height:32px;min-width:32px;line-height:1;text-align:center;align-self:center;justify-self:center}
-        .studio-rail>nav a>.quick-action-label{display:flex!important;align-items:center;min-width:0;height:34px;line-height:1.02;font-weight:900;overflow:hidden}
+        .studio-rail > nav a {
+          display: grid !important;
+          grid-template-columns: 32px minmax(0, 1fr);
+          align-items: center;
+          gap: 10px;
+          min-height: 44px;
+          height: auto;
+          padding: 7px 10px !important;
+          overflow: visible;
+        }
+        .studio-rail > nav a > .quick-action-icon {
+          display: grid !important;
+          place-items: center;
+          width: 32px;
+          height: 32px;
+          min-width: 32px;
+          line-height: 1;
+          text-align: center;
+          align-self: center;
+          justify-self: center;
+        }
+        .studio-rail > nav a > .quick-action-label {
+          display: block !important;
+          min-width: 0;
+          line-height: 1.08;
+          font-weight: 900;
+          white-space: normal;
+          word-break: keep-all;
+          overflow-wrap: normal;
+          hyphens: none;
+        }
       `}</style>
       <footer className="studio-bottom-status"><span><i></i> Live sync active</span><span>{pendingRequests} approvals waiting</span><span>{unread} unread alerts</span><Link href="/admin/finance">Payments queue</Link></footer>
       <nav className="mobile-shell-bottom" aria-label="Admin subpage navigation">
