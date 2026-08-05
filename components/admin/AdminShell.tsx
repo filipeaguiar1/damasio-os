@@ -85,34 +85,38 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
       <style jsx global>{`
         .studio-rail > nav a {
           display: grid !important;
-          grid-template-columns: 32px minmax(0, 1fr);
+          grid-template-columns: 34px minmax(0, 1fr);
           align-items: center;
           gap: 10px;
-          min-height: 44px;
+          min-height: 52px;
           height: auto;
-          padding: 7px 10px !important;
+          padding: 8px 10px !important;
           overflow: visible;
         }
         .studio-rail > nav a > .quick-action-icon {
           display: grid !important;
           place-items: center;
-          width: 32px;
-          height: 32px;
-          min-width: 32px;
+          width: 34px;
+          height: 34px;
+          min-width: 34px;
           line-height: 1;
           text-align: center;
           align-self: center;
           justify-self: center;
+          font-size: 13px;
         }
         .studio-rail > nav a > .quick-action-label {
           display: block !important;
           min-width: 0;
-          line-height: 1.08;
+          font-size: 13px !important;
+          line-height: 1.08 !important;
           font-weight: 900;
-          white-space: normal;
-          word-break: keep-all;
-          overflow-wrap: normal;
-          hyphens: none;
+          letter-spacing: 0;
+          white-space: normal !important;
+          word-break: normal !important;
+          overflow-wrap: normal !important;
+          hyphens: none !important;
+          overflow: visible !important;
         }
       `}</style>
       <footer className="studio-bottom-status"><span><i></i> Live sync active</span><span>{pendingRequests} approvals waiting</span><span>{unread} unread alerts</span><Link href="/admin/finance">Payments queue</Link></footer>
