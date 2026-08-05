@@ -263,18 +263,24 @@ export function RouteAdvisorPanel() {
   }, [liveRouteError]);
 
   const normalizedQuery = query.trim().toLowerCase();
-  const visibleJobs = useMemo(() => jobs
+  const employeeJobs = useMemo(() => {
+    if (!employee) return [];
+    return jobs.filter(item =>
+      Boolean(item.canonicalCrewId)
+      && item.canonicalCrewId === employee.crewId);
+  }, [jobs, employee?.crewId]);
+  const visibleJobs = useMemo(() => employeeJobs
     .filter(item =>
       !normalizedQuery
       || `${item.name} ${item.address} ${item.service}`.toLowerCase().includes(normalizedQuery))
     .sort((left, right) =>
       (left.nextVisitDate || "9999").localeCompare(right.nextVisitDate || "9999")
       || left.address.localeCompare(right.address)),
-  [jobs, normalizedQuery]);
+  [employeeJobs, normalizedQuery]);
 
   const selectedHomes = useMemo(
-    () => jobs.filter(item => selected.has(canonicalJobId(item))),
-    [jobs, selected],
+    () => employeeJobs.filter(item => selected.has(canonicalJobId(item))),
+    [employeeJobs, selected],
   );
 
   const resetPreview = useCallback(() => {
@@ -339,8 +345,27 @@ export function RouteAdvisorPanel() {
 
   function changeEmployee(next: string) {
     setEmployeeId(next);
+    setSelectedJobIds([]);
     setRecommendations([]);
     resetPreview();
+  }
+
+  function selectAllVisible() {
+    const selectable = visibleJobs
+      .filter(home => {
+        const id = canonicalJobId(home);
+        const status = routeStatus(occurrencesOnDate.get(id));
+        return !["completed", "in_progress", "missed"].includes(status)
+          && !(status === "scheduled"
+            && currentRoute.some(item => canonicalJobId(item) === id));
+      })
+      .map(canonicalJobId);
+    setSelectedJobIds(selectable);
+    setRecommendations([]);
+    resetPreview();
+    setMessage(selectable.length
+      ? `${selectable.length} ${employee?.name || "Employee"} contracts selected.`
+      : "No selectable contracts are available for this Employee and date.");
   }
 
   function changeDate(next: string) {
@@ -796,17 +821,22 @@ export function RouteAdvisorPanel() {
         <header>
           <div>
             <strong>Houses to place</strong>
-            <small>{selectedJobIds.length} selected · route {currentRoute.length}/{employee?.dailyCapacity || 0}</small>
+            <small>{employeeJobs.length} contracts · {selectedJobIds.length} selected · route {currentRoute.length}/{employee?.dailyCapacity || 0}</small>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedJobIds([]);
-              resetPreview();
-            }}
-          >
-            Clear
-          </button>
+          <div className="advisor-picker-actions">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedJobIds([]);
+                resetPreview();
+              }}
+            >
+              Clear
+            </button>
+            <button type="button" onClick={selectAllVisible}>
+              Select all
+            </button>
+          </div>
         </header>
         <div className="advisor-house-list">
           {visibleJobs.map((home, index) => {
@@ -980,7 +1010,7 @@ export function RouteAdvisorPanel() {
       .advisor-shell{display:grid;gap:18px}.advisor-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding:26px;border-radius:24px;background:linear-gradient(135deg,#082f23,#0d6b47);color:#fff}.advisor-hero span,.advisor-manual-order header span,.advisor-reopen>div>span{color:#9ce3b9;font-size:10px;font-weight:950;letter-spacing:.13em}.advisor-hero h2{margin:7px 0 6px;font-size:34px;letter-spacing:-.04em}.advisor-hero p{max-width:760px;margin:0;color:rgba(255,255,255,.7)}.advisor-guard{min-width:230px;padding:14px 16px;border:1px solid rgba(255,255,255,.18);border-radius:16px;background:rgba(255,255,255,.09)}.advisor-guard strong,.advisor-guard small{display:block}.advisor-guard small{margin-top:4px;color:rgba(255,255,255,.65)}
       .advisor-controls{display:grid;grid-template-columns:1fr 245px 1fr auto;gap:12px;align-items:end;padding:16px;border:1px solid #dbe7e1;border-radius:20px;background:#fff}.advisor-controls label,.advisor-reopen label{display:grid;gap:6px}.advisor-controls label>span,.advisor-reopen label>span{color:#607168;font-size:10px;font-weight:900;text-transform:uppercase}.advisor-controls input,.advisor-controls select,.advisor-reopen input,.advisor-reopen textarea{width:100%;min-height:48px;border:1px solid #cbdad2;border-radius:12px;padding:0 13px;background:#fff;color:#173a2c}.advisor-reopen textarea{min-height:88px;padding:12px;resize:vertical}
       .advisor-reopen{display:grid;grid-template-columns:minmax(260px,1.2fr) minmax(250px,1fr) 180px auto;gap:14px;align-items:end;padding:18px;border:2px solid #dc2626;border-radius:20px;background:#fff7f7}.advisor-reopen h3{margin:5px 0}.advisor-reopen p{margin:0;color:#6b7280}.advisor-reopen>div:last-child{display:flex;gap:8px}
-      .advisor-layout{display:grid;grid-template-columns:minmax(330px,.72fr) minmax(0,1.45fr);gap:16px;align-items:start}.advisor-house-picker,.advisor-main>section,.advisor-recommendations{border:1px solid #dbe7e1;border-radius:22px;background:#fff;box-shadow:0 12px 30px rgba(19,52,39,.05)}.advisor-house-picker{overflow:hidden;position:sticky;top:16px}.advisor-house-picker>header,.advisor-recommendations>header,.advisor-removed>header{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:16px;border-bottom:1px solid #e7eeea}.advisor-house-picker header strong,.advisor-house-picker header small{display:block}.advisor-house-picker header small{margin-top:3px;color:#64748b}.advisor-house-picker header button{border:0;background:transparent;color:#0b7655;font-weight:900;cursor:pointer}.advisor-house-list{max-height:610px;overflow:auto;padding:10px}.advisor-house-list>button{display:grid;grid-template-columns:34px minmax(0,1fr) minmax(95px,auto);gap:10px;align-items:center;width:100%;padding:12px;border:1px solid transparent;border-radius:14px;background:transparent;text-align:left;cursor:pointer}.advisor-house-list>button:hover{background:#f6faf8}.advisor-house-list>button.selected{border-color:#0b7655;background:#edf8f2}.advisor-house-list>button.blocked{opacity:.72}.advisor-house-list b{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:#eaf2ee;color:#0b684c}.advisor-house-list span strong,.advisor-house-list span small{display:block}.advisor-house-list span strong{font-size:12px}.advisor-house-list span small{margin-top:4px;color:#64748b;font-size:10px}.advisor-house-list em{font-style:normal;text-align:right;font-size:9px;font-weight:900;color:#0b7655}.advisor-recommend{width:calc(100% - 20px);margin:0 10px 10px;min-height:48px}
+      .advisor-layout{display:grid;grid-template-columns:minmax(330px,.72fr) minmax(0,1.45fr);gap:16px;align-items:start}.advisor-house-picker,.advisor-main>section,.advisor-recommendations{border:1px solid #dbe7e1;border-radius:22px;background:#fff;box-shadow:0 12px 30px rgba(19,52,39,.05)}.advisor-house-picker{overflow:hidden;position:sticky;top:16px}.advisor-house-picker>header,.advisor-recommendations>header,.advisor-removed>header{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:16px;border-bottom:1px solid #e7eeea}.advisor-house-picker header strong,.advisor-house-picker header small{display:block}.advisor-house-picker header small{margin-top:3px;color:#64748b}.advisor-house-picker header button{border:0;background:transparent;color:#0b7655;font-weight:900;cursor:pointer}.advisor-picker-actions{display:grid;gap:4px;text-align:right}.advisor-house-list{max-height:610px;overflow:auto;padding:10px}.advisor-house-list>button{display:grid;grid-template-columns:34px minmax(0,1fr) minmax(95px,auto);gap:10px;align-items:center;width:100%;padding:12px;border:1px solid transparent;border-radius:14px;background:transparent;text-align:left;cursor:pointer}.advisor-house-list>button:hover{background:#f6faf8}.advisor-house-list>button.selected{border-color:#0b7655;background:#edf8f2}.advisor-house-list>button.blocked{opacity:.72}.advisor-house-list b{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:#eaf2ee;color:#0b684c}.advisor-house-list span strong,.advisor-house-list span small{display:block}.advisor-house-list span strong{font-size:12px}.advisor-house-list span small{margin-top:4px;color:#64748b;font-size:10px}.advisor-house-list em{font-style:normal;text-align:right;font-size:9px;font-weight:900;color:#0b7655}.advisor-recommend{width:calc(100% - 20px);margin:0 10px 10px;min-height:48px}
       .advisor-main{display:grid;gap:14px}.advisor-recommendations{overflow:hidden}.advisor-recommendations>header span{color:#64748b;font-size:12px}.advisor-recommendations>div{display:grid;gap:8px;padding:10px}.advisor-recommendations button{display:grid;grid-template-columns:34px minmax(0,1fr) 54px;gap:10px;align-items:center;padding:13px;border:1px solid #e1eae5;border-radius:14px;background:#fff;text-align:left;cursor:pointer}.advisor-recommendations button:hover{border-color:#0b7655;background:#f4faf7}.advisor-recommendations button>b{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:#0b7655;color:#fff}.advisor-recommendations button span strong,.advisor-recommendations button span small,.advisor-recommendations button span em{display:block}.advisor-recommendations button span small{margin-top:3px;color:#64748b}.advisor-recommendations button span em{margin-top:4px;color:#4f665a;font-size:10px;font-style:normal}.advisor-recommendations button>i{font-style:normal;font-weight:950;color:#0b7655}
       .advisor-empty-preview{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:28px}.advisor-empty-preview span{color:#0b7655;font-size:10px;font-weight:950;letter-spacing:.1em}.advisor-empty-preview h3{margin:6px 0;font-size:27px}.advisor-empty-preview p{margin:0;color:#64748b}.advisor-impact{display:grid!important;grid-template-columns:repeat(4,1fr);gap:1px;overflow:hidden;padding:0!important}.advisor-impact div{padding:14px 16px;background:#fff}.advisor-impact span,.advisor-impact strong{display:block}.advisor-impact span{color:#64748b;font-size:9px;font-weight:900;text-transform:uppercase}.advisor-impact strong{margin-top:4px;color:#173a2c}
       .advisor-manual-order{overflow:hidden}.advisor-manual-order>header{display:flex;justify-content:space-between;gap:18px;align-items:end;padding:16px;border-bottom:1px solid #e7eeea}.advisor-manual-order header span{color:#0b7655}.advisor-manual-order h3{margin:4px 0 0}.advisor-manual-order header small{max-width:390px;color:#64748b;text-align:right}.advisor-manual-order>div{display:grid}.advisor-manual-order article{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 14px;border-bottom:1px solid #edf2ef}.advisor-manual-order article:last-child{border-bottom:0}.advisor-manual-order article>b{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:#e9f1ed;color:#0b684c}.advisor-manual-order article>span strong,.advisor-manual-order article>span small{display:block}.advisor-manual-order article>span small{margin-top:3px;color:#64748b;font-size:10px}.advisor-manual-order article>div{display:flex;align-items:end;gap:6px}.advisor-manual-order article button{min-height:36px;border:1px solid #cbdad2;border-radius:9px;background:#fff;padding:0 10px;color:#173a2c;font-weight:900;cursor:pointer}.advisor-manual-order article button:disabled{cursor:not-allowed;opacity:.45}.advisor-manual-order article label{display:grid;gap:2px}.advisor-manual-order article label span{color:#64748b;font-size:8px;font-weight:900;text-transform:uppercase}.advisor-manual-order article input{width:70px;height:36px;border:1px solid #cbdad2;border-radius:9px;padding:0 7px}

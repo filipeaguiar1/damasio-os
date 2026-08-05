@@ -5,6 +5,13 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
+type EmployeeContract = {
+  id: string;
+  customerName: string;
+  address: string;
+  serviceName: string;
+};
+
 type Employee = {
   id: string;
   full_name: string;
@@ -19,6 +26,8 @@ type Employee = {
   route_start_address?: string | null;
   daily_route_capacity?: number | null;
   invite_status?: string | null;
+  crew_id?: string | null;
+  contracts?: EmployeeContract[];
 };
 
 type Form = {
@@ -86,12 +95,45 @@ export default function EmployeesPage() {
   const [form, setForm] = useState<Form>(blank);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   async function refresh() {
     setBusy(true);
     try {
       const result = await api();
-      setEmployees(result.users || []);
+      const client = getSupabaseBrowserClient() as any;
+      const { data } = await client.auth.getSession();
+      const token = data.session?.access_token;
+      const routeResponse = await fetch("/api/admin/routes", {
+        headers: { authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const routeResult = await routeResponse.json().catch(() => ({ employees: [], board: {} }));
+      if (!routeResponse.ok) throw new Error(routeResult.error || "Employee contracts could not be loaded.");
+
+      const routeEmployees = new Map(
+        (routeResult.employees || []).map((item: any) => [String(item.id), item]),
+      );
+      const assignedJobs = routeResult.board?.assignedJobs || [];
+      const nextEmployees = (result.users || []).map((employee: Employee) => {
+        const routeEmployee: any = routeEmployees.get(employee.id);
+        const crewId = String(routeEmployee?.crewId || "");
+        return {
+          ...employee,
+          crew_id: crewId || null,
+          contracts: assignedJobs
+            .filter((job: any) => crewId && String(job.crewId || "") === crewId)
+            .map((job: any) => ({
+              id: String(job.id),
+              customerName: String(job.customerName || "Customer"),
+              address: String(job.address || "Address missing"),
+              serviceName: String(job.serviceName || "Property Service"),
+            }))
+            .sort((left: EmployeeContract, right: EmployeeContract) =>
+              left.address.localeCompare(right.address)),
+        };
+      });
+      setEmployees(nextEmployees);
       setMessage("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Employees could not be loaded.");
@@ -187,7 +229,14 @@ export default function EmployeesPage() {
     <section className="business-metrics"><div className="business-metric"><span>Active</span><strong>{counts.active}</strong><small>field access enabled</small></div><div className="business-metric"><span>Daily capacity</span><strong>{counts.capacity}</strong><small>houses across active Employees</small></div><div className="business-metric"><span>Pending invites</span><strong>{counts.pending}</strong><small>email invitation sent</small></div></section>
     {message && <div className="payment-message" style={{ marginTop: 18 }}>{message}</div>}
 
-    <section className="card table-card" style={{ marginTop: 20 }}><div className="table-head"><div><h2>Employee profiles</h2><p className="section-intro">Route Advisor, Build, Move and Route Status read the capacity saved here.</p></div></div><div className="table-wrap"><table><thead><tr><th>Employee</th><th>Contact</th><th>Route start</th><th>Capacity</th><th>Status</th><th>Action</th></tr></thead><tbody>{!employees.length ? <tr><td colSpan={6}>{busy ? "Loading employees…" : "No employees yet. Use Add Employee."}</td></tr> : employees.map(employee => <tr key={employee.id}><td><div className="employee-admin-person"><div>{employee.avatar_url ? <img src={employee.avatar_url} alt={employee.full_name} /> : <span>{employee.full_name.slice(0, 1)}</span>}</div><strong>{employee.full_name}</strong></div></td><td>{employee.email}<br /><small>{employee.phone || "No phone"}</small></td><td>{employee.route_start_address || employee.address_line1 || "Not set"}</td><td><strong>{Math.max(1, Number(employee.daily_route_capacity || 16))}</strong> houses/day</td><td>{employee.active ? "Active" : "Inactive"}<br /><small>{employee.invite_status || "pending"}</small></td><td><button className="btn btn-outline" onClick={() => open(employee)}>Edit profile</button></td></tr>)}</tbody></table></div></section>
+    <section className="card table-card" style={{ marginTop: 20 }}><div className="table-head"><div><h2>Employee profiles</h2><p className="section-intro">Route Advisor, Build, Move and Route Status read the capacity and canonical contracts shown here.</p></div></div><div className="table-wrap"><table><thead><tr><th>Employee</th><th>Contact</th><th>Route start</th><th>Contracts</th><th>Capacity</th><th>Status</th><th>Action</th></tr></thead><tbody>{!employees.length ? <tr><td colSpan={7}>{busy ? "Loading employees…" : "No employees yet. Use Add Employee."}</td></tr> : employees.flatMap(employee => {
+      const expanded = expandedId === employee.id;
+      const contracts = employee.contracts || [];
+      return [
+        <tr key={employee.id}><td><div className="employee-admin-person"><div>{employee.avatar_url ? <img src={employee.avatar_url} alt={employee.full_name} /> : <span>{employee.full_name.slice(0, 1)}</span>}</div><strong>{employee.full_name}</strong></div></td><td>{employee.email}<br /><small>{employee.phone || "No phone"}</small></td><td>{employee.route_start_address || employee.address_line1 || "Not set"}</td><td><button className="employee-contract-toggle" type="button" onClick={() => setExpandedId(expanded ? null : employee.id)} aria-expanded={expanded}><span>{expanded ? "▾" : "▸"}</span><strong>{contracts.length}</strong> houses</button></td><td><strong>{Math.max(1, Number(employee.daily_route_capacity || 16))}</strong> houses/day</td><td>{employee.active ? "Active" : "Inactive"}<br /><small>{employee.invite_status || "pending"}</small></td><td><button className="btn btn-outline" onClick={() => open(employee)}>Edit profile</button></td></tr>,
+        expanded ? <tr key={`${employee.id}-contracts`} className="employee-contract-row"><td colSpan={7}><div className="employee-contract-list">{contracts.length ? contracts.map(contract => <article key={contract.id}><strong>{contract.customerName}</strong><span>{contract.address}</span><small>{contract.serviceName}</small></article>) : <p>No canonical contracts assigned to this Employee.</p>}</div></td></tr> : null,
+      ];
+    })}</tbody></table></div></section>
 
     {modalOpen && <div className="master-modal-backdrop" onMouseDown={close}><section className="master-modal" role="dialog" aria-modal="true" onMouseDown={event => event.stopPropagation()}><header><h3>{creating ? "Add Employee" : selected?.full_name}</h3><button onClick={close}>×</button></header><div className="master-form">
       <div className="employee-admin-photo"><div>{form.avatarUrl ? <img src={form.avatarUrl} alt="Employee" /> : <span>{form.fullName.slice(0, 1) || "+"}</span>}</div><label>Profile photo<input type="file" accept="image/*" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadPhoto(file).catch(error => setMessage(error.message)); }} /></label></div>
@@ -206,7 +255,7 @@ export default function EmployeesPage() {
     </div></section></div>}
 
     <style jsx global>{`
-      .employee-admin-person,.employee-admin-photo{display:flex;align-items:center;gap:12px}.employee-admin-person>div{width:40px;height:40px}.employee-admin-photo>div{width:72px;height:72px;font-size:28px}.employee-admin-person>div,.employee-admin-photo>div{overflow:hidden;border-radius:50%;background:#e9f4ef;display:grid;place-items:center;color:#0b684c}.employee-admin-person img,.employee-admin-photo img{width:100%;height:100%;object-fit:cover}.master-form label small{display:block;margin-top:5px;color:#6b7c72;font-size:11px}
+      .employee-admin-person,.employee-admin-photo{display:flex;align-items:center;gap:12px}.employee-admin-person>div{width:40px;height:40px}.employee-admin-photo>div{width:72px;height:72px;font-size:28px}.employee-admin-person>div,.employee-admin-photo>div{overflow:hidden;border-radius:50%;background:#e9f4ef;display:grid;place-items:center;color:#0b684c}.employee-admin-person img,.employee-admin-photo img{width:100%;height:100%;object-fit:cover}.master-form label small{display:block;margin-top:5px;color:#6b7c72;font-size:11px}.employee-contract-toggle{display:inline-flex;align-items:center;gap:7px;border:0;background:transparent;color:#0b684c;font:inherit;cursor:pointer}.employee-contract-toggle span{font-size:16px}.employee-contract-row td{padding:0!important;background:#f7faf8}.employee-contract-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px;padding:12px 18px 18px}.employee-contract-list article{display:grid;gap:3px;padding:11px 13px;border:1px solid #dce9e2;border-radius:12px;background:#fff}.employee-contract-list article span,.employee-contract-list article small{color:#63766c}.employee-contract-list p{margin:0;color:#63766c}
     `}</style>
   </AdminShell>;
 }

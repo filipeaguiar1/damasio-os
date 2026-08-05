@@ -27,3 +27,10 @@ This checkpoint records that Smart Route was apparently functioning correctly
 on the tested mobile Admin and Employee flows on this date. It is a regression
 reference, not a claim that every scale and concurrency scenario has already
 been certified.
+
+## Employee contract routing follow-up
+
+- Route Advisor house choices are filtered by the selected Employee canonical crew.
+- Select all applies only to visible, selectable contracts for that Employee.
+- Employee web profiles expose the same assigned Jobs in a collapsible contract list.
+- Changing Employee clears stale selections so houses cannot leak between workers.
