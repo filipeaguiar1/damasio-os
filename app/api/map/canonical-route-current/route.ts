@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
       .sort()
       .at(-1) || new Date().toISOString();
 
-    const response = {
+    const response: Record<string, any> = {
       ...snapshot,
       routeVersion,
       origin,
