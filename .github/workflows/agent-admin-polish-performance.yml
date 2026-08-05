@@ -1,0 +1,165 @@
+name: Admin polish and performance
+on:
+  push:
+    branches:
+      - feature/25-30-homes-simulator-v1
+    paths:
+      - ".github/workflows/agent-admin-polish-performance.yml"
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Apply focused improvements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          shell_path = Path('components/admin/AdminShell.tsx')
+          shell = shell_path.read_text()
+          shell = shell.replace('  ["Dashboard", "/admin/command"],\n', '', 1)
+          shell = shell.replace(' || (label === "Operations Studio" && active === "Dashboard")', '')
+          old_style = re.search(r'<style jsx global>\{`.*?`\}</style>', shell, re.S)
+          if not old_style:
+              raise SystemExit('Quick Actions style block not found')
+          new_style = '''<style jsx global>{`
+        .studio-rail > nav a {
+          display: grid !important;
+          grid-template-columns: 32px minmax(0, 1fr);
+          align-items: center;
+          gap: 10px;
+          height: 44px;
+          min-height: 44px;
+          padding: 5px 10px !important;
+          overflow: hidden;
+        }
+        .studio-rail > nav a > .quick-action-icon {
+          display: grid !important;
+          place-items: center;
+          width: 32px;
+          height: 32px;
+          min-width: 32px;
+          line-height: 1;
+          align-self: center;
+          justify-self: center;
+        }
+        .studio-rail > nav a > .quick-action-label {
+          display: flex !important;
+          align-items: center;
+          min-width: 0;
+          height: 34px;
+          font-size: 12px !important;
+          line-height: 1.05 !important;
+          font-weight: 900;
+          white-space: normal !important;
+          word-break: normal !important;
+          overflow-wrap: normal !important;
+          hyphens: none !important;
+          overflow: visible !important;
+        }
+      `}</style>'''
+          shell = shell[:old_style.start()] + new_style + shell[old_style.end():]
+          shell_path.write_text(shell)
+
+          profile_path = Path('app/admin/customers/[id]/page.tsx')
+          profile = profile_path.read_text()
+          old = '''    const board = await loadSchedulingDispatchBoard({ force: true });
+    const jobs = [...board.unscheduledJobs, ...board.assignedJobs];'''
+          new = '''    const [board, nextPhotoHistory] = await Promise.all([
+      loadSchedulingDispatchBoard(),
+      getPropertyPhotoHistory(next.property.id).catch(() => null),
+    ]);
+    const jobs = [...board.unscheduledJobs, ...board.assignedJobs];'''
+          if old not in profile:
+              raise SystemExit('Profile board load anchor not found')
+          profile = profile.replace(old, new, 1)
+          old_photo = '''    await getPropertyPhotoHistory(next.property.id).then(setPhotoHistory).catch(() => setPhotoHistory(null));
+    setMessage("");'''
+          new_photo = '''    setPhotoHistory(nextPhotoHistory);
+    setMessage("");'''
+          if old_photo not in profile:
+              raise SystemExit('Photo history anchor not found')
+          profile = profile.replace(old_photo, new_photo, 1)
+          profile_path.write_text(profile)
+
+          customers_path = Path('app/admin/customers/page.tsx')
+          customers = customers_path.read_text()
+          customers = customers.replace('loadSchedulingDispatchBoard({force:true})', 'loadSchedulingDispatchBoard()', 1)
+          customers_path.write_text(customers)
+
+          css_path = Path('app/globals.css')
+          css = css_path.read_text()
+          marker = '/* V52.8 focused Admin polish and performance */'
+          if marker not in css:
+              css += '''
+
+/* V52.8 focused Admin polish and performance */
+.studio-main:has(.property-profile-card){background:linear-gradient(145deg,#eef7f1 0%,#e4f1e9 55%,#edf6f0 100%)}
+.property-profile-card{box-shadow:0 22px 58px rgba(8,70,43,.13)!important;border-color:#cfe2d6!important}
+.property-main-photo{background:#dfece4!important}
+
+/* Keep Quick Actions in their original compact proportions. */
+.studio-rail>nav{gap:7px!important}
+.studio-rail>nav a{border-radius:13px!important}
+
+/* Customers: improve hierarchy without changing the directory workflow. */
+.studio-main .app-top{padding:22px 24px;border:1px solid #dce9e1;border-radius:22px;background:linear-gradient(135deg,#ffffff,#f1f8f4);box-shadow:0 12px 32px rgba(8,68,42,.06)}
+.studio-main .app-top .toolbar-inline{align-items:center;gap:9px}
+.customer-directory-person{align-items:center!important}
+.customer-directory-person>div{box-shadow:0 5px 16px rgba(8,68,42,.10)}
+.table-card{border-color:#dce7e1!important;box-shadow:0 12px 34px rgba(7,55,35,.055)}
+.table-card tbody tr:not(:has(td[colspan])):hover{background:#f2f8f4}
+
+/* Tasks: clearer operational cards while retaining every current action. */
+.task-center-card,.task-summary-actions .quick-action{border-color:#d9e7df!important;box-shadow:0 12px 30px rgba(8,64,40,.07)!important}
+.task-center-card{border-radius:20px!important;overflow:hidden}
+.task-center-card .task-main-clean{padding:18px!important}
+.task-center-card .task-meta-strip{padding:10px 14px!important;border-radius:13px!important;background:#f1f7f3!important}
+.task-summary-actions{gap:10px!important}
+.task-summary-actions .quick-action{border-radius:18px!important;background:linear-gradient(145deg,#fff,#f2f8f4)!important}
+
+/* Operations Studio becomes the sole primary desktop entry. */
+.studio-page-head{padding:24px 26px;border:1px solid #d9e7df;border-radius:24px;background:linear-gradient(135deg,#ffffff,#edf7f1);box-shadow:0 14px 38px rgba(7,64,39,.07)}
+.studio-page-head h1{letter-spacing:-.035em}
+.studio-main .studio-grid .card,.studio-main .studio-kpi{border-color:#d9e7df;box-shadow:0 10px 28px rgba(8,58,38,.055)}
+
+@media(max-width:760px){
+  .studio-main:has(.property-profile-card){background:#edf6f0}
+  .studio-main .app-top{padding:17px;border-radius:19px}
+}
+'''
+          css_path.write_text(css)
+          PY
+      - name: Verify source changes
+        run: |
+          git diff --exit-code --quiet && { echo "No source changes were applied"; exit 1; } || true
+          git diff -- components/admin/AdminShell.tsx app/admin/customers/'[id]'/page.tsx app/admin/customers/page.tsx app/globals.css
+          grep -q 'loadSchedulingDispatchBoard(),' app/admin/customers/'[id]'/page.tsx
+          ! grep -q '\["Dashboard", "/admin/command"\]' components/admin/AdminShell.tsx
+          grep -q 'V52.8 focused Admin polish' app/globals.css
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate
+        run: |
+          pnpm check
+          pnpm build
+      - name: Commit source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/agent-admin-polish-performance.yml
+          git add components/admin/AdminShell.tsx app/admin/customers/'[id]'/page.tsx app/admin/customers/page.tsx app/globals.css .github/workflows/agent-admin-polish-performance.yml
+          git commit -m "Polish Admin UI and speed up property profiles"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
