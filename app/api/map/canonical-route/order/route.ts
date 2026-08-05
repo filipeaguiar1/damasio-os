@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { verifyCanonicalRoutePersistence } from "@/lib/routes/verifyCanonicalRoutePersistence";
 
 export const dynamic = "force-dynamic";
 
@@ -156,14 +157,23 @@ export async function POST(request: NextRequest) {
 
     const latitude = Number(body.origin?.latitude);
     const longitude = Number(body.origin?.longitude);
+    const originLabel = String(body.origin?.label || "Route start");
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       throw new Error("A valid canonical Route origin is required.");
     }
 
+    console.info("canonical-route-order-request", {
+      routeId,
+      expectedVersion,
+      orderedVisitIds,
+      origin: { label: originLabel, latitude, longitude },
+      actorRole: String(context.profile.role),
+    });
+
     const applied = await context.service.rpc("apply_canonical_route_order_v2_service", {
       p_route_id: routeId,
       p_ordered_visit_ids: orderedVisitIds,
-      p_origin_label: String(body.origin?.label || "Route start"),
+      p_origin_label: originLabel,
       p_origin_latitude: latitude,
       p_origin_longitude: longitude,
       p_expected_version: expectedVersion,
@@ -180,17 +190,35 @@ export async function POST(request: NextRequest) {
       : Array.isArray(result.applied_order)
         ? result.applied_order.map(String)
         : [];
-    if (!sameOrder(savedOrder, orderedVisitIds)) {
-      throw new Error("The database did not confirm the exact canonical order. Nothing was accepted by the client.");
+    const routeVersion = Number(result.version || result.routeVersion || 0);
+    if (!sameOrder(savedOrder, orderedVisitIds) || !Number.isInteger(routeVersion) || routeVersion < 1) {
+      throw new Error("The database did not confirm the exact canonical order and version.");
     }
+
+    const verified = await verifyCanonicalRoutePersistence(context.service, {
+      routeId,
+      orderedVisitIds,
+      routeVersion,
+      origin: { label: originLabel, latitude, longitude },
+    });
+
+    console.info("canonical-route-order-persisted", {
+      routeId,
+      expectedVersion,
+      routeVersion: verified.routeVersion,
+      orderedVisitIds: verified.orderedVisitIds,
+      origin: verified.origin,
+    });
 
     return NextResponse.json({
       saved: true,
       routeId,
-      routeVersion: Number(result.version || result.routeVersion || 0),
-      version: Number(result.version || result.routeVersion || 0),
-      appliedOrder: savedOrder,
-      count: savedOrder.length,
+      routeVersion: verified.routeVersion,
+      version: verified.routeVersion,
+      appliedOrder: verified.orderedVisitIds,
+      orderedVisitIds: verified.orderedVisitIds,
+      origin: verified.origin,
+      count: verified.orderedVisitIds.length,
       active: true,
     }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
