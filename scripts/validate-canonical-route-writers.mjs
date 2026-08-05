@@ -53,4 +53,18 @@ if (violations.length) {
   process.exit(1);
 }
 
+console.log("INFO canonical migration capability", {
+  managementToken: Boolean(
+    process.env.SUPABASE_ACCESS_TOKEN
+    || process.env.SUPABASE_MANAGEMENT_ACCESS_TOKEN,
+  ),
+  databaseConnection: Boolean(
+    process.env.DATABASE_URL
+    || process.env.POSTGRES_URL
+    || process.env.SUPABASE_DB_URL
+    || process.env.DIRECT_URL,
+  ),
+  serviceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+  projectUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
+});
 console.log("PASS canonical route writer boundary");
