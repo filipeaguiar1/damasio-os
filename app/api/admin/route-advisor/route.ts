@@ -149,7 +149,7 @@ async function materializePublishedRoute(input: {
   }
 
   const byJob = new Map(visits.map((visit: any) => [String(visit.job_id || ""), visit]));
-  const orderedVisits = orderedJobIds.map((jobId, index) => {
+  const orderedVisits = orderedJobIds.map(jobId => {
     const visit: any = byJob.get(jobId);
     if (!visit) throw new Error(`Published Route is missing the Visit for Job ${jobId}.`);
     if (String(visit.assigned_employee_id || "") !== employeeId
@@ -158,61 +158,12 @@ async function materializePublishedRoute(input: {
       || String(visit.scheduled_date || "") !== routeDate) {
       throw new Error("Published Route identity verification failed.");
     }
-    return { ...visit, expectedPosition: index + 1 };
+    return visit;
   });
 
-  const orderUpdates = await Promise.all(orderedVisits.map((visit: any) => service
-    .from("visits")
-    .update({ route_order: visit.expectedPosition })
-    .eq("id", visit.id)
-    .eq("route_id", routeId)));
-  for (const update of orderUpdates) if (update.error) throw new Error(update.error.message);
-
-  const deletedStops = await service.from("route_stops").delete().eq("route_id", routeId);
-  if (deletedStops.error) throw new Error(deletedStops.error.message);
-
-  const stopRows = orderedVisits.map((visit: any) => ({
-    company_id: companyId,
-    route_id: routeId,
-    visit_id: visit.id,
-    position: visit.expectedPosition,
-    updated_at: new Date().toISOString(),
-  }));
-  const insertedStops = await service.from("route_stops").insert(stopRows);
-  if (insertedStops.error) throw new Error(insertedStops.error.message);
-
-  const stateResult = await service
-    .from("route_order_state")
-    .select("version")
-    .eq("route_id", routeId)
-    .maybeSingle();
-  if (stateResult.error) throw new Error(stateResult.error.message);
-  const routeVersion = Math.max(1, Number(stateResult.data?.version || 0) + 1);
-  const stateWrite = await service.from("route_order_state").upsert({
-    route_id: routeId,
-    company_id: companyId,
-    version: routeVersion,
-    last_source: "route_advisor_publish",
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "route_id" });
-  if (stateWrite.error) throw new Error(stateWrite.error.message);
-
-  const verification = await service
-    .from("route_stops")
-    .select("visit_id,position")
-    .eq("route_id", routeId)
-    .order("position", { ascending: true });
-  if (verification.error) throw new Error(verification.error.message);
-  const verifiedStops = verification.data || [];
-  if (verifiedStops.length !== orderedVisits.length
-    || verifiedStops.some((stop: any, index: number) =>
-      String(stop.visit_id) !== String(orderedVisits[index].id)
-      || Number(stop.position) !== index + 1)) {
-    throw new Error("Canonical route_stops verification failed after publication.");
-  }
-
+  // Do not write visits.route_order, route_stops or route_order_state here.
+  // The protected canonical RPC replaces the full order atomically below.
   return {
-    routeVersion,
     orderedVisitIds: orderedVisits.map((visit: any) => String(visit.id)),
     count: orderedVisits.length,
   };
@@ -347,7 +298,7 @@ export async function POST(request: NextRequest) {
       p_origin_label: originLabel,
       p_origin_latitude: originLatitude,
       p_origin_longitude: originLongitude,
-      p_expected_version: canonical.routeVersion,
+      p_expected_version: null, // Admin publication is intentionally last-write-wins.
       p_actor_profile_id: profileId,
       p_source: "admin_route_advisor_smart_route",
     });
