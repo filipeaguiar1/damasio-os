@@ -1,0 +1,51 @@
+name: Apply Admin Smart Route Origins
+
+on:
+  push:
+    branches:
+      - feature/25-30-homes-simulator-v1
+    paths:
+      - scripts/apply-admin-smart-route-origins.py
+      - .github/workflows/apply-admin-smart-route-origins.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+          fetch-depth: 0
+
+      - name: Apply focused patch
+        run: python scripts/apply-admin-smart-route-origins.py
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Smart Route origins and build
+        run: node scripts/validate-admin-smart-route-origins.mjs && pnpm check && pnpm build
+
+      - name: Commit final implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm scripts/apply-admin-smart-route-origins.py .github/workflows/apply-admin-smart-route-origins.yml
+          git add components/admin/RouteAdvisorPanel.tsx scripts/validate-admin-smart-route-origins.mjs
+          git commit -m "Add Smart Route origin choices and autocomplete"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
