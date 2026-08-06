@@ -49,3 +49,5 @@ jobs:
           git add components/admin/RouteAdvisorPanel.tsx app/api/admin/route-advisor/route.ts scripts/validate-canonical-map-sync.mjs
           git commit -m "Add Smart Route to Route Advisor web"
           git push origin HEAD:feature/25-30-homes-simulator-v1
+
+# Trigger the focused implementation run.
