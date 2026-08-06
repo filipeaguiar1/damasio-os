@@ -110,7 +110,7 @@ assert.match(adminRouteAdvisorPanel, /smartRouteAddress/, "Route Advisor must ac
 assert.match(adminRouteAdvisorPanel, /Recalculate Smart Route/, "An existing preview must support Smart Route recalculation.");
 assert.match(adminRouteAdvisorPanel, /manualOrderOpen/, "Manual Route Order must be collapsible.");
 assert.match(adminRouteAdvisorPanel, /aria-expanded=\{manualOrderOpen\}/, "The Manual Route Order disclosure must be accessible.");
-assert.match(adminRouteAdvisorPanel, /origin:\s*\{\s*label:\s*smartRouteAddress/, "Publishing must send the reviewed Smart Route origin.");
+assert.match(adminRouteAdvisorPanel, /origin:\s*\{\s*label:\s*origin\.label/, "Publishing must send the explicitly selected Smart Route origin.");
 assert.match(adminRouteAdvisorApi, /apply_canonical_route_order_v2_service/, "Route Advisor publish must finish through the canonical route writer.");
 assert.match(adminRouteAdvisorApi, /verifyCanonicalRoutePersistence/, "Route Advisor must verify order, version and origin after publishing.");
 assert.match(adminRouteAdvisorApi, /p_origin_label:\s*originLabel/, "The route-specific start point must persist with the canonical route version.");

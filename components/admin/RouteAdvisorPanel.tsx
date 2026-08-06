@@ -5,6 +5,7 @@ import {
   InteractiveRoutePreviewMap,
   type RoutePreviewMetrics,
 } from "@/components/admin/InteractiveRoutePreviewMap";
+import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { operationalDateKey } from "@/lib/dates/operationalDate";
 import { canonicalRouteLeadsForEmployee } from "@/lib/routes/canonicalRouteIdentity";
@@ -35,6 +36,7 @@ type AdminEmployee = {
 };
 
 type Origin = AdvisorPoint & { label: string };
+type SmartOriginMode = "current" | "last" | "manual" | "profile";
 type RemovedStop = { home: RouteLead; index: number };
 
 const coordinateCache = new Map<string, AdvisorPoint>();
@@ -160,7 +162,9 @@ export function RouteAdvisorPanel() {
   const [message, setMessage] = useState("Loading route data...");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [smartOriginMode, setSmartOriginMode] = useState<SmartOriginMode>("current");
   const [smartRouteAddress, setSmartRouteAddress] = useState("");
+  const [manualOriginPoint, setManualOriginPoint] = useState<Origin | null>(null);
   const [manualOrderOpen, setManualOrderOpen] = useState(true);
 
   const refresh = useCallback(async (silent = false) => {
@@ -264,18 +268,26 @@ export function RouteAdvisorPanel() {
     if (liveRouteError) setMessage(liveRouteError);
   }, [liveRouteError]);
 
-  useEffect(() => {
-    if (!employee) {
-      setSmartRouteAddress("");
-      return;
-    }
-    const canonicalAddress = liveRouteSnapshot?.origin?.address?.trim()
-      || (liveRouteSnapshot?.origin?.label
-        && !/^(route start|first canonical stop)$/i.test(liveRouteSnapshot.origin.label.trim())
-        ? liveRouteSnapshot.origin.label.trim()
-        : "");
-    setSmartRouteAddress(canonicalAddress || employee.routeStartAddress || "");
-  }, [employee?.id, currentRouteId, liveRouteSnapshot?.routeVersion]);
+  const lastCompleted = useMemo(() => currentRoute
+    .filter(item => routeStatus(item) === "completed")
+    .slice()
+    .sort((left, right) =>
+      (left.visitFinishedAt || "").localeCompare(right.visitFinishedAt || "")
+      || (left.routeOrder ?? 0) - (right.routeOrder ?? 0))
+    .at(-1) || null,
+  [currentRoute]);
+  const profileStartAddress = employee?.routeStartAddress?.trim() || "";
+  const smartOriginReady = smartOriginMode === "current"
+    || (smartOriginMode === "last" && Boolean(lastCompleted))
+    || (smartOriginMode === "profile" && Boolean(profileStartAddress))
+    || (smartOriginMode === "manual" && smartRouteAddress.trim().length >= 3);
+  const smartOriginSummary = smartOriginMode === "current"
+    ? "Use this browser's current location"
+    : smartOriginMode === "last"
+      ? lastCompleted?.address || "No completed house is available"
+      : smartOriginMode === "profile"
+        ? profileStartAddress || "No route start address is saved in this Employee profile"
+        : smartRouteAddress.trim() || "Type a starting address";
 
   const normalizedQuery = query.trim().toLowerCase();
   const employeeJobs = useMemo(() => {
@@ -359,9 +371,10 @@ export function RouteAdvisorPanel() {
   }
 
   function changeEmployee(next: string) {
-    const nextEmployee = employees.find(item => item.id === next) || null;
     setEmployeeId(next);
-    setSmartRouteAddress(nextEmployee?.routeStartAddress || "");
+    setSmartOriginMode("current");
+    setSmartRouteAddress("");
+    setManualOriginPoint(null);
     setManualOrderOpen(true);
     setSelectedJobIds([]);
     setRecommendations([]);
@@ -466,14 +479,68 @@ export function RouteAdvisorPanel() {
     setMessage(`${item.employeeName} on ${item.date} is only a suggestion. Review and change everything before publishing.`);
   }
 
-  async function generatePreview(addressOverride?: string) {
+  function selectSmartOrigin(mode: SmartOriginMode) {
+    setSmartOriginMode(mode);
+    setOrigin(null);
+    if (mode !== "manual") setManualOriginPoint(null);
+    if (mode === "last" && !lastCompleted) {
+      setMessage("No completed house is available for this Employee and date.");
+    } else if (mode === "profile" && !profileStartAddress) {
+      setMessage("Save a route start address in the Employee profile before using this option.");
+    } else {
+      setMessage("");
+    }
+  }
+
+  async function resolveSmartOrigin(): Promise<Origin> {
+    if (smartOriginMode === "current") {
+      if (!navigator.geolocation) throw new Error("Current location is not available in this browser.");
+      const position = await new Promise<GeolocationPosition>((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 12_000,
+          maximumAge: 30_000,
+        }));
+      return {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        label: "Current location",
+      };
+    }
+
+    if (smartOriginMode === "last") {
+      if (!lastCompleted) throw new Error("No completed house is available for this Employee and date.");
+      if (Number.isFinite(lastCompleted.latitude) && Number.isFinite(lastCompleted.longitude)) {
+        return {
+          latitude: Number(lastCompleted.latitude),
+          longitude: Number(lastCompleted.longitude),
+          label: lastCompleted.address,
+        };
+      }
+      const point = await geocode(lastCompleted.address);
+      return { ...point, label: lastCompleted.address };
+    }
+
+    if (smartOriginMode === "profile") {
+      if (!profileStartAddress) throw new Error("This Employee profile has no saved route start address.");
+      const point = await geocode(profileStartAddress);
+      return { ...point, label: profileStartAddress };
+    }
+
+    const manualAddress = smartRouteAddress.trim();
+    if (!manualAddress) throw new Error("Enter a valid manual starting address.");
+    if (manualOriginPoint && manualOriginPoint.label === manualAddress) return manualOriginPoint;
+    const point = await geocode(manualAddress);
+    return { ...point, label: manualAddress };
+  }
+
+  async function generatePreview() {
     if (!employee) {
       setMessage("Choose an Employee.");
       return;
     }
-    const startAddress = String(addressOverride || smartRouteAddress || employee.routeStartAddress || "").trim();
-    if (!startAddress) {
-      setMessage("Enter the Smart Route start address below before generating the route.");
+    if (!smartOriginReady) {
+      setMessage("Choose an available Smart Route starting point.");
       return;
     }
     if (currentRoute.some(item => routeStatus(item) === "in_progress")) {
@@ -497,7 +564,6 @@ export function RouteAdvisorPanel() {
     setBusy(true);
     setMessage("Optimizing the initial suggestion and preparing manual route controls...");
     try {
-      const currentByJob = new Map(currentRoute.map(item => [canonicalJobId(item), item]));
       const locked = currentRoute.filter(item => routeStatus(item) === "completed");
       const mutableCurrent = currentRoute.filter(item => routeStatus(item) === "scheduled");
       const selectedCanonical = selectedHomes.map(home => {
@@ -523,7 +589,7 @@ export function RouteAdvisorPanel() {
         return;
       }
 
-      const start = await geocode(startAddress);
+      const start = await resolveSmartOrigin();
       const mapped = await Promise.all(combined.map(locate));
       const mutable = mapped.filter(home => !locked.some(item => canonicalJobId(item) === canonicalJobId(home)));
       let optimizedMutable = [...mutable];
@@ -560,13 +626,12 @@ export function RouteAdvisorPanel() {
       }
       while (mutableIndex < optimizedMutable.length) final.push(optimizedMutable[mutableIndex++]);
 
-      setSmartRouteAddress(startAddress);
-      setOrigin({ ...start, label: startAddress });
+      setOrigin(start);
       setLockedJobIds(locked.map(canonicalJobId));
       setPreview(normalizeOrder(final.filter(Boolean)));
       setRemoved([]);
       setManualOrderOpen(true);
-      setMessage("Smart Route ready from the selected start address. Manual changes remain available below.");
+      setMessage("Smart Route ready from the selected starting point. Manual changes remain available below.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Route preview could not be generated.");
     } finally {
@@ -579,13 +644,12 @@ export function RouteAdvisorPanel() {
       setMessage("Choose an Employee.");
       return;
     }
-    const startAddress = smartRouteAddress.trim();
-    if (!startAddress) {
-      setMessage("Enter a valid Smart Route start address.");
+    if (!smartOriginReady) {
+      setMessage("Choose an available Smart Route starting point.");
       return;
     }
     if (!preview.length) {
-      await generatePreview(startAddress);
+      await generatePreview();
       return;
     }
     if (preview.some(item => routeStatus(item) === "in_progress")) {
@@ -594,9 +658,9 @@ export function RouteAdvisorPanel() {
     }
 
     setBusy(true);
-    setMessage("Calculating the most efficient order from the selected start address...");
+    setMessage("Calculating the most efficient order from the selected starting point...");
     try {
-      const start = await geocode(startAddress);
+      const start = await resolveSmartOrigin();
       const mapped = await Promise.all(preview.map(locate));
       const mutable = mapped.filter(home => !locked.has(canonicalJobId(home)));
       let optimizedMutable = [...mutable];
@@ -618,7 +682,7 @@ export function RouteAdvisorPanel() {
         optimizedMutable = result.order.map(index => mutable[index]).filter(Boolean);
       }
 
-      setOrigin({ ...start, label: startAddress });
+      setOrigin(start);
       setPreview(reconstructMutable(optimizedMutable));
       setRemoved([]);
       setManualOrderOpen(true);
@@ -742,7 +806,7 @@ export function RouteAdvisorPanel() {
           orderedJobIds: preview.map(canonicalJobId),
           sourceVisitIds,
           origin: {
-            label: smartRouteAddress.trim() || origin.label,
+            label: origin.label,
             latitude: origin.latitude,
             longitude: origin.longitude,
           },
@@ -813,28 +877,91 @@ export function RouteAdvisorPanel() {
   }, []);
 
   const smartRoutePanel = <section className="advisor-smart-route">
-    <div>
+    <div className="advisor-smart-header">
       <span>SMART ROUTE</span>
-      <h3>Start from the right address.</h3>
-      <p>Set the Employee's starting point and calculate the most efficient canonical order. The route can still be adjusted manually before publishing.</p>
+      <h3>Choose where the route starts.</h3>
+      <p>Use the same four starting options available on mobile. The selected point and optimized order are saved together in the canonical Route.</p>
     </div>
-    <label>
-      <span>Start address</span>
-      <input
-        value={smartRouteAddress}
-        onChange={(event: { target: { value: string } }) => setSmartRouteAddress(event.target.value)}
-        placeholder="Street, city, province and postal code"
-        autoComplete="street-address"
-      />
-    </label>
-    <button
-      type="button"
-      className="btn btn-primary"
-      disabled={busy || !employee || !smartRouteAddress.trim()}
-      onClick={() => void applySmartRoute()}
-    >
-      {busy ? "Calculating..." : preview.length ? "Recalculate Smart Route" : "Generate Smart Route"}
-    </button>
+
+    <div className="advisor-origin-modes" role="group" aria-label="Smart Route starting point">
+      <button
+        type="button"
+        className={smartOriginMode === "current" ? "active" : ""}
+        aria-pressed={smartOriginMode === "current"}
+        onClick={() => selectSmartOrigin("current")}
+      >
+        <b>Current location</b>
+        <small>Browser GPS</small>
+      </button>
+      <button
+        type="button"
+        className={smartOriginMode === "last" ? "active" : ""}
+        aria-pressed={smartOriginMode === "last"}
+        disabled={!lastCompleted}
+        onClick={() => selectSmartOrigin("last")}
+      >
+        <b>Last completed house</b>
+        <small>{lastCompleted ? "Latest finished Visit" : "Unavailable"}</small>
+      </button>
+      <button
+        type="button"
+        className={smartOriginMode === "manual" ? "active" : ""}
+        aria-pressed={smartOriginMode === "manual"}
+        onClick={() => selectSmartOrigin("manual")}
+      >
+        <b>Manual address</b>
+        <small>Search or type</small>
+      </button>
+      <button
+        type="button"
+        className={smartOriginMode === "profile" ? "active" : ""}
+        aria-pressed={smartOriginMode === "profile"}
+        disabled={!profileStartAddress}
+        onClick={() => selectSmartOrigin("profile")}
+      >
+        <b>Profile address</b>
+        <small>{profileStartAddress ? "Saved previously" : "Not configured"}</small>
+      </button>
+    </div>
+
+    <div className="advisor-origin-row">
+      <div className="advisor-origin-detail">
+        {smartOriginMode === "manual" ? <label>
+          <span>Manual start address</span>
+          <AddressAutocomplete
+            value={smartRouteAddress}
+            onChange={value => {
+              setSmartRouteAddress(value);
+              setManualOriginPoint(null);
+              setOrigin(null);
+            }}
+            onSelect={suggestion => {
+              setSmartRouteAddress(suggestion.label);
+              setManualOriginPoint({
+                label: suggestion.label,
+                latitude: suggestion.latitude,
+                longitude: suggestion.longitude,
+              });
+              setOrigin(null);
+            }}
+            placeholder="Start typing the address..."
+            ariaLabel="Smart Route manual start address"
+          />
+        </label> : <div className="advisor-origin-summary">
+          <span>Selected start</span>
+          <strong>{smartOriginSummary}</strong>
+        </div>}
+      </div>
+
+      <button
+        type="button"
+        className="btn btn-primary"
+        disabled={busy || !employee || !smartOriginReady}
+        onClick={() => void applySmartRoute()}
+      >
+        {busy ? "Calculating..." : preview.length ? "Recalculate Smart Route" : "Generate Smart Route"}
+      </button>
+    </div>
   </section>;
 
   return <section className="advisor-shell">
@@ -1135,18 +1262,18 @@ export function RouteAdvisorPanel() {
     </section>
 
     <style jsx global>{`
-      .advisor-shell{display:grid;gap:18px}.advisor-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding:26px;border-radius:24px;background:linear-gradient(135deg,#082f23,#0d6b47);color:#fff}.advisor-hero span,.advisor-manual-order header span,.advisor-smart-route>div>span,.advisor-reopen>div>span{color:#9ce3b9;font-size:10px;font-weight:950;letter-spacing:.13em}.advisor-hero h2{margin:7px 0 6px;font-size:34px;letter-spacing:-.04em}.advisor-hero p{max-width:760px;margin:0;color:rgba(255,255,255,.7)}.advisor-guard{min-width:230px;padding:14px 16px;border:1px solid rgba(255,255,255,.18);border-radius:16px;background:rgba(255,255,255,.09)}.advisor-guard strong,.advisor-guard small{display:block}.advisor-guard small{margin-top:4px;color:rgba(255,255,255,.65)}
+      .advisor-shell{display:grid;gap:18px}.advisor-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding:26px;border-radius:24px;background:linear-gradient(135deg,#082f23,#0d6b47);color:#fff}.advisor-hero span,.advisor-manual-order header span,.advisor-smart-header>span,.advisor-reopen>div>span{color:#9ce3b9;font-size:10px;font-weight:950;letter-spacing:.13em}.advisor-hero h2{margin:7px 0 6px;font-size:34px;letter-spacing:-.04em}.advisor-hero p{max-width:760px;margin:0;color:rgba(255,255,255,.7)}.advisor-guard{min-width:230px;padding:14px 16px;border:1px solid rgba(255,255,255,.18);border-radius:16px;background:rgba(255,255,255,.09)}.advisor-guard strong,.advisor-guard small{display:block}.advisor-guard small{margin-top:4px;color:rgba(255,255,255,.65)}
       .advisor-controls{display:grid;grid-template-columns:1fr 245px 1fr auto;gap:12px;align-items:end;padding:16px;border:1px solid #dbe7e1;border-radius:20px;background:#fff}.advisor-controls label,.advisor-reopen label{display:grid;gap:6px}.advisor-controls label>span,.advisor-reopen label>span{color:#607168;font-size:10px;font-weight:900;text-transform:uppercase}.advisor-controls input,.advisor-controls select,.advisor-reopen input,.advisor-reopen textarea{width:100%;min-height:48px;border:1px solid #cbdad2;border-radius:12px;padding:0 13px;background:#fff;color:#173a2c}.advisor-reopen textarea{min-height:88px;padding:12px;resize:vertical}
       .advisor-reopen{display:grid;grid-template-columns:minmax(260px,1.2fr) minmax(250px,1fr) 180px auto;gap:14px;align-items:end;padding:18px;border:2px solid #dc2626;border-radius:20px;background:#fff7f7}.advisor-reopen h3{margin:5px 0}.advisor-reopen p{margin:0;color:#6b7280}.advisor-reopen>div:last-child{display:flex;gap:8px}
       .advisor-layout{display:grid;grid-template-columns:minmax(330px,.72fr) minmax(0,1.45fr);gap:16px;align-items:start}.advisor-house-picker,.advisor-main>section,.advisor-recommendations{border:1px solid #dbe7e1;border-radius:22px;background:#fff;box-shadow:0 12px 30px rgba(19,52,39,.05)}.advisor-house-picker{overflow:hidden;position:sticky;top:16px}.advisor-house-picker>header,.advisor-recommendations>header,.advisor-removed>header{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:16px;border-bottom:1px solid #e7eeea}.advisor-house-picker header strong,.advisor-house-picker header small{display:block}.advisor-house-picker header small{margin-top:3px;color:#64748b}.advisor-house-picker header button{border:0;background:transparent;color:#0b7655;font-weight:900;cursor:pointer}.advisor-picker-actions{display:grid;gap:4px;text-align:right}.advisor-house-list{max-height:610px;overflow:auto;padding:10px}.advisor-house-list>button{display:grid;grid-template-columns:34px minmax(0,1fr) minmax(95px,auto);gap:10px;align-items:center;width:100%;padding:12px;border:1px solid transparent;border-radius:14px;background:transparent;text-align:left;cursor:pointer}.advisor-house-list>button:hover{background:#f6faf8}.advisor-house-list>button.selected{border-color:#0b7655;background:#edf8f2}.advisor-house-list>button.blocked{opacity:.72}.advisor-house-list b{display:grid;place-items:center;width:30px;height:30px;border-radius:10px;background:#eaf2ee;color:#0b684c}.advisor-house-list span strong,.advisor-house-list span small{display:block}.advisor-house-list span strong{font-size:12px}.advisor-house-list span small{margin-top:4px;color:#64748b;font-size:10px}.advisor-house-list em{font-style:normal;text-align:right;font-size:9px;font-weight:900;color:#0b7655}.advisor-recommend{width:calc(100% - 20px);margin:0 10px 10px;min-height:48px}
       .advisor-main{display:grid;gap:14px}.advisor-recommendations{overflow:hidden}.advisor-recommendations>header span{color:#64748b;font-size:12px}.advisor-recommendations>div{display:grid;gap:8px;padding:10px}.advisor-recommendations button{display:grid;grid-template-columns:34px minmax(0,1fr) 54px;gap:10px;align-items:center;padding:13px;border:1px solid #e1eae5;border-radius:14px;background:#fff;text-align:left;cursor:pointer}.advisor-recommendations button:hover{border-color:#0b7655;background:#f4faf7}.advisor-recommendations button>b{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:#0b7655;color:#fff}.advisor-recommendations button span strong,.advisor-recommendations button span small,.advisor-recommendations button span em{display:block}.advisor-recommendations button span small{margin-top:3px;color:#64748b}.advisor-recommendations button span em{margin-top:4px;color:#4f665a;font-size:10px;font-style:normal}.advisor-recommendations button>i{font-style:normal;font-weight:950;color:#0b7655}
       .advisor-empty-preview{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:28px}.advisor-empty-preview span{color:#0b7655;font-size:10px;font-weight:950;letter-spacing:.1em}.advisor-empty-preview h3{margin:6px 0;font-size:27px}.advisor-empty-preview p{margin:0;color:#64748b}.advisor-impact{display:grid!important;grid-template-columns:repeat(4,1fr);gap:1px;overflow:hidden;padding:0!important}.advisor-impact div{padding:14px 16px;background:#fff}.advisor-impact span,.advisor-impact strong{display:block}.advisor-impact span{color:#64748b;font-size:9px;font-weight:900;text-transform:uppercase}.advisor-impact strong{margin-top:4px;color:#173a2c}
-      .advisor-smart-route{display:grid!important;grid-template-columns:minmax(0,1.15fr) minmax(280px,1fr) auto;gap:16px;align-items:end;padding:18px}.advisor-smart-route h3{margin:5px 0 4px;color:#173a2c}.advisor-smart-route p{margin:0;color:#64748b;font-size:12px;line-height:1.45}.advisor-smart-route label{display:grid;gap:6px}.advisor-smart-route label>span{color:#607168;font-size:10px;font-weight:900;text-transform:uppercase}.advisor-smart-route input{width:100%;min-height:48px;border:1px solid #cbdad2;border-radius:12px;padding:0 13px;background:#fff;color:#173a2c}.advisor-smart-route .btn{min-height:48px;white-space:nowrap}
+      .advisor-smart-route{display:grid!important;gap:14px;padding:18px}.advisor-smart-header h3{margin:5px 0 4px;color:#173a2c}.advisor-smart-header p{margin:0;color:#64748b;font-size:12px;line-height:1.45}.advisor-origin-modes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.advisor-origin-modes>button{display:grid;gap:3px;min-height:62px;border:1px solid #d5e1db;border-radius:13px;background:#fbfdfc;padding:10px 11px;color:#173a2c;text-align:left;cursor:pointer}.advisor-origin-modes>button:hover:not(:disabled){border-color:#69a88d;background:#f4faf7}.advisor-origin-modes>button.active{border-color:#0b7655;background:#eaf7f0;box-shadow:inset 0 0 0 1px #0b7655}.advisor-origin-modes>button:disabled{cursor:not-allowed;opacity:.5}.advisor-origin-modes b,.advisor-origin-modes small{display:block}.advisor-origin-modes b{font-size:11px}.advisor-origin-modes small{color:#64748b;font-size:9px}.advisor-origin-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}.advisor-origin-detail label{display:grid;gap:6px}.advisor-origin-detail label>span,.advisor-origin-summary>span{color:#607168;font-size:10px;font-weight:900;text-transform:uppercase}.advisor-origin-summary{display:grid;gap:6px;min-height:48px;padding:10px 13px;border:1px solid #dbe7e1;border-radius:12px;background:#f8fbf9}.advisor-origin-summary strong{color:#173a2c;font-size:12px;line-height:1.3}.advisor-origin-detail .address-autocomplete{position:relative}.advisor-origin-detail .address-suggestions{z-index:45}.advisor-smart-route input{width:100%;min-height:48px;border:1px solid #cbdad2;border-radius:12px;padding:0 13px;background:#fff;color:#173a2c}.advisor-smart-route .btn{min-height:48px;white-space:nowrap}
       .advisor-manual-order{overflow:hidden}.advisor-manual-order>header{display:flex;justify-content:space-between;gap:18px;align-items:center;padding:16px;border-bottom:1px solid #e7eeea}.advisor-manual-order header span{color:#0b7655}.advisor-manual-order h3{margin:4px 0 0}.advisor-manual-summary{display:flex;align-items:center;justify-content:flex-end;gap:12px}.advisor-manual-order header small{max-width:390px;color:#64748b;text-align:right}.advisor-manual-summary>button{display:inline-flex;align-items:center;gap:7px;min-height:40px;border:1px solid #cbdad2;border-radius:10px;background:#fff;padding:0 12px;color:#173a2c;font-weight:900;cursor:pointer}.advisor-manual-summary>button i{color:#0b7655;font-size:10px;font-style:normal}.advisor-manual-order>div{display:grid}.advisor-manual-order article{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 14px;border-bottom:1px solid #edf2ef}.advisor-manual-order article:last-child{border-bottom:0}.advisor-manual-order article>b{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:#e9f1ed;color:#0b684c}.advisor-manual-order article>span strong,.advisor-manual-order article>span small{display:block}.advisor-manual-order article>span small{margin-top:3px;color:#64748b;font-size:10px}.advisor-manual-order article>div{display:flex;align-items:end;gap:6px}.advisor-manual-order article button{min-height:36px;border:1px solid #cbdad2;border-radius:9px;background:#fff;padding:0 10px;color:#173a2c;font-weight:900;cursor:pointer}.advisor-manual-order article button:disabled{cursor:not-allowed;opacity:.45}.advisor-manual-order article label{display:grid;gap:2px}.advisor-manual-order article label span{color:#64748b;font-size:8px;font-weight:900;text-transform:uppercase}.advisor-manual-order article input{width:70px;height:36px;border:1px solid #cbdad2;border-radius:9px;padding:0 7px}
       .advisor-removed{overflow:hidden}.advisor-removed>header span{color:#64748b;font-size:11px}.advisor-removed>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:10px}.advisor-removed button{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:11px;border:1px solid #e1eae5;border-radius:12px;background:#fff;text-align:left;cursor:pointer}.advisor-removed button span strong,.advisor-removed button span small{display:block}.advisor-removed button span small{margin-top:2px;color:#64748b;font-size:10px}.advisor-removed button em{font-style:normal;color:#0b7655;font-weight:950}
       .advisor-publish-bar{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:16px 18px}.advisor-publish-bar strong,.advisor-publish-bar span{display:block}.advisor-publish-bar span{margin-top:4px;color:#64748b;font-size:11px}
-      @media(max-width:1150px){.advisor-reopen{grid-template-columns:1fr 1fr}.advisor-controls{grid-template-columns:1fr 1fr}.advisor-smart-route{grid-template-columns:1fr 1fr!important}.advisor-smart-route>div{grid-column:1/-1}.advisor-layout{grid-template-columns:1fr}.advisor-house-picker{position:static}.advisor-house-list{max-height:420px}}
-      @media(max-width:760px){.advisor-hero,.advisor-empty-preview,.advisor-publish-bar,.advisor-manual-order>header{align-items:stretch;flex-direction:column}.advisor-controls,.advisor-reopen,.advisor-impact,.advisor-smart-route{grid-template-columns:1fr!important}.advisor-smart-route>div{grid-column:auto}.advisor-smart-route .btn{width:100%}.advisor-manual-summary{align-items:stretch;flex-direction:column}.advisor-manual-order header small{text-align:left}.advisor-hero h2{font-size:29px}.advisor-guard{min-width:0}.advisor-publish-bar .btn{width:100%}.advisor-manual-order article{grid-template-columns:34px 1fr}.advisor-manual-order article>div{grid-column:1/-1;flex-wrap:wrap}.advisor-removed>div{grid-template-columns:1fr}}
+      @media(max-width:1150px){.advisor-reopen{grid-template-columns:1fr 1fr}.advisor-controls{grid-template-columns:1fr 1fr}.advisor-origin-modes{grid-template-columns:repeat(2,minmax(0,1fr))}.advisor-layout{grid-template-columns:1fr}.advisor-house-picker{position:static}.advisor-house-list{max-height:420px}}
+      @media(max-width:760px){.advisor-hero,.advisor-empty-preview,.advisor-publish-bar,.advisor-manual-order>header{align-items:stretch;flex-direction:column}.advisor-controls,.advisor-reopen,.advisor-impact{grid-template-columns:1fr!important}.advisor-origin-row{grid-template-columns:1fr}.advisor-origin-modes{grid-template-columns:repeat(2,minmax(0,1fr))}.advisor-smart-route .btn{width:100%}.advisor-manual-summary{align-items:stretch;flex-direction:column}.advisor-manual-order header small{text-align:left}.advisor-hero h2{font-size:29px}.advisor-guard{min-width:0}.advisor-publish-bar .btn{width:100%}.advisor-manual-order article{grid-template-columns:34px 1fr}.advisor-manual-order article>div{grid-column:1/-1;flex-wrap:wrap}.advisor-removed>div{grid-template-columns:1fr}}
     `}</style>
   </section>;
 }
