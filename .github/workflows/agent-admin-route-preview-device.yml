@@ -1,0 +1,323 @@
+name: Admin route preview device fix
+
+on:
+  push:
+    branches:
+      - feature/25-30-homes-simulator-v1
+    paths:
+      - .github/workflows/agent-admin-route-preview-device.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Patch Admin Route Advisor preview
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          advisor_path = Path("components/admin/RouteAdvisorPanel.tsx")
+          advisor = advisor_path.read_text()
+
+          anchor = '''async function geocode(address: string) {
+            const key = address.trim().toLowerCase();'''
+          replacement = '''async function locateAdminDevice(): Promise<Origin> {
+            if (typeof navigator === "undefined" || !navigator.geolocation) {
+              throw new Error("This browser cannot provide the Admin device location.");
+            }
+            return await new Promise<Origin>((resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(position => resolve({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                label: "Admin device start",
+              }), () => reject(new Error("Allow location access to use This device as the route start.")), {
+                enableHighAccuracy: false,
+                timeout: 10000,
+                maximumAge: 60000,
+              });
+            });
+          }
+
+          async function geocode(address: string) {
+            const key = address.trim().toLowerCase();'''
+          if anchor not in advisor:
+            raise SystemExit("geocode anchor not found")
+          advisor = advisor.replace(anchor, replacement, 1)
+
+          anchor = '''  const [origin, setOrigin] = useState<Origin | null>(null);
+            const [lockedJobIds, setLockedJobIds] = useState<string[]>([]);'''
+          replacement = '''  const [origin, setOrigin] = useState<Origin | null>(null);
+            const [originMode, setOriginMode] = useState<"employee" | "device">("employee");
+            const [lockedJobIds, setLockedJobIds] = useState<string[]>([]);'''
+          if anchor not in advisor:
+            raise SystemExit("origin state anchor not found")
+          advisor = advisor.replace(anchor, replacement, 1)
+
+          anchor = '''  const employee = employees.find(item => item.id === employeeId) || null;
+            const employeeIdentity = employee'''
+          replacement = '''  const employee = employees.find(item => item.id === employeeId) || null;
+
+            useEffect(() => {
+              if (employee && !employee.routeStartAddress) setOriginMode("device");
+            }, [employee?.id, employee?.routeStartAddress]);
+
+            const employeeIdentity = employee'''
+          if anchor not in advisor:
+            raise SystemExit("employee anchor not found")
+          advisor = advisor.replace(anchor, replacement, 1)
+
+          anchor = '''  function changeEmployee(next: string) {
+            setEmployeeId(next);
+            setSelectedJobIds([]);'''
+          replacement = '''  function changeEmployee(next: string) {
+            const nextEmployee = employees.find(item => item.id === next) || null;
+            setEmployeeId(next);
+            setOriginMode(nextEmployee?.routeStartAddress ? "employee" : "device");
+            setSelectedJobIds([]);'''
+          if anchor not in advisor:
+            raise SystemExit("changeEmployee anchor not found")
+          advisor = advisor.replace(anchor, replacement, 1)
+
+          anchor = '''    if (!employee.routeStartAddress) {
+              setMessage(`Save a default route start address in ${employee.name}'s profile first.`);
+              return;
+            }'''
+          replacement = '''    if (originMode === "employee" && !employee.routeStartAddress) {
+              setMessage(`Save a default route start address in ${employee.name}'s profile or choose This device.`);
+              return;
+            }'''
+          if anchor not in advisor:
+            raise SystemExit("route start guard anchor not found")
+          advisor = advisor.replace(anchor, replacement, 1)
+
+          anchor = '''      const start = await geocode(employee.routeStartAddress);
+            const mapped = await Promise.all(combined.map(locate));'''
+          replacement = '''      const start = originMode === "device"
+                ? await locateAdminDevice()
+                : { ...(await geocode(employee.routeStartAddress as string)), label: `${employee.name} start` };
+              const mapped = await Promise.all(combined.map(locate));'''
+          if anchor not in advisor:
+            raise SystemExit("preview start anchor not found")
+          advisor = advisor.replace(anchor, replacement, 1)
+
+          anchor = '''      setOrigin({ ...start, label: `${employee.name} start` });
+            setLockedJobIds(locked.map(canonicalJobId));'''
+          replacement = '''      setOrigin(start);
+            setLockedJobIds(locked.map(canonicalJobId));'''
+          if anchor not in advisor:
+            raise SystemExit("setOrigin anchor not found")
+          advisor = advisor.replace(anchor, replacement, 1)
+
+          anchor = '''      <label>
+                <span>Search houses</span>
+                <input
+                  value={query}'''
+          replacement = '''      <label>
+                <span>Route start</span>
+                <select
+                  value={originMode}
+                  onChange={(event: { target: { value: string } }) => {
+                    setOriginMode(event.target.value === "device" ? "device" : "employee");
+                    resetPreview();
+                  }}
+                >
+                  <option value="employee" disabled={!employee?.routeStartAddress}>Employee profile</option>
+                  <option value="device">This device</option>
+                </select>
+              </label>
+              <label>
+                <span>Search houses</span>
+                <input
+                  value={query}'''
+          if anchor not in advisor:
+            raise SystemExit("controls anchor not found")
+          advisor = advisor.replace(anchor, replacement, 1)
+
+          old_grid = '.advisor-controls{display:grid;grid-template-columns:1fr 245px 1fr auto;'
+          new_grid = '.advisor-controls{display:grid;grid-template-columns:minmax(180px,1fr) 210px 190px minmax(220px,1fr) auto;'
+          if old_grid not in advisor:
+            raise SystemExit("advisor grid anchor not found")
+          advisor = advisor.replace(old_grid, new_grid, 1)
+          advisor_path.write_text(advisor)
+
+          map_path = Path("components/admin/InteractiveRoutePreviewMap.tsx")
+          preview_map = map_path.read_text()
+
+          preview_map = preview_map.replace(
+            '''  interface Window {
+              L?: any;
+            }''',
+            '''  interface Window {
+              L?: any;
+              __damasioAdminLeafletPromise?: Promise<any>;
+            }''',
+            1,
+          )
+
+          helper_anchor = '''function formatDuration(value: number | null) {
+            return value === null ? "—" : `${Math.max(1, Math.round(value / 60))} min`;
+          }
+
+          export function InteractiveRoutePreviewMap'''
+          helper_replacement = '''function formatDuration(value: number | null) {
+            return value === null ? "—" : `${Math.max(1, Math.round(value / 60))} min`;
+          }
+
+          function ensureAdminLeaflet() {
+            if (window.L) return Promise.resolve(window.L);
+            if (window.__damasioAdminLeafletPromise) return window.__damasioAdminLeafletPromise;
+
+            if (!document.querySelector("link[data-leaflet]")) {
+              const link = document.createElement("link");
+              link.rel = "stylesheet";
+              link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+              link.dataset.leaflet = "true";
+              document.head.appendChild(link);
+            }
+
+            window.__damasioAdminLeafletPromise = new Promise((resolve, reject) => {
+              let script = document.querySelector("script[data-leaflet]") as HTMLScriptElement | null;
+              if (!script) {
+                script = document.createElement("script");
+                script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+                script.async = true;
+                script.dataset.leaflet = "true";
+                document.body.appendChild(script);
+              }
+
+              let attempts = 0;
+              const timer = window.setInterval(() => {
+                attempts += 1;
+                if (window.L) {
+                  window.clearInterval(timer);
+                  resolve(window.L);
+                } else if (attempts >= 100) {
+                  window.clearInterval(timer);
+                  reject(new Error("Leaflet did not load."));
+                }
+              }, 100);
+              script.addEventListener("error", () => {
+                window.clearInterval(timer);
+                reject(new Error("Leaflet could not be downloaded."));
+              }, { once: true });
+            }).catch(error => {
+              window.__damasioAdminLeafletPromise = undefined;
+              throw error;
+            });
+
+            return window.__damasioAdminLeafletPromise;
+          }
+
+          export function InteractiveRoutePreviewMap'''
+          if helper_anchor not in preview_map:
+            raise SystemExit("Leaflet helper anchor not found")
+          preview_map = preview_map.replace(helper_anchor, helper_replacement, 1)
+
+          anchor = '''  const [geometry, setGeometry] = useState<RouteLineString | null>(null);
+            const [metrics, setMetrics] = useState<RoutePreviewMetrics>({'''
+          replacement = '''  const [geometry, setGeometry] = useState<RouteLineString | null>(null);
+            const [mapReady, setMapReady] = useState(false);
+            const [metrics, setMetrics] = useState<RoutePreviewMetrics>({'''
+          if anchor not in preview_map:
+            raise SystemExit("mapReady state anchor not found")
+          preview_map = preview_map.replace(anchor, replacement, 1)
+
+          anchor = '''        markerLayer.current = L.layerGroup().addTo(map.current);
+              }
+
+              markerLayer.current.clearLayers();'''
+          replacement = '''        markerLayer.current = L.layerGroup().addTo(map.current);
+              }
+              setMapReady(true);
+
+              markerLayer.current.clearLayers();'''
+          if anchor not in preview_map:
+            raise SystemExit("map setup anchor not found")
+          preview_map = preview_map.replace(anchor, replacement, 1)
+
+          old_loader = '''    if (window.L) {
+              setup();
+            } else {
+              if (!document.querySelector("link[data-leaflet]")) {
+                const link = document.createElement("link");
+                link.rel = "stylesheet";
+                link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+                link.dataset.leaflet = "true";
+                document.head.appendChild(link);
+              }
+              let script = document.querySelector("script[data-leaflet]") as HTMLScriptElement | null;
+              if (!script) {
+                script = document.createElement("script");
+                script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+                script.async = true;
+                script.dataset.leaflet = "true";
+                document.body.appendChild(script);
+              }
+              script.addEventListener("load", setup);
+              return () => {
+                cancelled = true;
+                script?.removeEventListener("load", setup);
+              };
+            }
+
+            return () => { cancelled = true; };'''
+          new_loader = '''    void ensureAdminLeaflet()
+              .then(() => setup())
+              .catch(() => {
+                if (!cancelled) setStatus("The Admin map could not load. Refresh and try again.");
+              });
+
+            return () => { cancelled = true; };'''
+          if old_loader not in preview_map:
+            raise SystemExit("old Leaflet loader anchor not found")
+          preview_map = preview_map.replace(old_loader, new_loader, 1)
+
+          preview_map = preview_map.replace(
+            '''  }, [geometry]);''',
+            '''  }, [geometry, mapReady]);''',
+            1,
+          )
+          map_path.write_text(preview_map)
+          PY
+
+      - name: Verify Admin-only changes
+        shell: bash
+        run: |
+          git diff --check
+          grep -q 'This device' components/admin/RouteAdvisorPanel.tsx
+          grep -q 'locateAdminDevice' components/admin/RouteAdvisorPanel.tsx
+          grep -q '__damasioAdminLeafletPromise' components/admin/InteractiveRoutePreviewMap.tsx
+          grep -q '\[geometry, mapReady\]' components/admin/InteractiveRoutePreviewMap.tsx
+          git diff -- components/mobile/EmployeeRouteMap.tsx app/mobile/employee
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate
+        run: pnpm check && pnpm build
+
+      - name: Commit verified Admin preview fix
+        shell: bash
+        run: |
+          rm .github/workflows/agent-admin-route-preview-device.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add components/admin/RouteAdvisorPanel.tsx components/admin/InteractiveRoutePreviewMap.tsx .github/workflows/agent-admin-route-preview-device.yml
+          git commit -m "Restore Admin route preview and device origin"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
