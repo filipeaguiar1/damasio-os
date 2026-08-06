@@ -17,6 +17,8 @@ const adminWeb = read("components/admin/OfficialRoutePlanMap.tsx");
 const adminMobile = read("app/mobile/admin/routes/page.tsx");
 const employeeWeb = read("app/employee/route/page.tsx");
 const employeeMobile = read("app/mobile/employee/page.tsx");
+const adminRouteAdvisorPanel = read("components/admin/RouteAdvisorPanel.tsx");
+const adminRouteAdvisorApi = read("app/api/admin/route-advisor/route.ts");
 
 assert.match(canonicalApi, /from\("route_stops"\)/, "route_stops must be the only route order source.");
 assert.match(canonicalApi, /No projection fallback is allowed/, "An inconsistent route must fail instead of falling back.");
@@ -102,6 +104,16 @@ for (const [label, source] of [
 for (const [label, source] of [["Employee web", employeeWeb], ["Employee mobile", employeeMobile]]) {
   assert.match(source, /loadEmployeeRouteMapContext|useCanonicalRouteSnapshot/, `${label} list must use the canonical route service.`);
 }
+
+assert.match(adminRouteAdvisorPanel, /SMART ROUTE/, "Route Advisor web must expose the professional Smart Route panel.");
+assert.match(adminRouteAdvisorPanel, /smartRouteAddress/, "Route Advisor must accept a route-specific start address.");
+assert.match(adminRouteAdvisorPanel, /Recalculate Smart Route/, "An existing preview must support Smart Route recalculation.");
+assert.match(adminRouteAdvisorPanel, /manualOrderOpen/, "Manual Route Order must be collapsible.");
+assert.match(adminRouteAdvisorPanel, /aria-expanded=\{manualOrderOpen\}/, "The Manual Route Order disclosure must be accessible.");
+assert.match(adminRouteAdvisorPanel, /origin:\s*\{\s*label:\s*smartRouteAddress/, "Publishing must send the reviewed Smart Route origin.");
+assert.match(adminRouteAdvisorApi, /apply_canonical_route_order_v2_service/, "Route Advisor publish must finish through the canonical route writer.");
+assert.match(adminRouteAdvisorApi, /verifyCanonicalRoutePersistence/, "Route Advisor must verify order, version and origin after publishing.");
+assert.match(adminRouteAdvisorApi, /p_origin_label:\s*originLabel/, "The route-specific start point must persist with the canonical route version.");
 
 assert.doesNotMatch(demoSandbox, /\["55 York Blvd"/, "Demo tooling must not recreate 55 York Blvd.");
 assert.match(cleanupMigration, /retired_55_york_demo/, "The retired demo identity must be selected strictly.");

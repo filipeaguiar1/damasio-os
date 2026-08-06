@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { verifyCanonicalRoutePersistence } from "@/lib/routes/verifyCanonicalRoutePersistence";
 
 export const dynamic = "force-dynamic";
 
@@ -24,12 +25,16 @@ function companyFilter(companyId: string) {
   return `company_id.eq.${companyId},organization_id.eq.${companyId}`;
 }
 
+function sameOrder(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 function rpcError(message?: string) {
   const value = message || "Canonical route operation failed.";
   if (/remove_visits_from_today_route/i.test(value)) {
     return new Error("Supabase migration 202608031130_route_advisor_pending_removal.sql is pending.");
   }
-  if (/publish_canonical_route_daily|schema cache|could not find the function/i.test(value)) {
+  if (/publish_canonical_route_daily|apply_canonical_route_order_v2_service|schema cache|could not find the function/i.test(value)) {
     return new Error("Supabase migration 202607280001_route_assignment_modes.sql is pending.");
   }
   if (/reopen_completed_visit/i.test(value)) {
@@ -59,7 +64,7 @@ async function requireAdmin(request: NextRequest) {
   const companyId = profile.company_id || profile.organization_id;
   if (!companyId) throw new Error("Your Admin profile is not linked to a company.");
 
-  return { service, user: userClient(token), companyId };
+  return { service, user: userClient(token), companyId, profileId: String(profile.id) };
 }
 
 async function sourceVisitIdsForMove(
@@ -215,7 +220,7 @@ async function materializePublishedRoute(input: {
 
 export async function POST(request: NextRequest) {
   try {
-    const { service, user, companyId } = await requireAdmin(request);
+    const { service, user, companyId, profileId } = await requireAdmin(request);
     const body = await request.json() as {
       action?: "publish" | "reopen" | "remove_today";
       employeeId?: string;
@@ -223,6 +228,11 @@ export async function POST(request: NextRequest) {
       routeDate?: string;
       orderedJobIds?: string[];
       sourceVisitIds?: string[];
+      origin?: {
+        label?: string;
+        latitude?: number | null;
+        longitude?: number | null;
+      } | null;
       visitId?: string;
       visitIds?: string[];
       removalReason?: string;
@@ -282,6 +292,13 @@ export async function POST(request: NextRequest) {
     if (!routeDate) throw new Error("Choose a route date.");
     if (!orderedJobIds.length) throw new Error("Keep at least one house in the route preview.");
 
+    const originLabel = String(body.origin?.label || "Route start").trim() || "Route start";
+    const originLatitude = Number(body.origin?.latitude);
+    const originLongitude = Number(body.origin?.longitude);
+    if (!Number.isFinite(originLatitude) || !Number.isFinite(originLongitude)) {
+      throw new Error("Generate a valid Smart Route start point before publishing.");
+    }
+
     const moveSourceIds = await sourceVisitIdsForMove(service, companyId, body.removeFrom);
     const sourceVisitIds = [...new Set([
       ...(body.sourceVisitIds || []).map(String).filter(Boolean),
@@ -324,13 +341,49 @@ export async function POST(request: NextRequest) {
       orderedJobIds,
     });
 
+    const applied = await service.rpc("apply_canonical_route_order_v2_service", {
+      p_route_id: routeId,
+      p_ordered_visit_ids: canonical.orderedVisitIds,
+      p_origin_label: originLabel,
+      p_origin_latitude: originLatitude,
+      p_origin_longitude: originLongitude,
+      p_expected_version: canonical.routeVersion,
+      p_actor_profile_id: profileId,
+      p_source: "admin_route_advisor_smart_route",
+    });
+    if (applied.error) throw rpcError(applied.error.message);
+
+    const appliedData = applied.data || {};
+    const appliedOrder = Array.isArray(appliedData.appliedOrder)
+      ? appliedData.appliedOrder.map(String)
+      : Array.isArray(appliedData.applied_order)
+        ? appliedData.applied_order.map(String)
+        : [];
+    const appliedVersion = Number(appliedData.version || appliedData.routeVersion || 0);
+    if (!sameOrder(appliedOrder, canonical.orderedVisitIds) || !Number.isInteger(appliedVersion) || appliedVersion < 1) {
+      throw new Error("The database did not confirm the Smart Route order and version.");
+    }
+
+    const verified = await verifyCanonicalRoutePersistence(service, {
+      routeId,
+      orderedVisitIds: canonical.orderedVisitIds,
+      routeVersion: appliedVersion,
+      origin: {
+        label: originLabel,
+        latitude: originLatitude,
+        longitude: originLongitude,
+      },
+    });
+
     return NextResponse.json({
       ...data,
       routeId,
-      routeVersion: canonical.routeVersion,
-      orderedVisitIds: canonical.orderedVisitIds,
-      count: canonical.count,
+      routeVersion: verified.routeVersion,
+      orderedVisitIds: verified.orderedVisitIds,
+      origin: verified.origin,
+      count: verified.orderedVisitIds.length,
       canonicalVerified: true,
+      smartRouteSaved: true,
     });
   } catch (error) {
     console.error("admin-route-advisor-post", error);
