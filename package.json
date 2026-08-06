@@ -6,10 +6,11 @@
     "dev": "next dev",
     "test:route-writers": "node scripts/validate-canonical-route-writers.mjs",
     "test:map-sync": "node scripts/validate-canonical-map-sync.mjs",
-    "build": "pnpm test:route-writers && pnpm test:map-sync && pnpm test:smart-route-capacity && pnpm test:route-move && pnpm typecheck && next build",
+    "test:current-snapshot": "node scripts/validate-canonical-current-snapshot.mjs",
+    "build": "pnpm test:route-writers && pnpm test:map-sync && pnpm test:current-snapshot && pnpm test:smart-route-capacity && pnpm test:route-move && pnpm typecheck && next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm test:route-writers && pnpm test:map-sync && pnpm test:smart-route-capacity && pnpm test:route-move && pnpm typecheck",
+    "check": "pnpm test:route-writers && pnpm test:map-sync && pnpm test:current-snapshot && pnpm test:smart-route-capacity && pnpm test:route-move && pnpm typecheck",
     "qa": "pnpm build",
     "test:smart-route-capacity": "node scripts/validate-smart-route-capacity.mjs",
     "test:route-move": "node scripts/validate-route-move-reindex.mjs"
