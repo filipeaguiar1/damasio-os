@@ -26,19 +26,11 @@ type Snapshot = {
   updatedAt: string;
 };
 
-function dedicatedPrimaryUrl(configuredUrl: string) {
-  const url = new URL(configuredUrl);
-  if (/^[^.]+-all\.supabase\.co$/i.test(url.hostname)) {
-    url.hostname = url.hostname.replace(/-all\.supabase\.co$/i, ".supabase.co");
-  }
-  return url.origin;
-}
-
-function primaryServiceClient() {
-  const configuredUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+function serviceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!configuredUrl || !key) throw new Error("Canonical primary read is not configured.");
-  return createClient(dedicatedPrimaryUrl(configuredUrl), key, {
+  if (!url || !key) throw new Error("Canonical service read is not configured.");
+  return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   }) as any;
 }
@@ -96,8 +88,8 @@ export async function GET(request: NextRequest) {
   try {
     // The existing authenticated handler remains the authorization boundary and
     // owns route resolution, tenant checks, Visit enrichment and geocoding.
-    // Version/order/origin below come from the exact canonical tables verified
-    // by the writer, read server-side from the dedicated Primary API endpoint.
+    // Version/order/origin below use the exact same URL + service-role client
+    // contract as the canonical writer's persistence verifier.
     const replicaResponse = await getReplicaSnapshot(request);
     const replicaBody = await replicaResponse.json().catch(() => ({}));
     if (!replicaResponse.ok) {
@@ -108,19 +100,19 @@ export async function GET(request: NextRequest) {
     }
 
     const snapshot = replicaBody as Snapshot;
-    const primary = primaryServiceClient();
+    const service = serviceClient();
     const [stateResult, stopsResult, smartResult] = await Promise.all([
-      primary
+      service
         .from("route_order_state")
         .select("version")
         .eq("route_id", snapshot.routeId)
         .maybeSingle(),
-      primary
+      service
         .from("route_stops")
         .select("visit_id,position")
         .eq("route_id", snapshot.routeId)
         .order("position", { ascending: true }),
-      primary
+      service
         .from("employee_smart_route_state")
         .select("active,route_version,applied_order,origin_label,origin_latitude,origin_longitude,applied_at")
         .eq("route_id", snapshot.routeId)
@@ -133,13 +125,13 @@ export async function GET(request: NextRequest) {
     const routeVersion = Number(stateResult.data?.version || 0);
     const orderedVisitIds: string[] = (stopsResult.data || []).map((row: any) => String(row.visit_id));
     if (!Number.isInteger(routeVersion) || routeVersion < 1 || !orderedVisitIds.length) {
-      throw new Error("Primary canonical Route did not return a valid versioned order.");
+      throw new Error("Canonical service read did not return a valid versioned order.");
     }
 
     const replicaIds = snapshot.stops.map(stop => String(stop.visitId));
     if (!sameMembers(replicaIds, orderedVisitIds)) {
       return NextResponse.json(
-        { error: "Canonical Route membership is still converging from the Primary database. Retry this snapshot." },
+        { error: "Canonical Route membership is still converging. Retry this snapshot." },
         { status: 409, headers: { "Cache-Control": "no-store, max-age=0", "Retry-After": "1" } },
       );
     }
@@ -181,11 +173,11 @@ export async function GET(request: NextRequest) {
       geometryStatus = refreshed.geometryStatus;
     }
 
-    console.info("canonical-route-primary-snapshot-ok", {
+    console.info("canonical-route-service-snapshot-ok", {
       routeId: snapshot.routeId,
       routeVersion,
-      replicaVersion: snapshot.routeVersion,
-      primaryOverride: orderChanged || originChanged,
+      enrichedVersion: snapshot.routeVersion,
+      serviceOverride: orderChanged || originChanged,
       stopCount: stops.length,
       geometryStatus,
     });
@@ -202,9 +194,9 @@ export async function GET(request: NextRequest) {
       updatedAt: smartIsCurrent && smartRow?.applied_at ? String(smartRow.applied_at) : snapshot.updatedAt,
     }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
-    console.error("canonical-route-primary-snapshot", error);
+    console.error("canonical-route-service-snapshot", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Primary canonical Route could not be loaded." },
+      { error: error instanceof Error ? error.message : "Canonical Route could not be loaded consistently." },
       { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } },
     );
   }
