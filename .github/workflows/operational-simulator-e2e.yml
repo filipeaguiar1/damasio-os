@@ -77,6 +77,7 @@ jobs:
               '  const profileIds = [...new Set([': '  const profileIds: string[] = [...new Set<string>([',
               '  const routeIds = [...new Set(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];': '  const routeIds: string[] = [...new Set<string>(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];',
               '  const crewIds = [...new Set(employeeRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];': '  const crewIds: string[] = [...new Set<string>(employeeRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];',
+              '    for (const batch of chunks(customerIds, 4)) {': '    for (const batch of chunks<string>(customerIds, 4)) {',
           }
           for old, new in type_replacements.items():
               if old not in text:
@@ -97,8 +98,6 @@ jobs:
           path.write_text(text)
           PY
           git diff --check
-          echo '--- generated cleanup lines 730-748 ---'
-          nl -ba app/api/admin/operational-simulator/route.ts | sed -n '730,748p'
 
       - uses: pnpm/action-setup@v4
         with:
