@@ -123,4 +123,28 @@ replacement = '''  const normalized = stops.map(stop => {
 text = replace_once(text, anchor, replacement, "transactional compatibility projection")
 projection_path.write_text(text)
 
-print("Final two blocker candidates applied.")
+
+# Newly exposed Operational blocker: the legacy feedback RPC performs the write
+# and then rebuilds the whole Customer board in the same statement. On a loaded
+# QA tenant that can cross the database statement limit even though each operation
+# succeeds independently. A canceled PostgreSQL statement is transactional, so it
+# is safe to use the existing authenticated server-action fallback and then reload
+# the board in a separate request; no timeout or assertion is relaxed.
+portal_path = Path("lib/repositories/customerPortalRepository.ts")
+text = portal_path.read_text()
+text = replace_once(
+    text,
+    '''  return error?.code === "PGRST202"
+    || error?.code === "42501"
+    || error?.code === "42703"
+    || /could not find the function public\\.(create_customer_portal_request|submit_customer_portal_feedback)|schema cache|permission denied|column .*company_id.*does not exist/i.test(message);''',
+    '''  return error?.code === "PGRST202"
+    || error?.code === "42501"
+    || error?.code === "42703"
+    || error?.code === "57014"
+    || /could not find the function public\\.(create_customer_portal_request|submit_customer_portal_feedback)|schema cache|permission denied|column .*company_id.*does not exist|canceling statement due to statement timeout/i.test(message);''',
+    "customer portal statement-timeout fallback",
+)
+portal_path.write_text(text)
+
+print("Remaining QA blocker candidates applied.")
