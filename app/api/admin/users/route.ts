@@ -102,6 +102,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   let createdUserId = "";
+  let createdCrewId = "";
   try {
     const { client, companyId } = await companyAdmin(request);
     const body = employeeSchema.parse(await request.json());
@@ -117,12 +118,38 @@ export async function POST(request: NextRequest) {
     const profileResult = await writeWithCapacityFallback(includeCapacity =>
       client.from("profiles").upsert(includeCapacity ? profile : withoutCapacity(profile), { onConflict: "id" }));
     if (profileResult.error) throw new Error(profileResult.error.message);
-    const employee = { organization_id: companyId, company_id: companyId, profile_id: createdUserId, ...base, active: true, invite_status: "sent" };
+
+    const crewResult = await client.from("crews")
+      .insert({
+        organization_id: companyId,
+        company_id: companyId,
+        name: body.fullName,
+        active: true,
+      })
+      .select("id")
+      .single();
+    if (crewResult.error || !crewResult.data?.id) {
+      throw new Error(crewResult.error?.message || "The Employee Crew could not be created.");
+    }
+    createdCrewId = String(crewResult.data.id);
+
+    const employee = {
+      organization_id: companyId,
+      company_id: companyId,
+      profile_id: createdUserId,
+      crew_id: createdCrewId,
+      ...base,
+      active: true,
+      invite_status: "sent",
+    };
     const employeeResult = await writeWithCapacityFallback(includeCapacity =>
       client.from("employees").insert(includeCapacity ? employee : withoutCapacity(employee)));
     if (employeeResult.error) throw new Error(employeeResult.error.message);
     return NextResponse.json({ user: { ...profile, daily_route_capacity: body.dailyRouteCapacity }, message: `Invitation sent to ${body.email}.` }, { status: 201 });
   } catch (error) {
+    if (createdCrewId) {
+      try { await serverClient().from("crews").delete().eq("id", createdCrewId); } catch { /* best effort rollback */ }
+    }
     if (createdUserId) try { await serverClient().auth.admin.deleteUser(createdUserId); } catch { /* best effort rollback */ }
     return failure(error);
   }
