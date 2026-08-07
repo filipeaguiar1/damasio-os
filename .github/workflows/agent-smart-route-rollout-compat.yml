@@ -25,118 +25,20 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-
-      - name: Patch rollout-safe projection handling
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          route_path = Path('app/api/mobile/employee/smart-route/route.ts')
-          route = route_path.read_text()
-          start = route.index('async function projectCanonicalVisitOrder(')
-          end = route.index('export async function POST', start)
-          route = route[:start] + '''async function projectCanonicalVisitOrder(
-            service: any,
-            routeId: string,
-          ): Promise<{ projected: boolean; reason?: string }> {
-            const projected = await service.rpc("sync_canonical_route_stops_v2", {
-              p_route_id: routeId,
-              p_source: "employee_smart_route_projection",
-            });
-            if (!projected.error) return { projected: true };
-
-            const message = String(projected.error.message || "");
-            if (!/permission denied|schema cache|could not find the function|does not exist/i.test(message)) {
-              throw new Error(`Canonical Visit projection failed: ${message}`);
-            }
-
-            console.warn("employee-smart-route-projection-pending-migration", {
-              routeId,
-              rpcError: message,
-            });
-            return { projected: false, reason: message };
-          }
-
-          ''' + route[end:]
-
-          route = route.replace(
-            'await projectCanonicalVisitOrder(service, body.routeId, requestedOrder);',
-            'const visitProjection = await projectCanonicalVisitOrder(service, body.routeId);',
-            1,
-          )
-          route = route.replace(
-            '''    routeVersion,
-              origin,
-            });''',
-            '''    routeVersion,
-              origin,
-              requireVisitProjection: visitProjection.projected,
-            });''',
-            1,
-          )
-          route = route.replace(
-            '''    orderedVisitIds: verified.orderedVisitIds,
-              origin: verified.origin,
-            };''',
-            '''    orderedVisitIds: verified.orderedVisitIds,
-              origin: verified.origin,
-              visitProjection: visitProjection.projected ? "applied" : "pending_migration",
-            };''',
-            1,
-          )
-          if 'requireVisitProjection: visitProjection.projected' not in route or 'visitProjection: visitProjection.projected' not in route:
-            raise SystemExit('Smart Route response patch did not apply')
-          route_path.write_text(route)
-
-          verifier_path = Path('lib/routes/verifyCanonicalRoutePersistence.ts')
-          verifier = verifier_path.read_text()
-          verifier = verifier.replace(
-            '  origin: CanonicalOriginExpectation;\n};',
-            '  origin: CanonicalOriginExpectation;\n  requireVisitProjection?: boolean;\n};',
-            1,
-          )
-          verifier = verifier.replace(
-            '|| !sameOrder(persisted.projectedVisitIds, expected.orderedVisitIds)',
-            '|| (expected.requireVisitProjection !== false && !sameOrder(persisted.projectedVisitIds, expected.orderedVisitIds))',
-            1,
-          )
-          if 'requireVisitProjection?: boolean;' not in verifier or 'expected.requireVisitProjection !== false' not in verifier:
-            raise SystemExit('Verifier patch did not apply')
-          verifier_path.write_text(verifier)
-
-          test_path = Path('tests/full-ecosystem-smart-route.spec.ts')
-          test = test_path.read_text()
-          old = '''    // Verify the compatibility projection by exact Visit ID instead of relying on query row order.
-            const projectionAfter = await service.from("visits").select("id,route_order").in("id", reversed);
-            expect(projectionAfter.error, projectionAfter.error?.message).toBeNull();
-            const projected = new Map((projectionAfter.data || []).map((row: any) => [String(row.id), Number(row.route_order)]));
-            console.log(JSON.stringify({ checkpoint: "smart-route-projection", reversed, projected: Object.fromEntries(projected) }));
-            reversed.forEach((visitId, index) => expect(projected.get(visitId), `visit ${visitId} route_order`).toBe(index + 1));'''
-          new = '''    expect(["applied", "pending_migration"]).toContain(applied.visitProjection);
-            const projectionAfter = await service.from("visits").select("id,route_order").in("id", reversed);
-            expect(projectionAfter.error, projectionAfter.error?.message).toBeNull();
-            const projected = new Map((projectionAfter.data || []).map((row: any) => [String(row.id), Number(row.route_order)]));
-            console.log(JSON.stringify({ checkpoint: "smart-route-projection", status: applied.visitProjection, reversed, projected: Object.fromEntries(projected) }));
-            if (applied.visitProjection === "applied") {
-              reversed.forEach((visitId, index) => expect(projected.get(visitId), `visit ${visitId} route_order`).toBe(index + 1));
-            }'''
-          if old not in test:
-            raise SystemExit('Smart Route test block not found')
-          test_path.write_text(test.replace(old, new, 1))
-          PY
-
+      - name: Apply patch
+        run: python scripts/qa-smart-route-rollout-patch.py
       - name: Validate architecture and types
         run: |
           pnpm install --frozen-lockfile
           pnpm test:route-writers
           pnpm test:map-sync
           pnpm typecheck
-
-      - name: Commit verified rollout fix
+      - name: Commit verified fix
         run: |
           rm .github/workflows/agent-smart-route-rollout-compat.yml
+          rm scripts/qa-smart-route-rollout-patch.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/api/mobile/employee/smart-route/route.ts lib/routes/verifyCanonicalRoutePersistence.ts tests/full-ecosystem-smart-route.spec.ts .github/workflows/agent-smart-route-rollout-compat.yml
+          git add -A
           git commit -m "Keep Smart Route canonical during projection rollout"
           git push origin HEAD:qa/full-ecosystem-e2e-20260807
