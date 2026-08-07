@@ -34,6 +34,7 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
   const [loading, setLoading] = useState(Boolean(requestedRouteId || routeDate));
   const requestRef = useRef(0);
   const burstRef = useRef(0);
+  const realtimeSubscriptionRef = useRef(0);
   const activeRouteId = requestedRouteId || resolvedRouteId;
 
   const refresh = useCallback(async () => {
@@ -137,11 +138,15 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
     if (!activeRouteId) return;
     let disposed = false;
     const client = getSupabaseBrowserClient() as any;
+    const subscriptionId = ++realtimeSubscriptionRef.current;
     const invalidateCurrent = () => {
       if (!disposed) void invalidateAndRefresh();
     };
+    // Supabase can keep the previous channel alive briefly while removeChannel()
+    // completes. A unique topic per effect prevents a rerender from reusing an
+    // already-subscribed channel and then trying to add callbacks to it.
     const channel = client
-      .channel(`canonical-route-version:${activeRouteId}`)
+      .channel(`canonical-route-version:${activeRouteId}:${subscriptionId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "route_order_state", filter: `route_id=eq.${activeRouteId}` },
