@@ -72,6 +72,16 @@ jobs:
           from pathlib import Path
           path = Path("app/api/admin/operational-simulator/route.ts")
           text = path.read_text()
+          type_replacements = {
+              '  const customerIds = (customers.data || []).map((row: any) => String(row.id));': '  const customerIds: string[] = (customers.data || []).map((row: any) => String(row.id));',
+              '  const profileIds = [...new Set([': '  const profileIds: string[] = [...new Set<string>([',
+              '  const routeIds = [...new Set(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];': '  const routeIds: string[] = [...new Set<string>(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];',
+              '  const crewIds = [...new Set(employeeRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];': '  const crewIds: string[] = [...new Set<string>(employeeRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];',
+          }
+          for old, new in type_replacements.items():
+              if old not in text:
+                  raise SystemExit(f"Cleanup type anchor not found: {old}")
+              text = text.replace(old, new, 1)
           replacements = {
               '    await removeByIds("route_stops", "route_stops", "route_id", routeIds);': '''    for (const batch of chunks(routeIds, 25)) {
               await remove("route_stops", service.from("route_stops").delete().in("route_id", batch));
