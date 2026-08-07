@@ -1,4 +1,4 @@
-name: Overnight admin route patch
+name: Verified admin route timeout patch
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
       - feature/25-30-homes-simulator-v1
     paths:
       - scripts/overnight-admin-route-patch.py
+      - .github/workflows/overnight-admin-route-patch.yml
 
 permissions:
   contents: write
@@ -17,14 +18,46 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: feature/25-30-homes-simulator-v1
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python scripts/overnight-admin-route-patch.py
-      - run: |
+
+      - name: Apply bounded read-only route patch
+        run: python scripts/overnight-admin-route-patch.py
+
+      - name: Verify intended source changes
+        shell: bash
+        run: |
+          git diff --check
+          grep -q 'async function readEmployees' app/api/admin/routes/route.ts
+          grep -q 'Employee/Crew creation belongs to the explicit lifecycle flow' app/api/admin/routes/route.ts
+          grep -q '.limit(routeDate ? 250 : 100)' app/api/admin/routes/route.ts
+          grep -q 'api(`/api/admin/routes?date=${encodeURIComponent(date)}`)' app/mobile/admin/routes/page.tsx
+          if grep -A90 'async function readEmployees' app/api/admin/routes/route.ts | grep -Eq '\.(insert|update)\('; then
+            echo 'Read-only Employee helper still writes' >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate application
+        run: pnpm check && pnpm build
+
+      - name: Commit verified patch and remove temporary automation
+        shell: bash
+        run: |
+          rm .github/workflows/overnight-admin-route-patch.yml scripts/overnight-admin-route-patch.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/mobile/admin/routes/page.tsx
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "fix(routes): correct admin mobile empty state"
-          git push
+          git add app/api/admin/routes/route.ts app/mobile/admin/routes/page.tsx .github/workflows/overnight-admin-route-patch.yml scripts/overnight-admin-route-patch.py
+          git commit -m "fix(routes): bound admin route reads and remove GET writes"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
