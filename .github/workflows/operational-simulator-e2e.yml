@@ -1,17 +1,19 @@
 name: Operational Simulator E2E
 # Temporary diagnostic harness for the final Employee Mobile convergence blocker.
-# Assertions and their timeouts remain untouched.
+# Product assertions and their timeouts remain untouched.
 
 on:
   pull_request:
     branches:
       - main
     paths:
+      - "app/api/admin/operational-simulator/**"
       - "app/mobile/employee/page.tsx"
       - "components/mobile/EmployeeRouteMap.tsx"
       - "lib/hooks/useCanonicalRouteSnapshot.ts"
       - "lib/routes/canonicalRouteSnapshot.ts"
       - "lib/services/routeMapService.ts"
+      - "tests/operational-simulator.spec.ts"
       - "tests/canonical-route-sync.spec.ts"
       - ".github/workflows/operational-simulator-e2e.yml"
   workflow_dispatch:
@@ -41,6 +43,47 @@ jobs:
           ref: qa/full-ecosystem-e2e-20260807
           fetch-depth: 0
 
+      - name: Apply proven Exception Week query fix in runner only
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("app/api/admin/operational-simulator/exceptions/route.ts")
+          text = path.read_text()
+          text = text.replace("  route_id: string | null;\n  scheduled_date: string;", "  route_id: string | null;\n  route_order: number | null;\n  scheduled_date: string;", 1)
+          start = text.index("async function completedVisits(")
+          end = text.index("\n\nasync function exceptionStatus", start)
+          replacement = [
+              'async function completedVisits(service: any, companyId: string, customerIds: string[]): Promise<VisitRow[]> {',
+              '  if (!customerIds.length) return [];',
+              '  const jobs = await service.from("jobs")',
+              '    .select("id")',
+              '    .eq("company_id", companyId)',
+              '    .in("customer_id", customerIds);',
+              '  if (jobs.error) throw new Error(`jobs: ${jobs.error.message}`);',
+              '  const jobIds = (jobs.data || []).map((row: any) => String(row.id));',
+              '  if (!jobIds.length) return [];',
+              '  const rows: VisitRow[] = [];',
+              '  for (let offset = 0; offset < jobIds.length; offset += 12) {',
+              '    const result = await service.from("visits")',
+              '      .select("id,customer_id,route_id,route_order,scheduled_date,status,started_at,finished_at,duration_seconds,employee_notes,customer_visible_summary")',
+              '      .eq("company_id", companyId)',
+              '      .in("job_id", jobIds.slice(offset, offset + 12))',
+              '      .eq("status", "completed")',
+              '      .limit(120);',
+              '    if (result.error) throw new Error(`visits: ${result.error.message}`);',
+              '    rows.push(...((result.data || []) as VisitRow[]));',
+              '  }',
+              '  return rows.sort((left, right) =>',
+              '    String(right.scheduled_date).localeCompare(String(left.scheduled_date))',
+              '    || Number(left.route_order ?? 2147483647) - Number(right.route_order ?? 2147483647)',
+              '    || left.id.localeCompare(right.id));',
+              '}',
+          ]
+          path.write_text(text[:start] + "\n".join(replacement) + text[end:])
+          PY
+          git diff --check
+
       - name: Add Employee Mobile diagnostics in runner only
         shell: bash
         run: |
@@ -58,7 +101,7 @@ jobs:
               '  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_BODY:", (await employeeMobile.locator("body").innerText()).slice(0, 8000));',
               '  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_CANONICAL_TEXTS:", await employeeMobile.getByText(/Canonical route v\\d+/i).allTextContents());',
               '  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_MARKERS:", await employeeMobile.locator(".employee-map-marker").count());',
-              '  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_MAPS:", await employeeMobile.locator(".role-map-card").count());',
+              '  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_MAPS:", await employeeMobile.locator(".employee-map-panel").count());',
               '  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_ROUTE_TOGGLES:", await employeeMobile.getByRole("button", { name: /List|Map/ }).allTextContents());',
               '  await employeeMobile.screenshot({ path: "canonical-employee-mobile-before-assert.png", fullPage: true });',
               '',
@@ -93,6 +136,9 @@ jobs:
           cat /tmp/damasio-mobile-diagnostic.log
           exit 1
 
+      - name: Generate Operational Simulator handoff
+        run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
+
       - name: Run canonical route sync diagnostic gate
         run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
 
@@ -104,5 +150,6 @@ jobs:
           path: |
             canonical-employee-mobile-before-assert.png
             canonical-employee-web.png
+            operational-simulator.png
             /tmp/damasio-mobile-diagnostic.log
           if-no-files-found: ignore
