@@ -1,0 +1,77 @@
+name: QA fix final Stripe and mobile route convergence
+
+on:
+  push:
+    branches:
+      - qa/full-ecosystem-e2e-20260807
+    paths:
+      - .github/workflows/qa-fix-final-two.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/full-ecosystem-e2e-20260807
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Patch final issues
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # Stripe checkout: invoices canonically belongs to organization_id in live schema.
+          p = Path('app/api/stripe/checkout/route.ts')
+          t = p.read_text()
+          t = t.replace('id,company_id,organization_id,customer_id,invoice_number,status,total,stripe_checkout_session_id', 'id,organization_id,customer_id,invoice_number,status,total,stripe_checkout_session_id')
+          t = t.replace('id,company_id,organization_id,customer_id,status,stripe_checkout_session_id', 'id,organization_id,customer_id,status,stripe_checkout_session_id')
+          t = t.replace('const companyId = invoice.company_id || invoice.organization_id;', 'const companyId = invoice.organization_id;')
+          p.write_text(t)
+
+          # Stripe E2E fixture must match the real invoice schema.
+          p = Path('tests/full-ecosystem-stripe.spec.ts')
+          t = p.read_text().replace('      company_id: companyId,\n      quote_id: quoteId,', '      quote_id: quoteId,')
+          p.write_text(t)
+
+          # Provide an explicit route-id reader so post-write refresh cannot resolve a different route by date.
+          p = Path('lib/services/routeMapService.ts')
+          t = p.read_text()
+          anchor = '''export async function loadEmployeeRouteMapContext(routeDate: string, _crewName: string): Promise<EmployeeRouteMapContext> {\n  if (!routeDate || !isSupabaseConfigured()) return emptyContext;\n  const snapshot = await loadCanonicalRouteSnapshot({ routeDate });\n  return employeeRouteMapContextFromSnapshot(snapshot);\n}\n'''
+          addition = anchor + '''\nexport async function loadEmployeeRouteMapContextByRouteId(routeId: string): Promise<EmployeeRouteMapContext> {\n  if (!routeId || !isSupabaseConfigured()) return emptyContext;\n  const snapshot = await loadCanonicalRouteSnapshot({ routeId });\n  return employeeRouteMapContextFromSnapshot(snapshot);\n}\n'''
+          if 'loadEmployeeRouteMapContextByRouteId' not in t:
+              if anchor not in t: raise SystemExit('routeMapService anchor not found')
+              t = t.replace(anchor, addition, 1)
+          p.write_text(t)
+
+          # After Smart Route/restore, refresh the exact canonical Route that was written.
+          p = Path('app/mobile/employee/page.tsx')
+          t = p.read_text()
+          t = t.replace('loadEmployeeRouteMapContext, loadEmployeeRouteMapContextUntilStatus, restoreEmployeeDatabaseSmartRoute', 'loadEmployeeRouteMapContext, loadEmployeeRouteMapContextByRouteId, loadEmployeeRouteMapContextUntilStatus, restoreEmployeeDatabaseSmartRoute')
+          t = t.replace('const nextContext=await loadEmployeeRouteMapContext(selectedDate,crew);\n      setMapContext(nextContext);', 'const nextContext=await loadEmployeeRouteMapContextByRouteId(mapContext.routeId);\n      setMapContext(nextContext);')
+          t = t.replace('setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));\n        refresh();setMessage("Original route restored on Admin and Employee.")', 'setMapContext(await loadEmployeeRouteMapContextByRouteId(mapContext.routeId));\n        refresh();setMessage("Original route restored on Admin and Employee.")')
+          p.write_text(t)
+          PY
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate
+        run: pnpm test:route-writers && pnpm test:map-sync && pnpm typecheck
+      - name: Commit verified fixes
+        shell: bash
+        run: |
+          rm .github/workflows/qa-fix-final-two.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/stripe/checkout/route.ts tests/full-ecosystem-stripe.spec.ts lib/services/routeMapService.ts app/mobile/employee/page.tsx .github/workflows/qa-fix-final-two.yml
+          git commit -m "Fix Stripe invoice schema and mobile route convergence"
+          git push origin HEAD:qa/full-ecosystem-e2e-20260807
