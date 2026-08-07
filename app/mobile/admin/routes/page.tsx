@@ -76,7 +76,7 @@ export default function MobileAdminRoutes() {
 
   async function refresh(clearMessage = true) {
     try {
-      const result = await api("/api/admin/routes");
+      const result = await api(`/api/admin/routes?date=${encodeURIComponent(date)}`);
       const realEmployees: RouteEmployee[] = result.employees || [];
       setEmployees(realEmployees);
       setLeads(schedulingBoardToLeads((result.board || {}) as SchedulingDispatchBoard));
@@ -96,7 +96,7 @@ export default function MobileAdminRoutes() {
     void refresh();
     const timer = window.setInterval(() => void refresh(false), 10_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [date]);
 
   const employee = employees.find(item => item.id === employeeId) || null;
   const targetEmployee = employees.find(item => item.id === targetEmployeeId) || null;
