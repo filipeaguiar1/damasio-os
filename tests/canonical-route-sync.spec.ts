@@ -1,9 +1,18 @@
 import { test, expect, type Page } from "@playwright/test";
+import { existsSync, readFileSync } from "node:fs";
 
 const baseURL = "http://127.0.0.1:3000";
 const torontoContext = { timezoneId: "America/Toronto" } as const;
 
 test.setTimeout(420_000);
+
+function torontoDateKey() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
 
 async function signIn(page: Page, email: string, password: string) {
   let lastMessage = "";
@@ -121,34 +130,14 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await signIn(adminDesktop, process.env.E2E_ADMIN_EMAIL!, process.env.E2E_ADMIN_PASSWORD!);
   await adminDesktop.waitForURL("**/admin", { timeout: 30_000 });
 
-  let simulation: any = null;
-  for (let attempt = 0; attempt < 3 && !simulation; attempt += 1) {
-    await cleanupSimulationVisits(adminDesktop);
-    const removal = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
-      method: "POST",
-      body: { action: "remove" },
-      timeoutMs: 120_000,
-    });
-    expect(removal.removed).toBe(true);
-    await expect.poll(async () => {
-      const result = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator");
-      return Boolean(result.status?.exists);
-    }, { timeout: 60_000 }).toBe(false);
-    await adminDesktop.waitForTimeout(750 * (attempt + 1));
-    try {
-      simulation = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
-        method: "POST",
-        body: { action: "create" },
-        timeoutMs: 180_000,
-      });
-    } catch (error) {
-      if (attempt === 2 || !/simulation already exists/i.test(String(error))) throw error;
-    }
-  }
-  expect(simulation?.created).toBe(true);
-  expect(simulation.workers?.length).toBe(2);
-  const workerEmail = String(simulation.workers[0].email);
-  const workerPassword = String(simulation.workers[0].password);
+  const handoffPath = "/tmp/damasio-operational-simulator-handoff.json";
+  expect(existsSync(handoffPath), "Operational Simulator handoff fixture must exist").toBe(true);
+  const handoff = JSON.parse(readFileSync(handoffPath, "utf8"));
+  const workerEmail = String(handoff.workerEmail || "");
+  const workerPassword = String(handoff.workerPassword || "");
+  expect(workerEmail).toContain("worker-1@4everseasons.test");
+  expect(workerPassword).not.toBe("");
+  const routeDate = torontoDateKey();
 
   const employeeDesktopContext = await browser.newContext({
     ...torontoContext,
@@ -160,7 +149,6 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await signIn(employeeDesktop, workerEmail, workerPassword);
   await employeeDesktop.waitForURL("**/employee", { timeout: 30_000 });
 
-  const routeDate = String(simulation.operational?.liveDate || "");
   expect(routeDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   const employeeSnapshot = await authRequest<any>(employeeDesktop, `/api/map/canonical-route?date=${routeDate}`);
   expect(employeeSnapshot.orderedVisitIds.length).toBeGreaterThanOrEqual(2);
@@ -381,12 +369,7 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await adminDesktop.locator('.advisor-controls input[type="date"]').fill(routeDate);
   await expect(adminDesktop.locator(".advisor-house-picker")).toContainText(`route ${originalJobIds.length}/`, { timeout: 30_000 });
 
-  await cleanupSimulationVisits(adminDesktop);
-  await authRequest(adminDesktop, "/api/admin/operational-simulator", {
-    method: "POST",
-    body: { action: "remove" },
-    timeoutMs: 120_000,
-  });
+  // Reuse the simulator fixture created by the preceding E2E. Do not perform a second heavy cleanup here.
 
   await relaunchedEmployeeMobile.close();
   await adminMobileContext.close();

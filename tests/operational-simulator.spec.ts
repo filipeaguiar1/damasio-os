@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { writeFileSync } from "node:fs";
 
 const baseURL = "http://127.0.0.1:3000";
 const torontoContext = { timezoneId: "America/Toronto" } as const;
@@ -106,6 +107,9 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   const customerPassword = (await codes.nth(5).innerText()).trim();
   expect(workerEmail).toContain("worker-1@4everseasons.test");
   expect(customerEmail).toContain("customer-01@4everseasons.test");
+  writeFileSync("/tmp/damasio-operational-simulator-handoff.json", JSON.stringify({
+    workerEmail, workerPassword,
+  }), "utf8");
 
   await admin.getByRole("button", { name: "Run Exception Week" }).click();
   await expect(simulationMessage).toContainText(/Exception week seeded/i, { timeout: 60_000 });
