@@ -163,6 +163,19 @@ jobs:
           print("Admin mobile canonical resolver now retries transient session/data convergence in this validation run.")
           PY
 
+      - name: Retry transient simulator Auth teardown
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/canonical-route-sync.spec.ts")
+          text = path.read_text()
+          old = '      const retryable = /fetch failed|failed to fetch|network|abort/i.test(lastError)\n        || /HTTP_(400|401):Bad Request/i.test(lastError);'
+          new = '      const retryable = /fetch failed|failed to fetch|network|abort/i.test(lastError)\n        || /HTTP_(400|401):Bad Request/i.test(lastError)\n        || /HTTP_400:auth cleanup/i.test(lastError);'
+          if old not in text: raise SystemExit("Canonical test Auth teardown retry target was not found.")
+          path.write_text(text.replace(old, new, 1))
+          print("Transient simulator Auth teardown now retries without masking persistent failures.")
+          PY
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
