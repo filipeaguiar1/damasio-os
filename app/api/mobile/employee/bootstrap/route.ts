@@ -90,15 +90,19 @@ export async function POST(request:NextRequest){
     }
 
     const today=new Date().toISOString().slice(0,10);
-    let visitQuery=client.from("visits")
-      .select("id",{count:"exact",head:true})
+    // Keep tenant ownership in the database predicate, then resolve Employee/crew membership
+    // from that already company-bounded result. Two sequential PostgREST .or() filters on the
+    // same request can serialize as an invalid/ambiguous query and caused bootstrap HTTP 400.
+    const companyVisits=await client.from("visits")
+      .select("id,assigned_employee_id,crew_id")
       .eq("scheduled_date",today)
       .not("status","in","(cancelled,missed)")
       .or(companyFilter(companyId));
-    if(employee.crew_id)visitQuery=visitQuery.or(`assigned_employee_id.eq.${employee.id},crew_id.eq.${employee.crew_id}`);
-    else visitQuery=visitQuery.eq("assigned_employee_id",employee.id);
-    const visitResult=await visitQuery;
-    if(visitResult.error)throw new Error(visitResult.error.message);
+    if(companyVisits.error)throw new Error(companyVisits.error.message);
+    const todayVisitCount=(companyVisits.data||[]).filter((visit:any)=>
+      String(visit.assigned_employee_id||"")===String(employee.id)
+      || (employee.crew_id&&String(visit.crew_id||"")===String(employee.crew_id)),
+    ).length;
 
     return NextResponse.json({
       employee:{
@@ -110,9 +114,10 @@ export async function POST(request:NextRequest){
         email:normalizedEmail,
         routeStartAddress:employee.route_start_address||employee.address_line1||null,
       },
-      todayVisitCount:visitResult.count||0,
+      todayVisitCount,
     });
   }catch(error){
+    console.error("mobile-employee-bootstrap",error);
     return NextResponse.json({error:error instanceof Error?error.message:"Employee account synchronization failed."},{status:400});
   }
 }
