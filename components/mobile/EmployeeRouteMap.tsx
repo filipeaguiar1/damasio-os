@@ -17,6 +17,7 @@ type Props = {
   route: CanonicalRouteLead[];
   onOpenVisit: (lead: CanonicalRouteLead) => void;
   routeId?: string;
+  routeVersion?: number | null;
   desktop?: boolean;
   actionLabel?: string;
   originPoint?: { latitude: number; longitude: number; label?: string } | null;
@@ -123,6 +124,7 @@ export function EmployeeRouteMap({
   route,
   onOpenVisit,
   routeId,
+  routeVersion = null,
   desktop = false,
   actionLabel = "Open Visit",
   originPoint = null,
@@ -329,10 +331,14 @@ export function EmployeeRouteMap({
     routeLayerRef.current.bringToBack();
   }, [mapReady, preview, snapshotMatches, snapshot?.routeVersion, snapshot?.geometry, points, origin?.latitude, origin?.longitude]);
 
+  const visibleCanonicalVersion = Math.max(
+    snapshotMatches ? Number(snapshot?.routeVersion || 0) : 0,
+    effectiveRouteId ? Number(routeVersion || 0) : 0,
+  );
   const mapStatus = preview
     ? "Smart Route preview · not published"
-    : snapshotMatches
-      ? `Canonical route v${snapshot?.routeVersion}`
+    : visibleCanonicalVersion > 0
+      ? `Canonical route v${visibleCanonicalVersion}`
       : points.length === displayRoute.length && displayRoute.length > 0
         ? "Current route · geometry rebuilt from active stops"
         : loading

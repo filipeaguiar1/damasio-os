@@ -3,11 +3,19 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
+const uncachedFetch: typeof fetch = (input, init) => fetch(input, {
+  ...init,
+  cache: "no-store",
+});
+
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Employee canonical route resolver is not configured.");
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: uncachedFetch },
+  }) as any;
 }
 
 function companyFilter(companyId: string) {

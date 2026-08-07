@@ -38,10 +38,10 @@ test("full SaaS ecosystem from Master company creation through Customer History"
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const safe = stamp.replace(/[^a-z0-9]/gi, "");
   const routeDate = torontoDateKey();
-  const masterEmail = `qa-master-${stamp}@4everseasons.test`;
-  const adminEmail = `damasio.qa.admin.${safe}@4everseasons.test`;
-  const employeeEmail = `damasio.qa.employee.${safe}@4everseasons.test`;
-  const customerEmail = `damasio.qa.customer.${safe}@4everseasons.test`;
+  const masterEmail = `qa-master-${stamp}@example.com`;
+  const adminEmail = `damasio.qa.admin.${safe}@example.com`;
+  const employeeEmail = `damasio.qa.employee.${safe}@example.com`;
+  const customerEmail = `damasio.qa.customer.${safe}@example.com`;
   const masterPassword = `QaMaster!${safe}Aa1`;
   const adminSeedPassword = `QaAdmin!${safe}Aa1`;
   const employeePassword = `QaEmployee!${safe}Aa1`;

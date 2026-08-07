@@ -390,7 +390,7 @@ export default function MobileEmployeeApp(){
           <div><strong>{lead.address}</strong><p>{lead.name}</p><em>{lead.service} · {lead.serviceFrequency||"weekly"}</em></div>
           <b className={lead.status==="completed"?"mobile-status done":getSessionForLead(lead.id)?.status==="skipped"?"mobile-status skipped":"mobile-status"}>{statusLabel(lead,getSessionForLead(lead.id))}</b>
         </button>)}
-      </section>:<EmployeeRouteMap route={mapRoute} routeId={mapContext.routeId||undefined} originPoint={smartRouteActive&&activeSmartState&&Number.isFinite(activeSmartState.originLatitude)&&Number.isFinite(activeSmartState.originLongitude)?{latitude:Number(activeSmartState.originLatitude),longitude:Number(activeSmartState.originLongitude),label:activeSmartState.originLabel}:defaultOriginPoint} onOpenVisit={openService}/>}
+      </section>:<EmployeeRouteMap route={mapRoute} routeId={mapContext.routeId||undefined} routeVersion={mapContext.routeVersion} originPoint={smartRouteActive&&activeSmartState&&Number.isFinite(activeSmartState.originLatitude)&&Number.isFinite(activeSmartState.originLongitude)?{latitude:Number(activeSmartState.originLatitude),longitude:Number(activeSmartState.originLongitude),label:activeSmartState.originLabel}:defaultOriginPoint} onOpenVisit={openService}/>}
       {routeView==="list"&&nextStop&&<div className="employee-route-next-stack">{!routeStarted&&<button type="button" className="employee-start-route" onClick={startRoute}>Start Route <b>▶</b></button>}<a className="employee-next-directions" href={mapsHref(nextStop.address)} target="_blank" rel="noopener noreferrer"><span>Get directions to next</span><b>⌖</b></a></div>}
     </>}
 
