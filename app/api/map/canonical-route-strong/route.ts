@@ -45,10 +45,9 @@ function sameOrder(left: string[], right: string[]) {
   return left.length === right.length && left.every((id, index) => id === right[index]);
 }
 
-function sameMembers(left: string[], right: string[]) {
-  if (left.length !== right.length) return false;
-  const rightSet = new Set(right);
-  return left.every(id => rightSet.has(id));
+function hasEveryMember(availableIds: string[], requiredIds: string[]) {
+  const available = new Set(availableIds);
+  return requiredIds.every(id => available.has(id));
 }
 
 function numberOrNull(value: unknown) {
@@ -135,7 +134,11 @@ export async function GET(request: NextRequest) {
     }
 
     const replicaIds = snapshot.stops.map(stop => String(stop.visitId));
-    if (!sameMembers(replicaIds, orderedVisitIds)) {
+    // route_stops owns membership. A stale enrichment snapshot may still contain
+    // a recently removed Visit; that is safe because the canonical list below
+    // simply drops it. We only wait when a canonical Visit is genuinely missing
+    // from the enrichment payload and therefore cannot yet be rendered safely.
+    if (!hasEveryMember(replicaIds, orderedVisitIds)) {
       return NextResponse.json(
         { error: "Canonical Route membership is still converging. Retry this snapshot." },
         { status: 409, headers: { "Cache-Control": "no-store, max-age=0", "Retry-After": "1" } },
