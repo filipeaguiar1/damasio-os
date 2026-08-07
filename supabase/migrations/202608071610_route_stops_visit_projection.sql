@@ -65,7 +65,8 @@ on public.route_stops
 for each row
 execute function public.project_route_stop_to_visit_order();
 
--- Repair any projection drift already present when this migration is applied.
+-- Repair drift only on routes that already participate in the canonical
+-- route_stops model. Legacy routes with no canonical stops are left untouched.
 update public.visits v
 set route_order = s.position,
     updated_at = now()
@@ -79,6 +80,11 @@ set route_order = null,
     updated_at = now()
 where v.route_id is not null
   and v.status::text <> 'cancelled'
+  and exists (
+    select 1
+    from public.route_stops canonical
+    where canonical.route_id = v.route_id
+  )
   and not exists (
     select 1
     from public.route_stops s
