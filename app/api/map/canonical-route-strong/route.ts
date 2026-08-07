@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
     if (smartResult.error) throw new Error(smartResult.error.message);
 
     const routeVersion = Number(stateResult.data?.version || 0);
-    const orderedVisitIds = (stopsResult.data || []).map((row: any) => String(row.visit_id));
+    const orderedVisitIds: string[] = (stopsResult.data || []).map((row: any) => String(row.visit_id));
     if (!Number.isInteger(routeVersion) || routeVersion < 1 || !orderedVisitIds.length) {
       throw new Error("Primary canonical Route did not return a valid versioned order.");
     }
