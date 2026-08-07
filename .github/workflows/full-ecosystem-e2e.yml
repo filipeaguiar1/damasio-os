@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - "tests/full-ecosystem.spec.ts"
+      - "tests/full-ecosystem*.spec.ts"
       - ".github/workflows/full-ecosystem-e2e.yml"
       - "app/api/master/**"
       - "app/api/admin/**"
@@ -56,8 +56,8 @@ jobs:
           done
           cat /tmp/damasio-full-ecosystem.log
           exit 1
-      - name: Run full ecosystem journey
-        run: pnpm exec playwright test tests/full-ecosystem.spec.ts --reporter=line --workers=1
+      - name: Run full ecosystem journeys
+        run: pnpm exec playwright test tests/full-ecosystem.spec.ts tests/full-ecosystem-smart-route.spec.ts --reporter=line --workers=1
       - name: Upload ecosystem evidence
         if: always()
         uses: actions/upload-artifact@v4
