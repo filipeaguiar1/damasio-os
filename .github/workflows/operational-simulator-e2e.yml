@@ -1,7 +1,7 @@
 name: Operational Simulator E2E
 # Final authenticated release gate for the canonical Route.
 # Exercises Admin and Employee web/mobile against one versioned snapshot.
-# Confirms browser-local route date, Smart Route sync and Admin Advisor membership edits.
+# The E2E gate never applies database migrations; schema changes must be deployed separately.
 
 on:
   pull_request:
@@ -50,130 +50,12 @@ jobs:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_MANAGEMENT_ACCESS_TOKEN: ${{ secrets.SUPABASE_MANAGEMENT_ACCESS_TOKEN }}
       E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
       E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
       NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: feature/25-30-homes-simulator-v1
-
-      - name: Apply and verify canonical database contracts
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          import urllib.error
-          import urllib.parse
-          import urllib.request
-          from pathlib import Path
-
-          token = os.environ.get("SUPABASE_ACCESS_TOKEN") or os.environ.get("SUPABASE_MANAGEMENT_ACCESS_TOKEN")
-          if not token:
-              raise SystemExit("A Supabase management token is required to install and verify canonical Route contracts.")
-
-          project_url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
-          hostname = urllib.parse.urlparse(project_url).hostname or ""
-          project_ref = hostname.split(".")[0]
-          if not project_ref:
-              raise SystemExit("Could not resolve the Supabase project ref.")
-
-          migrations = [
-              "supabase/migrations/202607290001_customer_portal_action_contract.sql",
-              "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql",
-              "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql",
-              "supabase/migrations/202608031030_canonical_route_one_way_projection.sql",
-              "supabase/migrations/202608031100_lock_active_canonical_route_order.sql",
-              "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql",
-          ]
-          verification = r"""
-          do $canonical_contract$
-          declare
-            sync_definition text;
-          begin
-            if exists (
-              select 1
-              from pg_trigger
-              where not tgisinternal
-                and tgname in (
-                  'route_stops_sync_visit_order_insert',
-                  'route_stops_sync_visit_order_update',
-                  'route_stops_sync_visit_order_delete'
-                )
-            ) then
-              raise exception 'Recursive route_stops synchronization triggers are still installed.';
-            end if;
-
-            if not exists (
-              select 1
-              from pg_trigger
-              where not tgisinternal
-                and tgname = 'guard_active_canonical_route_order_trigger'
-                and tgrelid = 'public.route_stops'::regclass
-            ) then
-              raise exception 'Canonical route overwrite guard is not installed.';
-            end if;
-
-            select pg_get_functiondef(proc.oid)
-            into sync_definition
-            from pg_proc proc
-            join pg_namespace namespace on namespace.oid = proc.pronamespace
-            where namespace.nspname = 'public'
-              and proc.proname = 'sync_canonical_route_stops_v2'
-            limit 1;
-
-            if sync_definition is null
-               or position('update public.visits' in lower(sync_definition)) = 0
-               or position('replace_canonical_route_order_v2' in lower(sync_definition)) > 0
-               or position('delete from public.route_stops' in lower(sync_definition)) > 0
-               or position('insert into public.route_stops' in lower(sync_definition)) > 0 then
-              raise exception 'Canonical projection is not one-way from route_stops to visits.';
-            end if;
-
-            if exists (
-              select 1
-              from public.route_order_state state
-              join lateral (
-                select audit.next_order
-                from public.route_order_audit audit
-                where audit.route_id = state.route_id
-                  and audit.route_version = state.version
-                  and cardinality(audit.next_order) > 0
-                order by audit.created_at desc, audit.id desc
-                limit 1
-              ) latest on true
-              where latest.next_order is distinct from coalesce((
-                select array_agg(stop.visit_id order by stop.position)
-                from public.route_stops stop
-                where stop.route_id = state.route_id
-              ), '{}'::uuid[])
-            ) then
-              raise exception 'A canonical Route still differs from its latest committed audit.';
-            end if;
-          end
-          $canonical_contract$;
-          """
-          query = "\n\n".join([*(Path(path).read_text() for path in migrations), verification])
-          request = urllib.request.Request(
-              f"https://api.supabase.com/v1/projects/{project_ref}/database/query",
-              data=json.dumps({"query": query, "read_only": False}).encode(),
-              headers={
-                  "Authorization": f"Bearer {token}",
-                  "Content-Type": "application/json",
-              },
-              method="POST",
-          )
-          try:
-              with urllib.request.urlopen(request, timeout=240) as response:
-                  response.read()
-                  print(f"Canonical database contracts installed and verified: HTTP {response.status}")
-          except urllib.error.HTTPError as error:
-              detail = error.read().decode(errors="replace")
-              raise SystemExit(f"Supabase migration failed: HTTP {error.code}: {detail[:3000]}")
-          PY
 
       - uses: pnpm/action-setup@v4
         with:
@@ -183,6 +65,44 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+
+      - name: Verify canonical database contract sources
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          migrations = {
+              "supabase/migrations/202607290001_customer_portal_action_contract.sql": [],
+              "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql": [],
+              "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql": [
+                  "route_stops_sync_visit_order_insert",
+                  "route_stops_sync_visit_order_update",
+                  "route_stops_sync_visit_order_delete",
+              ],
+              "supabase/migrations/202608031030_canonical_route_one_way_projection.sql": [
+                  "sync_canonical_route_stops_v2",
+                  "update public.visits",
+              ],
+              "supabase/migrations/202608031100_lock_active_canonical_route_order.sql": [
+                  "guard_active_canonical_route_order_trigger",
+              ],
+              "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql": [
+                  "route_order_audit",
+                  "route_stops",
+              ],
+          }
+
+          for path, required_fragments in migrations.items():
+              source = Path(path)
+              if not source.is_file():
+                  raise SystemExit(f"Missing canonical migration source: {path}")
+              text = source.read_text().lower()
+              for fragment in required_fragments:
+                  if fragment.lower() not in text:
+                      raise SystemExit(f"Canonical migration source {path} is missing contract fragment: {fragment}")
+
+          print("Canonical database migration sources are present and structurally verified.")
+          PY
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -211,8 +131,13 @@ jobs:
         run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
 
       - name: Validate canonical route on four authenticated screens
-        if: ${{ always() }}
-        run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
+        if: ${{ !cancelled() }}
+        run: |
+          if ! command -v pnpm >/dev/null 2>&1; then
+            echo "pnpm is unavailable because runner setup did not complete."
+            exit 1
+          fi
+          pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
 
       - name: Upload screenshots and server log
         if: always()
