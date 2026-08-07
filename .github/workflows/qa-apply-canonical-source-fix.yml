@@ -1,0 +1,199 @@
+name: QA Apply Canonical Source Fix
+
+on:
+  push:
+    branches:
+      - "feature/25-30-homes-simulator-v1"
+    paths:
+      - ".github/workflows/qa-apply-canonical-source-fix.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qa-apply-canonical-source-fix
+  cancel-in-progress: true
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+
+      - name: Apply source fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          # 1. Simulator cleanup: deactivate canonical Smart Route state before route_stops deletion.
+          simulator = Path("app/api/admin/operational-simulator/route.ts")
+          text = simulator.read_text()
+          old = '    await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));\n    await remove("employee_smart_route_state", service.from("employee_smart_route_state").delete().in("route_id", routeIds));'
+          new = '    await remove("employee_smart_route_state", service.from("employee_smart_route_state").delete().in("route_id", routeIds));\n    await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));'
+          if old not in text:
+              raise SystemExit("Simulator cleanup source target was not found.")
+          simulator.write_text(text.replace(old, new, 1))
+
+          # 2. An explicit canonical routeId makes the canonical snapshot authoritative.
+          route_map = Path("components/mobile/EmployeeRouteMap.tsx")
+          text = route_map.read_text()
+          old = "    && sameVisitMembership(operationalRoute, snapshot);"
+          new = "    && (Boolean(routeId) || sameVisitMembership(operationalRoute, snapshot));"
+          if old not in text:
+              raise SystemExit("EmployeeRouteMap source authority target was not found.")
+          route_map.write_text(text.replace(old, new, 1))
+
+          # 3. Admin mobile: resolve route identity and bootstrap the exact canonical snapshot
+          # in one convergence operation. Realtime hook then replaces the bootstrap with newer
+          # versions, but no scheduling list is allowed to define membership/order.
+          admin = Path("app/mobile/admin/routes/page.tsx")
+          text = admin.read_text()
+
+          hook_import = 'import { useCanonicalRouteSnapshot } from "@/lib/hooks/useCanonicalRouteSnapshot";'
+          snapshot_import = 'import type { CanonicalRouteSnapshot } from "@/lib/routes/canonicalRouteSnapshot";'
+          if snapshot_import not in text:
+              if hook_import not in text:
+                  raise SystemExit("Admin mobile canonical hook import was not found.")
+              text = text.replace(hook_import, hook_import + "\n" + snapshot_import, 1)
+
+          state_marker = '  const [canonicalRouteId, setCanonicalRouteId] = useState<string | null>(null);'
+          bootstrap_state = '  const [canonicalBootstrap, setCanonicalBootstrap] = useState<CanonicalRouteSnapshot | null>(null);'
+          if bootstrap_state not in text:
+              if state_marker not in text:
+                  raise SystemExit("Admin mobile canonicalRouteId state was not found.")
+              text = text.replace(state_marker, state_marker + "\n" + bootstrap_state, 1)
+
+          effect_pattern = re.compile(
+              r'  useEffect\(\(\) => \{\s+let cancelled = false;\s+setCanonicalRouteId\(null\);.*?\n  \}, \[employee\?\.id, date\]\);',
+              re.S,
+          )
+          effect_replacement = '''  useEffect(() => {
+            let cancelled = false;
+            setCanonicalRouteId(null);
+            setCanonicalBootstrap(null);
+            if (!employee?.id || !date) return () => { cancelled = true; };
+
+            const resolveCanonicalRoute = async () => {
+              let lastError: unknown = null;
+              for (const delay of [0, 250, 750, 1500, 3000]) {
+                if (delay) await new Promise(resolve => window.setTimeout(resolve, delay));
+                if (cancelled) return;
+                try {
+                  const resolved = await api(`/api/admin/canonical-route?profileId=${encodeURIComponent(employee.id)}&date=${encodeURIComponent(date)}`);
+                  const resolvedRouteId = String(resolved.routeId || "").trim();
+                  if (!resolvedRouteId) throw new Error("Canonical Route resolver returned no routeId.");
+                  const snapshot = await api(`/api/map/canonical-route-current?routeId=${encodeURIComponent(resolvedRouteId)}`) as CanonicalRouteSnapshot;
+                  if (String(snapshot.routeId || "") !== resolvedRouteId || !Array.isArray(snapshot.stops)) {
+                    throw new Error("Canonical Route snapshot did not match the resolved routeId.");
+                  }
+                  if (cancelled) return;
+                  setCanonicalRouteId(resolvedRouteId);
+                  setCanonicalBootstrap(snapshot);
+                  setMessage("");
+                  return;
+                } catch (error) {
+                  lastError = error;
+                }
+              }
+              if (!cancelled) setMessage(lastError instanceof Error ? lastError.message : "Canonical Route could not be resolved.");
+            };
+
+            void resolveCanonicalRoute();
+            return () => { cancelled = true; };
+          }, [employee?.id, date]);'''
+          text, count = effect_pattern.subn(effect_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f"Admin mobile resolver effect matched {count} blocks.")
+
+          hook_old = '  const { snapshot: canonicalSnapshot, error: canonicalError, loading: canonicalLoading } = useCanonicalRouteSnapshot(canonicalRouteId);'
+          hook_new = '  const { snapshot: liveCanonicalSnapshot, error: canonicalError, loading: canonicalLoading } = useCanonicalRouteSnapshot(canonicalRouteId);\n  const canonicalSnapshot = liveCanonicalSnapshot || canonicalBootstrap;'
+          if hook_old not in text:
+              raise SystemExit("Admin mobile canonical snapshot hook target was not found.")
+          text = text.replace(hook_old, hook_new, 1)
+
+          error_old = '  useEffect(() => {\n    if (canonicalError) setMessage(canonicalError);\n  }, [canonicalError]);'
+          error_new = '  useEffect(() => {\n    if (canonicalError && !canonicalBootstrap) setMessage(canonicalError);\n  }, [canonicalError, canonicalBootstrap]);'
+          if error_old not in text:
+              raise SystemExit("Admin mobile canonical error effect target was not found.")
+          text = text.replace(error_old, error_new, 1)
+          admin.write_text(text)
+
+          # Remove the temporary in-run source mutations/diagnostics from the normal E2E.
+          workflow = Path(".github/workflows/operational-simulator-e2e.yml")
+          text = workflow.read_text()
+          temporary_steps = [
+              "Patch simulator cleanup ordering for validation",
+              "Patch canonical map source authority for validation",
+              "Patch resilient Admin mobile canonical resolver for validation",
+              "Add Admin mobile route resolver diagnostics",
+          ]
+          for name in temporary_steps:
+              pattern = re.compile(
+                  r'\n      - name: ' + re.escape(name) + r'\n.*?(?=\n      - name: |\n      - uses: |\Z)',
+                  re.S,
+              )
+              text, count = pattern.subn("", text, count=1)
+              if count != 1:
+                  raise SystemExit(f"Temporary workflow step not found exactly once: {name} ({count})")
+          workflow.write_text(text)
+
+          print("Canonical source fixes and workflow cleanup applied in runner checkout.")
+          PY
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright
+        run: |
+          pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
+          pnpm exec playwright install --with-deps chromium
+
+      - name: Build patched source
+        run: pnpm build
+
+      - name: Start patched server
+        run: |
+          pnpm start > /tmp/damasio-source-fix-server.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/damasio-source-fix-server.log
+          exit 1
+
+      - name: Run operational simulator
+        run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
+
+      - name: Run canonical four-screen test
+        run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
+
+      - name: Commit validated fixes to PR branch
+        if: success()
+        run: |
+          rm .github/workflows/qa-apply-canonical-source-fix.yml
+          git config user.name "Damasio QA Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/api/admin/operational-simulator/route.ts components/mobile/EmployeeRouteMap.tsx app/mobile/admin/routes/page.tsx .github/workflows/operational-simulator-e2e.yml .github/workflows/qa-apply-canonical-source-fix.yml
+          git commit -m "fix canonical mobile route convergence"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
