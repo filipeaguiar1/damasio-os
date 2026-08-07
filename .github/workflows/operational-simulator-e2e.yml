@@ -29,6 +29,7 @@ on:
       - "supabase/migrations/202608031030_canonical_route_one_way_projection.sql"
       - "supabase/migrations/202608031100_lock_active_canonical_route_order.sql"
       - "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql"
+      - "supabase/migrations/202608070002_operational_simulator_visit_cleanup.sql"
       - "tests/operational-simulator.spec.ts"
       - "tests/canonical-route-sync.spec.ts"
       - "public/demo/simulation-lawn-after.svg"
@@ -77,6 +78,7 @@ jobs:
               "supabase/migrations/202608031030_canonical_route_one_way_projection.sql": ["sync_canonical_route_stops_v2", "update public.visits"],
               "supabase/migrations/202608031100_lock_active_canonical_route_order.sql": ["guard_active_canonical_route_order_trigger"],
               "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql": ["route_order_audit", "route_stops"],
+              "supabase/migrations/202608070002_operational_simulator_visit_cleanup.sql": ["cleanup_operational_simulation_visits", "service_role"],
           }
           for path, required_fragments in migrations.items():
               source = Path(path)
@@ -121,19 +123,6 @@ jobs:
           print("Simulator cleanup now confirms exists=false before reporting success in this validation run.")
           PY
 
-      - name: Patch canonical map source authority for validation
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path("components/mobile/EmployeeRouteMap.tsx")
-          text = path.read_text()
-          old = "    && sameVisitMembership(operationalRoute, snapshot);"
-          new = "    && (Boolean(routeId) || sameVisitMembership(operationalRoute, snapshot));"
-          if old not in text: raise SystemExit("Canonical map authority patch target was not found.")
-          path.write_text(text.replace(old, new, 1))
-          print("Explicit canonical routeId now makes route_stops snapshot authoritative in this validation run.")
-          PY
-
       - name: Patch resilient Admin mobile canonical resolver for validation
         run: |
           python - <<'PY'
@@ -172,30 +161,6 @@ jobs:
           if count != 1: raise SystemExit(f"Admin mobile resolver patch matched {count} blocks.")
           path.write_text(updated)
           print("Admin mobile canonical resolver now retries transient session/data convergence in this validation run.")
-          PY
-
-      - name: Add Admin mobile client diagnostics
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path("tests/canonical-route-sync.spec.ts")
-          text = path.read_text()
-          page_marker = '  const adminMobile = await adminMobileContext.newPage();'
-          listeners = '\n'.join([
-              '  adminMobile.on("pageerror", error => console.log("ADMIN_MOBILE_PAGEERROR:", error.stack || error.message));',
-              '  adminMobile.on("console", message => { if (message.type() === "error") console.log("ADMIN_MOBILE_CONSOLE_ERROR:", message.text()); });',
-          ])
-          if page_marker not in text: raise SystemExit("Admin mobile page marker was not found.")
-          text = text.replace(page_marker, page_marker + "\n" + listeners, 1)
-          marker = "  await adminMobile.locator('input[type=\"date\"]').first().fill(routeDate);"
-          addition = '\n'.join([
-              '  const adminMobileResolved = await authRequest<any>(adminMobile, `/api/admin/canonical-route?profileId=${encodeURIComponent(worker.id)}&date=${encodeURIComponent(routeDate)}`);',
-              '  console.log("ADMIN_MOBILE_RESOLVER:", JSON.stringify(adminMobileResolved));',
-              '  console.log("ADMIN_MOBILE_BODY:", (await adminMobile.locator("body").innerText()).slice(0, 1600));',
-          ])
-          if marker not in text: raise SystemExit("Admin mobile diagnostic marker was not found.")
-          path.write_text(text.replace(marker, marker + "\n" + addition, 1))
-          print("Admin mobile pageerror and console diagnostics added for this validation run.")
           PY
 
       - name: Install dependencies
