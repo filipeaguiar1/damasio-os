@@ -87,7 +87,7 @@ jobs:
           print("Canonical database migration sources are present and structurally verified.")
           PY
 
-      - name: Patch simulator cleanup ordering for validation
+      - name: Patch simulator cleanup convergence for validation
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -96,8 +96,29 @@ jobs:
           old = '    await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));\n    await remove("employee_smart_route_state", service.from("employee_smart_route_state").delete().in("route_id", routeIds));'
           new = '    await remove("employee_smart_route_state", service.from("employee_smart_route_state").delete().in("route_id", routeIds));\n    await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));'
           if old not in text: raise SystemExit("Simulator cleanup ordering patch target was not found.")
-          path.write_text(text.replace(old, new, 1))
-          print("Simulator cleanup now deactivates Smart Route state before deleting route_stops in this validation run.")
+          text = text.replace(old, new, 1)
+          old_remove = '\n'.join([
+              '      const removed = await removeSimulation(service, companyId);',
+              '      return NextResponse.json({ removed: true, ...removed, message: `${removed.customersRemoved} simulation customers and ${removed.accountsRemoved} temporary accounts removed.` });',
+          ])
+          new_remove = '\n'.join([
+              '      let removed = await removeSimulation(service, companyId);',
+              '      let remaining = await simulationStatus(service, companyId);',
+              '      for (let attempt = 0; remaining.exists && attempt < 2; attempt += 1) {',
+              '        await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));',
+              '        const retry = await removeSimulation(service, companyId);',
+              '        removed = {',
+              '          customersRemoved: Math.max(removed.customersRemoved, retry.customersRemoved),',
+              '          accountsRemoved: removed.accountsRemoved + retry.accountsRemoved,',
+              '        };',
+              '        remaining = await simulationStatus(service, companyId);',
+              '      }',
+              '      if (remaining.exists) throw new Error(`Simulation cleanup did not converge: ${remaining.customerCount} simulation customers remain.`);',
+              '      return NextResponse.json({ removed: true, ...removed, message: `${removed.customersRemoved} simulation customers and ${removed.accountsRemoved} temporary accounts removed.` });',
+          ])
+          if old_remove not in text: raise SystemExit("Simulator cleanup postcondition patch target was not found.")
+          path.write_text(text.replace(old_remove, new_remove, 1))
+          print("Simulator cleanup now confirms exists=false before reporting success in this validation run.")
           PY
 
       - name: Patch canonical map source authority for validation
