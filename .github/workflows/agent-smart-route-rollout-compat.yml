@@ -54,7 +54,7 @@ jobs:
             // The canonical write already committed through the protected SQL
             // writer. Older databases may not yet expose the one-way projection
             // RPC/grant. Never bypass the active-route guard from a later HTTP
-            // transaction: return the canonical success and report rollout drift.
+            // transaction: return canonical success and report rollout drift.
             console.warn("employee-smart-route-projection-pending-migration", {
               routeId,
               rpcError: message,
@@ -72,76 +72,60 @@ jobs:
             raise SystemExit('projection call not found')
           route = route.replace(old_call, 'const visitProjection = await projectCanonicalVisitOrder(service, body.routeId);', 1)
 
-          verify_anchor = '''    origin,
-          });'''
-          verify_replacement = '''    origin,
-            requireVisitProjection: visitProjection.projected,
-          });'''
-          verify_pos = route.find('const verified = await verifyCanonicalRoutePersistence')
-          if verify_pos < 0:
+          verify_pattern = re.compile(r'(const verified = await verifyCanonicalRoutePersistence\(service, \{[\s\S]*?\n\s*origin,)(\n\s*\}\);)', re.M)
+          route, count = verify_pattern.subn(r'\1\n    requireVisitProjection: visitProjection.projected,\2', route, count=1)
+          if count != 1:
             raise SystemExit('verification block not found')
-          suffix = route[verify_pos:]
-          if verify_anchor not in suffix:
-            raise SystemExit('verification anchor not found')
-          suffix = suffix.replace(verify_anchor, verify_replacement, 1)
-          route = route[:verify_pos] + suffix
 
-          response_anchor = '''    origin: verified.origin,
-          };'''
-          response_replacement = '''    origin: verified.origin,
-            visitProjection: visitProjection.projected ? "applied" : "pending_migration",
-          };'''
-          if response_anchor not in route:
-            raise SystemExit('response anchor not found')
-          route = route.replace(response_anchor, response_replacement, 1)
+          response_pattern = re.compile(r'(const response = \{[\s\S]*?\n\s*origin: verified\.origin,)(\n\s*\};)', re.M)
+          route, count = response_pattern.subn(r'\1\n    visitProjection: visitProjection.projected ? "applied" : "pending_migration",\2', route, count=1)
+          if count != 1:
+            raise SystemExit('response block not found')
           route_path.write_text(route)
 
           verifier_path = Path('lib/routes/verifyCanonicalRoutePersistence.ts')
           verifier = verifier_path.read_text()
-          verifier = verifier.replace(
-            '''  origin: CanonicalOriginExpectation;\n};''',
-            '''  origin: CanonicalOriginExpectation;\n  requireVisitProjection?: boolean;\n};''',
-            1,
-          )
+          if 'requireVisitProjection?: boolean;' not in verifier:
+            verifier = verifier.replace(
+              '  origin: CanonicalOriginExpectation;\n};',
+              '  origin: CanonicalOriginExpectation;\n  requireVisitProjection?: boolean;\n};',
+              1,
+            )
           projection_condition = '|| !sameOrder(persisted.projectedVisitIds, expected.orderedVisitIds)'
-          if projection_condition not in verifier:
+          if projection_condition in verifier:
+            verifier = verifier.replace(
+              projection_condition,
+              '|| (expected.requireVisitProjection !== false && !sameOrder(persisted.projectedVisitIds, expected.orderedVisitIds))',
+              1,
+            )
+          elif 'expected.requireVisitProjection !== false' not in verifier:
             raise SystemExit('projection assertion not found')
           verifier = verifier.replace(
-            projection_condition,
-            '|| (expected.requireVisitProjection !== false && !sameOrder(persisted.projectedVisitIds, expected.orderedVisitIds))',
-            1,
-          )
-          verifier = verifier.replace(
-            '''      "The canonical Route did not remain persisted with the reviewed order, origin, version and Visit projection.",''',
-            '''      expected.requireVisitProjection === false
-                ? "The canonical Route did not remain persisted with the reviewed order, origin and version."
-                : "The canonical Route did not remain persisted with the reviewed order, origin, version and Visit projection.",''',
+            '"The canonical Route did not remain persisted with the reviewed order, origin, version and Visit projection.",',
+            'expected.requireVisitProjection === false\n        ? "The canonical Route did not remain persisted with the reviewed order, origin and version."\n        : "The canonical Route did not remain persisted with the reviewed order, origin, version and Visit projection.",',
             1,
           )
           verifier_path.write_text(verifier)
 
           test_path = Path('tests/full-ecosystem-smart-route.spec.ts')
           test = test_path.read_text()
-          old = '''    // Verify the compatibility projection by exact Visit ID instead of relying on query row order.
-            const projectionAfter = await service.from("visits").select("id,route_order").in("id", reversed);
-            expect(projectionAfter.error, projectionAfter.error?.message).toBeNull();
-            const projected = new Map((projectionAfter.data || []).map((row: any) => [String(row.id), Number(row.route_order)]));
-            console.log(JSON.stringify({ checkpoint: "smart-route-projection", reversed, projected: Object.fromEntries(projected) }));
-            reversed.forEach((visitId, index) => expect(projected.get(visitId), `visit ${visitId} route_order`).toBe(index + 1));'''
-          new = '''    // Compatibility projection is mandatory once its database migration is deployed.
-            // During rollout, the canonical route itself must still succeed and survive relaunch;
-            // the API explicitly reports the pending migration instead of hiding the drift.
-            expect(["applied", "pending_migration"]).toContain(applied.visitProjection);
-            const projectionAfter = await service.from("visits").select("id,route_order").in("id", reversed);
-            expect(projectionAfter.error, projectionAfter.error?.message).toBeNull();
-            const projected = new Map((projectionAfter.data || []).map((row: any) => [String(row.id), Number(row.route_order)]));
-            console.log(JSON.stringify({ checkpoint: "smart-route-projection", status: applied.visitProjection, reversed, projected: Object.fromEntries(projected) }));
-            if (applied.visitProjection === "applied") {
-              reversed.forEach((visitId, index) => expect(projected.get(visitId), `visit ${visitId} route_order`).toBe(index + 1));
-            }'''
-          if old not in test:
+          projection_pattern = re.compile(r'\s*// Verify the compatibility projection by exact Visit ID instead of relying on query row order\.\n\s*const projectionAfter =[\s\S]*?\n\s*reversed\.forEach\(\(visitId, index\) => expect\(projected\.get\(visitId\), `visit \$\{visitId\} route_order`\)\.toBe\(index \+ 1\)\);', re.M)
+          replacement = '''
+
+    // Compatibility projection is mandatory once its database migration is deployed.
+    // During rollout, canonical order must still succeed and survive relaunch;
+    // the API explicitly reports pending migration instead of hiding the drift.
+    expect(["applied", "pending_migration"]).toContain(applied.visitProjection);
+    const projectionAfter = await service.from("visits").select("id,route_order").in("id", reversed);
+    expect(projectionAfter.error, projectionAfter.error?.message).toBeNull();
+    const projected = new Map((projectionAfter.data || []).map((row: any) => [String(row.id), Number(row.route_order)]));
+    console.log(JSON.stringify({ checkpoint: "smart-route-projection", status: applied.visitProjection, reversed, projected: Object.fromEntries(projected) }));
+    if (applied.visitProjection === "applied") {
+      reversed.forEach((visitId, index) => expect(projected.get(visitId), `visit ${visitId} route_order`).toBe(index + 1));
+    }'''
+          test, count = projection_pattern.subn(replacement, test, count=1)
+          if count != 1:
             raise SystemExit('Smart Route projection test block not found')
-          test = test.replace(old, new, 1)
           test_path.write_text(test)
           PY
 
