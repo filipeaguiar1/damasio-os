@@ -68,6 +68,18 @@ jobs:
       - name: Apply remaining blocker candidates
         run: |
           python scripts/qa-final-two-blockers.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("app/api/admin/operational-simulator/route.ts")
+          text = path.read_text()
+          old = '    await removeByIds("route_stops", "route_stops", "route_id", routeIds);'
+          new = '''    for (const batch of chunks(routeIds, 25)) {
+              await remove("route_stops", service.from("route_stops").delete().in("route_id", batch));
+            }'''
+          if old not in text:
+              raise SystemExit("Explicit route_stops cleanup anchor not found")
+          path.write_text(text.replace(old, new, 1))
+          PY
           git diff --check
 
       - uses: pnpm/action-setup@v4
