@@ -30,6 +30,8 @@ on:
       - "supabase/migrations/202608031100_lock_active_canonical_route_order.sql"
       - "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql"
       - "supabase/migrations/202608070002_operational_simulator_visit_cleanup.sql"
+      - "supabase/migrations/202608071610_route_stops_visit_projection.sql"
+      - "supabase/migrations/202608071620_route_employee_lookup_indexes.sql"
       - "tests/operational-simulator.spec.ts"
       - "tests/canonical-route-sync.spec.ts"
       - "public/demo/simulation-lawn-after.svg"
@@ -79,6 +81,8 @@ jobs:
               "supabase/migrations/202608031100_lock_active_canonical_route_order.sql": ["guard_active_canonical_route_order_trigger"],
               "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql": ["route_order_audit", "route_stops"],
               "supabase/migrations/202608070002_operational_simulator_visit_cleanup.sql": ["cleanup_operational_simulation_visits", "service_role"],
+              "supabase/migrations/202608071610_route_stops_visit_projection.sql": ["project_route_stop_to_visit_order", "route_stops", "visits"],
+              "supabase/migrations/202608071620_route_employee_lookup_indexes.sql": ["employees_profile_id_idx", "profiles_company_role_active_name_idx"],
           }
           for path, required_fragments in migrations.items():
               source = Path(path)
