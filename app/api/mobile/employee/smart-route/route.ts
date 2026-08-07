@@ -362,6 +362,46 @@ function migrationMissing(message?: string) {
     .test(message || "");
 }
 
+async function projectCanonicalVisitOrder(
+  service: any,
+  routeId: string,
+  orderedVisitIds: string[],
+) {
+  const projected = await service.rpc("sync_canonical_route_stops_v2", {
+    p_route_id: routeId,
+    p_source: "employee_smart_route_projection",
+  });
+  if (!projected.error) return;
+
+  const message = String(projected.error.message || "");
+  if (!/permission denied|schema cache|could not find the function|does not exist/i.test(message)) {
+    throw new Error(`Canonical Visit projection failed: ${message}`);
+  }
+
+  // Temporary compatibility for databases where the later one-way
+  // projection migration has not rolled out yet. route_stops remains
+  // authoritative; this approved writer only projects to Visits.
+  const cleared = await service
+    .from("visits")
+    .update({ route_order: null })
+    .eq("route_id", routeId)
+    .neq("status", "cancelled");
+  if (cleared.error) {
+    throw new Error(`Canonical Visit projection reset failed: ${cleared.error.message}`);
+  }
+
+  for (let index = 0; index < orderedVisitIds.length; index += 1) {
+    const written = await service
+      .from("visits")
+      .update({ route_order: index + 1 })
+      .eq("route_id", routeId)
+      .eq("id", orderedVisitIds[index]);
+    if (written.error) {
+      throw new Error(`Canonical Visit projection write failed: ${written.error.message}`);
+    }
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { service, employee, companyId, profileId } = await context(request);
@@ -532,6 +572,8 @@ export async function POST(request: NextRequest) {
   if (!Number.isInteger(routeVersion) || routeVersion < 1) {
     throw new Error("The database did not confirm a canonical routeVersion.");
   }
+
+  await projectCanonicalVisitOrder(service, body.routeId, requestedOrder);
 
   const verified = await verifyCanonicalRoutePersistence(service, {
     routeId: body.routeId,
