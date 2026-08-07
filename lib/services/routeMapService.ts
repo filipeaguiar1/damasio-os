@@ -130,6 +130,12 @@ export async function loadEmployeeRouteMapContext(routeDate: string, _crewName: 
   return employeeRouteMapContextFromSnapshot(snapshot);
 }
 
+export async function loadEmployeeRouteMapContextByRouteId(routeId: string): Promise<EmployeeRouteMapContext> {
+  if (!routeId || !isSupabaseConfigured()) return emptyContext;
+  const snapshot = await loadCanonicalRouteSnapshot({ routeId });
+  return employeeRouteMapContextFromSnapshot(snapshot);
+}
+
 export async function loadEmployeeRouteMapContextUntilStatus(routeDate: string, crewName: string, visitId: string, expectedStatus: string): Promise<EmployeeRouteMapContext> {
   let latest = await loadEmployeeRouteMapContext(routeDate, crewName);
   for (let attempt = 0; attempt < 8; attempt += 1) {

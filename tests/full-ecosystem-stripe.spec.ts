@@ -115,7 +115,6 @@ test("Stripe test mode creates/cancels invoice checkout and creates tip checkout
     const invoice = await service.from("invoices").insert({
       id: invoiceId,
       organization_id: companyId,
-      company_id: companyId,
       quote_id: quoteId,
       customer_id: customerId,
       property_id: propertyId,

@@ -7,7 +7,7 @@ import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
-import { applyEmployeeDatabaseSmartRoute, applyEmployeeRouteMapContext, loadEmployeeDatabaseSmartRouteState, loadEmployeeRouteMapContext, loadEmployeeRouteMapContextUntilStatus, restoreEmployeeDatabaseSmartRoute, type EmployeeDatabaseSmartRouteState, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
+import { applyEmployeeDatabaseSmartRoute, applyEmployeeRouteMapContext, loadEmployeeDatabaseSmartRouteState, loadEmployeeRouteMapContext, loadEmployeeRouteMapContextByRouteId, loadEmployeeRouteMapContextUntilStatus, restoreEmployeeDatabaseSmartRoute, type EmployeeDatabaseSmartRouteState, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
 import {uploadVisitServicePhotos} from "@/lib/services/propertyPhotoService";
 import {isSupabaseConfigured} from "@/lib/supabase/client";
 import {
@@ -249,7 +249,7 @@ export default function MobileEmployeeApp(){
       const appliedOrder=[...locked,...optimized,...unselected].map(id=>route.find(lead=>lead.id===id)?.canonicalVisitId||id).filter(id=>originalOrder.includes(id));
       const reviewedVersion=activeSmartState&&"routeVersion" in activeSmartState?activeSmartState.routeVersion:mapContext.routeVersion;
       await applyEmployeeDatabaseSmartRoute({routeId:mapContext.routeId,originalOrder,appliedOrder,origin:smartOriginPoint,expectedVersion:reviewedVersion});
-      const nextContext=await loadEmployeeRouteMapContext(selectedDate,crew);
+      const nextContext=await loadEmployeeRouteMapContextByRouteId(mapContext.routeId);
       setMapContext(nextContext);
       setSmartPreview([]);setHomeMode("route");setRouteView("map");refresh();setMessage("Smart Route applied. Admin and Employee now share the same published order.");
       // The canonical Route is already saved and visible. Secondary Smart Route state
@@ -273,7 +273,7 @@ export default function MobileEmployeeApp(){
       const restored=await restoreEmployeeDatabaseSmartRoute(mapContext.routeId,reviewedVersion);
       if(restored){
         setSmartRouteActive(false);setActiveSmartState(null);setSmartPreview([]);
-        setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));
+        setMapContext(await loadEmployeeRouteMapContextByRouteId(mapContext.routeId));
         refresh();setMessage("Original route restored on Admin and Employee.")
       }
     }catch(cause){
