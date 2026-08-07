@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-const CLEANUP_BATCH_SIZE = 8;
+const CLEANUP_BATCH_SIZE = 4;
 
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -48,23 +48,6 @@ async function requireAdmin(request: NextRequest) {
 }
 
 async function cleanupCustomerBatch(service: any, companyId: string, customerIds: string[]): Promise<number> {
-  const visits = await service.from("visits")
-    .select("id")
-    .or(companyFilter(companyId))
-    .in("customer_id", customerIds);
-  if (visits.error) throw new Error(`Simulation Visit lookup: ${visits.error.message}`);
-
-  const visitIds = [...new Set((visits.data || []).map((row: any) => String(row.id)).filter(Boolean))];
-  if (!visitIds.length) return 0;
-
-  // route_stops is only a projection of these verified simulation Visits. Removing the
-  // projection first keeps the protected Visit delete bounded and avoids per-row route
-  // projection work when several historical simulator runs are being cleaned together.
-  for (const visitBatch of chunks(visitIds, 100)) {
-    const stops = await service.from("route_stops").delete().in("visit_id", visitBatch);
-    if (stops.error) throw new Error(`Simulation route_stops cleanup: ${stops.error.message}`);
-  }
-
   const cleanup = await service.rpc("cleanup_operational_simulation_visits", {
     p_company_id: companyId,
     p_customer_ids: customerIds,
