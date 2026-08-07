@@ -142,11 +142,26 @@ export function EmployeeRouteMap({
   const effectiveRouteId = preview
     ? null
     : routeId || operationalRoute.find(lead => Boolean(lead.canonicalRouteId))?.canonicalRouteId || null;
-  const { snapshot, error, loading, refresh } = useCanonicalRouteSnapshot(effectiveRouteId);
+  const { snapshot, error, loading, refresh, invalidateAndRefresh } = useCanonicalRouteSnapshot(effectiveRouteId);
   const snapshotMatches = !preview
     && Boolean(snapshot)
     && snapshot?.routeId === effectiveRouteId
     && (Boolean(routeId) || sameVisitMembership(operationalRoute, snapshot));
+  const publishedOrderSignature = useMemo(
+    () => operationalRoute.map(lead => `${lead.canonicalVisitId || lead.id}:${lead.routeOrder ?? 9999}`).join("|"),
+    [operationalRoute],
+  );
+  const publishedOrderRef = useRef(publishedOrderSignature);
+
+  useEffect(() => {
+    if (preview || !effectiveRouteId) {
+      publishedOrderRef.current = publishedOrderSignature;
+      return;
+    }
+    if (publishedOrderRef.current === publishedOrderSignature) return;
+    publishedOrderRef.current = publishedOrderSignature;
+    void invalidateAndRefresh();
+  }, [preview, effectiveRouteId, publishedOrderSignature, invalidateAndRefresh]);
 
   const displayRoute = useMemo<CanonicalRouteLead[]>(() => {
     if (preview) return operationalRoute;
