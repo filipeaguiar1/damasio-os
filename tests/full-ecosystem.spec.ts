@@ -46,6 +46,7 @@ test("Master creates an isolated company and first Admin can authenticate", asyn
       role: "master",
       full_name: "QA Master",
       email: masterEmail,
+      active: true,
     });
     expect(profileWrite.error, profileWrite.error?.message).toBeNull();
 
@@ -59,10 +60,9 @@ test("Master creates an isolated company and first Admin can authenticate", asyn
       data: {
         name: companyName,
         slug,
-        plan_name: "Professional",
-        contact_email: adminEmail,
-        admin_name: "QA Company Admin",
-        admin_email: adminEmail,
+        plan: "professional",
+        adminName: "QA Company Admin",
+        adminEmail,
       },
     });
     const text = await response.text();
@@ -71,7 +71,7 @@ test("Master creates an isolated company and first Admin can authenticate", asyn
     companyId = result.company?.id || result.id || "";
     expect(companyId, `Company id missing from response: ${text}`).not.toBe("");
 
-    const companyRead = await service.from("service_companies").select("id,name,slug").eq("id", companyId).maybeSingle();
+    const companyRead = await service.from("organizations").select("id,name,slug").eq("id", companyId).maybeSingle();
     expect(companyRead.error, companyRead.error?.message).toBeNull();
     expect(companyRead.data?.name).toBe(companyName);
 
@@ -85,10 +85,7 @@ test("Master creates an isolated company and first Admin can authenticate", asyn
     console.log(JSON.stringify({ checkpoint: "master-company-admin", companyId, companyName, adminEmail }));
   } finally {
     if (adminUserId) await service.auth.admin.deleteUser(adminUserId).catch(() => undefined);
-    if (companyId) {
-      await service.from("service_companies").delete().eq("id", companyId);
-      await service.from("organizations").delete().eq("id", companyId);
-    }
+    if (companyId) await service.from("organizations").delete().eq("id", companyId);
     if (masterUserId) {
       await service.from("profiles").delete().eq("id", masterUserId);
       await service.auth.admin.deleteUser(masterUserId).catch(() => undefined);
