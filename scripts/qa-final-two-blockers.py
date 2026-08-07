@@ -54,6 +54,65 @@ text = text[:start] + completed_visits + text[end:]
 exceptions_path.write_text(text)
 
 
+# QA residue fix: older simulator cleanup falls back to archiving when protected
+# Visit deletion is denied, but then future cleanup ignores those archived
+# simulator Customers. That leaves every old 480-Visit run in the shared QA DB
+# and eventually makes otherwise bounded portal/route queries time out.
+# Include archived simulator Customers in cleanup and use the existing QA-only
+# SECURITY DEFINER Visit cleanup primitive in small customer batches. No timeout
+# or product assertion is changed here.
+simulator_path = Path("app/api/admin/operational-simulator/route.ts")
+text = simulator_path.read_text()
+text = replace_once(
+    text,
+    '''  const customers = await service.from("customers").select("id,profile_id")
+    .or(companyFilter(companyId)).like("email", pattern).is("archived_at", null);''',
+    '''  // Cleanup must include archived simulator Customers. Older runs archived these
+  // rows after protected Visit deletion failed, which otherwise makes their Visits
+  // invisible to every later cleanup and causes QA data to grow without bound.
+  const customers = await service.from("customers").select("id,profile_id")
+    .or(companyFilter(companyId)).like("email", pattern);''',
+    "include archived simulator customers in cleanup",
+)
+old_delete = '''  let visitsDeleted = true;
+  if (customerIds.length) {
+    await remove("invoices", service.from("invoices").delete().in("customer_id", customerIds));
+    visitsDeleted = await remove("visits", service.from("visits").delete().in("customer_id", customerIds), true);
+  }
+'''
+new_delete = '''  let visitsDeleted = true;
+  if (customerIds.length) {
+    await remove("invoices", service.from("invoices").delete().in("customer_id", customerIds));
+
+    // The QA-only cleanup RPC runs under the canonical writer contexts and also
+    // removes Visit audit rows that intentionally use ON DELETE RESTRICT. Keep
+    // each call bounded so accumulated historical simulator runs are drained
+    // without one oversized database statement.
+    let cleanupRpcAvailable = true;
+    for (const batch of chunks(customerIds, 30)) {
+      const cleanup = await service.rpc("cleanup_operational_simulation_visits", {
+        p_company_id: companyId,
+        p_customer_ids: batch,
+      });
+      if (!cleanup.error) continue;
+      const message = String(cleanup.error.message || "");
+      if (/cleanup_operational_simulation_visits|schema cache|could not find the function|permission denied/i.test(message)) {
+        cleanupRpcAvailable = false;
+        break;
+      }
+      throw new Error(`visits cleanup: ${message || "QA cleanup RPC failed"}`);
+    }
+
+    if (!cleanupRpcAvailable) {
+      // Compatibility only for databases that predate the QA cleanup primitive.
+      visitsDeleted = await remove("visits", service.from("visits").delete().in("customer_id", customerIds), true);
+    }
+  }
+'''
+text = replace_once(text, old_delete, new_delete, "bounded operational Visit cleanup")
+simulator_path.write_text(text)
+
+
 # Blocker 2: older deployments expose the safe one-way helper
 # sync_visit_route_order_for_route but do not yet grant service_role access to
 # sync_canonical_route_stops_v2. Prefer that transaction-level helper before the
@@ -124,12 +183,10 @@ text = replace_once(text, anchor, replacement, "transactional compatibility proj
 projection_path.write_text(text)
 
 
-# Newly exposed Operational blocker: the legacy feedback RPC performs the write
-# and then rebuilds the whole Customer board in the same statement. On a loaded
-# QA tenant that can cross the database statement limit even though each operation
-# succeeds independently. A canceled PostgreSQL statement is transactional, so it
-# is safe to use the existing authenticated server-action fallback and then reload
-# the board in a separate request; no timeout or assertion is relaxed.
+# Legacy feedback RPC writes the review and rebuilds the whole Customer board in
+# one statement. If that statement is canceled specifically by the DB statement
+# limit, PostgreSQL rolls the transaction back, so use the existing authenticated
+# server-action fallback and reload the board in a separate request.
 portal_path = Path("lib/repositories/customerPortalRepository.ts")
 text = portal_path.read_text()
 text = replace_once(
