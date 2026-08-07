@@ -31,19 +31,15 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+
           path = Path('app/api/mobile/employee/smart-route/route.ts')
           source = path.read_text()
-          anchor = '''function migrationMissing(message?: string) {
-            return /apply_canonical_route_order_v2(?:_service)?|schema cache|could not find the function/i
-              .test(message || "");
-          }
-          '''
-          helper = '''function migrationMissing(message?: string) {
-            return /apply_canonical_route_order_v2(?:_service)?|schema cache|could not find the function/i
-              .test(message || "");
-          }
 
-          async function projectCanonicalVisitOrder(
+          if 'async function projectCanonicalVisitOrder(' not in source:
+            marker = 'export async function POST(request: NextRequest) {'
+            if marker not in source:
+              raise SystemExit('POST marker not found')
+            helper = '''async function projectCanonicalVisitOrder(
             service: any,
             routeId: string,
             orderedVisitIds: string[],
@@ -59,10 +55,9 @@ jobs:
               throw new Error(`Canonical Visit projection failed: ${message}`);
             }
 
-            // Compatibility for databases that have the canonical writer but not
-            // the later projection grant/trigger migration yet. This code lives in
-            // the already-approved Smart Route writer and remains strictly one-way:
-            // route_stops is authoritative; only visits.route_order is projected.
+            // Temporary compatibility for databases where the later one-way
+            // projection migration has not rolled out yet. route_stops remains
+            // authoritative; this approved writer only projects to Visits.
             const cleared = await service
               .from("visits")
               .update({ route_order: null })
@@ -82,39 +77,23 @@ jobs:
                 throw new Error(`Canonical Visit projection write failed: ${written.error.message}`);
               }
             }
-
-            console.warn("employee-smart-route-projection-compatibility", {
-              routeId,
-              count: orderedVisitIds.length,
-              rpcError: message,
-            });
           }
+
           '''
-          if anchor not in source:
-            raise SystemExit('migrationMissing anchor not found')
-          source = source.replace(anchor, helper, 1)
+            source = source.replace(marker, helper + marker, 1)
 
-          verify_anchor = '''  const verified = await verifyCanonicalRoutePersistence(service, {
-            routeId: body.routeId,
-            orderedVisitIds: requestedOrder,
-            routeVersion,
-            origin,
-          });'''
-          verify_replacement = '''  await projectCanonicalVisitOrder(service, body.routeId, requestedOrder);
+          call = 'await projectCanonicalVisitOrder(service, body.routeId, requestedOrder);'
+          if call not in source:
+            marker = 'const verified = await verifyCanonicalRoutePersistence(service, {'
+            index = source.find(marker)
+            if index < 0:
+              raise SystemExit('verification call marker not found')
+            source = source[:index] + call + '\n\n  ' + source[index:]
 
-          const verified = await verifyCanonicalRoutePersistence(service, {
-            routeId: body.routeId,
-            orderedVisitIds: requestedOrder,
-            routeVersion,
-            origin,
-          });'''
-          if verify_anchor not in source:
-            raise SystemExit('verify anchor not found')
-          source = source.replace(verify_anchor, verify_replacement, 1)
           path.write_text(source)
           PY
 
-      - name: Validate architecture and build
+      - name: Validate architecture and types
         run: |
           pnpm install --frozen-lockfile
           pnpm test:route-writers
@@ -128,4 +107,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app/api/mobile/employee/smart-route/route.ts .github/workflows/agent-smart-route-projection-fix.yml
           git commit -m "Fix Smart Route Visit order projection"
+          git pull --rebase origin qa/full-ecosystem-e2e-20260807
           git push origin HEAD:qa/full-ecosystem-e2e-20260807
