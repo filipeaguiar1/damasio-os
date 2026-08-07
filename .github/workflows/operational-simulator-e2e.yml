@@ -1,7 +1,8 @@
 name: Operational Simulator E2E
-# Final authenticated release gate for the canonical Route.
-# Exercises Admin and Employee web/mobile against one versioned snapshot.
-# The E2E gate never applies database migrations; schema changes must be deployed separately.
+# Temporary validation harness for the final two QA blockers.
+# It patches only the runner checkout, runs the focused gates, and commits the
+# source changes only if both gates pass. The normal workflow is restored in
+# that validated source commit.
 
 on:
   pull_request:
@@ -9,37 +10,19 @@ on:
       - main
     paths:
       - "app/api/admin/operational-simulator/**"
-      - "app/api/customer/portal-actions/**"
       - "app/api/map/**"
-      - "app/admin/performance/**"
-      - "app/employee/route/page.tsx"
-      - "app/mobile/admin/routes/page.tsx"
       - "app/mobile/employee/page.tsx"
-      - "components/admin/OfficialRoutePlanMap.tsx"
       - "components/mobile/EmployeeRouteMap.tsx"
       - "lib/hooks/useCanonicalRouteSnapshot.ts"
-      - "lib/repositories/customerPortalRepository.ts"
       - "lib/routes/canonicalRouteSnapshot.ts"
-      - "lib/routes/verifyCanonicalRoutePersistence.ts"
       - "lib/services/routeMapService.ts"
-      - "lib/simulator/**"
-      - "supabase/migrations/202607290001_customer_portal_action_contract.sql"
-      - "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql"
-      - "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql"
-      - "supabase/migrations/202608031030_canonical_route_one_way_projection.sql"
-      - "supabase/migrations/202608031100_lock_active_canonical_route_order.sql"
-      - "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql"
-      - "supabase/migrations/202608070002_operational_simulator_visit_cleanup.sql"
-      - "supabase/migrations/202608071610_route_stops_visit_projection.sql"
-      - "supabase/migrations/202608071620_route_employee_lookup_indexes.sql"
       - "tests/operational-simulator.spec.ts"
       - "tests/canonical-route-sync.spec.ts"
-      - "public/demo/simulation-lawn-after.svg"
       - ".github/workflows/operational-simulator-e2e.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: operational-simulator-v1
@@ -59,6 +42,167 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: qa/full-ecosystem-e2e-20260807
+
+      - name: Apply final two blocker candidates
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          exceptions_path = Path("app/api/admin/operational-simulator/exceptions/route.ts")
+          text = exceptions_path.read_text()
+
+          old_type = '''type VisitRow = {
+            id: string;
+            customer_id: string;
+            route_id: string | null;
+            scheduled_date: string;
+            status: string;
+            started_at: string | null;
+            finished_at: string | null;
+            duration_seconds: number | null;
+            employee_notes: string | null;
+            customer_visible_summary: string | null;
+          };'''
+          new_type = '''type VisitRow = {
+            id: string;
+            customer_id: string;
+            route_id: string | null;
+            route_order: number | null;
+            scheduled_date: string;
+            status: string;
+            started_at: string | null;
+            finished_at: string | null;
+            duration_seconds: number | null;
+            employee_notes: string | null;
+            customer_visible_summary: string | null;
+          };'''
+          if old_type not in text:
+              raise SystemExit("VisitRow anchor not found")
+          text = text.replace(old_type, new_type, 1)
+
+          old_completed = '''async function completedVisits(service: any, companyId: string, customerIds: string[]): Promise<VisitRow[]> {
+            if (!customerIds.length) return [];
+            const result = await service.from("visits")
+              .select("id,customer_id,route_id,scheduled_date,status,started_at,finished_at,duration_seconds,employee_notes,customer_visible_summary")
+              .in("customer_id", customerIds)
+              .or(companyFilter(companyId))
+              .eq("status", "completed")
+              .order("scheduled_date", { ascending: false })
+              .order("route_order", { ascending: true })
+              .limit(200);
+            if (result.error) throw new Error(`visits: ${result.error.message}`);
+            return (result.data || []) as VisitRow[];
+          }'''
+          new_completed = '''async function completedVisits(service: any, companyId: string, customerIds: string[]): Promise<VisitRow[]> {
+            if (!customerIds.length) return [];
+
+            // Simulation rows always carry company_id. Resolve their Jobs first so the
+            // Visit lookup can use visits_company_job_date_live_idx instead of a wide
+            // customer IN + tenant OR + database sort across the full Visits table.
+            const jobs = await service.from("jobs")
+              .select("id")
+              .eq("company_id", companyId)
+              .in("customer_id", customerIds);
+            if (jobs.error) throw new Error(`jobs: ${jobs.error.message}`);
+            const jobIds = (jobs.data || []).map((row: any) => String(row.id));
+            if (!jobIds.length) return [];
+
+            const rows: VisitRow[] = [];
+            for (let offset = 0; offset < jobIds.length; offset += 12) {
+              const result = await service.from("visits")
+                .select("id,customer_id,route_id,route_order,scheduled_date,status,started_at,finished_at,duration_seconds,employee_notes,customer_visible_summary")
+                .eq("company_id", companyId)
+                .in("job_id", jobIds.slice(offset, offset + 12))
+                .eq("status", "completed")
+                .limit(120);
+              if (result.error) throw new Error(`visits: ${result.error.message}`);
+              rows.push(...((result.data || []) as VisitRow[]));
+            }
+
+            return rows.sort((left, right) =>
+              String(right.scheduled_date).localeCompare(String(left.scheduled_date))
+              || Number(left.route_order ?? 2147483647) - Number(right.route_order ?? 2147483647)
+              || left.id.localeCompare(right.id));
+          }'''
+          if old_completed not in text:
+              raise SystemExit("completedVisits anchor not found")
+          text = text.replace(old_completed, new_completed, 1)
+          exceptions_path.write_text(text)
+
+          route_service_path = Path("lib/services/routeMapService.ts")
+          text = route_service_path.read_text()
+          cache_anchor = '''const emptyContext: EmployeeRouteMapContext = {
+            routeId: null,
+            routeVersion: null,
+            origin: null,
+            orderedVisitIds: [],
+            routeOrder: [],
+            geometry: null,
+            stops: [],
+          };'''
+          cache_replacement = '''const emptyContext: EmployeeRouteMapContext = {
+            routeId: null,
+            routeVersion: null,
+            origin: null,
+            orderedVisitIds: [],
+            routeOrder: [],
+            geometry: null,
+            stops: [],
+          };
+
+          // Canonical route versions are monotonic for a routeId. Realtime/focus refreshes
+          // can overlap the writer response, so a slower pre-write response must never
+          // rehydrate Employee Mobile back to an older visual version in the same tab.
+          const latestEmployeeRouteContext = new Map<string, EmployeeRouteMapContext>();
+
+          function keepNewestEmployeeRouteContext(next: EmployeeRouteMapContext) {
+            if (!next.routeId) return next;
+            const current = latestEmployeeRouteContext.get(next.routeId);
+            if (current && Number(current.routeVersion || 0) > Number(next.routeVersion || 0)) return current;
+            latestEmployeeRouteContext.set(next.routeId, next);
+            return next;
+          }'''
+          if cache_anchor not in text:
+              raise SystemExit("route context cache anchor not found")
+          text = text.replace(cache_anchor, cache_replacement, 1)
+
+          loader_old = '''export async function loadEmployeeRouteMapContext(routeDate: string, _crewName: string): Promise<EmployeeRouteMapContext> {
+            if (!routeDate || !isSupabaseConfigured()) return emptyContext;
+            const snapshot = await loadCanonicalRouteSnapshot({ routeDate });
+            return employeeRouteMapContextFromSnapshot(snapshot);
+          }
+
+          export async function loadEmployeeRouteMapContextByRouteId(routeId: string): Promise<EmployeeRouteMapContext> {
+            if (!routeId || !isSupabaseConfigured()) return emptyContext;
+            const snapshot = await loadCanonicalRouteSnapshot({ routeId });
+            return employeeRouteMapContextFromSnapshot(snapshot);
+          }'''
+          loader_new = '''export async function loadEmployeeRouteMapContext(routeDate: string, _crewName: string): Promise<EmployeeRouteMapContext> {
+            if (!routeDate || !isSupabaseConfigured()) return emptyContext;
+            const snapshot = await loadCanonicalRouteSnapshot({ routeDate });
+            return keepNewestEmployeeRouteContext(employeeRouteMapContextFromSnapshot(snapshot));
+          }
+
+          export async function loadEmployeeRouteMapContextByRouteId(routeId: string): Promise<EmployeeRouteMapContext> {
+            if (!routeId || !isSupabaseConfigured()) return emptyContext;
+            const snapshot = await loadCanonicalRouteSnapshot({ routeId });
+            return keepNewestEmployeeRouteContext(employeeRouteMapContextFromSnapshot(snapshot));
+          }'''
+          if loader_old not in text:
+              raise SystemExit("route context loader anchor not found")
+          text = text.replace(loader_old, loader_new, 1)
+          route_service_path.write_text(text)
+          PY
+
+      - name: Verify candidate patch
+        run: |
+          git diff --check
+          grep -q 'visits_company_job_date_live_idx' app/api/admin/operational-simulator/exceptions/route.ts
+          grep -q 'latestEmployeeRouteContext' lib/services/routeMapService.ts
+          grep -q 'keepNewestEmployeeRouteContext' lib/services/routeMapService.ts
 
       - uses: pnpm/action-setup@v4
         with:
@@ -69,37 +213,13 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - name: Verify canonical database contract sources
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          migrations = {
-              "supabase/migrations/202607290001_customer_portal_action_contract.sql": [],
-              "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql": [],
-              "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql": ["route_stops_sync_visit_order_insert", "route_stops_sync_visit_order_update", "route_stops_sync_visit_order_delete"],
-              "supabase/migrations/202608031030_canonical_route_one_way_projection.sql": ["sync_canonical_route_stops_v2", "update public.visits"],
-              "supabase/migrations/202608031100_lock_active_canonical_route_order.sql": ["guard_active_canonical_route_order_trigger"],
-              "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql": ["route_order_audit", "route_stops"],
-              "supabase/migrations/202608070002_operational_simulator_visit_cleanup.sql": ["cleanup_operational_simulation_visits", "service_role"],
-              "supabase/migrations/202608071610_route_stops_visit_projection.sql": ["project_route_stop_to_visit_order", "route_stops", "visits"],
-              "supabase/migrations/202608071620_route_employee_lookup_indexes.sql": ["employees_profile_id_idx", "profiles_company_role_active_name_idx"],
-          }
-          for path, required_fragments in migrations.items():
-              source = Path(path)
-              if not source.is_file(): raise SystemExit(f"Missing canonical migration source: {path}")
-              text = source.read_text().lower()
-              for fragment in required_fragments:
-                  if fragment.lower() not in text: raise SystemExit(f"Canonical migration source {path} is missing contract fragment: {fragment}")
-          print("Canonical database migration sources are present and structurally verified.")
-          PY
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Install temporary Playwright package
         run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
 
-      - name: TypeScript and production build
+      - name: Build and canonical guardrails
         run: pnpm build
 
       - name: Install Chromium
@@ -107,32 +227,36 @@ jobs:
 
       - name: Start production server
         run: |
-          pnpm start > /tmp/damasio-simulator-server.log 2>&1 &
-          echo $! > /tmp/damasio-simulator-server.pid
+          pnpm start > /tmp/damasio-final-two-blockers.log 2>&1 &
           for attempt in $(seq 1 60); do
             if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
             sleep 1
           done
-          cat /tmp/damasio-simulator-server.log
+          cat /tmp/damasio-final-two-blockers.log
           exit 1
 
-      - name: Run full two-month operational simulation
+      - name: Run Operational Simulator focused gate
         run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
 
-      - name: Validate canonical route on four authenticated screens
-        if: ${{ !cancelled() }}
-        run: |
-          if ! command -v pnpm >/dev/null 2>&1; then
-            echo "pnpm is unavailable because runner setup did not complete."
-            exit 1
-          fi
-          pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
+      - name: Run canonical route sync focused gate
+        run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
 
-      - name: Upload screenshots and server log
+      - name: Commit validated source fixes and restore normal gate
+        if: success()
+        run: |
+          git checkout HEAD^ -- .github/workflows/operational-simulator-e2e.yml
+          rm -f .github/workflows/qa-final-two-blockers.yml
+          git config user.name "Damasio QA Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/api/admin/operational-simulator/exceptions/route.ts lib/services/routeMapService.ts .github/workflows/operational-simulator-e2e.yml .github/workflows/qa-final-two-blockers.yml
+          git commit -m "Fix final simulator and mobile route convergence blockers"
+          git push origin HEAD:qa/full-ecosystem-e2e-20260807
+
+      - name: Upload focused QA evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: operational-simulator-e2e
+          name: qa-final-two-blockers
           path: |
             operational-simulator.png
             employee-live-route.png
@@ -143,5 +267,5 @@ jobs:
             canonical-admin-mobile.png
             canonical-employee-web.png
             canonical-employee-mobile.png
-            /tmp/damasio-simulator-server.log
+            /tmp/damasio-final-two-blockers.log
           if-no-files-found: ignore
