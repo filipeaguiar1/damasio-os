@@ -1,10 +1,14 @@
 import { NextRequest } from "next/server";
-import { GET as loadBaseSnapshot } from "../canonical-route/route";
+import { GET as loadStrongSnapshot } from "../canonical-route-strong/route";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const response = await loadBaseSnapshot(request);
+  // UI consumers must read through the same strongly-consistent canonical
+  // snapshot path used by the public canonical endpoint. Calling the base
+  // handler directly bypasses middleware and can leave Admin/Employee screens
+  // on an older routeVersion after a successful canonical write.
+  const response = await loadStrongSnapshot(request);
   response.headers.set("Cache-Control", "no-store, max-age=0");
 
   if (!response.ok) return response;
