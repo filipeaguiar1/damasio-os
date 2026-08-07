@@ -365,41 +365,26 @@ function migrationMissing(message?: string) {
 async function projectCanonicalVisitOrder(
   service: any,
   routeId: string,
-  orderedVisitIds: string[],
-) {
+): Promise<{ projected: boolean; reason?: string }> {
   const projected = await service.rpc("sync_canonical_route_stops_v2", {
     p_route_id: routeId,
     p_source: "employee_smart_route_projection",
   });
-  if (!projected.error) return;
+  if (!projected.error) return { projected: true };
 
   const message = String(projected.error.message || "");
   if (!/permission denied|schema cache|could not find the function|does not exist/i.test(message)) {
     throw new Error(`Canonical Visit projection failed: ${message}`);
   }
 
-  // Temporary compatibility for databases where the later one-way
-  // projection migration has not rolled out yet. route_stops remains
-  // authoritative; this approved writer only projects to Visits.
-  const cleared = await service
-    .from("visits")
-    .update({ route_order: null })
-    .eq("route_id", routeId)
-    .neq("status", "cancelled");
-  if (cleared.error) {
-    throw new Error(`Canonical Visit projection reset failed: ${cleared.error.message}`);
-  }
-
-  for (let index = 0; index < orderedVisitIds.length; index += 1) {
-    const written = await service
-      .from("visits")
-      .update({ route_order: index + 1 })
-      .eq("route_id", routeId)
-      .eq("id", orderedVisitIds[index]);
-    if (written.error) {
-      throw new Error(`Canonical Visit projection write failed: ${written.error.message}`);
-    }
-  }
+  // The protected canonical SQL writer has already committed the reviewed order.
+  // Never bypass its guard from a later HTTP transaction. Older databases can
+  // report rollout drift until the one-way Visit projection migration is applied.
+  console.warn("employee-smart-route-projection-pending-migration", {
+    routeId,
+    rpcError: message,
+  });
+  return { projected: false, reason: message };
 }
 
 export async function POST(request: NextRequest) {
@@ -573,13 +558,14 @@ export async function POST(request: NextRequest) {
     throw new Error("The database did not confirm a canonical routeVersion.");
   }
 
-  await projectCanonicalVisitOrder(service, body.routeId, requestedOrder);
+  const visitProjection = await projectCanonicalVisitOrder(service, body.routeId);
 
   const verified = await verifyCanonicalRoutePersistence(service, {
     routeId: body.routeId,
     orderedVisitIds: requestedOrder,
     routeVersion,
     origin,
+    requireVisitProjection: visitProjection.projected,
   });
   const response = {
     ...result,
@@ -588,6 +574,7 @@ export async function POST(request: NextRequest) {
     appliedOrder: verified.orderedVisitIds,
     orderedVisitIds: verified.orderedVisitIds,
     origin: verified.origin,
+    visitProjection: visitProjection.projected ? "applied" : "pending_migration",
   };
 
     console.info("employee-smart-route-v2-applied", {

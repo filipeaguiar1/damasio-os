@@ -9,6 +9,7 @@ type CanonicalPersistenceExpectation = {
   orderedVisitIds: string[];
   routeVersion: number;
   origin: CanonicalOriginExpectation;
+  requireVisitProjection?: boolean;
 };
 
 export type VerifiedCanonicalPersistence = {
@@ -85,7 +86,7 @@ function assertCanonicalPersistence(
   if (
     persisted.routeVersion !== expected.routeVersion
     || !sameOrder(persisted.orderedVisitIds, expected.orderedVisitIds)
-    || !sameOrder(persisted.projectedVisitIds, expected.orderedVisitIds)
+    || (expected.requireVisitProjection !== false && !sameOrder(persisted.projectedVisitIds, expected.orderedVisitIds))
     || !persisted.smart?.active
     || smartVersion !== expected.routeVersion
     || !sameOrder(smartOrder, expected.orderedVisitIds)
