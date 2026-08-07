@@ -109,8 +109,13 @@ export async function PATCH(request: NextRequest, context: { params: { id: strin
       phone: body.customer.phone || null,
       email: body.customer.email,
       notes: body.customer.notes || null,
-    }).eq("id", record.customer.id).eq("company_id", companyId);
+    })
+      .eq("id", record.customer.id)
+      .or(`service_company_id.eq.${companyId},company_id.eq.${companyId},organization_id.eq.${companyId}`)
+      .select("id")
+      .maybeSingle();
     if (customerUpdate.error) throw new Error(customerUpdate.error.message);
+    if (!customerUpdate.data?.id) throw new Error("Customer ownership changed before the update could be saved. Refresh and try again.");
     return NextResponse.json({ saved: true, customerId: record.customer.id, propertyId: record.property.id });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Customer could not be saved." }, { status: 400 });
