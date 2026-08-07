@@ -17,10 +17,11 @@ test("Master creates an isolated company and first Admin can authenticate", asyn
   required("SUPABASE_SERVICE_ROLE_KEY", serviceKey);
 
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  // Use a syntactically valid public domain. Supabase Auth rejects reserved .test addresses.
   const masterEmail = `qa-master-${stamp}@example.com`;
   const masterPassword = `QaMaster!${stamp}Aa1`;
-  const adminEmail = `qa-admin-${stamp}@example.com`;
+  // Supabase invitation validation rejects reserved domains such as .test and example.com.
+  // This unique address is used only for the isolated QA invitation and is removed during cleanup.
+  const adminEmail = `damasio.qa.${stamp.replace(/[^a-z0-9]/gi, "")}@gmail.com`;
   const companyName = `QA Ecosystem ${stamp}`;
   const slug = `qa-ecosystem-${stamp}`.toLowerCase();
 
