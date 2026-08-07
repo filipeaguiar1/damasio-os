@@ -146,7 +146,7 @@ export function EmployeeRouteMap({
   const snapshotMatches = !preview
     && Boolean(snapshot)
     && snapshot?.routeId === effectiveRouteId
-    && sameVisitMembership(operationalRoute, snapshot);
+    && (Boolean(routeId) || sameVisitMembership(operationalRoute, snapshot));
 
   const displayRoute = useMemo<CanonicalRouteLead[]>(() => {
     if (preview) return operationalRoute;
