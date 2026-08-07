@@ -172,9 +172,11 @@ test("Employee Smart Route reorders three houses and survives relaunch", async (
     const beforeOrder = (before.stops || []).map((stop: any) => String(stop.visitId));
     expect(beforeOrder).toEqual(visitIds);
 
-    const state = await service.from("route_order_state").select("version").eq("route_id", routeId).single();
-    expect(state.error, state.error?.message).toBeNull();
-    const previousVersion = Number(state.data?.version || 1);
+    // A newly published legacy-compatible route may not have route_order_state yet. The
+    // canonical writer is explicitly responsible for initializing version 1 on first apply.
+    const stateBefore = await service.from("route_order_state").select("version").eq("route_id", routeId).maybeSingle();
+    expect(stateBefore.error, stateBefore.error?.message).toBeNull();
+    const previousVersion = stateBefore.data ? Number(stateBefore.data.version) : null;
     const reversed = [...beforeOrder].reverse();
 
     const applied = await bodyOf(await request.post(`${appUrl}/api/mobile/employee/smart-route`, {
@@ -191,7 +193,16 @@ test("Employee Smart Route reorders three houses and survives relaunch", async (
     expect(applied.saved).toBe(true);
     expect(applied.routeId).toBe(routeId);
     expect(applied.appliedOrder || applied.orderedVisitIds).toEqual(reversed);
-    expect(Number(applied.routeVersion || applied.version)).toBeGreaterThan(previousVersion);
+    const nextVersion = Number(applied.routeVersion || applied.version);
+    expect(nextVersion).toBeGreaterThan(previousVersion || 0);
+
+    const stateAfter = await service.from("route_order_state")
+      .select("version,last_source,last_actor_profile_id")
+      .eq("route_id", routeId).single();
+    expect(stateAfter.error, stateAfter.error?.message).toBeNull();
+    expect(Number(stateAfter.data?.version)).toBe(nextVersion);
+    expect(stateAfter.data?.last_source).toBe("employee_smart_route");
+    expect(stateAfter.data?.last_actor_profile_id).toBe(employeeProfileId);
 
     const stopsAfter = await service.from("route_stops")
       .select("visit_id,position").eq("route_id", routeId).order("position", { ascending: true });
@@ -205,7 +216,6 @@ test("Employee Smart Route reorders three houses and survives relaunch", async (
     expect((projectionAfter.data || []).map((row: any) => String(row.id))).toEqual(reversed);
     expect((projectionAfter.data || []).map((row: any) => Number(row.route_order))).toEqual([1, 2, 3]);
 
-    // Fresh login simulates app relaunch after the Employee changed Smart Route.
     await employeeClient.auth.signOut();
     const freshClient = authClient();
     const freshSession = await freshClient.auth.signInWithPassword({ email: employeeEmail, password: employeePassword });
@@ -222,7 +232,8 @@ test("Employee Smart Route reorders three houses and survives relaunch", async (
     expect(audit.error, audit.error?.message).toBeNull();
     expect(audit.data?.route_id).toBe(routeId);
     expect((audit.data?.next_order || []).map(String)).toEqual(reversed);
-    console.log(JSON.stringify({ checkpoint: "smart-route-multi-house-persisted", routeId, previousVersion, nextVersion: applied.routeVersion || applied.version, reversed }));
+    expect(Number(audit.data?.route_version)).toBe(nextVersion);
+    console.log(JSON.stringify({ checkpoint: "smart-route-multi-house-persisted", routeId, previousVersion, nextVersion, reversed }));
   } finally {
     if (routeId) {
       await service.from("route_order_audit").delete().eq("route_id", routeId);
