@@ -1,0 +1,175 @@
+name: QA Fix Simulator Convergence
+
+on:
+  push:
+    branches:
+      - "feature/25-30-homes-simulator-v1"
+    paths:
+      - ".github/workflows/qa-fix-simulator-convergence.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: qa-fix-simulator-convergence
+  cancel-in-progress: true
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/25-30-homes-simulator-v1
+
+      - name: Apply candidate fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          simulator = Path("app/api/admin/operational-simulator/route.ts")
+          text = simulator.read_text()
+
+          # Canonical cleanup ordering.
+          old = '    await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));\n    await remove("employee_smart_route_state", service.from("employee_smart_route_state").delete().in("route_id", routeIds));'
+          new = '    await remove("employee_smart_route_state", service.from("employee_smart_route_state").delete().in("route_id", routeIds));\n    await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));'
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          # A successful remove response must mean the simulation is actually gone.
+          old_remove = '''      const removed = await removeSimulation(service, companyId);
+      return NextResponse.json({ removed: true, ...removed, message: `${removed.customersRemoved} simulation customers and ${removed.accountsRemoved} temporary accounts removed.` });'''
+          new_remove = '''      let removed = await removeSimulation(service, companyId);
+      let remaining = await simulationStatus(service, companyId);
+      for (let attempt = 0; remaining.exists && attempt < 2; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+        const retry = await removeSimulation(service, companyId);
+        removed = {
+          customersRemoved: Math.max(removed.customersRemoved, retry.customersRemoved),
+          accountsRemoved: removed.accountsRemoved + retry.accountsRemoved,
+        };
+        remaining = await simulationStatus(service, companyId);
+      }
+      if (remaining.exists) {
+        throw new Error(`Simulation cleanup did not converge: ${remaining.customerCount} simulation customers remain.`);
+      }
+      return NextResponse.json({ removed: true, ...removed, message: `${removed.customersRemoved} simulation customers and ${removed.accountsRemoved} temporary accounts removed.` });'''
+          if old_remove not in text:
+              raise SystemExit("Simulator remove response target was not found.")
+          text = text.replace(old_remove, new_remove, 1)
+          simulator.write_text(text)
+
+          route_map = Path("components/mobile/EmployeeRouteMap.tsx")
+          text = route_map.read_text()
+          old = "    && sameVisitMembership(operationalRoute, snapshot);"
+          new = "    && (Boolean(routeId) || sameVisitMembership(operationalRoute, snapshot));"
+          if old in text:
+              text = text.replace(old, new, 1)
+          route_map.write_text(text)
+
+          admin = Path("app/mobile/admin/routes/page.tsx")
+          text = admin.read_text()
+          hook_import = 'import { useCanonicalRouteSnapshot } from "@/lib/hooks/useCanonicalRouteSnapshot";'
+          snapshot_import = 'import type { CanonicalRouteSnapshot } from "@/lib/routes/canonicalRouteSnapshot";'
+          if snapshot_import not in text:
+              if hook_import not in text: raise SystemExit("Admin canonical hook import missing")
+              text = text.replace(hook_import, hook_import + "\n" + snapshot_import, 1)
+          state_marker = '  const [canonicalRouteId, setCanonicalRouteId] = useState<string | null>(null);'
+          bootstrap_state = '  const [canonicalBootstrap, setCanonicalBootstrap] = useState<CanonicalRouteSnapshot | null>(null);'
+          if bootstrap_state not in text:
+              if state_marker not in text: raise SystemExit("Admin canonicalRouteId state missing")
+              text = text.replace(state_marker, state_marker + "\n" + bootstrap_state, 1)
+          pattern = re.compile(r'  useEffect\(\(\) => \{\s+let cancelled = false;\s+setCanonicalRouteId\(null\);.*?\n  \}, \[employee\?\.id, date\]\);', re.S)
+          replacement = '''  useEffect(() => {
+            let cancelled = false;
+            setCanonicalRouteId(null);
+            setCanonicalBootstrap(null);
+            if (!employee?.id || !date) return () => { cancelled = true; };
+            const resolveCanonicalRoute = async () => {
+              let lastError: unknown = null;
+              for (const delay of [0, 250, 750, 1500, 3000]) {
+                if (delay) await new Promise(resolve => window.setTimeout(resolve, delay));
+                if (cancelled) return;
+                try {
+                  const resolved = await api(`/api/admin/canonical-route?profileId=${encodeURIComponent(employee.id)}&date=${encodeURIComponent(date)}`);
+                  const resolvedRouteId = String(resolved.routeId || "").trim();
+                  if (!resolvedRouteId) throw new Error("Canonical Route resolver returned no routeId.");
+                  const snapshot = await api(`/api/map/canonical-route-current?routeId=${encodeURIComponent(resolvedRouteId)}`) as CanonicalRouteSnapshot;
+                  if (String(snapshot.routeId || "") !== resolvedRouteId || !Array.isArray(snapshot.stops)) throw new Error("Canonical Route snapshot did not match the resolved routeId.");
+                  if (cancelled) return;
+                  setCanonicalRouteId(resolvedRouteId);
+                  setCanonicalBootstrap(snapshot);
+                  setMessage("");
+                  return;
+                } catch (error) { lastError = error; }
+              }
+              if (!cancelled) setMessage(lastError instanceof Error ? lastError.message : "Canonical Route could not be resolved.");
+            };
+            void resolveCanonicalRoute();
+            return () => { cancelled = true; };
+          }, [employee?.id, date]);'''
+          if bootstrap_state not in admin.read_text():
+              pass
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1 and 'setCanonicalBootstrap(snapshot);' not in text:
+              raise SystemExit(f"Admin resolver patch matched {count} blocks")
+          hook_old = '  const { snapshot: canonicalSnapshot, error: canonicalError, loading: canonicalLoading } = useCanonicalRouteSnapshot(canonicalRouteId);'
+          if hook_old in text:
+              text = text.replace(hook_old, '  const { snapshot: liveCanonicalSnapshot, error: canonicalError, loading: canonicalLoading } = useCanonicalRouteSnapshot(canonicalRouteId);\n  const canonicalSnapshot = liveCanonicalSnapshot || canonicalBootstrap;', 1)
+          error_old = '  useEffect(() => {\n    if (canonicalError) setMessage(canonicalError);\n  }, [canonicalError]);'
+          if error_old in text:
+              text = text.replace(error_old, '  useEffect(() => {\n    if (canonicalError && !canonicalBootstrap) setMessage(canonicalError);\n  }, [canonicalError, canonicalBootstrap]);', 1)
+          admin.write_text(text)
+
+          print("Candidate convergence fixes applied.")
+          PY
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
+      - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start server
+        run: |
+          pnpm start > /tmp/damasio-convergence.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/damasio-convergence.log
+          exit 1
+
+      - name: Run operational simulator
+        run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
+
+      - name: Run canonical four-screen test
+        run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
+
+      - name: Commit only validated source fixes
+        if: success()
+        run: |
+          rm -f .github/workflows/qa-apply-canonical-source-fix.yml .github/workflows/qa-fix-simulator-convergence.yml
+          git config user.name "Damasio QA Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/api/admin/operational-simulator/route.ts components/mobile/EmployeeRouteMap.tsx app/mobile/admin/routes/page.tsx .github/workflows/qa-apply-canonical-source-fix.yml .github/workflows/qa-fix-simulator-convergence.yml
+          git commit -m "fix canonical route and simulator convergence"
+          git push origin HEAD:feature/25-30-homes-simulator-v1
