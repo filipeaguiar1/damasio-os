@@ -7,8 +7,8 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
-# Blocker 1: keep Exception Week reads on the existing company/job/date Visit index
-# instead of a wide customer IN + tenant OR + database sort.
+# Exception Week: keep completed-Visit reads on the existing company/job/date
+# index instead of a wide customer IN + tenant OR + database sort.
 exceptions_path = Path("app/api/admin/operational-simulator/exceptions/route.ts")
 text = exceptions_path.read_text()
 text = replace_once(
@@ -22,9 +22,6 @@ end = text.index("\n\nasync function exceptionStatus", start)
 completed_visits = '''async function completedVisits(service: any, companyId: string, customerIds: string[]): Promise<VisitRow[]> {
   if (!customerIds.length) return [];
 
-  // Simulation rows always carry company_id. Resolve their Jobs first so the
-  // Visit lookup stays on the existing company/job/date index and avoids a
-  // wide customer IN + tenant OR + database sort across the full Visits table.
   const jobs = await service.from("jobs")
     .select("id")
     .eq("company_id", companyId)
@@ -54,70 +51,218 @@ text = text[:start] + completed_visits + text[end:]
 exceptions_path.write_text(text)
 
 
-# QA residue fix: older simulator cleanup falls back to archiving when protected
-# Visit deletion is denied, but then future cleanup ignores those archived
-# simulator Customers. That leaves every old 480-Visit run in the shared QA DB
-# and eventually makes otherwise bounded portal/route queries time out.
-# Include archived simulator Customers in cleanup and use the existing QA-only
-# SECURITY DEFINER Visit cleanup primitive in small customer batches. No timeout
-# or product assertion is changed here.
+# Operational Simulator cleanup: old runs were archived after protected Visit
+# deletion failed, then ignored forever by later cleanups. Include those archived
+# QA-only Customers and keep every historical lookup/delete bounded.
 simulator_path = Path("app/api/admin/operational-simulator/route.ts")
 text = simulator_path.read_text()
 text = replace_once(
     text,
     '''  const customers = await service.from("customers").select("id,profile_id")
     .or(companyFilter(companyId)).like("email", pattern).is("archived_at", null);''',
-    '''  // Cleanup must include archived simulator Customers. Older runs archived these
-  // rows after protected Visit deletion failed, which otherwise makes their Visits
-  // invisible to every later cleanup and causes QA data to grow without bound.
+    '''  // Include archived simulator Customers so old protected Visit residue is not
+  // left behind forever. The email pattern is company-scoped and QA-only.
   const customers = await service.from("customers").select("id,profile_id")
     .or(companyFilter(companyId)).like("email", pattern);''',
-    "include archived simulator customers in cleanup",
+    "include archived simulator customers",
 )
-old_delete = '''  let visitsDeleted = true;
+
+old_lookup = '''  const properties = customerIds.length ? await service.from("properties").select("id").in("customer_id", customerIds) : { data: [], error: null };
+  if (properties.error) throw new Error(properties.error.message);
+  const propertyIds = (properties.data || []).map((row: any) => String(row.id));
+  const jobs = customerIds.length ? await service.from("jobs").select("id").in("customer_id", customerIds) : { data: [], error: null };
+  if (jobs.error) throw new Error(jobs.error.message);
+  const jobIds = (jobs.data || []).map((row: any) => String(row.id));
+  const visits = customerIds.length ? await service.from("visits").select("id,route_id").in("customer_id", customerIds) : { data: [], error: null };
+  if (visits.error) throw new Error(visits.error.message);
+  const visitIds = (visits.data || []).map((row: any) => String(row.id));
+  const routeIds = [...new Set((visits.data || []).map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];
+  const employees = profileIds.length ? await service.from("employees").select("id,crew_id").in("profile_id", profileIds) : { data: [], error: null };
+  if (employees.error) throw new Error(employees.error.message);
+  const employeeIds = (employees.data || []).map((row: any) => String(row.id));
+  const crewIds = [...new Set((employees.data || []).map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];'''
+new_lookup = '''  async function collectInBatches(table: string, columns: string, field: string, ids: string[]) {
+    const rows: any[] = [];
+    for (const batch of chunks(ids, 25)) {
+      const result = await service.from(table).select(columns).in(field, batch);
+      if (result.error) throw new Error(`${table}: ${result.error.message}`);
+      rows.push(...(result.data || []));
+    }
+    return rows;
+  }
+
+  const propertyRows = await collectInBatches("properties", "id", "customer_id", customerIds);
+  const propertyIds = propertyRows.map((row: any) => String(row.id));
+  const jobRows = await collectInBatches("jobs", "id", "customer_id", customerIds);
+  const jobIds = jobRows.map((row: any) => String(row.id));
+  const visitRows = await collectInBatches("visits", "id,route_id", "customer_id", customerIds);
+  const visitIds = visitRows.map((row: any) => String(row.id));
+  const routeIds = [...new Set(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];
+  const employeeRows = await collectInBatches("employees", "id,crew_id", "profile_id", profileIds);
+  const employeeIds = employeeRows.map((row: any) => String(row.id));
+  const crewIds = [...new Set(employeeRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];'''
+text = replace_once(text, old_lookup, new_lookup, "bounded simulator dependency lookups")
+
+old_remove_helper = '''  async function remove(label: string, operation: PromiseLike<{ error?: { message?: string } | null }>, optional = false) {
+    const result = await operation;
+    if (!result.error) return true;
+    const message = result.error.message || "cleanup failed";
+    if (optional && (missingColumn(message) || /permission denied/i.test(message))) {
+      console.warn(`operational-simulator cleanup skipped ${label}: ${message}`);
+      return false;
+    }
+    throw new Error(`${label}: ${message}`);
+  }
+'''
+new_remove_helper = '''  async function remove(label: string, operation: PromiseLike<{ error?: { message?: string } | null }>, optional = false) {
+    const result = await operation;
+    if (!result.error) return true;
+    const message = result.error.message || "cleanup failed";
+    if (optional && (missingColumn(message) || /permission denied/i.test(message))) {
+      console.warn(`operational-simulator cleanup skipped ${label}: ${message}`);
+      return false;
+    }
+    throw new Error(`${label}: ${message}`);
+  }
+
+  async function removeByIds(label: string, table: string, field: string, ids: string[], optional = false) {
+    let removed = true;
+    for (const batch of chunks(ids, 25)) {
+      const batchRemoved = await remove(label, service.from(table).delete().in(field, batch), optional);
+      removed = batchRemoved && removed;
+    }
+    return removed;
+  }
+
+  async function updateByIds(label: string, table: string, values: Record<string, unknown>, field: string, ids: string[], optional = false) {
+    let updated = true;
+    for (const batch of chunks(ids, 25)) {
+      const batchUpdated = await remove(label, service.from(table).update(values).in(field, batch), optional);
+      updated = batchUpdated && updated;
+    }
+    return updated;
+  }
+'''
+text = replace_once(text, old_remove_helper, new_remove_helper, "batched simulator mutation helpers")
+
+old_children = '''  if (customerIds.length) {
+    await remove("feedback", service.from("feedback").delete().in("customer_id", customerIds));
+    await remove("tasks", service.from("tasks").delete().in("customer_id", customerIds));
+    await remove("service_requests", service.from("service_requests").delete().in("customer_id", customerIds));
+    await remove("payments", service.from("payments").delete().in("customer_id", customerIds), true);
+  }
+  // Every simulator Photo is linked to its Property as well as its Visit. Deleting by
+  // Property keeps the request bounded and avoids oversized Visit-ID filters after legacy runs.
+  if (propertyIds.length) await remove("property photos", service.from("photos").delete().in("property_id", propertyIds));
+  if (routeIds.length) {
+    await remove("employee_smart_route_state", service.from("employee_smart_route_state").delete().in("route_id", routeIds));
+    await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));
+    await remove("route_order_state", service.from("route_order_state").delete().in("route_id", routeIds));
+    await remove("route_map_cache", service.from("route_map_cache").delete().in("route_id", routeIds), true);
+  }
+  if (jobIds.length) await remove("job invoice links", service.from("jobs").update({ invoice_id: null }).in("id", jobIds), true);'''
+new_children = '''  if (customerIds.length) {
+    await removeByIds("feedback", "feedback", "customer_id", customerIds);
+    await removeByIds("tasks", "tasks", "customer_id", customerIds);
+    await removeByIds("service_requests", "service_requests", "customer_id", customerIds);
+    await removeByIds("payments", "payments", "customer_id", customerIds, true);
+  }
+  if (propertyIds.length) await removeByIds("property photos", "photos", "property_id", propertyIds);
+  if (routeIds.length) {
+    await removeByIds("employee_smart_route_state", "employee_smart_route_state", "route_id", routeIds);
+    await removeByIds("route_stops", "route_stops", "route_id", routeIds);
+    await removeByIds("route_order_state", "route_order_state", "route_id", routeIds);
+    await removeByIds("route_map_cache", "route_map_cache", "route_id", routeIds, true);
+  }
+  if (jobIds.length) await updateByIds("job invoice links", "jobs", { invoice_id: null }, "id", jobIds, true);'''
+text = replace_once(text, old_children, new_children, "bounded simulator child cleanup")
+
+old_visit_delete = '''  let visitsDeleted = true;
   if (customerIds.length) {
     await remove("invoices", service.from("invoices").delete().in("customer_id", customerIds));
     visitsDeleted = await remove("visits", service.from("visits").delete().in("customer_id", customerIds), true);
   }
 '''
-new_delete = '''  let visitsDeleted = true;
+new_visit_delete = '''  let visitsDeleted = true;
   if (customerIds.length) {
-    await remove("invoices", service.from("invoices").delete().in("customer_id", customerIds));
+    await removeByIds("invoices", "invoices", "customer_id", customerIds);
 
-    // The QA-only cleanup RPC runs under the canonical writer contexts and also
-    // removes Visit audit rows that intentionally use ON DELETE RESTRICT. Keep
-    // each call bounded so accumulated historical simulator runs are drained
-    // without one oversized database statement.
-    let cleanupRpcAvailable = true;
-    for (const batch of chunks(customerIds, 30)) {
+    async function cleanupVisitBatch(batch: string[]): Promise<boolean> {
       const cleanup = await service.rpc("cleanup_operational_simulation_visits", {
         p_company_id: companyId,
         p_customer_ids: batch,
       });
-      if (!cleanup.error) continue;
+      if (!cleanup.error) return true;
       const message = String(cleanup.error.message || "");
+      if (/statement timeout/i.test(message) && batch.length > 1) {
+        const midpoint = Math.ceil(batch.length / 2);
+        const left = await cleanupVisitBatch(batch.slice(0, midpoint));
+        const right = await cleanupVisitBatch(batch.slice(midpoint));
+        return left && right;
+      }
       if (/cleanup_operational_simulation_visits|schema cache|could not find the function|permission denied/i.test(message)) {
-        cleanupRpcAvailable = false;
-        break;
+        return false;
       }
       throw new Error(`visits cleanup: ${message || "QA cleanup RPC failed"}`);
     }
 
+    let cleanupRpcAvailable = true;
+    for (const batch of chunks(customerIds, 4)) {
+      if (await cleanupVisitBatch(batch)) continue;
+      cleanupRpcAvailable = false;
+      break;
+    }
     if (!cleanupRpcAvailable) {
-      // Compatibility only for databases that predate the QA cleanup primitive.
-      visitsDeleted = await remove("visits", service.from("visits").delete().in("customer_id", customerIds), true);
+      visitsDeleted = await removeByIds("visits", "visits", "customer_id", customerIds, true);
     }
   }
 '''
-text = replace_once(text, old_delete, new_delete, "bounded operational Visit cleanup")
+text = replace_once(text, old_visit_delete, new_visit_delete, "QA-only Visit cleanup RPC")
+
+old_final = '''  if (visitsDeleted) {
+    if (routeIds.length) await remove("routes", service.from("routes").delete().in("id", routeIds));
+    if (jobIds.length) await remove("jobs", service.from("jobs").delete().in("id", jobIds));
+    if (customerIds.length) {
+      await remove("quotes", service.from("quotes").delete().in("customer_id", customerIds));
+      await remove("properties", service.from("properties").delete().in("customer_id", customerIds));
+      await remove("customers", service.from("customers").delete().in("id", customerIds));
+    }
+    if (employeeIds.length) await remove("employees", service.from("employees").delete().in("id", employeeIds));
+    if (crewIds.length) await remove("crews", service.from("crews").delete().in("id", crewIds));
+  } else {
+    const archivedAt = new Date().toISOString();
+    if (customerIds.length) await remove("archive customers", service.from("customers").update({ archived_at: archivedAt }).in("id", customerIds));
+    if (jobIds.length) await remove("deactivate jobs", service.from("jobs").update({ active: false }).in("id", jobIds));
+    if (employeeIds.length) await remove("deactivate employees", service.from("employees").update({ active: false }).in("id", employeeIds));
+    if (crewIds.length) await remove("deactivate crews", service.from("crews").update({ active: false }).in("id", crewIds));
+    if (profileIds.length) await remove("deactivate profiles", service.from("profiles").update({ active: false }).in("id", profileIds));
+  }'''
+new_final = '''  if (visitsDeleted) {
+    if (routeIds.length) await removeByIds("routes", "routes", "id", routeIds);
+    if (jobIds.length) await removeByIds("jobs", "jobs", "id", jobIds);
+    if (customerIds.length) {
+      await removeByIds("quotes", "quotes", "customer_id", customerIds);
+      await removeByIds("properties", "properties", "customer_id", customerIds);
+      await removeByIds("customers", "customers", "id", customerIds);
+    }
+    if (employeeIds.length) await removeByIds("employees", "employees", "id", employeeIds);
+    if (crewIds.length) await removeByIds("crews", "crews", "id", crewIds);
+  } else {
+    const archivedAt = new Date().toISOString();
+    if (customerIds.length) await updateByIds("archive customers", "customers", { archived_at: archivedAt }, "id", customerIds);
+    if (jobIds.length) await updateByIds("deactivate jobs", "jobs", { active: false }, "id", jobIds);
+    if (employeeIds.length) await updateByIds("deactivate employees", "employees", { active: false }, "id", employeeIds);
+    if (crewIds.length) await updateByIds("deactivate crews", "crews", { active: false }, "id", crewIds);
+    if (profileIds.length) await updateByIds("deactivate profiles", "profiles", { active: false }, "id", profileIds);
+  }'''
+text = replace_once(text, old_final, new_final, "bounded simulator final cleanup")
 simulator_path.write_text(text)
 
 
-# Blocker 2: older deployments expose the safe one-way helper
-# sync_visit_route_order_for_route but do not yet grant service_role access to
-# sync_canonical_route_stops_v2. Prefer that transaction-level helper before the
-# bounded per-row compatibility path. It projects only route_stops -> visits and
-# avoids temporary route positions that the active canonical guard must reject.
+# Employee Mobile / canonical Route: older deployments expose the safe one-way
+# sync_visit_route_order_for_route helper but may not yet grant service_role on
+# sync_canonical_route_stops_v2. Prefer the transaction-level helper before the
+# old two-phase compatibility path.
 projection_path = Path("lib/routes/projectCanonicalVisitOrderCompatibility.ts")
 text = projection_path.read_text()
 anchor = '''  const normalized = stops.map(stop => {
@@ -138,11 +283,6 @@ replacement = '''  const normalized = stops.map(stop => {
     return { visitId: String(stop.visit_id), position };
   });
 
-  // Older canonical deployments already expose this one-way SECURITY DEFINER
-  // helper. It updates the entire Visit projection inside one transaction, so
-  // the deferrable route-order constraint can settle on the final canonical
-  // positions without using staging values. Legacy Visit triggers therefore see
-  // only the exact route_stops positions accepted by the active-route guard.
   const transactionalProjection = await service.rpc("sync_visit_route_order_for_route", {
     p_route_id: routeId,
   });
@@ -183,10 +323,10 @@ text = replace_once(text, anchor, replacement, "transactional compatibility proj
 projection_path.write_text(text)
 
 
-# Legacy feedback RPC writes the review and rebuilds the whole Customer board in
-# one statement. If that statement is canceled specifically by the DB statement
-# limit, PostgreSQL rolls the transaction back, so use the existing authenticated
-# server-action fallback and reload the board in a separate request.
+# Legacy feedback RPC writes the review and rebuilds the Customer board in one
+# statement. A canceled PostgreSQL statement is transactional, so on SQLSTATE
+# 57014 use the existing authenticated server-action fallback and reload the board
+# separately. No timeout is changed.
 portal_path = Path("lib/repositories/customerPortalRepository.ts")
 text = portal_path.read_text()
 text = replace_once(
