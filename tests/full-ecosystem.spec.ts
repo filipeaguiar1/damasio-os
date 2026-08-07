@@ -40,7 +40,7 @@ test("full SaaS ecosystem from Master company creation through Customer History"
   const routeDate = torontoDateKey();
   const masterEmail = `qa-master-${stamp}@example.com`;
   const adminEmail = `damasio.qa.admin.${safe}@example.com`;
-  const employeeEmail = `damasio.qa.employee.${safe}@example.com`;
+  const employeeEmail = `damasio.qa.employee.${safe}@4everseasons.test`;
   const customerEmail = `damasio.qa.customer.${safe}@example.com`;
   const masterPassword = `QaMaster!${safe}Aa1`;
   const adminSeedPassword = `QaAdmin!${safe}Aa1`;
