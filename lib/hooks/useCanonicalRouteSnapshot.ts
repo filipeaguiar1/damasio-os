@@ -12,6 +12,8 @@ type CanonicalRouteTarget = string | null | {
   routeDate?: string | null;
 };
 
+let realtimeSubscriptionSequence = 0;
+
 function targetValues(target?: CanonicalRouteTarget) {
   if (typeof target === "string") {
     return { requestedRouteId: target.trim() || null, routeDate: null };
@@ -34,7 +36,6 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
   const [loading, setLoading] = useState(Boolean(requestedRouteId || routeDate));
   const requestRef = useRef(0);
   const burstRef = useRef(0);
-  const realtimeSubscriptionRef = useRef(0);
   const activeRouteId = requestedRouteId || resolvedRouteId;
 
   const refresh = useCallback(async () => {
@@ -138,13 +139,13 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
     if (!activeRouteId) return;
     let disposed = false;
     const client = getSupabaseBrowserClient() as any;
-    const subscriptionId = ++realtimeSubscriptionRef.current;
+    const subscriptionId = ++realtimeSubscriptionSequence;
     const invalidateCurrent = () => {
       if (!disposed) void invalidateAndRefresh();
     };
-    // Supabase can keep the previous channel alive briefly while removeChannel()
-    // completes. A unique topic per effect prevents a rerender from reusing an
-    // already-subscribed channel and then trying to add callbacks to it.
+    // Multiple page/map hook instances can observe the same Route at once. Supabase
+    // must receive a unique topic for every subscription, including during the brief
+    // period while an earlier channel is being removed asynchronously.
     const channel = client
       .channel(`canonical-route-version:${activeRouteId}:${subscriptionId}`)
       .on(
