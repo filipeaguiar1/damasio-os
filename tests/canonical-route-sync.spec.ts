@@ -23,7 +23,7 @@ async function signIn(page: Page, email: string, password: string) {
   throw new Error(`Sign in did not complete for ${email}. ${lastMessage}`.trim());
 }
 
-async function authRequest<T>(page: Page, path: string, init?: { method?: string; body?: unknown }): Promise<T> {
+async function authRequest<T>(page: Page, path: string, init?: { method?: string; body?: unknown; timeoutMs?: number }): Promise<T> {
   let lastError = "Request failed.";
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -34,7 +34,7 @@ async function authRequest<T>(page: Page, path: string, init?: { method?: string
         const accessToken = stored?.access_token || stored?.currentSession?.access_token;
         if (!accessToken) throw new Error("Supabase access token was not found.");
         const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), 30_000);
+        const timeout = window.setTimeout(() => controller.abort(), init?.timeoutMs ?? 30_000);
         try {
           const response = await fetch(path, {
             method: init?.method || "GET",
@@ -323,10 +323,40 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
     await assertCanonicalScreen(page, adminAdd.routeVersion, originalJobIds.length, label);
   }
 
+  const beforeRelaunch = await authRequest<any>(employeeMobile, `/api/map/canonical-route?routeId=${employeeSnapshot.routeId}`);
+  expect(beforeRelaunch.routeId).toBe(employeeSnapshot.routeId);
+  expect(beforeRelaunch.routeVersion).toBe(adminAdd.routeVersion);
+  expect(beforeRelaunch.orderedVisitIds.length).toBe(originalJobIds.length);
+
+  await employeeMobile.close();
+  const relaunchedEmployeeMobile = await employeeDesktopContext.newPage();
+  await relaunchedEmployeeMobile.setViewportSize({ width: 412, height: 915 });
+  await relaunchedEmployeeMobile.goto(`${baseURL}/mobile/employee`);
+  await relaunchedEmployeeMobile.waitForLoadState("domcontentloaded");
+  await waitForVersion(relaunchedEmployeeMobile, beforeRelaunch.routeId, beforeRelaunch.routeVersion);
+  await assertCanonicalScreen(
+    relaunchedEmployeeMobile,
+    beforeRelaunch.routeVersion,
+    beforeRelaunch.orderedVisitIds.length,
+    "Employee mobile after relaunch",
+  );
+  const afterRelaunch = await authRequest<any>(
+    relaunchedEmployeeMobile,
+    `/api/map/canonical-route?routeId=${encodeURIComponent(beforeRelaunch.routeId)}`,
+  );
+  expect(afterRelaunch.routeId).toBe(beforeRelaunch.routeId);
+  expect(afterRelaunch.routeVersion).toBe(beforeRelaunch.routeVersion);
+  expect(afterRelaunch.orderedVisitIds).toEqual(beforeRelaunch.orderedVisitIds);
+  console.log("EMPLOYEE_MOBILE_RELAUNCH_PERSISTENCE:", JSON.stringify({
+    routeId: afterRelaunch.routeId,
+    routeVersion: afterRelaunch.routeVersion,
+    orderedVisitIds: afterRelaunch.orderedVisitIds,
+  }));
+
   await adminDesktop.screenshot({ path: "canonical-admin-web.png", fullPage: true });
   await adminMobile.screenshot({ path: "canonical-admin-mobile.png", fullPage: true });
   await employeeDesktop.screenshot({ path: "canonical-employee-web.png", fullPage: true });
-  await employeeMobile.screenshot({ path: "canonical-employee-mobile.png", fullPage: true });
+  await relaunchedEmployeeMobile.screenshot({ path: "canonical-employee-mobile.png", fullPage: true });
 
   await adminDesktop.goto(`${baseURL}/admin/routes?tab=advisor`);
   await expect(adminDesktop.getByText("Create, add, reorder or remove houses.")).toBeVisible({ timeout: 30_000 });
@@ -337,8 +367,10 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await authRequest(adminDesktop, "/api/admin/operational-simulator", {
     method: "POST",
     body: { action: "remove" },
+    timeoutMs: 120_000,
   });
 
+  await relaunchedEmployeeMobile.close();
   await adminMobileContext.close();
   await employeeDesktopContext.close();
   await adminDesktopContext.close();
