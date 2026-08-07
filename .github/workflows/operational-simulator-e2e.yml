@@ -1,6 +1,7 @@
 name: Operational Simulator E2E
-# Temporary validation harness for the final two QA blockers.
-# Product assertions and their timeouts remain untouched.
+# Final authenticated release gate for the canonical Route.
+# This branch temporarily applies the two final QA fixes in the runner and only
+# commits them if both focused E2E gates pass without changing assertions/timeouts.
 
 on:
   pull_request:
@@ -8,18 +9,38 @@ on:
       - main
     paths:
       - "app/api/admin/operational-simulator/**"
+      - "app/api/customer/portal-actions/**"
+      - "app/api/map/**"
+      - "app/admin/performance/**"
+      - "app/employee/route/page.tsx"
+      - "app/mobile/admin/routes/page.tsx"
       - "app/mobile/employee/page.tsx"
+      - "components/admin/OfficialRoutePlanMap.tsx"
       - "components/mobile/EmployeeRouteMap.tsx"
       - "lib/hooks/useCanonicalRouteSnapshot.ts"
+      - "lib/repositories/customerPortalRepository.ts"
       - "lib/routes/canonicalRouteSnapshot.ts"
+      - "lib/routes/verifyCanonicalRoutePersistence.ts"
       - "lib/services/routeMapService.ts"
+      - "lib/simulator/**"
+      - "scripts/qa-final-two-blockers.py"
+      - "supabase/migrations/202607290001_customer_portal_action_contract.sql"
+      - "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql"
+      - "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql"
+      - "supabase/migrations/202608031030_canonical_route_one_way_projection.sql"
+      - "supabase/migrations/202608031100_lock_active_canonical_route_order.sql"
+      - "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql"
+      - "supabase/migrations/202608070002_operational_simulator_visit_cleanup.sql"
+      - "supabase/migrations/202608071610_route_stops_visit_projection.sql"
+      - "supabase/migrations/202608071620_route_employee_lookup_indexes.sql"
       - "tests/operational-simulator.spec.ts"
       - "tests/canonical-route-sync.spec.ts"
+      - "public/demo/simulation-lawn-after.svg"
       - ".github/workflows/operational-simulator-e2e.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: operational-simulator-v1
@@ -43,122 +64,9 @@ jobs:
           ref: qa/full-ecosystem-e2e-20260807
           fetch-depth: 0
 
-      - name: Apply proven Exception Week query fix in runner only
-        shell: bash
+      - name: Apply final two blocker candidates
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path("app/api/admin/operational-simulator/exceptions/route.ts")
-          text = path.read_text()
-          text = text.replace("  route_id: string | null;\n  scheduled_date: string;", "  route_id: string | null;\n  route_order: number | null;\n  scheduled_date: string;", 1)
-          start = text.index("async function completedVisits(")
-          end = text.index("\n\nasync function exceptionStatus", start)
-          replacement = [
-              'async function completedVisits(service: any, companyId: string, customerIds: string[]): Promise<VisitRow[]> {',
-              '  if (!customerIds.length) return [];',
-              '  const jobs = await service.from("jobs")',
-              '    .select("id")',
-              '    .eq("company_id", companyId)',
-              '    .in("customer_id", customerIds);',
-              '  if (jobs.error) throw new Error(`jobs: ${jobs.error.message}`);',
-              '  const jobIds = (jobs.data || []).map((row: any) => String(row.id));',
-              '  if (!jobIds.length) return [];',
-              '  const rows: VisitRow[] = [];',
-              '  for (let offset = 0; offset < jobIds.length; offset += 12) {',
-              '    const result = await service.from("visits")',
-              '      .select("id,customer_id,route_id,route_order,scheduled_date,status,started_at,finished_at,duration_seconds,employee_notes,customer_visible_summary")',
-              '      .eq("company_id", companyId)',
-              '      .in("job_id", jobIds.slice(offset, offset + 12))',
-              '      .eq("status", "completed")',
-              '      .limit(120);',
-              '    if (result.error) throw new Error(`visits: ${result.error.message}`);',
-              '    rows.push(...((result.data || []) as VisitRow[]));',
-              '  }',
-              '  return rows.sort((left, right) =>',
-              '    String(right.scheduled_date).localeCompare(String(left.scheduled_date))',
-              '    || Number(left.route_order ?? 2147483647) - Number(right.route_order ?? 2147483647)',
-              '    || left.id.localeCompare(right.id));',
-              '}',
-          ]
-          path.write_text(text[:start] + "\n".join(replacement) + text[end:])
-          PY
-
-      - name: Apply Employee Mobile confirmed-write handoff in runner only
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path("app/mobile/employee/page.tsx")
-          text = path.read_text()
-
-          old_effect = '''  useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,selectedDate,routeReload]);'''
-          new_effect = '''  useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(current=>current.routeId===context.routeId&&Number(current.routeVersion||0)>Number(context.routeVersion||0)?current:context)});return()=>{cancelled=true}},[crew,selectedDate,routeReload]);'''
-          if old_effect not in text:
-              raise SystemExit("canonical route hydration effect anchor not found")
-          text = text.replace(old_effect, new_effect, 1)
-
-          old_block = '''      const reviewedVersion=activeSmartState&&"routeVersion" in activeSmartState?activeSmartState.routeVersion:mapContext.routeVersion;
-      const appliedVersion=await applyEmployeeDatabaseSmartRoute({routeId:mapContext.routeId,originalOrder,appliedOrder,origin:smartOriginPoint,expectedVersion:reviewedVersion});
-      let nextContext=await loadEmployeeRouteMapContextByRouteId(mapContext.routeId);
-      for(let attempt=0;attempt<6&&Number(nextContext.routeVersion||0)<appliedVersion;attempt+=1){await new Promise(resolve=>window.setTimeout(resolve,250+attempt*150));nextContext=await loadEmployeeRouteMapContextByRouteId(mapContext.routeId)}
-      if(Number(nextContext.routeVersion||0)<appliedVersion){window.location.reload();return}
-      setMapContext(nextContext);
-      window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeId: mapContext.routeId, routeVersion: nextContext.routeVersion } }));
-      setSmartPreview([]);setHomeMode("route");setRouteView("map");refresh(false);setMessage("Smart Route applied. Admin and Employee now share the same published order.");
-      // The canonical Route is already saved and visible. Secondary Smart Route state
-      // must never hold the field UI on a stale preview while other screens advance.
-      void loadEmployeeDatabaseSmartRouteState(mapContext.routeId).then(state=>{
-        setActiveSmartState(state);setSmartRouteActive(Boolean(state?.active));
-      }).catch(()=>{
-        // Realtime/route snapshot remains authoritative; state can retry on the normal refresh cycle.
-      });'''
-          new_block = '''      const reviewedVersion=activeSmartState&&"routeVersion" in activeSmartState?activeSmartState.routeVersion:mapContext.routeVersion;
-      const routeId=mapContext.routeId;
-      const appliedVersion=await applyEmployeeDatabaseSmartRoute({routeId,originalOrder,appliedOrder,origin:smartOriginPoint,expectedVersion:reviewedVersion});
-
-      // The canonical writer has already committed this version and exact Visit order.
-      // Leave preview mode immediately from that confirmed result instead of making the
-      // field UI wait for a second read of the same snapshot to converge.
-      const stopByVisitId=new Map(mapContext.stops.map(stop=>[stop.visitId,stop]));
-      const publishedStops=appliedOrder.map((visitId,index)=>{const stop=stopByVisitId.get(visitId);return stop?{...stop,routeOrder:index+1}:null}).filter((stop):stop is EmployeeRouteMapContext["stops"][number]=>Boolean(stop));
-      const publishedContext:EmployeeRouteMapContext={
-        ...mapContext,
-        routeId,
-        routeVersion:appliedVersion,
-        orderedVisitIds:[...appliedOrder],
-        routeOrder:appliedOrder.map((visitId,index)=>({visitId,routeOrder:index+1})),
-        geometry:null,
-        stops:publishedStops.length===mapContext.stops.length?publishedStops:mapContext.stops,
-      };
-      setMapContext(publishedContext);
-      setSmartPreview([]);setHomeMode("route");setRouteView("map");
-      window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeId, routeVersion: appliedVersion } }));
-      refresh(false);setMessage("Smart Route applied. Admin and Employee now share the same published order.");
-
-      // Rehydrate from the authoritative canonical snapshot without holding the published
-      // UI in preview. A slower older read may not replace the writer-confirmed version.
-      void (async()=>{
-        let nextContext=await loadEmployeeRouteMapContextByRouteId(routeId);
-        for(let attempt=0;attempt<6&&Number(nextContext.routeVersion||0)<appliedVersion;attempt+=1){await new Promise(resolve=>window.setTimeout(resolve,250+attempt*150));nextContext=await loadEmployeeRouteMapContextByRouteId(routeId)}
-        if(Number(nextContext.routeVersion||0)>=appliedVersion){
-          setMapContext(current=>current.routeId===nextContext.routeId&&Number(current.routeVersion||0)>Number(nextContext.routeVersion||0)?current:nextContext);
-          window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeId, routeVersion: nextContext.routeVersion } }));
-        }
-      })().catch(()=>{
-        // The confirmed writer state remains visible; realtime and normal refresh can retry.
-      });
-
-      // Secondary Smart Route state is also non-blocking after the canonical writer succeeds.
-      void loadEmployeeDatabaseSmartRouteState(routeId).then(state=>{
-        setActiveSmartState(state);setSmartRouteActive(Boolean(state?.active));
-      }).catch(()=>{
-        // Realtime/route snapshot remains authoritative; state can retry on the normal refresh cycle.
-      });'''
-          if old_block not in text:
-              raise SystemExit("applySmartPreview convergence block anchor not found")
-          text = text.replace(old_block, new_block, 1)
-          path.write_text(text)
-          PY
+          python scripts/qa-final-two-blockers.py
           git diff --check
 
       - uses: pnpm/action-setup@v4
@@ -170,60 +78,92 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
-      - name: Build and canonical guardrails
+      - name: Verify canonical database contract sources
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          migrations = {
+              "supabase/migrations/202607290001_customer_portal_action_contract.sql": [],
+              "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql": [],
+              "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql": ["route_stops_sync_visit_order_insert", "route_stops_sync_visit_order_update", "route_stops_sync_visit_order_delete"],
+              "supabase/migrations/202608031030_canonical_route_one_way_projection.sql": ["sync_canonical_route_stops_v2", "update public.visits"],
+              "supabase/migrations/202608031100_lock_active_canonical_route_order.sql": ["guard_active_canonical_route_order_trigger"],
+              "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql": ["route_order_audit", "route_stops"],
+              "supabase/migrations/202608070002_operational_simulator_visit_cleanup.sql": ["cleanup_operational_simulation_visits", "service_role"],
+              "supabase/migrations/202608071610_route_stops_visit_projection.sql": ["project_route_stop_to_visit_order", "route_stops", "visits"],
+              "supabase/migrations/202608071620_route_employee_lookup_indexes.sql": ["employees_profile_id_idx", "profiles_company_role_active_name_idx"],
+          }
+          for path, required_fragments in migrations.items():
+              source = Path(path)
+              if not source.is_file(): raise SystemExit(f"Missing canonical migration source: {path}")
+              text = source.read_text().lower()
+              for fragment in required_fragments:
+                  if fragment.lower() not in text: raise SystemExit(f"Canonical migration source {path} is missing contract fragment: {fragment}")
+          print("Canonical database migration sources are present and structurally verified.")
+          PY
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install temporary Playwright package
+        run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
+
+      - name: TypeScript and production build
         run: pnpm build
-      - run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Start production server
         run: |
-          pnpm start > /tmp/damasio-final-candidate.log 2>&1 &
+          pnpm start > /tmp/damasio-simulator-server.log 2>&1 &
+          echo $! > /tmp/damasio-simulator-server.pid
           for attempt in $(seq 1 60); do
             if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
             sleep 1
           done
-          cat /tmp/damasio-final-candidate.log
+          cat /tmp/damasio-simulator-server.log
           exit 1
 
-      - name: Generate Operational Simulator handoff and preserve result
-        shell: bash
+      - name: Run full two-month operational simulation
+        run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
+
+      - name: Validate canonical route on four authenticated screens
+        if: ${{ !cancelled() }}
         run: |
-          set +e
-          pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
-          status=$?
-          set -e
-          echo "$status" > /tmp/operational-simulator-status
-          if [ ! -f /tmp/damasio-operational-simulator-handoff.json ]; then
-            echo "Operational Simulator did not create the canonical-route handoff."
-            exit "$status"
+          if ! command -v pnpm >/dev/null 2>&1; then
+            echo "pnpm is unavailable because runner setup did not complete."
+            exit 1
           fi
-          echo "Operational Simulator exit code preserved for final gate: $status"
+          pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
 
-      - name: Run canonical route sync focused gate
-        run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
-
-      - name: Upload focused QA evidence
+      - name: Upload screenshots and server log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: final-two-blockers-candidate
+          name: operational-simulator-e2e
           path: |
+            operational-simulator.png
+            employee-live-route.png
+            customer-feedback-result.png
+            customer-feedback.png
+            customer-desktop-qa.png
             canonical-admin-web.png
             canonical-admin-mobile.png
             canonical-employee-web.png
             canonical-employee-mobile.png
-            operational-simulator.png
-            /tmp/damasio-final-candidate.log
-            /tmp/operational-simulator-status
+            /tmp/damasio-simulator-server.log
           if-no-files-found: ignore
 
-      - name: Preserve Operational Simulator gate result
-        if: always()
-        shell: bash
+      - name: Commit validated fixes and restore normal QA gate
+        if: success()
         run: |
-          status="$(cat /tmp/operational-simulator-status 2>/dev/null || echo 1)"
-          if [ "$status" -ne 0 ]; then
-            echo "Operational Simulator assertions failed earlier with exit code $status."
-            exit "$status"
-          fi
+          git checkout 28e5bba45ace5977c1b4a7b76e02a75d2fdbaa08 -- .github/workflows/operational-simulator-e2e.yml
+          git rm -f scripts/qa-final-two-blockers.py
+          if [ -f .github/workflows/qa-final-two-blockers.yml ]; then git rm -f .github/workflows/qa-final-two-blockers.yml; fi
+          git config user.name "Damasio QA Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/api/admin/operational-simulator/exceptions/route.ts app/mobile/employee/page.tsx .github/workflows/operational-simulator-e2e.yml
+          git diff --cached --check
+          git commit -m "Fix final operational simulator and Employee Mobile blockers"
+          git push origin HEAD:qa/full-ecosystem-e2e-20260807
