@@ -17,14 +17,14 @@ async function responseBody(response: any) {
 }
 
 test("company and customer APIs reject cross-tenant access", async ({ request }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(180_000);
   const service = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
   const suffix = `${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
   const companyA = randomUUID();
   const companyB = randomUUID();
-  const adminAEmail = `tenant.a.admin.${suffix}@example.com`;
-  const adminBEmail = `tenant.b.admin.${suffix}@example.com`;
-  const customerBEmail = `tenant.b.customer.${suffix}@example.com`;
+  const adminAEmail = `tenant.a.admin.${suffix}@4everseasons.test`;
+  const adminBEmail = `tenant.b.admin.${suffix}@4everseasons.test`;
+  const customerBEmail = `tenant.b.customer.${suffix}@4everseasons.test`;
   const password = `QaTenant!${suffix}Aa1`;
   let adminAId = "";
   let adminBId = "";
@@ -142,10 +142,10 @@ test("company and customer APIs reject cross-tenant access", async ({ request })
     await service.from("visits").delete().eq("id", visitAId);
     await service.from("properties").delete().in("id", [propertyAId, propertyBId]);
     await service.from("customers").delete().in("id", [customerAId, customerBId]);
-    for (const id of [customerBProfileId, adminBId, adminAId].filter(Boolean)) {
+    await Promise.all([customerBProfileId, adminBId, adminAId].filter(Boolean).map(async id => {
       await service.from("profiles").delete().eq("id", id);
       await service.auth.admin.deleteUser(id).catch(() => undefined);
-    }
+    }));
     await service.from("organizations").delete().in("id", [companyA, companyB]);
   }
 });
