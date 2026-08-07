@@ -174,20 +174,28 @@ jobs:
           print("Admin mobile canonical resolver now retries transient session/data convergence in this validation run.")
           PY
 
-      - name: Add Admin mobile route resolver diagnostics
+      - name: Add Admin mobile client diagnostics
         run: |
           python - <<'PY'
           from pathlib import Path
           path = Path("tests/canonical-route-sync.spec.ts")
           text = path.read_text()
+          page_marker = '  const adminMobile = await adminMobileContext.newPage();'
+          listeners = '\n'.join([
+              '  adminMobile.on("pageerror", error => console.log("ADMIN_MOBILE_PAGEERROR:", error.stack || error.message));',
+              '  adminMobile.on("console", message => { if (message.type() === "error") console.log("ADMIN_MOBILE_CONSOLE_ERROR:", message.text()); });',
+          ])
+          if page_marker not in text: raise SystemExit("Admin mobile page marker was not found.")
+          text = text.replace(page_marker, page_marker + "\n" + listeners, 1)
           marker = "  await adminMobile.locator('input[type=\"date\"]').first().fill(routeDate);"
-          addition = '''
-            const adminMobileResolved = await authRequest<any>(adminMobile, `/api/admin/canonical-route?profileId=${encodeURIComponent(worker.id)}&date=${encodeURIComponent(routeDate)}`);
-            console.log("ADMIN_MOBILE_RESOLVER:", JSON.stringify(adminMobileResolved));
-            console.log("ADMIN_MOBILE_BODY:", (await adminMobile.locator("body").innerText()).slice(0, 1600));'''
+          addition = '\n'.join([
+              '  const adminMobileResolved = await authRequest<any>(adminMobile, `/api/admin/canonical-route?profileId=${encodeURIComponent(worker.id)}&date=${encodeURIComponent(routeDate)}`);',
+              '  console.log("ADMIN_MOBILE_RESOLVER:", JSON.stringify(adminMobileResolved));',
+              '  console.log("ADMIN_MOBILE_BODY:", (await adminMobile.locator("body").innerText()).slice(0, 1600));',
+          ])
           if marker not in text: raise SystemExit("Admin mobile diagnostic marker was not found.")
-          path.write_text(text.replace(marker, marker + addition, 1))
-          print("Admin mobile canonical resolver diagnostics added for this validation run.")
+          path.write_text(text.replace(marker, marker + "\n" + addition, 1))
+          print("Admin mobile pageerror and console diagnostics added for this validation run.")
           PY
 
       - name: Install dependencies
