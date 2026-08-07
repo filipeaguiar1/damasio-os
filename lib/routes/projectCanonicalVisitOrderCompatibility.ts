@@ -22,30 +22,52 @@ export async function projectCanonicalVisitOrderCompatibility(service: any, rout
   const stops = (stopsResult.data || []) as CanonicalStopProjection[];
   if (!stops.length) throw new Error("Canonical Route has no stops to project.");
 
-  for (const stop of stops) {
+  const normalized = stops.map(stop => {
     const position = Number(stop.position);
     if (!stop.visit_id || !Number.isInteger(position) || position < 1) {
       throw new Error("Canonical Route contains an invalid stop projection.");
     }
+    return { visitId: String(stop.visit_id), position };
+  });
 
-    const visitResult = await service
+  // Two-phase projection avoids the unique (route, route_order) constraint while
+  // positions are swapped. Temporary values are derived only from canonical
+  // positions and are immediately replaced by the final canonical sequence.
+  for (const stop of normalized) {
+    const temporaryPosition = 1_000_000 + stop.position;
+    const shifted = await service
       .from("visits")
-      .update({ route_order: position })
-      .eq("id", stop.visit_id)
+      .update({ route_order: temporaryPosition })
+      .eq("id", stop.visitId)
       .eq("route_id", routeId)
       .select("id,route_order")
       .maybeSingle();
 
-    if (visitResult.error) throw new Error(visitResult.error.message);
-    if (!visitResult.data || Number(visitResult.data.route_order) !== position) {
-      throw new Error(`Visit ${stop.visit_id} did not accept canonical route position ${position}.`);
+    if (shifted.error) throw new Error(shifted.error.message);
+    if (!shifted.data || Number(shifted.data.route_order) !== temporaryPosition) {
+      throw new Error(`Visit ${stop.visitId} could not enter the canonical projection staging range.`);
+    }
+  }
+
+  for (const stop of normalized) {
+    const projected = await service
+      .from("visits")
+      .update({ route_order: stop.position })
+      .eq("id", stop.visitId)
+      .eq("route_id", routeId)
+      .select("id,route_order")
+      .maybeSingle();
+
+    if (projected.error) throw new Error(projected.error.message);
+    if (!projected.data || Number(projected.data.route_order) !== stop.position) {
+      throw new Error(`Visit ${stop.visitId} did not accept canonical route position ${stop.position}.`);
     }
   }
 
   return {
     fallback: true,
     routeId,
-    count: stops.length,
-    orderedVisitIds: stops.map(stop => String(stop.visit_id)),
+    count: normalized.length,
+    orderedVisitIds: normalized.map(stop => stop.visitId),
   };
 }
