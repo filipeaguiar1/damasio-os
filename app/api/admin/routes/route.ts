@@ -78,7 +78,7 @@ async function requireAdmin(request: NextRequest) {
   };
 }
 
-async function ensureEmployees(service: any, companyId: string) {
+async function readEmployees(service: any, companyId: string) {
   const profilesResult = await service
     .from("profiles")
     .select("id,full_name,email,address_line1,route_start_address,active")
@@ -114,49 +114,8 @@ async function ensureEmployees(service: any, companyId: string) {
     // Old demo logins must never become operational Employees, Crews or Route markers.
     if (isDemoIdentity(profile, employee)) continue;
 
-    if (!employee) {
-      const created = await service
-        .from("employees")
-        .insert({
-          company_id: companyId,
-          organization_id: companyId,
-          profile_id: profile.id,
-          full_name: profile.full_name,
-          email: profile.email,
-          address_line1: profile.address_line1,
-          route_start_address: profile.route_start_address || profile.address_line1,
-          active: true,
-          invite_status: "sent",
-        })
-        .select("id,profile_id,crew_id,full_name,email,address_line1,route_start_address,active")
-        .single();
-
-      if (created.error) throw new Error(created.error.message);
-      employee = created.data;
-      aliases = [employee];
-    }
-
-    if (!employee.crew_id) {
-      const crew = await service
-        .from("crews")
-        .insert({
-          company_id: companyId,
-          organization_id: companyId,
-          name: employee.full_name || profile.full_name || "Employee route",
-          active: true,
-        })
-        .select("id")
-        .single();
-
-      if (crew.error) throw new Error(crew.error.message);
-
-      const linked = await service
-        .from("employees")
-        .update({ crew_id: crew.data.id })
-        .eq("id", employee.id);
-      if (linked.error) throw new Error(linked.error.message);
-      employee.crew_id = crew.data.id;
-    }
+    // GET is a read model. Employee/Crew creation belongs to the explicit lifecycle flow.
+    if (!employee || !employee.crew_id) continue;
 
     const employeeIds = [...new Set(
       [...aliases.map(alias => String(alias.id || "")), String(employee.id || "")].filter(Boolean),
@@ -204,7 +163,8 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
   const propertyResult = await service
     .from("properties")
     .select("id,customer_id,address_line1,city,province,postal_code,property_notes")
-    .in("customer_id", customerIds);
+    .in("customer_id", customerIds)
+    .or(companyFilter(companyId));
 
   if (propertyResult.error) throw new Error(propertyResult.error.message);
   const properties = propertyResult.data || [];
@@ -217,35 +177,6 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
 
   if (jobResult.error) throw new Error(jobResult.error.message);
   const jobs = jobResult.data || [];
-
-  const jobByProperty = new Map<string, any>();
-  for (const job of jobs) {
-    if (job.property_id && !jobByProperty.has(job.property_id)) jobByProperty.set(job.property_id, job);
-  }
-
-  for (const property of properties) {
-    if (!property.id || jobByProperty.has(property.id)) continue;
-    const inserted = await service
-      .from("jobs")
-      .insert({
-        organization_id: companyId,
-        company_id: companyId,
-        customer_id: property.customer_id,
-        property_id: property.id,
-        service_name: property.property_notes
-          ?.split("\n")[0]
-          ?.replace(/^Service type:\s*/i, "")
-          || "Property Service",
-        frequency: "one_time",
-        active: true,
-      })
-      .select("id,customer_id,property_id,service_name,frequency,next_visit_date,recurrence_anchor_date,default_route_order,created_at,active")
-      .single();
-
-    if (inserted.error) throw new Error(inserted.error.message);
-    jobs.push(inserted.data);
-    jobByProperty.set(property.id, inserted.data);
-  }
 
   const assignments = new Map<string, {
     crewId: string | null;
@@ -313,7 +244,7 @@ async function canonicalVisits(service: any, companyId: string, routeDate?: stri
   const routesResult = await routeQuery
     .order("route_date", { ascending: false })
     .order("created_at", { ascending: false })
-    .limit(routeDate ? 250 : 500);
+    .limit(routeDate ? 250 : 100);
   if (routesResult.error) throw new Error(routesResult.error.message);
 
   const routes: any[] = routesResult.data || [];
@@ -463,7 +394,7 @@ export async function GET(request: NextRequest) {
     const { service, user, companyId } = await requireAdmin(request);
     const routeDate = request.nextUrl.searchParams.get("date")?.trim() || null;
     const [employees, jobs, visits] = await Promise.all([
-      ensureEmployees(service, companyId),
+      readEmployees(service, companyId),
       canonicalJobs(service, user, companyId),
       canonicalVisits(service, companyId, routeDate),
     ]);
