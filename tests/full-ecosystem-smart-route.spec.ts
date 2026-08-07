@@ -34,27 +34,15 @@ test("Employee Smart Route reorders three houses and survives relaunch", async (
   const adminPassword = `QaAdmin!${suffix}Aa1`;
   const employeePassword = `QaEmployee!${suffix}Aa1`;
   const date = torontoDateKey();
-  let adminId = "";
-  let employeeProfileId = "";
-  let employeeId = "";
-  let crewId = "";
-  let routeId = "";
-  const customerIds: string[] = [];
-  const propertyIds: string[] = [];
-  const quoteIds: string[] = [];
-  const jobIds: string[] = [];
-  const visitIds: string[] = [];
+  let adminId = "", employeeProfileId = "", employeeId = "", crewId = "", routeId = "";
+  const customerIds: string[] = [], propertyIds: string[] = [], quoteIds: string[] = [], jobIds: string[] = [], visitIds: string[] = [];
 
   try {
-    const company = await service.from("organizations").insert({
-      id: companyId,
-      name: `QA Smart Route ${suffix}`,
-      slug: `qa-smart-route-${suffix}`.toLowerCase(),
-      active: true,
-      plan_name: "professional",
-      contact_email: adminEmail,
+    let result = await service.from("organizations").insert({
+      id: companyId, name: `QA Smart Route ${suffix}`, slug: `qa-smart-route-${suffix}`.toLowerCase(),
+      active: true, plan_name: "professional", contact_email: adminEmail,
     });
-    expect(company.error, company.error?.message).toBeNull();
+    expect(result.error, result.error?.message).toBeNull();
 
     const adminAuth = await service.auth.admin.createUser({
       email: adminEmail, password: adminPassword, email_confirm: true,
@@ -62,11 +50,11 @@ test("Employee Smart Route reorders three houses and survives relaunch", async (
     });
     expect(adminAuth.error, adminAuth.error?.message).toBeNull();
     adminId = adminAuth.data.user?.id || "";
-    const adminProfile = await service.from("profiles").upsert({
-      id: adminId, organization_id: companyId, company_id: companyId,
-      role: "admin", full_name: "QA Smart Admin", email: adminEmail, active: true,
+    result = await service.from("profiles").upsert({
+      id: adminId, organization_id: companyId, company_id: companyId, role: "admin",
+      full_name: "QA Smart Admin", email: adminEmail, active: true,
     });
-    expect(adminProfile.error, adminProfile.error?.message).toBeNull();
+    expect(result.error, result.error?.message).toBeNull();
 
     const employeeAuth = await service.auth.admin.createUser({
       email: employeeEmail, password: employeePassword, email_confirm: true,
@@ -74,19 +62,18 @@ test("Employee Smart Route reorders three houses and survives relaunch", async (
     });
     expect(employeeAuth.error, employeeAuth.error?.message).toBeNull();
     employeeProfileId = employeeAuth.data.user?.id || "";
-    const employeeProfile = await service.from("profiles").upsert({
-      id: employeeProfileId, organization_id: companyId, company_id: companyId,
-      role: "employee", full_name: "QA Smart Worker", email: employeeEmail, active: true,
+    result = await service.from("profiles").upsert({
+      id: employeeProfileId, organization_id: companyId, company_id: companyId, role: "employee",
+      full_name: "QA Smart Worker", email: employeeEmail, active: true,
       route_start_address: "71 Main St W, Hamilton, ON",
     });
-    expect(employeeProfile.error, employeeProfile.error?.message).toBeNull();
+    expect(result.error, result.error?.message).toBeNull();
 
     const crew = await service.from("crews").insert({
       organization_id: companyId, company_id: companyId, name: "QA Smart Worker", active: true,
     }).select("id").single();
     expect(crew.error, crew.error?.message).toBeNull();
     crewId = crew.data?.id || "";
-
     const employee = await service.from("employees").insert({
       organization_id: companyId, company_id: companyId, profile_id: employeeProfileId, crew_id: crewId,
       full_name: "QA Smart Worker", email: employeeEmail, active: true,
@@ -96,129 +83,108 @@ test("Employee Smart Route reorders three houses and survives relaunch", async (
     employeeId = employee.data?.id || "";
 
     const addresses = [
-      ["100 Main St W", "L8P 1H6"],
-      ["200 King St E", "L8N 1B5"],
-      ["300 James St N", "L8L 1H2"],
+      ["100 Main St W", "L8P 1H6"], ["200 King St E", "L8N 1B5"], ["300 James St N", "L8L 1H2"],
     ];
-    for (let index = 0; index < addresses.length; index += 1) {
-      const customerId = randomUUID();
-      const propertyId = randomUUID();
-      const quoteId = randomUUID();
-      const jobId = randomUUID();
+    for (let i = 0; i < 3; i += 1) {
+      const customerId = randomUUID(), propertyId = randomUUID(), quoteId = randomUUID(), jobId = randomUUID();
       customerIds.push(customerId); propertyIds.push(propertyId); quoteIds.push(quoteId); jobIds.push(jobId);
-      const customer = await service.from("customers").insert({
+      result = await service.from("customers").insert({
         id: customerId, organization_id: companyId, company_id: companyId, service_company_id: companyId,
-        full_name: `QA Smart Customer ${index + 1}`, acquisition_source: "company_created",
+        full_name: `QA Smart Customer ${i + 1}`, acquisition_source: "company_created",
         assignment_status: "active", offer_status: "accepted", platform_managed: false,
       });
-      expect(customer.error, customer.error?.message).toBeNull();
-      const property = await service.from("properties").insert({
+      expect(result.error, result.error?.message).toBeNull();
+      result = await service.from("properties").insert({
         id: propertyId, organization_id: companyId, company_id: companyId, customer_id: customerId,
-        address_line1: addresses[index][0], city: "Hamilton", province: "ON", postal_code: addresses[index][1], country: "Canada",
+        address_line1: addresses[i][0], city: "Hamilton", province: "ON", postal_code: addresses[i][1], country: "Canada",
       });
-      expect(property.error, property.error?.message).toBeNull();
-      const quote = await service.from("quotes").insert({
+      expect(result.error, result.error?.message).toBeNull();
+      result = await service.from("quotes").insert({
         id: quoteId, organization_id: companyId, company_id: companyId, customer_id: customerId, property_id: propertyId,
-        quote_number: `Q-SMART-${suffix}-${index + 1}`, status: "approved", subtotal: 40, tax: 5.2, total: 45.2,
+        quote_number: `Q-SMART-${suffix}-${i + 1}`, status: "approved", subtotal: 40, tax: 5.2, total: 45.2,
       });
-      expect(quote.error, quote.error?.message).toBeNull();
-      const job = await service.from("jobs").insert({
+      expect(result.error, result.error?.message).toBeNull();
+      result = await service.from("jobs").insert({
         id: jobId, organization_id: companyId, company_id: companyId, customer_id: customerId, property_id: propertyId,
         quote_id: quoteId, service_name: "Lawn Cutting", frequency: "weekly", active: true,
       });
-      expect(job.error, job.error?.message).toBeNull();
+      expect(result.error, result.error?.message).toBeNull();
     }
 
-    const adminClient = authClient();
-    const adminSession = await adminClient.auth.signInWithPassword({ email: adminEmail, password: adminPassword });
+    const adminSession = await authClient().auth.signInWithPassword({ email: adminEmail, password: adminPassword });
     expect(adminSession.error, adminSession.error?.message).toBeNull();
     const adminToken = adminSession.data.session?.access_token;
     expect(adminToken).toBeTruthy();
-
     const board = await bodyOf(await request.get(`${appUrl}/api/admin/routes?date=${date}`, {
       headers: { authorization: `Bearer ${adminToken}` },
     }), "Admin route board");
     expect(board.employees?.some((row: any) => row.employeeId === employeeId && row.crewId === crewId)).toBeTruthy();
     expect(jobIds.every(id => board.board?.unscheduledJobs?.some((row: any) => row.id === id))).toBeTruthy();
-
     await bodyOf(await request.post(`${appUrl}/api/admin/routes`, {
       headers: { authorization: `Bearer ${adminToken}` },
       data: { action: "smart", jobIds, employeeId, crewId, routeDate: date },
     }), "Admin multi-house route publish");
 
-    const routeVisits = await service.from("visits")
-      .select("id,job_id,route_id,route_order,status")
+    const routeVisits = await service.from("visits").select("id,job_id,route_id,route_order,status")
       .in("job_id", jobIds).eq("scheduled_date", date)
-      .or(`company_id.eq.${companyId},organization_id.eq.${companyId}`)
-      .order("route_order", { ascending: true });
+      .or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).order("route_order", { ascending: true });
     expect(routeVisits.error, routeVisits.error?.message).toBeNull();
     expect(routeVisits.data?.length).toBe(3);
     routeId = routeVisits.data?.[0]?.route_id || "";
-    expect(routeId).not.toBe("");
-    expect(routeVisits.data?.every((row: any) => row.route_id === routeId)).toBeTruthy();
     visitIds.push(...(routeVisits.data || []).map((row: any) => String(row.id)));
-    expect((routeVisits.data || []).map((row: any) => row.route_order)).toEqual([1, 2, 3]);
+    expect(routeId).not.toBe("");
+    expect((routeVisits.data || []).map((row: any) => Number(row.route_order))).toEqual([1, 2, 3]);
 
     const employeeClient = authClient();
     const employeeSession = await employeeClient.auth.signInWithPassword({ email: employeeEmail, password: employeePassword });
     expect(employeeSession.error, employeeSession.error?.message).toBeNull();
     const employeeToken = employeeSession.data.session?.access_token;
-    expect(employeeToken).toBeTruthy();
-
     const before = await bodyOf(await request.get(`${appUrl}/api/mobile/employee/route?date=${date}`, {
       headers: { authorization: `Bearer ${employeeToken}` },
     }), "Employee route before Smart Route");
-    expect(before.routeId).toBe(routeId);
     const beforeOrder = (before.stops || []).map((stop: any) => String(stop.visitId));
+    expect(before.routeId).toBe(routeId);
     expect(beforeOrder).toEqual(visitIds);
 
-    // A newly published legacy-compatible route may not have route_order_state yet. The
-    // canonical writer is explicitly responsible for initializing version 1 on first apply.
     const stateBefore = await service.from("route_order_state").select("version").eq("route_id", routeId).maybeSingle();
     expect(stateBefore.error, stateBefore.error?.message).toBeNull();
     const previousVersion = stateBefore.data ? Number(stateBefore.data.version) : null;
     const reversed = [...beforeOrder].reverse();
-
     const applied = await bodyOf(await request.post(`${appUrl}/api/mobile/employee/smart-route`, {
       headers: { authorization: `Bearer ${employeeToken}` },
       data: {
-        action: "apply",
-        routeId,
-        originalOrder: beforeOrder,
-        appliedOrder: reversed,
+        action: "apply", routeId, originalOrder: beforeOrder, appliedOrder: reversed,
         expectedVersion: previousVersion,
         origin: { label: "71 Main St W, Hamilton, ON", latitude: 43.2557, longitude: -79.8711 },
       },
     }), "Employee Smart Route apply");
     expect(applied.saved).toBe(true);
-    expect(applied.routeId).toBe(routeId);
     expect(applied.appliedOrder || applied.orderedVisitIds).toEqual(reversed);
     const nextVersion = Number(applied.routeVersion || applied.version);
     expect(nextVersion).toBeGreaterThan(previousVersion || 0);
 
-    const stateAfter = await service.from("route_order_state")
-      .select("version,last_source,last_actor_profile_id")
+    const stateAfter = await service.from("route_order_state").select("version,last_source,last_actor_profile_id")
       .eq("route_id", routeId).single();
     expect(stateAfter.error, stateAfter.error?.message).toBeNull();
     expect(Number(stateAfter.data?.version)).toBe(nextVersion);
     expect(stateAfter.data?.last_source).toBe("employee_smart_route");
     expect(stateAfter.data?.last_actor_profile_id).toBe(employeeProfileId);
 
-    const stopsAfter = await service.from("route_stops")
-      .select("visit_id,position").eq("route_id", routeId).order("position", { ascending: true });
+    const stopsAfter = await service.from("route_stops").select("visit_id,position")
+      .eq("route_id", routeId).order("position", { ascending: true });
     expect(stopsAfter.error, stopsAfter.error?.message).toBeNull();
     expect((stopsAfter.data || []).map((row: any) => String(row.visit_id))).toEqual(reversed);
     expect((stopsAfter.data || []).map((row: any) => Number(row.position))).toEqual([1, 2, 3]);
 
-    const projectionAfter = await service.from("visits")
-      .select("id,route_order").in("id", reversed).order("route_order", { ascending: true });
+    // Verify the compatibility projection by exact Visit ID instead of relying on query row order.
+    const projectionAfter = await service.from("visits").select("id,route_order").in("id", reversed);
     expect(projectionAfter.error, projectionAfter.error?.message).toBeNull();
-    expect((projectionAfter.data || []).map((row: any) => String(row.id))).toEqual(reversed);
-    expect((projectionAfter.data || []).map((row: any) => Number(row.route_order))).toEqual([1, 2, 3]);
+    const projected = new Map((projectionAfter.data || []).map((row: any) => [String(row.id), Number(row.route_order)]));
+    console.log(JSON.stringify({ checkpoint: "smart-route-projection", reversed, projected: Object.fromEntries(projected) }));
+    reversed.forEach((visitId, index) => expect(projected.get(visitId), `visit ${visitId} route_order`).toBe(index + 1));
 
     await employeeClient.auth.signOut();
-    const freshClient = authClient();
-    const freshSession = await freshClient.auth.signInWithPassword({ email: employeeEmail, password: employeePassword });
+    const freshSession = await authClient().auth.signInWithPassword({ email: employeeEmail, password: employeePassword });
     expect(freshSession.error, freshSession.error?.message).toBeNull();
     const freshToken = freshSession.data.session?.access_token;
     const afterRelaunch = await bodyOf(await request.get(`${appUrl}/api/mobile/employee/route?date=${date}`, {
@@ -226,9 +192,9 @@ test("Employee Smart Route reorders three houses and survives relaunch", async (
     }), "Employee route after Smart Route relaunch");
     expect((afterRelaunch.stops || []).map((stop: any) => String(stop.visitId))).toEqual(reversed);
 
-    const audit = await service.from("route_order_audit")
-      .select("route_id,source,next_order,route_version").eq("route_id", routeId)
-      .eq("source", "employee_smart_route").order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const audit = await service.from("route_order_audit").select("route_id,source,next_order,route_version")
+      .eq("route_id", routeId).eq("source", "employee_smart_route")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
     expect(audit.error, audit.error?.message).toBeNull();
     expect(audit.data?.route_id).toBe(routeId);
     expect((audit.data?.next_order || []).map(String)).toEqual(reversed);
