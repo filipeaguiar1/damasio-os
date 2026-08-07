@@ -40,6 +40,15 @@ for (const file of files) {
   }
 }
 
+const masterCompanyRoute = fs.readFileSync("app/api/master/companies/route.ts", "utf8");
+const fullEcosystemTest = fs.readFileSync("tests/full-ecosystem.spec.ts", "utf8");
+if (!masterCompanyRoute.includes('x-damasio-qa-no-email') || !masterCompanyRoute.includes('127\\.0\\.0\\.1')) {
+  failures.push("Master company endpoint is missing the localhost-only QA no-email guard");
+}
+if (!fullEcosystemTest.includes('"x-damasio-qa-no-email": "1"')) {
+  failures.push("Full Ecosystem test is missing the explicit QA no-email header");
+}
+
 if (failures.length) {
   console.error("QA email safety check failed:\n" + failures.map(item => `- ${item}`).join("\n"));
   process.exit(1);

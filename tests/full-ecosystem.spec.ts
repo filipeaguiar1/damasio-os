@@ -104,7 +104,7 @@ test("full SaaS ecosystem from Master company creation through Customer History"
     expect(masterToken).toBeTruthy();
 
     const company = await bodyOf(await request.post(`${appUrl}/api/master/companies`, {
-      headers: { authorization: `Bearer ${masterToken}` },
+      headers: { authorization: `Bearer ${masterToken}`, "x-damasio-qa-no-email": "1" },
       data: {
         name: `QA Ecosystem ${stamp}`,
         slug: `qa-ecosystem-${stamp}`,

@@ -248,8 +248,10 @@ export default function MobileEmployeeApp(){
       const originalOrder=mapContext.stops.map(stop=>stop.visitId);
       const appliedOrder=[...locked,...optimized,...unselected].map(id=>route.find(lead=>lead.id===id)?.canonicalVisitId||id).filter(id=>originalOrder.includes(id));
       const reviewedVersion=activeSmartState&&"routeVersion" in activeSmartState?activeSmartState.routeVersion:mapContext.routeVersion;
-      await applyEmployeeDatabaseSmartRoute({routeId:mapContext.routeId,originalOrder,appliedOrder,origin:smartOriginPoint,expectedVersion:reviewedVersion});
-      const nextContext=await loadEmployeeRouteMapContextByRouteId(mapContext.routeId);
+      const appliedVersion=await applyEmployeeDatabaseSmartRoute({routeId:mapContext.routeId,originalOrder,appliedOrder,origin:smartOriginPoint,expectedVersion:reviewedVersion});
+      let nextContext=await loadEmployeeRouteMapContextByRouteId(mapContext.routeId);
+      for(let attempt=0;attempt<6&&Number(nextContext.routeVersion||0)<appliedVersion;attempt+=1){await new Promise(resolve=>window.setTimeout(resolve,250+attempt*150));nextContext=await loadEmployeeRouteMapContextByRouteId(mapContext.routeId)}
+      if(Number(nextContext.routeVersion||0)<appliedVersion){window.location.reload();return}
       setMapContext(nextContext);
       window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeId: mapContext.routeId, routeVersion: nextContext.routeVersion } }));
       setSmartPreview([]);setHomeMode("route");setRouteView("map");refresh(false);setMessage("Smart Route applied. Admin and Employee now share the same published order.");
@@ -390,7 +392,7 @@ export default function MobileEmployeeApp(){
           <div><strong>{lead.address}</strong><p>{lead.name}</p><em>{lead.service} · {lead.serviceFrequency||"weekly"}</em></div>
           <b className={lead.status==="completed"?"mobile-status done":getSessionForLead(lead.id)?.status==="skipped"?"mobile-status skipped":"mobile-status"}>{statusLabel(lead,getSessionForLead(lead.id))}</b>
         </button>)}
-      </section>:<EmployeeRouteMap route={mapRoute} routeId={mapContext.routeId||undefined} routeVersion={mapContext.routeVersion} originPoint={smartRouteActive&&activeSmartState&&Number.isFinite(activeSmartState.originLatitude)&&Number.isFinite(activeSmartState.originLongitude)?{latitude:Number(activeSmartState.originLatitude),longitude:Number(activeSmartState.originLongitude),label:activeSmartState.originLabel}:defaultOriginPoint} onOpenVisit={openService}/>}
+      </section>:<EmployeeRouteMap key={`canonical-${mapContext.routeId||"none"}-${mapContext.routeVersion||0}`} route={mapRoute} routeId={mapContext.routeId||undefined} routeVersion={mapContext.routeVersion} originPoint={smartRouteActive&&activeSmartState&&Number.isFinite(activeSmartState.originLatitude)&&Number.isFinite(activeSmartState.originLongitude)?{latitude:Number(activeSmartState.originLatitude),longitude:Number(activeSmartState.originLongitude),label:activeSmartState.originLabel}:defaultOriginPoint} onOpenVisit={openService}/>}
       {routeView==="list"&&nextStop&&<div className="employee-route-next-stack">{!routeStarted&&<button type="button" className="employee-start-route" onClick={startRoute}>Start Route <b>▶</b></button>}<a className="employee-next-directions" href={mapsHref(nextStop.address)} target="_blank" rel="noopener noreferrer"><span>Get directions to next</span><b>⌖</b></a></div>}
     </>}
 
