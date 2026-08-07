@@ -73,13 +73,15 @@ export async function POST(request: NextRequest) {
       .like("email", simulationPattern(companyId));
     if (customers.error) throw new Error(customers.error.message);
 
-    const customerIds = [...new Set((customers.data || []).map((row: any) => String(row.id)).filter(Boolean))];
+    const customerIds: string[] = [...new Set<string>(
+      (customers.data || []).map((row: any) => String(row.id)).filter(Boolean),
+    )];
     if (!customerIds.length) {
       return NextResponse.json({ cleaned: true, customerCount: 0, visitCount: 0, batchCount: 0 });
     }
 
     let visitCount = 0;
-    const customerBatches = chunks(customerIds, CLEANUP_BATCH_SIZE);
+    const customerBatches = chunks<string>(customerIds, CLEANUP_BATCH_SIZE);
     for (const batch of customerBatches) {
       visitCount += await cleanupCustomerBatch(service, companyId, batch);
     }
