@@ -1,0 +1,38 @@
+name: QA Apply Mobile Snapshot Refresh Fix
+
+on:
+  push:
+    branches:
+      - qa/full-ecosystem-e2e-20260807
+    paths:
+      - scripts/apply-mobile-snapshot-refresh-fix.py
+      - .github/workflows/qa-apply-mobile-snapshot-refresh-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/full-ecosystem-e2e-20260807
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: python scripts/apply-mobile-snapshot-refresh-fix.py
+      - run: pnpm test:route-writers && pnpm test:map-sync && pnpm typecheck
+      - name: Commit patch and remove temporary patch files
+        run: |
+          rm scripts/apply-mobile-snapshot-refresh-fix.py .github/workflows/qa-apply-mobile-snapshot-refresh-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add components/mobile/EmployeeRouteMap.tsx scripts/apply-mobile-snapshot-refresh-fix.py .github/workflows/qa-apply-mobile-snapshot-refresh-fix.yml
+          git commit -m "fix: refresh canonical mobile snapshot after route reorder"
+          git push origin HEAD:qa/full-ecosystem-e2e-20260807
