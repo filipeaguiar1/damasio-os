@@ -677,8 +677,8 @@ async function removeSimulation(service: any, companyId: string) {
   // Property keeps the request bounded and avoids oversized Visit-ID filters after legacy runs.
   if (propertyIds.length) await remove("property photos", service.from("photos").delete().in("property_id", propertyIds));
   if (routeIds.length) {
-    await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));
     await remove("employee_smart_route_state", service.from("employee_smart_route_state").delete().in("route_id", routeIds));
+    await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));
     await remove("route_order_state", service.from("route_order_state").delete().in("route_id", routeIds));
     await remove("route_map_cache", service.from("route_map_cache").delete().in("route_id", routeIds), true);
   }
@@ -715,10 +715,18 @@ async function removeSimulation(service: any, companyId: string) {
 
   let accountsRemoved = 0;
   for (const profileId of profileIds) {
-    const result = await service.auth.admin.deleteUser(profileId);
-    if (result.error && !/not found/i.test(result.error.message)) {
-      throw new Error(`auth cleanup: ${result.error.message}`);
+    let deleted = false;
+    let lastMessage = "";
+    for (let attempt = 0; attempt < 3 && !deleted; attempt += 1) {
+      const result = await service.auth.admin.deleteUser(profileId);
+      if (!result.error || /not found/i.test(result.error?.message || "")) {
+        deleted = true;
+        break;
+      }
+      lastMessage = result.error?.message || JSON.stringify(result.error) || "auth cleanup failed";
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 300 * (attempt + 1)));
     }
+    if (!deleted) throw new Error(`auth cleanup: ${lastMessage}`);
     accountsRemoved += 1;
   }
 
@@ -744,7 +752,18 @@ export async function POST(request: NextRequest) {
     const body = await request.json() as { action?: "create" | "remove"; assumptions?: Partial<OperationalSimulationInput> };
 
     if (body.action === "remove") {
-      const removed = await removeSimulation(service, companyId);
+      let removed = await removeSimulation(service, companyId);
+      let remaining = await simulationStatus(service, companyId);
+      for (let attempt = 0; remaining.exists && attempt < 2; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+        const retry = await removeSimulation(service, companyId);
+        removed = {
+          customersRemoved: Math.max(removed.customersRemoved, retry.customersRemoved),
+          accountsRemoved: removed.accountsRemoved + retry.accountsRemoved,
+        };
+        remaining = await simulationStatus(service, companyId);
+      }
+      if (remaining.exists) throw new Error(`Simulation cleanup did not converge: ${remaining.customerCount} simulation customers remain.`);
       return NextResponse.json({ removed: true, ...removed, message: `${removed.customersRemoved} simulation customers and ${removed.accountsRemoved} temporary accounts removed.` });
     }
 
