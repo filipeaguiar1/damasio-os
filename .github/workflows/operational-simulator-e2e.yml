@@ -134,6 +134,27 @@ jobs:
           print("Explicit canonical routeId now makes route_stops snapshot authoritative in this validation run.")
           PY
 
+      - name: Add Admin mobile route resolver diagnostics
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("tests/canonical-route-sync.spec.ts")
+          text = path.read_text()
+          old = '''  await adminMobile.goto(`${baseURL}/mobile/admin/routes`);
+            await adminMobile.locator("select").first().selectOption(worker.id);
+            await adminMobile.locator('input[type="date"]').first().fill(routeDate);'''
+          new = '''  await adminMobile.goto(`${baseURL}/mobile/admin/routes`);
+            await adminMobile.locator("select").first().selectOption(worker.id);
+            await adminMobile.locator('input[type="date"]').first().fill(routeDate);
+            const adminMobileResolved = await authRequest<any>(adminMobile, `/api/admin/canonical-route?profileId=${encodeURIComponent(worker.id)}&date=${encodeURIComponent(routeDate)}`);
+            console.log("ADMIN_MOBILE_RESOLVER:", JSON.stringify(adminMobileResolved));
+            console.log("ADMIN_MOBILE_BODY:", (await adminMobile.locator("body").innerText()).slice(0, 1600));'''
+          if old not in text:
+              raise SystemExit("Admin mobile diagnostic patch target was not found.")
+          path.write_text(text.replace(old, new, 1))
+          print("Admin mobile canonical resolver diagnostics added for this validation run.")
+          PY
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
