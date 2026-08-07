@@ -54,6 +54,22 @@ function migrationError(message?: string) {
   return new Error(message || "Canonical route order could not be saved.");
 }
 
+function projectionError(message?: string) {
+  if (/sync_canonical_route_stops_v2|schema cache|could not find the function|permission denied/i.test(message || "")) {
+    return new Error("Canonical Route one-way Visit projection is not installed for the service writer.");
+  }
+  return new Error(message || "Canonical Route Visit projection could not be synchronized.");
+}
+
+async function projectCanonicalVisitOrder(service: any, routeId: string, source: string) {
+  const projection = await service.rpc("sync_canonical_route_stops_v2", {
+    p_route_id: routeId,
+    p_source: source,
+  });
+  if (projection.error) throw projectionError(projection.error.message);
+  return projection.data || {};
+}
+
 async function requireContext(request: NextRequest) {
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) throw new Error("Sign in to change this route.");
@@ -141,6 +157,7 @@ export async function POST(request: NextRequest) {
       });
       if (restored.error) throw migrationError(restored.error.message);
       const result = restored.data || {};
+      await projectCanonicalVisitOrder(context.service, routeId, "canonical_restore_projection");
       return NextResponse.json({
         ...result,
         routeId,
@@ -194,6 +211,13 @@ export async function POST(request: NextRequest) {
     if (!sameOrder(savedOrder, orderedVisitIds) || !Number.isInteger(routeVersion) || routeVersion < 1) {
       throw new Error("The database did not confirm the exact canonical order and version.");
     }
+
+    // route_stops is the only durable order. Some deployed databases still lack
+    // the newer route_stops trigger, so explicitly run the existing one-way
+    // compatibility projection before persistence verification. This never writes
+    // back to route_stops and prevents a successful canonical save from being
+    // reported as failed only because visits.route_order is stale.
+    await projectCanonicalVisitOrder(context.service, routeId, "canonical_apply_projection_api");
 
     const verified = await verifyCanonicalRoutePersistence(context.service, {
       routeId,
