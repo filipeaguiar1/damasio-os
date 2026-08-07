@@ -243,6 +243,8 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
 
   for (const page of [adminDesktop, adminMobile, employeeDesktop, employeeMobile]) {
     await waitForVersion(page, employeeSnapshot.routeId, employeeVersion);
+    await page.bringToFront();
+    await page.waitForTimeout(350);
   }
   for (const [page, label] of [
     [adminDesktop, "Admin web after Employee change"],
@@ -269,6 +271,8 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
 
   for (const page of [adminDesktop, adminMobile, employeeDesktop, employeeMobile]) {
     await waitForVersion(page, employeeSnapshot.routeId, adminWrite.routeVersion);
+    await page.bringToFront();
+    await page.waitForTimeout(350);
   }
   const restoredEmployee = await authRequest<any>(employeeDesktop, `/api/map/canonical-route?routeId=${employeeSnapshot.routeId}`);
   expect(restoredEmployee.orderedVisitIds).toEqual(employeeSnapshot.orderedVisitIds);

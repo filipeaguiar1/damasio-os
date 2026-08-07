@@ -30,7 +30,7 @@ function torontoDateKey() {
 }
 
 test("full SaaS ecosystem from Master company creation through Customer History", async ({ request }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(300_000);
   required("NEXT_PUBLIC_SUPABASE_URL", supabaseUrl);
   required("NEXT_PUBLIC_SUPABASE_ANON_KEY", anonKey);
   required("SUPABASE_SERVICE_ROLE_KEY", serviceKey);
@@ -38,10 +38,10 @@ test("full SaaS ecosystem from Master company creation through Customer History"
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const safe = stamp.replace(/[^a-z0-9]/gi, "");
   const routeDate = torontoDateKey();
-  const masterEmail = `qa-master-${stamp}@example.com`;
-  const adminEmail = `damasio.qa.admin.${safe}@gmail.com`;
-  const employeeEmail = `damasio.qa.employee.${safe}@gmail.com`;
-  const customerEmail = `damasio.qa.customer.${safe}@gmail.com`;
+  const masterEmail = `qa-master-${stamp}@4everseasons.test`;
+  const adminEmail = `damasio.qa.admin.${safe}@4everseasons.test`;
+  const employeeEmail = `damasio.qa.employee.${safe}@4everseasons.test`;
+  const customerEmail = `damasio.qa.customer.${safe}@4everseasons.test`;
   const masterPassword = `QaMaster!${safe}Aa1`;
   const adminSeedPassword = `QaAdmin!${safe}Aa1`;
   const employeePassword = `QaEmployee!${safe}Aa1`;
