@@ -136,8 +136,19 @@ jobs:
           cat /tmp/damasio-mobile-diagnostic.log
           exit 1
 
-      - name: Generate Operational Simulator handoff
-        run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
+      - name: Generate Operational Simulator handoff and preserve result
+        shell: bash
+        run: |
+          set +e
+          pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
+          status=$?
+          set -e
+          echo "$status" > /tmp/operational-simulator-status
+          if [ ! -f /tmp/damasio-operational-simulator-handoff.json ]; then
+            echo "Operational Simulator did not create the canonical-route handoff."
+            exit "$status"
+          fi
+          echo "Operational Simulator exit code preserved for final gate: $status"
 
       - name: Run canonical route sync diagnostic gate
         run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
@@ -152,4 +163,15 @@ jobs:
             canonical-employee-web.png
             operational-simulator.png
             /tmp/damasio-mobile-diagnostic.log
+            /tmp/operational-simulator-status
           if-no-files-found: ignore
+
+      - name: Preserve Operational Simulator gate result
+        if: always()
+        shell: bash
+        run: |
+          status="$(cat /tmp/operational-simulator-status 2>/dev/null || echo 1)"
+          if [ "$status" -ne 0 ]; then
+            echo "Operational Simulator assertions failed earlier with exit code $status."
+            exit "$status"
+          fi
