@@ -1,3 +1,4 @@
+# trigger validated convergence gate
 name: QA Fix Simulator Convergence
 
 on:
@@ -118,8 +119,6 @@ jobs:
             void resolveCanonicalRoute();
             return () => { cancelled = true; };
           }, [employee?.id, date]);'''
-          if bootstrap_state not in admin.read_text():
-              pass
           text, count = pattern.subn(replacement, text, count=1)
           if count != 1 and 'setCanonicalBootstrap(snapshot);' not in text:
               raise SystemExit(f"Admin resolver patch matched {count} blocks")
