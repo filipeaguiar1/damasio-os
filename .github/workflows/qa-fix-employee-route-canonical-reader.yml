@@ -1,0 +1,44 @@
+name: QA fix Employee Route canonical reader
+
+on:
+  push:
+    branches:
+      - qa/full-ecosystem-e2e-20260807
+    paths:
+      - .github/workflows/qa-fix-employee-route-canonical-reader.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/full-ecosystem-e2e-20260807
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Apply canonical reader patch
+        run: python scripts/qa-fix-employee-route-canonical-reader.py
+      - name: Validate
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm test:route-writers
+          pnpm test:map-sync
+          pnpm typecheck
+      - name: Commit verified fix
+        run: |
+          rm .github/workflows/qa-fix-employee-route-canonical-reader.yml
+          rm scripts/qa-fix-employee-route-canonical-reader.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Read Employee Route order from canonical route stops"
+          git push origin HEAD:qa/full-ecosystem-e2e-20260807
