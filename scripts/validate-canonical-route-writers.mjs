@@ -54,22 +54,3 @@ if (violations.length) {
 }
 
 console.log("PASS canonical route writer boundary");
-
-// Temporary CI-only probe for the route that regressed from v3 to v2 in E2E #520.
-// It runs before the operational simulator can clean the failed fixture.
-const diagnosticRouteId = "a741f098-4c22-45ba-bdda-35fe1681cfca";
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (supabaseUrl && serviceKey) {
-  const headers = { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` };
-  const query = async (table, params) => {
-    const response = await fetch(`${supabaseUrl}/rest/v1/${table}?${params}`, { headers, cache: "no-store" });
-    if (!response.ok) throw new Error(`${table} diagnostic failed: ${response.status} ${await response.text()}`);
-    return response.json();
-  };
-  console.log("DIAG_ROUTE_ORDER_STATE", JSON.stringify(await query("route_order_state", `route_id=eq.${diagnosticRouteId}&select=route_id,version,last_source,updated_at`)));
-  console.log("DIAG_SMART_ROUTE_STATE", JSON.stringify(await query("employee_smart_route_state", `route_id=eq.${diagnosticRouteId}&select=route_id,route_version,active,applied_order,updated_at`)));
-  console.log("DIAG_ROUTE_ORDER_AUDIT", JSON.stringify(await query("route_order_audit", `route_id=eq.${diagnosticRouteId}&select=route_id,route_version,source,next_order,created_at&order=created_at.desc&limit=10`)));
-  console.log("DIAG_ROUTE_STOPS", JSON.stringify(await query("route_stops", `route_id=eq.${diagnosticRouteId}&select=visit_id,position,updated_at&order=position.asc`)));
-  throw new Error("CANONICAL_ROUTE_DIAGNOSTIC_COMPLETE");
-}
