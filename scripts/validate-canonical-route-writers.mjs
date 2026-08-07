@@ -8,9 +8,9 @@ const extensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);
 // Most files below perform audited lifecycle maintenance. Route Advisor performs
 // verified publication materialization, while the Employee resolver may repair a
 // legacy publication only after proving the Route belongs to the authenticated
-// profile and date. The canonical order API may project route_stops one-way into
-// visits.route_order only as a compatibility fallback when the deployed projection
-// RPC is unavailable; it never derives canonical order from Visits.
+// profile and date. The compatibility projector is server-only and may mirror
+// route_stops positions into visits.route_order when the deployed projection RPC
+// is unavailable; it never derives or writes canonical route_stops order.
 const allowed = new Set([
   "app/api/mobile/employee/smart-route/route.ts",
   "app/api/admin/customers/route.ts",
@@ -18,7 +18,7 @@ const allowed = new Set([
   "app/api/mobile/employee/route/route.ts",
   "app/api/admin/route-advisor/route.ts",
   "app/api/employee/canonical-route/route.ts",
-  "app/api/map/canonical-route/order/route.ts",
+  "lib/routes/projectCanonicalVisitOrderCompatibility.ts",
 ]);
 
 const mutationPatterns = [
