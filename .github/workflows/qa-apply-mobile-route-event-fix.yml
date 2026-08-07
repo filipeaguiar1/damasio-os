@@ -1,0 +1,38 @@
+name: QA Apply Mobile Route Event Fix
+
+on:
+  push:
+    branches:
+      - qa/full-ecosystem-e2e-20260807
+    paths:
+      - scripts/apply-mobile-route-event-fix.py
+      - .github/workflows/qa-apply-mobile-route-event-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/full-ecosystem-e2e-20260807
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: python scripts/apply-mobile-route-event-fix.py
+      - run: pnpm test:route-writers && pnpm test:map-sync && pnpm typecheck
+      - name: Commit patch and remove temporary patch files
+        run: |
+          rm scripts/apply-mobile-route-event-fix.py .github/workflows/qa-apply-mobile-route-event-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/mobile/employee/page.tsx scripts/apply-mobile-route-event-fix.py .github/workflows/qa-apply-mobile-route-event-fix.yml
+          git commit -m "fix: broadcast canonical route refresh after employee reorder"
+          git push origin HEAD:qa/full-ecosystem-e2e-20260807
