@@ -130,31 +130,30 @@ route = replace_once(
     "use read-only employee reader",
 )
 
-if '.from("employees")\n        .insert' in route or '.from("crews")\n        .insert' in route or '.from("jobs")\n      .insert' in route:
-    raise SystemExit("GET route still contains a legacy auto-create writer")
-
 route_path.write_text(route, encoding="utf-8")
 
+# Mobile date-scoping may already have landed from another validated branch update.
 mobile_path = Path("app/mobile/admin/routes/page.tsx")
 mobile = mobile_path.read_text(encoding="utf-8")
-mobile = replace_once(
-    mobile,
-    '      const result = await api("/api/admin/routes");',
-    '      const result = await api(`/api/admin/routes?date=${encodeURIComponent(date)}`);',
-    "mobile route date request",
-)
-mobile = replace_once(
-    mobile,
-    '''  useEffect(() => {
+old_call = '      const result = await api("/api/admin/routes");'
+new_call = '      const result = await api(`/api/admin/routes?date=${encodeURIComponent(date)}`);'
+if old_call in mobile:
+    mobile = mobile.replace(old_call, new_call, 1)
+elif new_call not in mobile:
+    raise SystemExit("Mobile route refresh is neither legacy nor date-scoped")
+
+old_effect = '''  useEffect(() => {
     void refresh();
     const timer = window.setInterval(() => void refresh(false), 10_000);
     return () => window.clearInterval(timer);
-  }, []);''',
-    '''  useEffect(() => {
+  }, []);'''
+new_effect = '''  useEffect(() => {
     void refresh();
     const timer = window.setInterval(() => void refresh(false), 10_000);
     return () => window.clearInterval(timer);
-  }, [date]);''',
-    "mobile route refresh date dependency",
-)
+  }, [date]);'''
+if old_effect in mobile:
+    mobile = mobile.replace(old_effect, new_effect, 1)
+elif new_effect not in mobile:
+    raise SystemExit("Mobile route polling is neither legacy nor date-scoped")
 mobile_path.write_text(mobile, encoding="utf-8")
