@@ -25,31 +25,35 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Apply deterministic fixes
+      - name: Apply deterministic source fixes
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          # 1) Full Ecosystem runs the real Master endpoint, but local QA must never send email.
-          p = Path('.github/workflows/full-ecosystem-e2e.yml')
-          s = p.read_text()
-          anchor = '      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000\n'
-          if 'DAMASIO_QA_NO_EMAIL:' not in s:
-              if anchor not in s: raise SystemExit('Full Ecosystem env anchor not found')
-              s = s.replace(anchor, anchor + '      DAMASIO_QA_NO_EMAIL: "1"\n')
-          p.write_text(s)
-
-          # 2) Localhost-only QA bypass: link the pre-created confirmed Admin without invite/recovery email.
+          # 1) The real Master endpoint remains exercised, but QA can explicitly suppress
+          # transactional email only on localhost. Production behavior is unchanged.
           p = Path('app/api/master/companies/route.ts')
           s = p.read_text()
           anchor = 'companyId=company.id;const siteUrl=invitationOrigin(request);'
-          replacement = '''companyId=company.id;const qaNoEmail=process.env.DAMASIO_QA_NO_EMAIL==="1"&&/^(localhost|127\\.0\\.0\\.1)$/.test(request.nextUrl.hostname);if(qaNoEmail){const existingUser=await findAuthUserByEmail(client,adminEmail);if(!existingUser)throw new Error("QA no-email mode requires a pre-created confirmed Admin Auth identity.");const{error:updateQaUserError}=await client.auth.admin.updateUserById(existingUser.id,{user_metadata:{...(existingUser.user_metadata||{}),full_name:adminName,role:"admin",company_id:companyId}});if(updateQaUserError)throw new Error(updateQaUserError.message);const{data:qaAdmin,error:qaProfileError}=await client.from("profiles").upsert({id:existingUser.id,organization_id:companyId,company_id:companyId,role:"admin",full_name:adminName,email:adminEmail,active:true},{onConflict:"id"}).select("id,company_id,full_name,email,active").single();if(qaProfileError||!qaAdmin)throw new Error(qaProfileError?.message||"QA Admin profile could not be linked.");await client.from("master_audit_log").insert({master_profile_id:masterId,company_id:companyId,action:"company.created_qa_no_email",entity_type:"organization",entity_id:companyId,details:{admin_email:adminEmail,plan,delivery:"none"}});return NextResponse.json({company,inviteSent:false,qaNoEmail:true,temporaryPassword:null,member:{id:qaAdmin.id,company_id:companyId,kind:"admin",name:qaAdmin.full_name,email:qaAdmin.email,active:qaAdmin.active},message:"Company created in localhost QA no-email mode."})}const siteUrl=invitationOrigin(request);'''
+          replacement = '''companyId=company.id;const qaNoEmail=request.headers.get("x-damasio-qa-no-email")==="1"&&/^(localhost|127\\.0\\.0\\.1)$/.test(request.nextUrl.hostname);if(qaNoEmail){const existingUser=await findAuthUserByEmail(client,adminEmail);if(!existingUser)throw new Error("QA no-email mode requires a pre-created confirmed Admin Auth identity.");const{error:updateQaUserError}=await client.auth.admin.updateUserById(existingUser.id,{user_metadata:{...(existingUser.user_metadata||{}),full_name:adminName,role:"admin",company_id:companyId}});if(updateQaUserError)throw new Error(updateQaUserError.message);const{data:qaAdmin,error:qaProfileError}=await client.from("profiles").upsert({id:existingUser.id,organization_id:companyId,company_id:companyId,role:"admin",full_name:adminName,email:adminEmail,active:true},{onConflict:"id"}).select("id,company_id,full_name,email,active").single();if(qaProfileError||!qaAdmin)throw new Error(qaProfileError?.message||"QA Admin profile could not be linked.");await client.from("master_audit_log").insert({master_profile_id:masterId,company_id:companyId,action:"company.created_qa_no_email",entity_type:"organization",entity_id:companyId,details:{admin_email:adminEmail,plan,delivery:"none"}});return NextResponse.json({company,inviteSent:false,qaNoEmail:true,temporaryPassword:null,member:{id:qaAdmin.id,company_id:companyId,kind:"admin",name:qaAdmin.full_name,email:qaAdmin.email,active:qaAdmin.active},message:"Company created in localhost QA no-email mode."})}const siteUrl=invitationOrigin(request);'''
           if 'company.created_qa_no_email' not in s:
               if anchor not in s: raise SystemExit('Master POST anchor not found')
               s = s.replace(anchor, replacement)
           p.write_text(s)
 
-          # 3) Smart Route uses the routeVersion returned by the writer as its convergence target.
+          # 2) Tell only the localhost E2E request to use that safe path.
+          p = Path('tests/full-ecosystem.spec.ts')
+          s = p.read_text()
+          old = 'headers: { authorization: `Bearer ${masterToken}` },\n      data: {'
+          new = 'headers: { authorization: `Bearer ${masterToken}`, "x-damasio-qa-no-email": "1" },\n      data: {'
+          if '"x-damasio-qa-no-email": "1"' not in s:
+              if old not in s: raise SystemExit('Master test header anchor not found')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          # 3) Smart Route treats the writer-returned routeVersion as the convergence target.
+          # If the strong read is still behind, retry briefly; if it cannot converge, reload
+          # the mobile surface rather than leaving stale React state on screen.
           p = Path('app/mobile/employee/page.tsx')
           s = p.read_text()
           old = '''      await applyEmployeeDatabaseSmartRoute({routeId:mapContext.routeId,originalOrder,appliedOrder,origin:smartOriginPoint,expectedVersion:reviewedVersion});\n      const nextContext=await loadEmployeeRouteMapContextByRouteId(mapContext.routeId);\n      setMapContext(nextContext);'''
@@ -57,7 +61,6 @@ jobs:
           if 'const appliedVersion=await applyEmployeeDatabaseSmartRoute' not in s:
               if old not in s: raise SystemExit('Smart Route apply anchor not found')
               s = s.replace(old, new)
-          # Force the map/hook subtree to rehydrate when the canonical version changes.
           old_map = '<EmployeeRouteMap route={mapRoute} routeId={mapContext.routeId||undefined} routeVersion={mapContext.routeVersion} originPoint='
           new_map = '<EmployeeRouteMap key={`canonical-${mapContext.routeId||"none"}-${mapContext.routeVersion||0}`} route={mapRoute} routeId={mapContext.routeId||undefined} routeVersion={mapContext.routeVersion} originPoint='
           if 'key={`canonical-${mapContext.routeId||"none"}-${mapContext.routeVersion||0}`}' not in s:
@@ -65,11 +68,11 @@ jobs:
               s = s.replace(old_map, new_map)
           p.write_text(s)
 
-          # 4) Make the email safety gate prove the localhost no-email contract is present.
+          # 4) The safety gate now proves the real Master E2E has a localhost-only no-email path.
           p = Path('scripts/validate-qa-email-safety.mjs')
           s = p.read_text()
           marker = 'if (failures.length) {'
-          guard = '''const masterCompanyRoute = fs.readFileSync("app/api/master/companies/route.ts", "utf8");\nconst ecosystemWorkflow = fs.readFileSync(".github/workflows/full-ecosystem-e2e.yml", "utf8");\nif (!masterCompanyRoute.includes('DAMASIO_QA_NO_EMAIL') || !masterCompanyRoute.includes('127\\\\.0\\\\.0\\\\.1')) {\n  failures.push("Master company endpoint is missing the localhost-only QA no-email guard");\n}\nif (!ecosystemWorkflow.includes('DAMASIO_QA_NO_EMAIL: \\"1\\"')) {\n  failures.push("Full Ecosystem workflow is missing DAMASIO_QA_NO_EMAIL=1");\n}\n\n'''
+          guard = '''const masterCompanyRoute = fs.readFileSync("app/api/master/companies/route.ts", "utf8");\nconst fullEcosystemTest = fs.readFileSync("tests/full-ecosystem.spec.ts", "utf8");\nif (!masterCompanyRoute.includes('x-damasio-qa-no-email') || !masterCompanyRoute.includes('127\\\\.0\\\\.0\\\\.1')) {\n  failures.push("Master company endpoint is missing the localhost-only QA no-email guard");\n}\nif (!fullEcosystemTest.includes('"x-damasio-qa-no-email": "1"')) {\n  failures.push("Full Ecosystem test is missing the explicit QA no-email header");\n}\n\n'''
           if 'Master company endpoint is missing the localhost-only QA no-email guard' not in s:
               if marker not in s: raise SystemExit('QA email safety marker not found')
               s = s.replace(marker, guard + marker)
@@ -77,11 +80,10 @@ jobs:
           PY
       - name: Validate patch
         run: pnpm typecheck && pnpm test:route-writers && pnpm test:map-sync && node scripts/validate-qa-email-safety.mjs
-      - name: Commit patch and self-remove
+      - name: Commit source patch
         run: |
-          rm .github/workflows/qa-apply-deterministic-convergence-fix.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
+          git add app/api/master/companies/route.ts app/mobile/employee/page.tsx tests/full-ecosystem.spec.ts scripts/validate-qa-email-safety.mjs
           git commit -m 'fix: deterministic QA email safety and mobile route convergence'
           git push origin HEAD:qa/full-ecosystem-e2e-20260807
