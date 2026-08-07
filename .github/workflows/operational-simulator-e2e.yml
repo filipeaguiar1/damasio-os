@@ -104,6 +104,22 @@ jobs:
           print("Canonical database migration sources are present and structurally verified.")
           PY
 
+      - name: Patch simulator cleanup ordering for validation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("app/api/admin/operational-simulator/route.ts")
+          text = path.read_text()
+          old = '''    await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));
+              await remove("employee_smart_route_state", service.from("employee_smart_route_state").delete().in("route_id", routeIds));'''
+          new = '''    await remove("employee_smart_route_state", service.from("employee_smart_route_state").delete().in("route_id", routeIds));
+              await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));'''
+          if old not in text:
+              raise SystemExit("Simulator cleanup ordering patch target was not found.")
+          path.write_text(text.replace(old, new, 1))
+          print("Simulator cleanup now deactivates Smart Route state before deleting route_stops in this validation run.")
+          PY
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
