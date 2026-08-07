@@ -26,12 +26,18 @@ type Snapshot = {
   updatedAt: string;
 };
 
+const uncachedFetch: typeof fetch = (input, init) => fetch(input, {
+  ...init,
+  cache: "no-store",
+});
+
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Canonical service read is not configured.");
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: uncachedFetch },
   }) as any;
 }
 
@@ -88,8 +94,8 @@ export async function GET(request: NextRequest) {
   try {
     // The existing authenticated handler remains the authorization boundary and
     // owns route resolution, tenant checks, Visit enrichment and geocoding.
-    // Version/order/origin below use the exact same URL + service-role client
-    // contract as the canonical writer's persistence verifier.
+    // Version/order/origin below use explicit no-store Supabase reads so a GET
+    // Route Handler can never reuse a pre-mutation Data Cache entry.
     const replicaResponse = await getReplicaSnapshot(request);
     const replicaBody = await replicaResponse.json().catch(() => ({}));
     if (!replicaResponse.ok) {
