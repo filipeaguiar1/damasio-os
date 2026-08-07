@@ -5,8 +5,8 @@ const currentReader = readFileSync("app/api/map/canonical-route-current/route.ts
 
 assert.match(
   currentReader,
-  /loadBaseSnapshot\(request\)/,
-  "The Admin current-route endpoint must return the shared canonical snapshot.",
+  /loadStrongSnapshot\(request\)/,
+  "The current-route endpoint must return the shared strongly-consistent canonical snapshot.",
 );
 assert.match(
   currentReader,
