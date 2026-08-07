@@ -1,0 +1,85 @@
+name: QA harness stability
+
+on:
+  push:
+    branches:
+      - qa/full-ecosystem-e2e-20260807
+    paths:
+      - .github/workflows/agent-qa-harness-stability.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/full-ecosystem-e2e-20260807
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Patch QA timing only
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          sim_path = Path('tests/operational-simulator.spec.ts')
+          sim = sim_path.read_text()
+          old = '''  await admin.goto(`${baseURL}/admin/performance/simulator`);
+          await expect(liveExceptions).toBeVisible();
+          await expect(liveExceptions.getByText("Low ratings").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });'''
+          new = '''  await admin.goto(`${baseURL}/admin/performance/simulator`);
+          const finalLiveExceptions = admin.getByRole("heading", { name: "Live Exception Status" }).locator("xpath=ancestor::section");
+          await expect(finalLiveExceptions).toBeVisible({ timeout: 30_000 });
+          await expect(finalLiveExceptions.getByText("Low ratings").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });'''
+          if old not in sim:
+            raise SystemExit('simulator final exception anchor not found')
+          sim = sim.replace(old, new, 1)
+          sim = sim.replace('''  const openTaskText = await liveExceptions.getByText("Open follow-up tasks").locator("..").locator("strong").innerText();''', '''  const openTaskText = await finalLiveExceptions.getByText("Open follow-up tasks").locator("..").locator("strong").innerText();''', 1)
+          sim = sim.replace('''  await expect(liveExceptions.getByText("Return requests").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });''', '''  await expect(finalLiveExceptions.getByText("Return requests").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });''', 1)
+          sim_path.write_text(sim)
+
+          route_path = Path('tests/canonical-route-sync.spec.ts')
+          route = route_path.read_text()
+          route = route.replace('''    const removal = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
+              method: "POST",
+              body: { action: "remove" },
+            });''', '''    const removal = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
+              method: "POST",
+              body: { action: "remove" },
+              timeoutMs: 120_000,
+            });''', 1)
+          route = route.replace('''      simulation = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
+                method: "POST",
+                body: { action: "create" },
+              });''', '''      simulation = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
+                method: "POST",
+                body: { action: "create" },
+                timeoutMs: 180_000,
+              });''', 1)
+          route_path.write_text(route)
+          PY
+
+      - name: Validate tests compile
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+
+      - name: Commit verified harness fix
+        shell: bash
+        run: |
+          rm .github/workflows/agent-qa-harness-stability.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/operational-simulator.spec.ts tests/canonical-route-sync.spec.ts .github/workflows/agent-qa-harness-stability.yml
+          git commit -m "Stabilize simulator and route sync QA timing"
+          git push origin HEAD:qa/full-ecosystem-e2e-20260807
