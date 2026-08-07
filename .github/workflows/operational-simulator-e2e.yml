@@ -47,34 +47,24 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           path = Path("tests/canonical-route-sync.spec.ts")
-          text = path.read_text()
-          old = '''  for (const [page, label] of [
-    [adminDesktop, "Admin web after Employee change"],
-    [adminMobile, "Admin mobile after Employee change"],
-    [employeeDesktop, "Employee web after Employee change"],
-    [employeeMobile, "Employee mobile after Employee change"],
-  ] as const) {
-    await assertCanonicalScreen(page, employeeVersion, reversedOrder.length, label);
-  }'''
-          new = '''  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_URL:", employeeMobile.url());
-  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_BODY:", (await employeeMobile.locator("body").innerText()).slice(0, 8000));
-  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_CANONICAL_TEXTS:", await employeeMobile.getByText(/Canonical route v\\d+/i).allTextContents());
-  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_MARKERS:", await employeeMobile.locator(".employee-map-marker").count());
-  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_MAPS:", await employeeMobile.locator(".role-map-card").count());
-  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_ROUTE_TOGGLES:", await employeeMobile.getByRole("button", { name: /List|Map/ }).allTextContents());
-  await employeeMobile.screenshot({ path: "canonical-employee-mobile-before-assert.png", fullPage: true });
-
-  for (const [page, label] of [
-    [adminDesktop, "Admin web after Employee change"],
-    [adminMobile, "Admin mobile after Employee change"],
-    [employeeDesktop, "Employee web after Employee change"],
-    [employeeMobile, "Employee mobile after Employee change"],
-  ] as const) {
-    await assertCanonicalScreen(page, employeeVersion, reversedOrder.length, label);
-  }'''
-          if old not in text:
-              raise SystemExit("diagnostic anchor not found")
-          path.write_text(text.replace(old, new, 1))
+          lines = path.read_text().splitlines()
+          marker = '  for (const [page, label] of ['
+          matches = [index for index, line in enumerate(lines) if line == marker]
+          if len(matches) < 2:
+              raise SystemExit(f"expected at least two four-screen assertion loops, found {len(matches)}")
+          insert_at = matches[1]
+          diagnostics = [
+              '  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_URL:", employeeMobile.url());',
+              '  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_BODY:", (await employeeMobile.locator("body").innerText()).slice(0, 8000));',
+              '  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_CANONICAL_TEXTS:", await employeeMobile.getByText(/Canonical route v\\d+/i).allTextContents());',
+              '  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_MARKERS:", await employeeMobile.locator(".employee-map-marker").count());',
+              '  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_MAPS:", await employeeMobile.locator(".role-map-card").count());',
+              '  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_ROUTE_TOGGLES:", await employeeMobile.getByRole("button", { name: /List|Map/ }).allTextContents());',
+              '  await employeeMobile.screenshot({ path: "canonical-employee-mobile-before-assert.png", fullPage: true });',
+              '',
+          ]
+          lines[insert_at:insert_at] = diagnostics
+          path.write_text("\n".join(lines) + "\n")
           PY
           git diff --check
 
