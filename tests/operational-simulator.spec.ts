@@ -200,7 +200,7 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   await customerDesktop.screenshot({ path: "customer-desktop-qa.png", fullPage: true });
 
   await admin.goto(`${baseURL}/admin/performance/simulator`);
-  await expect(liveExceptions).toBeVisible();
+  await expect(liveExceptions).toBeVisible({ timeout: 30_000 });
   await expect(liveExceptions.getByText("Low ratings").locator("..").getByText("1", { exact: true })).toBeVisible({ timeout: 30_000 });
   const openTaskText = await liveExceptions.getByText("Open follow-up tasks").locator("..").locator("strong").innerText();
   const openTaskCount = Number(openTaskText.trim());

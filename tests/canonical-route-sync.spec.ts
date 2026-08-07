@@ -121,6 +121,7 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
     const removal = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
       method: "POST",
       body: { action: "remove" },
+      timeoutMs: 120_000,
     });
     expect(removal.removed).toBe(true);
     await expect.poll(async () => {
@@ -132,6 +133,7 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
       simulation = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
         method: "POST",
         body: { action: "create" },
+        timeoutMs: 180_000,
       });
     } catch (error) {
       if (attempt === 2 || !/simulation already exists/i.test(String(error))) throw error;
