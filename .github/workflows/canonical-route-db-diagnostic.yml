@@ -1,0 +1,33 @@
+name: Canonical Route DB Diagnostic
+
+on:
+  push:
+    branches:
+      - feature/25-30-homes-simulator-v1
+    paths:
+      - ".github/workflows/canonical-route-db-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ROUTE_ID: a741f098-4c22-45ba-bdda-35fe1681cfca
+    steps:
+      - name: Query canonical state
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth=(-H "apikey: $SERVICE_KEY" -H "Authorization: Bearer $SERVICE_KEY")
+          echo 'ROUTE_ORDER_STATE:'
+          curl --fail --silent --show-error "${auth[@]}" "$SUPABASE_URL/rest/v1/route_order_state?route_id=eq.$ROUTE_ID&select=route_id,version,last_source,updated_at" | jq -c .
+          echo 'SMART_ROUTE_STATE:'
+          curl --fail --silent --show-error "${auth[@]}" "$SUPABASE_URL/rest/v1/employee_smart_route_state?route_id=eq.$ROUTE_ID&select=route_id,route_version,active,applied_order,updated_at" | jq -c .
+          echo 'ROUTE_ORDER_AUDIT:'
+          curl --fail --silent --show-error "${auth[@]}" "$SUPABASE_URL/rest/v1/route_order_audit?route_id=eq.$ROUTE_ID&select=route_id,route_version,source,next_order,created_at&order=created_at.desc&limit=10" | jq -c .
+          echo 'ROUTE_STOPS:'
+          curl --fail --silent --show-error "${auth[@]}" "$SUPABASE_URL/rest/v1/route_stops?route_id=eq.$ROUTE_ID&select=visit_id,position,updated_at&order=position.asc" | jq -c .
