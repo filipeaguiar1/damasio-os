@@ -69,6 +69,14 @@ async function authRequest<T>(page: Page, path: string, init?: { method?: string
   throw new Error(lastError.replace(/^.*HTTP_\d+:/, ""));
 }
 
+async function cleanupSimulationVisits(page: Page) {
+  const result = await authRequest<any>(page, "/api/admin/operational-simulator/cleanup-visits", {
+    method: "POST",
+    timeoutMs: 120_000,
+  });
+  expect(result.cleaned).toBe(true);
+}
+
 async function waitForVersion(page: Page, routeId: string, version: number) {
   await expect.poll(async () => {
     const snapshot = await authRequest<any>(page, `/api/map/canonical-route?routeId=${encodeURIComponent(routeId)}`);
@@ -109,6 +117,7 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
 
   let simulation: any = null;
   for (let attempt = 0; attempt < 3 && !simulation; attempt += 1) {
+    await cleanupSimulationVisits(adminDesktop);
     const removal = await authRequest<any>(adminDesktop, "/api/admin/operational-simulator", {
       method: "POST",
       body: { action: "remove" },
@@ -364,6 +373,7 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await adminDesktop.locator('.advisor-controls input[type="date"]').fill(routeDate);
   await expect(adminDesktop.locator(".advisor-house-picker")).toContainText(`route ${originalJobIds.length}/`, { timeout: 30_000 });
 
+  await cleanupSimulationVisits(adminDesktop);
   await authRequest(adminDesktop, "/api/admin/operational-simulator", {
     method: "POST",
     body: { action: "remove" },
