@@ -251,9 +251,14 @@ export default function MobileEmployeeApp(){
       await applyEmployeeDatabaseSmartRoute({routeId:mapContext.routeId,originalOrder,appliedOrder,origin:smartOriginPoint,expectedVersion:reviewedVersion});
       const nextContext=await loadEmployeeRouteMapContext(selectedDate,crew);
       setMapContext(nextContext);
-      const state=await loadEmployeeDatabaseSmartRouteState(mapContext.routeId);
-      setActiveSmartState(state);setSmartRouteActive(Boolean(state?.active));
-      setSmartPreview([]);refresh();setHomeMode("route");setRouteView("map");setMessage("Smart Route applied. Admin and Employee now share the same published order.");
+      setSmartPreview([]);setHomeMode("route");setRouteView("map");refresh();setMessage("Smart Route applied. Admin and Employee now share the same published order.");
+      // The canonical Route is already saved and visible. Secondary Smart Route state
+      // must never hold the field UI on a stale preview while other screens advance.
+      void loadEmployeeDatabaseSmartRouteState(mapContext.routeId).then(state=>{
+        setActiveSmartState(state);setSmartRouteActive(Boolean(state?.active));
+      }).catch(()=>{
+        // Realtime/route snapshot remains authoritative; state can retry on the normal refresh cycle.
+      });
     }catch(cause){
       const detail=cause instanceof Error?cause.message:"Smart Route could not be applied.";
       setError(/failed to fetch/i.test(detail)?"Smart Route could not reach the server. No route was changed. Refresh and try again.":detail);
