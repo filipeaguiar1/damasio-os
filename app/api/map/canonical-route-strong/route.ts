@@ -30,11 +30,20 @@ function tokenFrom(request: NextRequest) {
   return request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || "";
 }
 
+function dedicatedPrimaryUrl(configuredUrl: string) {
+  const url = new URL(configuredUrl);
+  if (/^[^.]+-all\.supabase\.co$/i.test(url.hostname)) {
+    url.hostname = url.hostname.replace(/-all\.supabase\.co$/i, ".supabase.co");
+  }
+  return url.origin;
+}
+
 function authenticatedPrimaryClient(request: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const configuredUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const token = tokenFrom(request);
-  if (!url || !key || !token) throw new Error("Canonical primary read is not configured.");
+  if (!configuredUrl || !key || !token) throw new Error("Canonical primary read is not configured.");
+  const url = dedicatedPrimaryUrl(configuredUrl);
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: `Bearer ${token}` } },
@@ -94,7 +103,8 @@ export async function GET(request: NextRequest) {
   try {
     // The existing handler still owns route resolution, tenant checks, Visit
     // enrichment and geocoding. Its table SELECTs may be served by a Supabase
-    // Read Replica, so version/order are replaced below by a primary-only RPC.
+    // Read Replica, so version/order are replaced below from the dedicated
+    // Primary API endpoint whenever NEXT_PUBLIC_SUPABASE_URL is the -all load balancer.
     const replicaResponse = await getReplicaSnapshot(request);
     const replicaBody = await replicaResponse.json().catch(() => ({}));
     if (!replicaResponse.ok) {
