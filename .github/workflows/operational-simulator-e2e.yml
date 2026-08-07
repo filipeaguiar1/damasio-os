@@ -1,6 +1,6 @@
 name: Operational Simulator E2E
 # Final authenticated release gate for the canonical Route.
-# This branch temporarily applies the two final QA fixes in the runner and only
+# This branch temporarily applies the remaining QA fixes in the runner and only
 # commits them if both focused E2E gates pass without changing assertions/timeouts.
 
 on:
@@ -65,7 +65,7 @@ jobs:
           ref: qa/full-ecosystem-e2e-20260807
           fetch-depth: 0
 
-      - name: Apply final two blocker candidates
+      - name: Apply remaining blocker candidates
         run: |
           python scripts/qa-final-two-blockers.py
           git diff --check
@@ -164,7 +164,7 @@ jobs:
           if [ -f .github/workflows/qa-final-two-blockers.yml ]; then git rm -f .github/workflows/qa-final-two-blockers.yml; fi
           git config user.name "Damasio QA Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add app/api/admin/operational-simulator/exceptions/route.ts lib/routes/projectCanonicalVisitOrderCompatibility.ts .github/workflows/operational-simulator-e2e.yml
+          git add app/api/admin/operational-simulator/exceptions/route.ts lib/routes/projectCanonicalVisitOrderCompatibility.ts lib/repositories/customerPortalRepository.ts .github/workflows/operational-simulator-e2e.yml
           git diff --cached --check
-          git commit -m "Fix final operational simulator and Employee Mobile blockers"
+          git commit -m "Fix remaining operational QA blockers"
           git push origin HEAD:qa/full-ecosystem-e2e-20260807
