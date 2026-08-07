@@ -2,9 +2,9 @@ name: Full Ecosystem E2E
 
 on:
   workflow_dispatch:
-  push:
+  pull_request:
     branches:
-      - qa/full-ecosystem-e2e-20260807
+      - main
     paths:
       - "tests/full-ecosystem.spec.ts"
       - ".github/workflows/full-ecosystem-e2e.yml"
