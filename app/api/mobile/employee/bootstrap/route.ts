@@ -91,12 +91,12 @@ export async function POST(request:NextRequest){
 
     const today=new Date().toISOString().slice(0,10);
     // Keep tenant ownership in the database predicate, then resolve Employee/crew membership
-    // from that already company-bounded result. Two sequential PostgREST .or() filters on the
-    // same request can serialize as an invalid/ambiguous query and caused bootstrap HTTP 400.
+    // from that already company-bounded result. The deployed visit_status enum does not include
+    // the legacy "missed" value, so only the valid cancelled state is excluded here.
     const companyVisits=await client.from("visits")
       .select("id,assigned_employee_id,crew_id")
       .eq("scheduled_date",today)
-      .not("status","in","(cancelled,missed)")
+      .neq("status","cancelled")
       .or(companyFilter(companyId));
     if(companyVisits.error)throw new Error(companyVisits.error.message);
     const todayVisitCount=(companyVisits.data||[]).filter((visit:any)=>
