@@ -26,10 +26,6 @@ type Snapshot = {
   updatedAt: string;
 };
 
-function tokenFrom(request: NextRequest) {
-  return request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || "";
-}
-
 function dedicatedPrimaryUrl(configuredUrl: string) {
   const url = new URL(configuredUrl);
   if (/^[^.]+-all\.supabase\.co$/i.test(url.hostname)) {
@@ -38,15 +34,12 @@ function dedicatedPrimaryUrl(configuredUrl: string) {
   return url.origin;
 }
 
-function authenticatedPrimaryClient(request: NextRequest) {
+function primaryServiceClient() {
   const configuredUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const token = tokenFrom(request);
-  if (!configuredUrl || !key || !token) throw new Error("Canonical primary read is not configured.");
-  const url = dedicatedPrimaryUrl(configuredUrl);
-  return createClient(url, key, {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!configuredUrl || !key) throw new Error("Canonical primary read is not configured.");
+  return createClient(dedicatedPrimaryUrl(configuredUrl), key, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
   }) as any;
 }
 
@@ -101,10 +94,10 @@ async function geometryFor(request: NextRequest, origin: Snapshot["origin"], sto
 
 export async function GET(request: NextRequest) {
   try {
-    // The existing handler still owns route resolution, tenant checks, Visit
-    // enrichment and geocoding. Its table SELECTs may be served by a Supabase
-    // Read Replica, so version/order are replaced below from the dedicated
-    // Primary API endpoint whenever NEXT_PUBLIC_SUPABASE_URL is the -all load balancer.
+    // The existing authenticated handler remains the authorization boundary and
+    // owns route resolution, tenant checks, Visit enrichment and geocoding.
+    // Version/order/origin below come from the exact canonical tables verified
+    // by the writer, read server-side from the dedicated Primary API endpoint.
     const replicaResponse = await getReplicaSnapshot(request);
     const replicaBody = await replicaResponse.json().catch(() => ({}));
     if (!replicaResponse.ok) {
@@ -115,23 +108,30 @@ export async function GET(request: NextRequest) {
     }
 
     const snapshot = replicaBody as Snapshot;
-    const primary = authenticatedPrimaryClient(request);
-    const [orderResult, smartResult] = await Promise.all([
-      primary.rpc("get_canonical_route_order_v2", { p_route_id: snapshot.routeId }),
-      primary.rpc("get_employee_smart_route_state", { p_route_id: snapshot.routeId }),
+    const primary = primaryServiceClient();
+    const [stateResult, stopsResult, smartResult] = await Promise.all([
+      primary
+        .from("route_order_state")
+        .select("version")
+        .eq("route_id", snapshot.routeId)
+        .maybeSingle(),
+      primary
+        .from("route_stops")
+        .select("visit_id,position")
+        .eq("route_id", snapshot.routeId)
+        .order("position", { ascending: true }),
+      primary
+        .from("employee_smart_route_state")
+        .select("active,route_version,applied_order,origin_label,origin_latitude,origin_longitude,applied_at")
+        .eq("route_id", snapshot.routeId)
+        .maybeSingle(),
     ]);
-    if (orderResult.error) throw new Error(orderResult.error.message);
+    if (stateResult.error) throw new Error(stateResult.error.message);
+    if (stopsResult.error) throw new Error(stopsResult.error.message);
     if (smartResult.error) throw new Error(smartResult.error.message);
 
-    const primaryOrder = orderResult.data as {
-      routeId?: string;
-      version?: number;
-      orderedVisitIds?: string[];
-    } | null;
-    const orderedVisitIds = Array.isArray(primaryOrder?.orderedVisitIds)
-      ? primaryOrder!.orderedVisitIds!.map(String)
-      : [];
-    const routeVersion = Number(primaryOrder?.version || 0);
+    const routeVersion = Number(stateResult.data?.version || 0);
+    const orderedVisitIds = (stopsResult.data || []).map((row: any) => String(row.visit_id));
     if (!Number.isInteger(routeVersion) || routeVersion < 1 || !orderedVisitIds.length) {
       throw new Error("Primary canonical Route did not return a valid versioned order.");
     }
@@ -150,12 +150,14 @@ export async function GET(request: NextRequest) {
       routeOrder: index + 1,
     }));
 
-    const smartRow = Array.isArray(smartResult.data) ? smartResult.data[0] : null;
+    const smartRow = smartResult.data || null;
     const smartLatitude = numberOrNull(smartRow?.origin_latitude);
     const smartLongitude = numberOrNull(smartRow?.origin_longitude);
+    const smartOrder = Array.isArray(smartRow?.applied_order) ? smartRow.applied_order.map(String) : [];
     const smartIsCurrent = Boolean(
       smartRow?.active
       && Number(smartRow.route_version) === routeVersion
+      && sameOrder(smartOrder, orderedVisitIds)
       && smartLatitude !== null
       && smartLongitude !== null,
     );
