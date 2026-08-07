@@ -280,6 +280,7 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
       routeDate,
       orderedJobIds: reducedJobIds,
       sourceVisitIds: [],
+      origin: restoredEmployee.origin,
     },
   });
   expect(adminRemove.count).toBe(reducedJobIds.length);
@@ -305,6 +306,7 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
       routeDate,
       orderedJobIds: originalJobIds,
       sourceVisitIds: [],
+      origin: adminRemove.origin || restoredEmployee.origin,
     },
   });
   expect(adminAdd.count).toBe(originalJobIds.length);
