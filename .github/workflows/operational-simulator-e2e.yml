@@ -1,28 +1,23 @@
 name: Operational Simulator E2E
-# Temporary validation harness for the final two QA blockers.
-# It patches only the runner checkout, runs the focused gates, and commits the
-# source changes only if both gates pass. The normal workflow is restored in
-# that validated source commit.
+# Temporary diagnostic harness for the final Employee Mobile convergence blocker.
+# Assertions and their timeouts remain untouched.
 
 on:
   pull_request:
     branches:
       - main
     paths:
-      - "app/api/admin/operational-simulator/**"
-      - "app/api/map/**"
       - "app/mobile/employee/page.tsx"
       - "components/mobile/EmployeeRouteMap.tsx"
       - "lib/hooks/useCanonicalRouteSnapshot.ts"
       - "lib/routes/canonicalRouteSnapshot.ts"
       - "lib/services/routeMapService.ts"
-      - "tests/operational-simulator.spec.ts"
       - "tests/canonical-route-sync.spec.ts"
       - ".github/workflows/operational-simulator-e2e.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: operational-simulator-v1
@@ -44,165 +39,44 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: qa/full-ecosystem-e2e-20260807
+          fetch-depth: 0
 
-      - name: Apply final two blocker candidates
+      - name: Add Employee Mobile diagnostics in runner only
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+          path = Path("tests/canonical-route-sync.spec.ts")
+          text = path.read_text()
+          old = '''  for (const [page, label] of [
+    [adminDesktop, "Admin web after Employee change"],
+    [adminMobile, "Admin mobile after Employee change"],
+    [employeeDesktop, "Employee web after Employee change"],
+    [employeeMobile, "Employee mobile after Employee change"],
+  ] as const) {
+    await assertCanonicalScreen(page, employeeVersion, reversedOrder.length, label);
+  }'''
+          new = '''  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_URL:", employeeMobile.url());
+  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_BODY:", (await employeeMobile.locator("body").innerText()).slice(0, 8000));
+  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_CANONICAL_TEXTS:", await employeeMobile.getByText(/Canonical route v\\d+/i).allTextContents());
+  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_MARKERS:", await employeeMobile.locator(".employee-map-marker").count());
+  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_MAPS:", await employeeMobile.locator(".role-map-card").count());
+  console.log("EMPLOYEE_MOBILE_AFTER_CHANGE_ROUTE_TOGGLES:", await employeeMobile.getByRole("button", { name: /List|Map/ }).allTextContents());
+  await employeeMobile.screenshot({ path: "canonical-employee-mobile-before-assert.png", fullPage: true });
 
-          exceptions_path = Path("app/api/admin/operational-simulator/exceptions/route.ts")
-          text = exceptions_path.read_text()
-
-          old_type = '''type VisitRow = {
-            id: string;
-            customer_id: string;
-            route_id: string | null;
-            scheduled_date: string;
-            status: string;
-            started_at: string | null;
-            finished_at: string | null;
-            duration_seconds: number | null;
-            employee_notes: string | null;
-            customer_visible_summary: string | null;
-          };'''
-          new_type = '''type VisitRow = {
-            id: string;
-            customer_id: string;
-            route_id: string | null;
-            route_order: number | null;
-            scheduled_date: string;
-            status: string;
-            started_at: string | null;
-            finished_at: string | null;
-            duration_seconds: number | null;
-            employee_notes: string | null;
-            customer_visible_summary: string | null;
-          };'''
-          if old_type not in text:
-              raise SystemExit("VisitRow anchor not found")
-          text = text.replace(old_type, new_type, 1)
-
-          old_completed = '''async function completedVisits(service: any, companyId: string, customerIds: string[]): Promise<VisitRow[]> {
-            if (!customerIds.length) return [];
-            const result = await service.from("visits")
-              .select("id,customer_id,route_id,scheduled_date,status,started_at,finished_at,duration_seconds,employee_notes,customer_visible_summary")
-              .in("customer_id", customerIds)
-              .or(companyFilter(companyId))
-              .eq("status", "completed")
-              .order("scheduled_date", { ascending: false })
-              .order("route_order", { ascending: true })
-              .limit(200);
-            if (result.error) throw new Error(`visits: ${result.error.message}`);
-            return (result.data || []) as VisitRow[];
-          }'''
-          new_completed = '''async function completedVisits(service: any, companyId: string, customerIds: string[]): Promise<VisitRow[]> {
-            if (!customerIds.length) return [];
-
-            // Simulation rows always carry company_id. Resolve their Jobs first so the
-            // Visit lookup can use visits_company_job_date_live_idx instead of a wide
-            // customer IN + tenant OR + database sort across the full Visits table.
-            const jobs = await service.from("jobs")
-              .select("id")
-              .eq("company_id", companyId)
-              .in("customer_id", customerIds);
-            if (jobs.error) throw new Error(`jobs: ${jobs.error.message}`);
-            const jobIds = (jobs.data || []).map((row: any) => String(row.id));
-            if (!jobIds.length) return [];
-
-            const rows: VisitRow[] = [];
-            for (let offset = 0; offset < jobIds.length; offset += 12) {
-              const result = await service.from("visits")
-                .select("id,customer_id,route_id,route_order,scheduled_date,status,started_at,finished_at,duration_seconds,employee_notes,customer_visible_summary")
-                .eq("company_id", companyId)
-                .in("job_id", jobIds.slice(offset, offset + 12))
-                .eq("status", "completed")
-                .limit(120);
-              if (result.error) throw new Error(`visits: ${result.error.message}`);
-              rows.push(...((result.data || []) as VisitRow[]));
-            }
-
-            return rows.sort((left, right) =>
-              String(right.scheduled_date).localeCompare(String(left.scheduled_date))
-              || Number(left.route_order ?? 2147483647) - Number(right.route_order ?? 2147483647)
-              || left.id.localeCompare(right.id));
-          }'''
-          if old_completed not in text:
-              raise SystemExit("completedVisits anchor not found")
-          text = text.replace(old_completed, new_completed, 1)
-          exceptions_path.write_text(text)
-
-          route_service_path = Path("lib/services/routeMapService.ts")
-          text = route_service_path.read_text()
-          cache_anchor = '''const emptyContext: EmployeeRouteMapContext = {
-            routeId: null,
-            routeVersion: null,
-            origin: null,
-            orderedVisitIds: [],
-            routeOrder: [],
-            geometry: null,
-            stops: [],
-          };'''
-          cache_replacement = '''const emptyContext: EmployeeRouteMapContext = {
-            routeId: null,
-            routeVersion: null,
-            origin: null,
-            orderedVisitIds: [],
-            routeOrder: [],
-            geometry: null,
-            stops: [],
-          };
-
-          // Canonical route versions are monotonic for a routeId. Realtime/focus refreshes
-          // can overlap the writer response, so a slower pre-write response must never
-          // rehydrate Employee Mobile back to an older visual version in the same tab.
-          const latestEmployeeRouteContext = new Map<string, EmployeeRouteMapContext>();
-
-          function keepNewestEmployeeRouteContext(next: EmployeeRouteMapContext) {
-            if (!next.routeId) return next;
-            const current = latestEmployeeRouteContext.get(next.routeId);
-            if (current && Number(current.routeVersion || 0) > Number(next.routeVersion || 0)) return current;
-            latestEmployeeRouteContext.set(next.routeId, next);
-            return next;
-          }'''
-          if cache_anchor not in text:
-              raise SystemExit("route context cache anchor not found")
-          text = text.replace(cache_anchor, cache_replacement, 1)
-
-          loader_old = '''export async function loadEmployeeRouteMapContext(routeDate: string, _crewName: string): Promise<EmployeeRouteMapContext> {
-            if (!routeDate || !isSupabaseConfigured()) return emptyContext;
-            const snapshot = await loadCanonicalRouteSnapshot({ routeDate });
-            return employeeRouteMapContextFromSnapshot(snapshot);
-          }
-
-          export async function loadEmployeeRouteMapContextByRouteId(routeId: string): Promise<EmployeeRouteMapContext> {
-            if (!routeId || !isSupabaseConfigured()) return emptyContext;
-            const snapshot = await loadCanonicalRouteSnapshot({ routeId });
-            return employeeRouteMapContextFromSnapshot(snapshot);
-          }'''
-          loader_new = '''export async function loadEmployeeRouteMapContext(routeDate: string, _crewName: string): Promise<EmployeeRouteMapContext> {
-            if (!routeDate || !isSupabaseConfigured()) return emptyContext;
-            const snapshot = await loadCanonicalRouteSnapshot({ routeDate });
-            return keepNewestEmployeeRouteContext(employeeRouteMapContextFromSnapshot(snapshot));
-          }
-
-          export async function loadEmployeeRouteMapContextByRouteId(routeId: string): Promise<EmployeeRouteMapContext> {
-            if (!routeId || !isSupabaseConfigured()) return emptyContext;
-            const snapshot = await loadCanonicalRouteSnapshot({ routeId });
-            return keepNewestEmployeeRouteContext(employeeRouteMapContextFromSnapshot(snapshot));
-          }'''
-          if loader_old not in text:
-              raise SystemExit("route context loader anchor not found")
-          text = text.replace(loader_old, loader_new, 1)
-          route_service_path.write_text(text)
+  for (const [page, label] of [
+    [adminDesktop, "Admin web after Employee change"],
+    [adminMobile, "Admin mobile after Employee change"],
+    [employeeDesktop, "Employee web after Employee change"],
+    [employeeMobile, "Employee mobile after Employee change"],
+  ] as const) {
+    await assertCanonicalScreen(page, employeeVersion, reversedOrder.length, label);
+  }'''
+          if old not in text:
+              raise SystemExit("diagnostic anchor not found")
+          path.write_text(text.replace(old, new, 1))
           PY
-
-      - name: Verify candidate patch
-        run: |
           git diff --check
-          grep -q 'visits_company_job_date_live_idx' app/api/admin/operational-simulator/exceptions/route.ts
-          grep -q 'latestEmployeeRouteContext' lib/services/routeMapService.ts
-          grep -q 'keepNewestEmployeeRouteContext' lib/services/routeMapService.ts
 
       - uses: pnpm/action-setup@v4
         with:
@@ -213,59 +87,32 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install temporary Playwright package
-        run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
-
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
       - name: Build and canonical guardrails
         run: pnpm build
-
-      - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright install --with-deps chromium
 
       - name: Start production server
         run: |
-          pnpm start > /tmp/damasio-final-two-blockers.log 2>&1 &
+          pnpm start > /tmp/damasio-mobile-diagnostic.log 2>&1 &
           for attempt in $(seq 1 60); do
             if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
             sleep 1
           done
-          cat /tmp/damasio-final-two-blockers.log
+          cat /tmp/damasio-mobile-diagnostic.log
           exit 1
 
-      - name: Run Operational Simulator focused gate
-        run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
-
-      - name: Run canonical route sync focused gate
+      - name: Run canonical route sync diagnostic gate
         run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
 
-      - name: Commit validated source fixes and restore normal gate
-        if: success()
-        run: |
-          git checkout HEAD^ -- .github/workflows/operational-simulator-e2e.yml
-          rm -f .github/workflows/qa-final-two-blockers.yml
-          git config user.name "Damasio QA Bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add app/api/admin/operational-simulator/exceptions/route.ts lib/services/routeMapService.ts .github/workflows/operational-simulator-e2e.yml .github/workflows/qa-final-two-blockers.yml
-          git commit -m "Fix final simulator and mobile route convergence blockers"
-          git push origin HEAD:qa/full-ecosystem-e2e-20260807
-
-      - name: Upload focused QA evidence
+      - name: Upload Employee Mobile diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-final-two-blockers
+          name: employee-mobile-canonical-diagnostic
           path: |
-            operational-simulator.png
-            employee-live-route.png
-            customer-feedback-result.png
-            customer-feedback.png
-            customer-desktop-qa.png
-            canonical-admin-web.png
-            canonical-admin-mobile.png
+            canonical-employee-mobile-before-assert.png
             canonical-employee-web.png
-            canonical-employee-mobile.png
-            /tmp/damasio-final-two-blockers.log
+            /tmp/damasio-mobile-diagnostic.log
           if-no-files-found: ignore
