@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { verifyCanonicalRoutePersistence } from "@/lib/routes/verifyCanonicalRoutePersistence";
+import { projectCanonicalVisitOrderCompatibility } from "@/lib/routes/projectCanonicalVisitOrderCompatibility";
 
 export const dynamic = "force-dynamic";
 
@@ -40,32 +41,6 @@ function migrationError(message?: string) {
   return new Error(message || "Canonical route order could not be saved.");
 }
 
-async function projectCanonicalVisitOrderFallback(service: any, routeId: string) {
-  const stops = await service
-    .from("route_stops")
-    .select("visit_id,position")
-    .eq("route_id", routeId)
-    .order("position", { ascending: true });
-  if (stops.error) throw new Error(stops.error.message);
-  const canonicalStops = stops.data || [];
-  if (!canonicalStops.length) throw new Error("Canonical Route has no stops to project.");
-
-  // Compatibility only: route_stops remains the durable source. This fallback is
-  // used when the deployed database has not yet exposed the one-way projection RPC.
-  // It never reads order from Visits and verification immediately proves that the
-  // canonical stop membership/order was not changed by the compatibility writes.
-  for (const stop of canonicalStops) {
-    const projected = await service
-      .from("visits")
-      .update({ route_order: Number(stop.position) })
-      .eq("id", stop.visit_id)
-      .eq("route_id", routeId);
-    if (projected.error) throw new Error(projected.error.message);
-  }
-
-  return { fallback: true, count: canonicalStops.length };
-}
-
 async function projectCanonicalVisitOrder(service: any, routeId: string, source: string) {
   const projection = await service.rpc("sync_canonical_route_stops_v2", {
     p_route_id: routeId,
@@ -82,7 +57,7 @@ async function projectCanonicalVisitOrder(service: any, routeId: string, source:
     source,
     message: projection.error.message,
   });
-  return projectCanonicalVisitOrderFallback(service, routeId);
+  return projectCanonicalVisitOrderCompatibility(service, routeId);
 }
 
 async function requireContext(request: NextRequest) {
