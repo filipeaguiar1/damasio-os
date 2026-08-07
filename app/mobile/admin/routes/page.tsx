@@ -105,13 +105,26 @@ export default function MobileAdminRoutes() {
     let cancelled = false;
     setCanonicalRouteId(null);
     if (!employee?.id || !date) return () => { cancelled = true; };
-    void api(`/api/admin/canonical-route?profileId=${encodeURIComponent(employee.id)}&date=${encodeURIComponent(date)}`)
-      .then(result => {
-        if (!cancelled) setCanonicalRouteId(String(result.routeId || "") || null);
-      })
-      .catch(error => {
-        if (!cancelled) setMessage(error instanceof Error ? error.message : "Canonical Route could not be resolved.");
-      });
+
+    const resolveCanonicalRoute = async () => {
+      let lastError: unknown = null;
+      for (const delay of [0, 250, 750, 1500, 3000]) {
+        if (delay) await new Promise(resolve => window.setTimeout(resolve, delay));
+        if (cancelled) return;
+        try {
+          const result = await api(`/api/admin/canonical-route?profileId=${encodeURIComponent(employee.id)}&date=${encodeURIComponent(date)}`);
+          if (cancelled) return;
+          setCanonicalRouteId(String(result.routeId || "") || null);
+          setMessage("");
+          return;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (!cancelled) setMessage(lastError instanceof Error ? lastError.message : "Canonical Route could not be resolved.");
+    };
+
+    void resolveCanonicalRoute();
     return () => { cancelled = true; };
   }, [employee?.id, date]);
 
