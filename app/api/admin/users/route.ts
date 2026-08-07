@@ -174,7 +174,11 @@ export async function DELETE(request: NextRequest) {
     if (!id) throw new Error("Choose an employee.");
     const { data: profile, error } = await client.from("profiles").select("id,full_name").eq("id", id).eq("role", "employee").or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).single();
     if (error || !profile) throw new Error("Employee not found in this company.");
-    await client.from("employees").update({ active: false, profile_id: null }).eq("profile_id", id).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
+    const employeeResult = await client.from("employees")
+      .update({ active: false, profile_id: null })
+      .eq("profile_id", id)
+      .or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
+    if (employeeResult.error) throw new Error(`Employee record could not be deactivated: ${employeeResult.error.message}`);
     const { error: authError } = await client.auth.admin.deleteUser(id);
     if (authError && !authError.message.toLowerCase().includes("not found")) throw new Error(authError.message);
     return NextResponse.json({ id, message: `${profile.full_name} was removed. Historical visits remain preserved.` });
