@@ -1,0 +1,80 @@
+name: QA reuse simulator fixture
+
+on:
+  push:
+    branches:
+      - qa/full-ecosystem-e2e-20260807
+    paths:
+      - .github/workflows/qa-reuse-simulator-fixture.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/full-ecosystem-e2e-20260807
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Patch simulator handoff
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('tests/operational-simulator.spec.ts')
+          t = p.read_text()
+          old = 'import { test, expect, type Page } from "@playwright/test";\n'
+          new = 'import { test, expect, type Page } from "@playwright/test";\nimport { writeFileSync } from "node:fs";\n'
+          if old not in t: raise SystemExit('operational import anchor missing')
+          t = t.replace(old, new, 1)
+          old = '''  expect(workerEmail).toContain("worker-1@4everseasons.test");\n  expect(customerEmail).toContain("customer-01@4everseasons.test");\n'''
+          new = '''  expect(workerEmail).toContain("worker-1@4everseasons.test");\n  expect(customerEmail).toContain("customer-01@4everseasons.test");\n  writeFileSync("/tmp/damasio-operational-simulator-handoff.json", JSON.stringify({\n    workerEmail, workerPassword,\n  }), "utf8");\n'''
+          if old not in t: raise SystemExit('operational credential anchor missing')
+          t = t.replace(old, new, 1)
+          p.write_text(t)
+
+          p = Path('tests/canonical-route-sync.spec.ts')
+          t = p.read_text()
+          old = 'import { test, expect, type Page } from "@playwright/test";\n'
+          new = 'import { test, expect, type Page } from "@playwright/test";\nimport { existsSync, readFileSync } from "node:fs";\n'
+          if old not in t: raise SystemExit('canonical import anchor missing')
+          t = t.replace(old, new, 1)
+          anchor = 'test.setTimeout(420_000);\n'
+          helper = '''test.setTimeout(420_000);\n\nfunction torontoDateKey() {\n  const parts = new Intl.DateTimeFormat("en-CA", {\n    timeZone: "America/Toronto", year: "numeric", month: "2-digit", day: "2-digit",\n  }).formatToParts(new Date());\n  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));\n  return `${values.year}-${values.month}-${values.day}`;\n}\n'''
+          if anchor not in t: raise SystemExit('canonical timeout anchor missing')
+          t = t.replace(anchor, helper, 1)
+          start = t.index('  let simulation: any = null;')
+          end_marker = '  const workerPassword = String(simulation.workers[0].password);\n'
+          end = t.index(end_marker, start) + len(end_marker)
+          replacement = '''  const handoffPath = "/tmp/damasio-operational-simulator-handoff.json";\n  expect(existsSync(handoffPath), "Operational Simulator handoff fixture must exist").toBe(true);\n  const handoff = JSON.parse(readFileSync(handoffPath, "utf8"));\n  const workerEmail = String(handoff.workerEmail || "");\n  const workerPassword = String(handoff.workerPassword || "");\n  expect(workerEmail).toContain("worker-1@4everseasons.test");\n  expect(workerPassword).not.toBe("");\n  const routeDate = torontoDateKey();\n'''
+          t = t[:start] + replacement + t[end:]
+          old = '''  const routeDate = String(simulation.operational?.liveDate || "");\n  expect(routeDate).toMatch(/^\\d{4}-\\d{2}-\\d{2}$/);\n'''
+          if old not in t: raise SystemExit('route date anchor missing')
+          t = t.replace(old, '  expect(routeDate).toMatch(/^\\d{4}-\\d{2}-\\d{2}$/);\n', 1)
+          old = '''  await cleanupSimulationVisits(adminDesktop);\n  await authRequest(adminDesktop, "/api/admin/operational-simulator", {\n    method: "POST",\n    body: { action: "remove" },\n    timeoutMs: 120_000,\n  });\n\n'''
+          if old not in t: raise SystemExit('final cleanup anchor missing')
+          t = t.replace(old, '  // Reuse the simulator fixture created by the preceding E2E. Do not perform a second heavy cleanup here.\n\n', 1)
+          p.write_text(t)
+          PY
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate
+        run: pnpm typecheck && pnpm test:route-writers && pnpm test:map-sync
+      - name: Commit patch
+        shell: bash
+        run: |
+          rm .github/workflows/qa-reuse-simulator-fixture.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/operational-simulator.spec.ts tests/canonical-route-sync.spec.ts .github/workflows/qa-reuse-simulator-fixture.yml
+          git commit -m "Reuse simulator fixture for four-screen route sync"
+          git push origin HEAD:qa/full-ecosystem-e2e-20260807
