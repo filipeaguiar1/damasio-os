@@ -251,6 +251,7 @@ export default function MobileEmployeeApp(){
       await applyEmployeeDatabaseSmartRoute({routeId:mapContext.routeId,originalOrder,appliedOrder,origin:smartOriginPoint,expectedVersion:reviewedVersion});
       const nextContext=await loadEmployeeRouteMapContextByRouteId(mapContext.routeId);
       setMapContext(nextContext);
+      window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeId: mapContext.routeId, routeVersion: nextContext.routeVersion } }));
       setSmartPreview([]);setHomeMode("route");setRouteView("map");refresh(false);setMessage("Smart Route applied. Admin and Employee now share the same published order.");
       // The canonical Route is already saved and visible. Secondary Smart Route state
       // must never hold the field UI on a stale preview while other screens advance.
@@ -273,7 +274,9 @@ export default function MobileEmployeeApp(){
       const restored=await restoreEmployeeDatabaseSmartRoute(mapContext.routeId,reviewedVersion);
       if(restored){
         setSmartRouteActive(false);setActiveSmartState(null);setSmartPreview([]);
-        setMapContext(await loadEmployeeRouteMapContextByRouteId(mapContext.routeId));
+        const restoredContext=await loadEmployeeRouteMapContextByRouteId(mapContext.routeId);
+        setMapContext(restoredContext);
+        window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeId: mapContext.routeId, routeVersion: restoredContext.routeVersion } }));
         refresh(false);setMessage("Original route restored on Admin and Employee.")
       }
     }catch(cause){
