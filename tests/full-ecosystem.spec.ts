@@ -17,9 +17,10 @@ test("Master creates an isolated company and first Admin can authenticate", asyn
   required("SUPABASE_SERVICE_ROLE_KEY", serviceKey);
 
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const masterEmail = `qa-master-${stamp}@damasioos.test`;
+  // Use a syntactically valid public domain. Supabase Auth rejects reserved .test addresses.
+  const masterEmail = `qa-master-${stamp}@example.com`;
   const masterPassword = `QaMaster!${stamp}Aa1`;
-  const adminEmail = `qa-admin-${stamp}@damasioos.test`;
+  const adminEmail = `qa-admin-${stamp}@example.com`;
   const companyName = `QA Ecosystem ${stamp}`;
   const slug = `qa-ecosystem-${stamp}`.toLowerCase();
 
