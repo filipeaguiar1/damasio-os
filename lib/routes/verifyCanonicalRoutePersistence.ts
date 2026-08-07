@@ -32,49 +32,6 @@ function sameCoordinate(left: number | null, right: number) {
   return left !== null && Math.abs(left - right) <= 0.0000001;
 }
 
-async function convergeVisitProjection(service: any, routeId: string, orderedVisitIds: string[]) {
-  // Prefer the one-way database projection when the deployed database grants
-  // service_role execute permission. Older databases can have the function but
-  // not the grant, so keep a bounded service-role compatibility fallback until
-  // the permanent projection migration is deployed.
-  const projection = await service.rpc("sync_canonical_route_stops_v2", {
-    p_route_id: routeId,
-    p_source: "smart_route_persistence_projection",
-  });
-  if (!projection.error) return;
-
-  const message = String(projection.error.message || "");
-  if (!/permission denied|schema cache|could not find the function|does not exist/i.test(message)) {
-    throw new Error(`Canonical Visit projection failed: ${message}`);
-  }
-
-  // Avoid unique-order collisions by clearing only this Route first, then write
-  // the exact route_stops order back as a compatibility projection. This never
-  // changes route_stops, route membership, Smart Route state or route version.
-  const cleared = await service
-    .from("visits")
-    .update({ route_order: null })
-    .eq("route_id", routeId)
-    .neq("status", "cancelled");
-  if (cleared.error) throw new Error(`Canonical Visit projection reset failed: ${cleared.error.message}`);
-
-  for (let index = 0; index < orderedVisitIds.length; index += 1) {
-    const visitId = orderedVisitIds[index];
-    const written = await service
-      .from("visits")
-      .update({ route_order: index + 1 })
-      .eq("route_id", routeId)
-      .eq("id", visitId);
-    if (written.error) throw new Error(`Canonical Visit projection write failed: ${written.error.message}`);
-  }
-
-  console.warn("canonical-route-visit-projection-fallback", {
-    routeId,
-    count: orderedVisitIds.length,
-    rpcError: message,
-  });
-}
-
 async function readCanonicalPersistence(service: any, routeId: string) {
   const [stateResult, stopsResult, smartResult, visitsResult] = await Promise.all([
     service
@@ -163,14 +120,14 @@ export async function verifyCanonicalRoutePersistence(
   service: any,
   expected: CanonicalPersistenceExpectation,
 ): Promise<VerifiedCanonicalPersistence> {
-  await convergeVisitProjection(service, expected.routeId, expected.orderedVisitIds);
+  // Verification is deliberately read-only. Every canonical mutation must stay
+  // inside an approved route writer/database transaction.
+  let persisted = await readCanonicalPersistence(service, expected.routeId);
+  assertCanonicalPersistence(persisted, expected);
 
   // The second database read is intentionally delayed. It catches legacy
   // triggers or asynchronous projections that overwrite a successful RPC
   // immediately after the transaction returns.
-  let persisted = await readCanonicalPersistence(service, expected.routeId);
-  assertCanonicalPersistence(persisted, expected);
-
   await new Promise(resolve => setTimeout(resolve, 750));
 
   persisted = await readCanonicalPersistence(service, expected.routeId);
