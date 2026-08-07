@@ -54,76 +54,73 @@ text = text[:start] + completed_visits + text[end:]
 exceptions_path.write_text(text)
 
 
-# Blocker 2: once the canonical writer returns the new route version, leave Smart
-# Route preview immediately using the exact server-confirmed Visit order. The
-# authoritative snapshot rehydrates asynchronously and can only replace this
-# handoff with the same/newer version.
-mobile_path = Path("app/mobile/employee/page.tsx")
-text = mobile_path.read_text()
-text = replace_once(
-    text,
-    '  useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[crew,selectedDate,routeReload]);',
-    '  useEffect(()=>{let cancelled=false;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(current=>current.routeId===context.routeId&&Number(current.routeVersion||0)>Number(context.routeVersion||0)?current:context)});return()=>{cancelled=true}},[crew,selectedDate,routeReload]);',
-    "mobile canonical hydration monotonic guard",
-)
-old_block = '''      const reviewedVersion=activeSmartState&&"routeVersion" in activeSmartState?activeSmartState.routeVersion:mapContext.routeVersion;
-      const appliedVersion=await applyEmployeeDatabaseSmartRoute({routeId:mapContext.routeId,originalOrder,appliedOrder,origin:smartOriginPoint,expectedVersion:reviewedVersion});
-      let nextContext=await loadEmployeeRouteMapContextByRouteId(mapContext.routeId);
-      for(let attempt=0;attempt<6&&Number(nextContext.routeVersion||0)<appliedVersion;attempt+=1){await new Promise(resolve=>window.setTimeout(resolve,250+attempt*150));nextContext=await loadEmployeeRouteMapContextByRouteId(mapContext.routeId)}
-      if(Number(nextContext.routeVersion||0)<appliedVersion){window.location.reload();return}
-      setMapContext(nextContext);
-      window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeId: mapContext.routeId, routeVersion: nextContext.routeVersion } }));
-      setSmartPreview([]);setHomeMode("route");setRouteView("map");refresh(false);setMessage("Smart Route applied. Admin and Employee now share the same published order.");
-      // The canonical Route is already saved and visible. Secondary Smart Route state
-      // must never hold the field UI on a stale preview while other screens advance.
-      void loadEmployeeDatabaseSmartRouteState(mapContext.routeId).then(state=>{
-        setActiveSmartState(state);setSmartRouteActive(Boolean(state?.active));
-      }).catch(()=>{
-        // Realtime/route snapshot remains authoritative; state can retry on the normal refresh cycle.
-      });'''
-new_block = '''      const reviewedVersion=activeSmartState&&"routeVersion" in activeSmartState?activeSmartState.routeVersion:mapContext.routeVersion;
-      const routeId=mapContext.routeId;
-      const appliedVersion=await applyEmployeeDatabaseSmartRoute({routeId,originalOrder,appliedOrder,origin:smartOriginPoint,expectedVersion:reviewedVersion});
+# Blocker 2: older deployments expose the safe one-way helper
+# sync_visit_route_order_for_route but do not yet grant service_role access to
+# sync_canonical_route_stops_v2. Prefer that transaction-level helper before the
+# bounded per-row compatibility path. It projects only route_stops -> visits and
+# avoids temporary route positions that the active canonical guard must reject.
+projection_path = Path("lib/routes/projectCanonicalVisitOrderCompatibility.ts")
+text = projection_path.read_text()
+anchor = '''  const normalized = stops.map(stop => {
+    const position = Number(stop.position);
+    if (!stop.visit_id || !Number.isInteger(position) || position < 1) {
+      throw new Error("Canonical Route contains an invalid stop projection.");
+    }
+    return { visitId: String(stop.visit_id), position };
+  });
 
-      // The canonical writer has already committed this version and exact Visit order.
-      // Leave preview mode immediately from that confirmed result instead of making the
-      // field UI wait for a second read of the same snapshot to converge.
-      const stopByVisitId=new Map(mapContext.stops.map(stop=>[stop.visitId,stop]));
-      const publishedStops=appliedOrder.map((visitId,index)=>{const stop=stopByVisitId.get(visitId);return stop?{...stop,routeOrder:index+1}:null}).filter((stop):stop is EmployeeRouteMapContext["stops"][number]=>Boolean(stop));
-      const publishedContext:EmployeeRouteMapContext={
-        ...mapContext,
-        routeId,
-        routeVersion:appliedVersion,
-        orderedVisitIds:[...appliedOrder],
-        routeOrder:appliedOrder.map((visitId,index)=>({visitId,routeOrder:index+1})),
-        geometry:null,
-        stops:publishedStops.length===mapContext.stops.length?publishedStops:mapContext.stops,
-      };
-      setMapContext(publishedContext);
-      setSmartPreview([]);setHomeMode("route");setRouteView("map");
-      window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeId, routeVersion: appliedVersion } }));
-      refresh(false);setMessage("Smart Route applied. Admin and Employee now share the same published order.");
+  // Two-phase projection avoids the unique (route, route_order) constraint while
+'''
+replacement = '''  const normalized = stops.map(stop => {
+    const position = Number(stop.position);
+    if (!stop.visit_id || !Number.isInteger(position) || position < 1) {
+      throw new Error("Canonical Route contains an invalid stop projection.");
+    }
+    return { visitId: String(stop.visit_id), position };
+  });
 
-      // Rehydrate from the authoritative canonical snapshot without holding the published
-      // UI in preview. A slower older read may not replace the writer-confirmed version.
-      void (async()=>{
-        let nextContext=await loadEmployeeRouteMapContextByRouteId(routeId);
-        for(let attempt=0;attempt<6&&Number(nextContext.routeVersion||0)<appliedVersion;attempt+=1){await new Promise(resolve=>window.setTimeout(resolve,250+attempt*150));nextContext=await loadEmployeeRouteMapContextByRouteId(routeId)}
-        if(Number(nextContext.routeVersion||0)>=appliedVersion){
-          setMapContext(current=>current.routeId===nextContext.routeId&&Number(current.routeVersion||0)>Number(nextContext.routeVersion||0)?current:nextContext);
-          window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeId, routeVersion: nextContext.routeVersion } }));
-        }
-      })().catch(()=>{
-        // The confirmed writer state remains visible; realtime and normal refresh can retry.
-      });
+  // Older canonical deployments already expose this one-way SECURITY DEFINER
+  // helper. It updates the entire Visit projection inside one transaction, so
+  // the deferrable route-order constraint can settle on the final canonical
+  // positions without using staging values. Legacy Visit triggers therefore see
+  // only the exact route_stops positions accepted by the active-route guard.
+  const transactionalProjection = await service.rpc("sync_visit_route_order_for_route", {
+    p_route_id: routeId,
+  });
+  if (!transactionalProjection.error) {
+    const verified = await service
+      .from("visits")
+      .select("id,route_order,status")
+      .eq("route_id", routeId)
+      .neq("status", "cancelled")
+      .order("route_order", { ascending: true, nullsFirst: false });
+    if (verified.error) throw new Error(verified.error.message);
+    const projectedVisitIds = (verified.data || []).map((row: any) => String(row.id));
+    const canonicalVisitIds = normalized.map(stop => stop.visitId);
+    if (
+      projectedVisitIds.length !== canonicalVisitIds.length
+      || projectedVisitIds.some((visitId: string, index: number) => visitId !== canonicalVisitIds[index])
+    ) {
+      throw new Error("Canonical Visit projection helper returned without the exact route_stops order.");
+    }
+    return {
+      fallback: true,
+      transactional: true,
+      routeId,
+      count: normalized.length,
+      orderedVisitIds: canonicalVisitIds,
+    };
+  }
 
-      // Secondary Smart Route state is also non-blocking after the canonical writer succeeds.
-      void loadEmployeeDatabaseSmartRouteState(routeId).then(state=>{
-        setActiveSmartState(state);setSmartRouteActive(Boolean(state?.active));
-      }).catch(()=>{
-        // Realtime/route snapshot remains authoritative; state can retry on the normal refresh cycle.
-      });'''
-text = replace_once(text, old_block, new_block, "applySmartPreview confirmed-write handoff")
-mobile_path.write_text(text)
+  const helperMessage = String(transactionalProjection.error.message || "");
+  if (!/sync_visit_route_order_for_route|schema cache|could not find the function|permission denied/i.test(helperMessage)) {
+    throw new Error(helperMessage || "Canonical Route Visit projection helper failed.");
+  }
+
+  // Last-resort path for deployments that predate the transaction-level helper.
+  // Two-phase projection avoids the unique (route, route_order) constraint while
+'''
+text = replace_once(text, anchor, replacement, "transactional compatibility projection")
+projection_path.write_text(text)
 
 print("Final two blocker candidates applied.")
