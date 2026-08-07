@@ -72,13 +72,19 @@ jobs:
           from pathlib import Path
           path = Path("app/api/admin/operational-simulator/route.ts")
           text = path.read_text()
-          old = '    await removeByIds("route_stops", "route_stops", "route_id", routeIds);'
-          new = '''    for (const batch of chunks(routeIds, 25)) {
+          replacements = {
+              '    await removeByIds("route_stops", "route_stops", "route_id", routeIds);': '''    for (const batch of chunks(routeIds, 25)) {
               await remove("route_stops", service.from("route_stops").delete().in("route_id", batch));
-            }'''
-          if old not in text:
-              raise SystemExit("Explicit route_stops cleanup anchor not found")
-          path.write_text(text.replace(old, new, 1))
+            }''',
+              '    await removeByIds("route_order_state", "route_order_state", "route_id", routeIds);': '''    for (const batch of chunks(routeIds, 25)) {
+              await remove("route_order_state", service.from("route_order_state").delete().in("route_id", batch));
+            }''',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f"Explicit canonical cleanup anchor not found: {old}")
+              text = text.replace(old, new, 1)
+          path.write_text(text)
           PY
           git diff --check
 
