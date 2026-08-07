@@ -32,8 +32,24 @@ function sameCoordinate(left: number | null, right: number) {
   return left !== null && Math.abs(left - right) <= 0.0000001;
 }
 
+async function convergeVisitProjection(service: any, routeId: string) {
+  // route_stops is the durable source of truth. A later historical migration
+  // replaced the service writer without calling the existing one-way
+  // compatibility projection, so older databases can temporarily leave
+  // visits.route_order stale after a successful Smart Route apply.
+  // Keep the API compatible immediately while the permanent DB trigger
+  // migration is rolled out. This RPC only projects route_stops -> visits.
+  const projection = await service.rpc("sync_canonical_route_stops_v2", {
+    p_route_id: routeId,
+    p_source: "smart_route_persistence_projection",
+  });
+  if (projection.error) {
+    throw new Error(`Canonical Visit projection failed: ${projection.error.message}`);
+  }
+}
+
 async function readCanonicalPersistence(service: any, routeId: string) {
-  const [stateResult, stopsResult, smartResult] = await Promise.all([
+  const [stateResult, stopsResult, smartResult, visitsResult] = await Promise.all([
     service
       .from("route_order_state")
       .select("version")
@@ -49,15 +65,23 @@ async function readCanonicalPersistence(service: any, routeId: string) {
       .select("active,route_version,applied_order,origin_label,origin_latitude,origin_longitude")
       .eq("route_id", routeId)
       .maybeSingle(),
+    service
+      .from("visits")
+      .select("id,route_order,status")
+      .eq("route_id", routeId)
+      .neq("status", "cancelled")
+      .order("route_order", { ascending: true, nullsFirst: false }),
   ]);
 
   if (stateResult.error) throw new Error(stateResult.error.message);
   if (stopsResult.error) throw new Error(stopsResult.error.message);
   if (smartResult.error) throw new Error(smartResult.error.message);
+  if (visitsResult.error) throw new Error(visitsResult.error.message);
 
   return {
     routeVersion: Number(stateResult.data?.version || 0),
     orderedVisitIds: (stopsResult.data || []).map((row: any) => String(row.visit_id)),
+    projectedVisitIds: (visitsResult.data || []).map((row: any) => String(row.id)),
     smart: smartResult.data || null,
   };
 }
@@ -77,6 +101,7 @@ function assertCanonicalPersistence(
   if (
     persisted.routeVersion !== expected.routeVersion
     || !sameOrder(persisted.orderedVisitIds, expected.orderedVisitIds)
+    || !sameOrder(persisted.projectedVisitIds, expected.orderedVisitIds)
     || !persisted.smart?.active
     || smartVersion !== expected.routeVersion
     || !sameOrder(smartOrder, expected.orderedVisitIds)
@@ -91,6 +116,7 @@ function assertCanonicalPersistence(
       smartVersion,
       expectedOrder: expected.orderedVisitIds,
       storedOrder: persisted.orderedVisitIds,
+      projectedVisitOrder: persisted.projectedVisitIds,
       smartOrder,
       expectedOrigin: expected.origin,
       storedOrigin: {
@@ -101,7 +127,7 @@ function assertCanonicalPersistence(
       smartActive: Boolean(persisted.smart?.active),
     });
     throw new Error(
-      "The canonical Route did not remain persisted with the reviewed order, origin and version.",
+      "The canonical Route did not remain persisted with the reviewed order, origin, version and Visit projection.",
     );
   }
 }
@@ -110,6 +136,8 @@ export async function verifyCanonicalRoutePersistence(
   service: any,
   expected: CanonicalPersistenceExpectation,
 ): Promise<VerifiedCanonicalPersistence> {
+  await convergeVisitProjection(service, expected.routeId);
+
   // The second database read is intentionally delayed. It catches legacy
   // triggers or asynchronous projections that overwrite a successful RPC
   // immediately after the transaction returns.
