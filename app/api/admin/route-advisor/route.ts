@@ -34,6 +34,9 @@ function rpcError(message?: string) {
   if (/remove_visits_from_today_route/i.test(value)) {
     return new Error("Supabase migration 202608031130_route_advisor_pending_removal.sql is pending.");
   }
+  if (/publish_canonical_route_daily_protected/i.test(value)) {
+    return new Error("Supabase migration 202608070001_route_advisor_protected_publish.sql is pending.");
+  }
   if (/publish_canonical_route_daily|apply_canonical_route_order_v2_service|schema cache|could not find the function/i.test(value)) {
     return new Error("Supabase migration 202607280001_route_assignment_modes.sql is pending.");
   }
@@ -271,7 +274,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const result = await user.rpc("publish_canonical_route_daily", {
+    const result = await user.rpc("publish_canonical_route_daily_protected", {
       p_employee_id: employeeId,
       p_crew_id: crewId,
       p_route_date: routeDate,
