@@ -61,7 +61,7 @@ jobs:
           cat /tmp/damasio-full-ecosystem.log
           exit 1
       - name: Run full ecosystem journeys
-        run: pnpm exec playwright test tests/full-ecosystem.spec.ts tests/full-ecosystem-smart-route.spec.ts tests/full-ecosystem-stripe.spec.ts --reporter=line --workers=1
+        run: pnpm exec playwright test tests/full-ecosystem.spec.ts tests/full-ecosystem-smart-route.spec.ts tests/full-ecosystem-stripe.spec.ts tests/full-ecosystem-tenant-isolation.spec.ts --reporter=line --workers=1
       - name: Upload ecosystem evidence
         if: always()
         uses: actions/upload-artifact@v4
