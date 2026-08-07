@@ -65,6 +65,18 @@ on public.route_stops
 for each row
 execute function public.project_route_stop_to_visit_order();
 
+-- Older deployments can already have the canonical projection RPC but without
+-- service_role execute permission. Grant it when present so the API can use the
+-- database projection directly; the application keeps a bounded fallback until
+-- this migration has reached every environment.
+do $$
+begin
+  if to_regprocedure('public.sync_canonical_route_stops_v2(uuid,text)') is not null then
+    execute 'grant execute on function public.sync_canonical_route_stops_v2(uuid,text) to service_role';
+  end if;
+end
+$$;
+
 -- Repair drift only on routes that already participate in the canonical
 -- route_stops model. Legacy routes with no canonical stops are left untouched.
 update public.visits v
