@@ -251,7 +251,7 @@ async function canonicalVisits(service: any, companyId: string, routeDate?: stri
   const routeIds = routes.map((route: any) => String(route.id));
   if (!routeIds.length) return [] as any[];
 
-  const batches = <T,>(values: T[], size = 40) => {
+  const batches = <T,>(values: T[], size = 20) => {
     const result: T[][] = [];
     for (let index = 0; index < values.length; index += size) {
       result.push(values.slice(index, index + size));
@@ -259,23 +259,33 @@ async function canonicalVisits(service: any, companyId: string, routeDate?: stri
     return result;
   };
 
-  const stopResults = await Promise.all(batches(routeIds).map(ids => service
-    .from("route_stops")
-    .select("route_id,visit_id,position")
-    .in("route_id", ids)
-    .order("position", { ascending: true })));
-  for (const result of stopResults) if (result.error) throw new Error(result.error.message);
+  // Keep canonical reads bounded. Large histories previously launched every batch at once,
+  // making nested Visit reads compete for the same Postgres statement budget.
+  const stopResults: any[] = [];
+  for (const ids of batches(routeIds)) {
+    const result = await service
+      .from("route_stops")
+      .select("route_id,visit_id,position")
+      .in("route_id", ids)
+      .order("position", { ascending: true });
+    if (result.error) throw new Error(result.error.message);
+    stopResults.push(result);
+  }
 
   const stopRows: any[] = stopResults.flatMap(result => result.data || []);
   const visitIds = [...new Set(stopRows.map((row: any) => String(row.visit_id)).filter(Boolean))];
   if (!visitIds.length) return [] as any[];
 
-  const visitResults = await Promise.all(batches(visitIds).map(ids => service
-    .from("visits")
-    .select("id,job_id,route_id,crew_id,assigned_employee_id,customer_id,property_id,scheduled_date,status,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes,archived_at),properties(address_line1,city,province,postal_code),jobs(service_name),employees(full_name)")
-    .in("id", ids)
-    .or(companyFilter(companyId))));
-  for (const result of visitResults) if (result.error) throw new Error(result.error.message);
+  const visitResults: any[] = [];
+  for (const ids of batches(visitIds)) {
+    const result = await service
+      .from("visits")
+      .select("id,job_id,route_id,crew_id,assigned_employee_id,customer_id,property_id,scheduled_date,status,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes,archived_at),properties(address_line1,city,province,postal_code),jobs(service_name),employees(full_name)")
+      .in("id", ids)
+      .or(companyFilter(companyId));
+    if (result.error) throw new Error(result.error.message);
+    visitResults.push(result);
+  }
 
   const visits = new Map<string, any>();
   for (const result of visitResults) {
