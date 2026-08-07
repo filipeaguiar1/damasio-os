@@ -14,6 +14,10 @@ function watchErrors(page: Page, label: string) {
       console.warn(`${label}: authentication fetch was aborted by a page transition.`);
       return;
     }
+    if (/Failed to fetch RSC payload[\s\S]*Falling back to browser navigation[\s\S]*TypeError: Failed to fetch/i.test(text)) {
+      console.warn(`${label}: Next.js RSC prefetch failed and browser navigation fallback was used.`);
+      return;
+    }
     if (/Failed to load resource: the server responded with a status of \d{3}/i.test(text)) return;
     errors.push(`${label}: ${text}`);
   });
