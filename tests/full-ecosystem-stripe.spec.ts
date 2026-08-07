@@ -200,7 +200,7 @@ test("Stripe test mode creates/cancels invoice checkout and creates tip checkout
       const session = await stripe.checkout.sessions.retrieve(invoiceSessionId).catch(() => null);
       if (session?.status === "open") await stripe.checkout.sessions.expire(invoiceSessionId).catch(() => undefined);
     }
-    await service.from("customer_tips").delete().eq("customer_id", customerId).catch(() => undefined);
+    try { await service.from("customer_tips").delete().eq("customer_id", customerId); } catch { /* best-effort QA cleanup */ }
     await service.from("invoices").delete().eq("id", invoiceId);
     await service.from("quotes").delete().eq("id", quoteId);
     await service.from("properties").delete().eq("id", propertyId);
