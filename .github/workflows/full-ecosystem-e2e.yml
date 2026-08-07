@@ -13,6 +13,8 @@ on:
       - "app/api/mobile/**"
       - "app/api/customer/**"
       - "app/api/stripe/**"
+      - "lib/routes/verifyCanonicalRoutePersistence.ts"
+      - "supabase/migrations/202608071610_route_stops_visit_projection.sql"
 
 permissions:
   contents: read
@@ -29,7 +31,9 @@ jobs:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -57,7 +61,7 @@ jobs:
           cat /tmp/damasio-full-ecosystem.log
           exit 1
       - name: Run full ecosystem journeys
-        run: pnpm exec playwright test tests/full-ecosystem.spec.ts tests/full-ecosystem-smart-route.spec.ts --reporter=line --workers=1
+        run: pnpm exec playwright test tests/full-ecosystem.spec.ts tests/full-ecosystem-smart-route.spec.ts tests/full-ecosystem-stripe.spec.ts --reporter=line --workers=1
       - name: Upload ecosystem evidence
         if: always()
         uses: actions/upload-artifact@v4
