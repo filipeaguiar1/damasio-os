@@ -97,6 +97,8 @@ jobs:
           path.write_text(text)
           PY
           git diff --check
+          echo '--- generated cleanup lines 730-748 ---'
+          nl -ba app/api/admin/operational-simulator/route.ts | sed -n '730,748p'
 
       - uses: pnpm/action-setup@v4
         with:
