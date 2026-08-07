@@ -20,6 +20,7 @@ on:
       - "lib/hooks/useCanonicalRouteSnapshot.ts"
       - "lib/repositories/customerPortalRepository.ts"
       - "lib/routes/canonicalRouteSnapshot.ts"
+      - "lib/routes/projectCanonicalVisitOrderCompatibility.ts"
       - "lib/routes/verifyCanonicalRoutePersistence.ts"
       - "lib/services/routeMapService.ts"
       - "lib/simulator/**"
@@ -163,7 +164,7 @@ jobs:
           if [ -f .github/workflows/qa-final-two-blockers.yml ]; then git rm -f .github/workflows/qa-final-two-blockers.yml; fi
           git config user.name "Damasio QA Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add app/api/admin/operational-simulator/exceptions/route.ts app/mobile/employee/page.tsx .github/workflows/operational-simulator-e2e.yml
+          git add app/api/admin/operational-simulator/exceptions/route.ts lib/routes/projectCanonicalVisitOrderCompatibility.ts .github/workflows/operational-simulator-e2e.yml
           git diff --cached --check
           git commit -m "Fix final operational simulator and Employee Mobile blockers"
           git push origin HEAD:qa/full-ecosystem-e2e-20260807
