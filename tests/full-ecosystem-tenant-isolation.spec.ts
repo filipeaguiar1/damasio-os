@@ -87,7 +87,7 @@ test("company and customer APIs reject cross-tenant access", async ({ request })
     const visitA = await service.from("visits").insert({
       id: visitAId, organization_id: companyA, company_id: companyA,
       customer_id: customerAId, property_id: propertyAId,
-      service_name: "Tenant isolation service", scheduled_date: new Date().toISOString().slice(0, 10),
+      scheduled_date: new Date().toISOString().slice(0, 10),
       status: "completed", started_at: new Date(Date.now() - 60000).toISOString(),
       finished_at: new Date().toISOString(), duration_seconds: 60,
     });
