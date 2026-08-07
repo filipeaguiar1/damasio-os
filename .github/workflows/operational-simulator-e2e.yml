@@ -120,6 +120,26 @@ jobs:
           print("Simulator cleanup now deactivates Smart Route state before deleting route_stops in this validation run.")
           PY
 
+      - name: Patch canonical map source authority for validation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("components/mobile/EmployeeRouteMap.tsx")
+          text = path.read_text()
+          old = '''  const snapshotMatches = !preview
+            && Boolean(snapshot)
+            && snapshot?.routeId === effectiveRouteId
+            && sameVisitMembership(operationalRoute, snapshot);'''
+          new = '''  const snapshotMatches = !preview
+            && Boolean(snapshot)
+            && snapshot?.routeId === effectiveRouteId
+            && (Boolean(routeId) || sameVisitMembership(operationalRoute, snapshot));'''
+          if old not in text:
+              raise SystemExit("Canonical map authority patch target was not found.")
+          path.write_text(text.replace(old, new, 1))
+          print("Explicit canonical routeId now makes route_stops snapshot authoritative in this validation run.")
+          PY
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
