@@ -126,7 +126,7 @@ async function buildBoard(db: any, identity: CustomerIdentity) {
     identity.companyId,
     (query) => query.eq("customer_id", identity.customerId).order("created_at", { ascending: true }),
   );
-  const propertyById = new Map(properties.map((row: any) => [String(row.id), row]));
+  const propertyById = new Map<string, any>(properties.map((row: any) => [String(row.id), row] as [string, any]));
   const primaryProperty = properties[0] || null;
 
   const jobs = await companyRows(
@@ -136,7 +136,7 @@ async function buildBoard(db: any, identity: CustomerIdentity) {
     identity.companyId,
     (query) => query.eq("customer_id", identity.customerId),
   );
-  const jobById = new Map(jobs.map((row: any) => [String(row.id), row]));
+  const jobById = new Map<string, any>(jobs.map((row: any) => [String(row.id), row] as [string, any]));
   const jobIds = jobs.map((row: any) => String(row.id));
 
   const visitRows: any[] = [];
@@ -164,7 +164,7 @@ async function buildBoard(db: any, identity: CustomerIdentity) {
     ? await db.from("crews").select("id,name").in("id", crewIds)
     : { data: [], error: null };
   if (crewResult.error) throw new Error(`crews: ${crewResult.error.message}`);
-  const crewById = new Map((crewResult.data || []).map((row: any) => [String(row.id), row]));
+  const crewById = new Map<string, any>((crewResult.data || []).map((row: any) => [String(row.id), row] as [string, any]));
 
   const tasks = await companyRows(
     db,
@@ -180,7 +180,7 @@ async function buildBoard(db: any, identity: CustomerIdentity) {
     identity.companyId,
     (query) => query.eq("customer_id", identity.customerId),
   );
-  const requestById = new Map(requests.map((row: any) => [String(row.id), row]));
+  const requestById = new Map<string, any>(requests.map((row: any) => [String(row.id), row] as [string, any]));
   const quotes = await companyRows(
     db,
     "quotes",
