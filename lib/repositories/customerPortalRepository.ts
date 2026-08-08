@@ -198,7 +198,8 @@ function canUseCustomerPortalApiFallback(error: { code?: string; message?: strin
   return error?.code === "PGRST202"
     || error?.code === "42501"
     || error?.code === "42703"
-    || /could not find the function public\.(create_customer_portal_request|submit_customer_portal_feedback)|schema cache|permission denied|column .*company_id.*does not exist/i.test(message);
+    || error?.code === "57014"
+    || /could not find the function public\.(create_customer_portal_request|submit_customer_portal_feedback)|schema cache|permission denied|column .*company_id.*does not exist|canceling statement due to statement timeout/i.test(message);
 }
 
 function canUseCustomerPortalBoardFallback(error: { code?: string; message?: string } | null | undefined) {

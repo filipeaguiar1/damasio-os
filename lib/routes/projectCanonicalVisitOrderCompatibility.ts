@@ -30,6 +30,40 @@ export async function projectCanonicalVisitOrderCompatibility(service: any, rout
     return { visitId: String(stop.visit_id), position };
   });
 
+  const transactionalProjection = await service.rpc("sync_visit_route_order_for_route", {
+    p_route_id: routeId,
+  });
+  if (!transactionalProjection.error) {
+    const verified = await service
+      .from("visits")
+      .select("id,route_order,status")
+      .eq("route_id", routeId)
+      .neq("status", "cancelled")
+      .order("route_order", { ascending: true, nullsFirst: false });
+    if (verified.error) throw new Error(verified.error.message);
+    const projectedVisitIds = (verified.data || []).map((row: any) => String(row.id));
+    const canonicalVisitIds = normalized.map(stop => stop.visitId);
+    if (
+      projectedVisitIds.length !== canonicalVisitIds.length
+      || projectedVisitIds.some((visitId: string, index: number) => visitId !== canonicalVisitIds[index])
+    ) {
+      throw new Error("Canonical Visit projection helper returned without the exact route_stops order.");
+    }
+    return {
+      fallback: true,
+      transactional: true,
+      routeId,
+      count: normalized.length,
+      orderedVisitIds: canonicalVisitIds,
+    };
+  }
+
+  const helperMessage = String(transactionalProjection.error.message || "");
+  if (!/sync_visit_route_order_for_route|schema cache|could not find the function|permission denied/i.test(helperMessage)) {
+    throw new Error(helperMessage || "Canonical Route Visit projection helper failed.");
+  }
+
+  // Last-resort path for deployments that predate the transaction-level helper.
   // Two-phase projection avoids the unique (route, route_order) constraint while
   // positions are swapped. Temporary values are derived only from canonical
   // positions and are immediately replaced by the final canonical sequence.

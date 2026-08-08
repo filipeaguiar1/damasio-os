@@ -589,7 +589,7 @@ async function simulationStatus(service: any, companyId: string) {
   const customers = await service.from("customers").select("id")
     .or(companyFilter(companyId)).like("email", pattern).is("archived_at", null);
   if (customers.error) throw new Error(customers.error.message);
-  const customerIds = (customers.data || []).map((row: any) => String(row.id));
+  const customerIds: string[] = (customers.data || []).map((row: any) => String(row.id));
 
   const workers = await service.from("profiles").select("id,full_name,email")
     .eq("role", "employee").or(companyFilter(companyId)).like("email", pattern);
@@ -626,35 +626,51 @@ async function simulationStatus(service: any, companyId: string) {
 
 async function removeSimulation(service: any, companyId: string) {
   const pattern = simulationPattern(companyId);
-  const customers = await service.from("customers").select("id,profile_id")
-    .or(companyFilter(companyId)).like("email", pattern).is("archived_at", null);
+  // Include archived simulator Customers so old protected Visit residue is not
+  // left behind forever. The email pattern is company-scoped and QA-only.
+  const activeCustomers = await service.from("customers").select("id,profile_id")
+    .or(companyFilter(companyId)).like("email", pattern).is("archived_at", null).limit(120);
+  if (activeCustomers.error) throw new Error(activeCustomers.error.message);
+  const archivedCustomers = await service.from("customers").select("id,profile_id")
+    .or(companyFilter(companyId)).like("email", pattern).not("archived_at", "is", null).limit(4);
+  if (archivedCustomers.error) throw new Error(archivedCustomers.error.message);
+  const customers = {
+    data: [...(activeCustomers.data || []), ...(archivedCustomers.data || [])],
+    error: null as { message: string } | null,
+  };
   if (customers.error) throw new Error(customers.error.message);
   const customerIds = (customers.data || []).map((row: any) => String(row.id));
 
   const workerProfiles = await service.from("profiles").select("id")
-    .eq("role", "employee").or(companyFilter(companyId)).like("email", pattern);
+    .eq("role", "employee").eq("active", true).or(companyFilter(companyId)).like("email", pattern);
   if (workerProfiles.error) throw new Error(workerProfiles.error.message);
-  const profileIds = [...new Set([
+  const profileIds: string[] = [...new Set<string>([
     ...(workerProfiles.data || []).map((row: any) => String(row.id)),
     ...(customers.data || []).map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),
   ])];
 
   if (!customerIds.length && !profileIds.length) return { customersRemoved: 0, accountsRemoved: 0 };
 
-  const properties = customerIds.length ? await service.from("properties").select("id").in("customer_id", customerIds) : { data: [], error: null };
-  if (properties.error) throw new Error(properties.error.message);
-  const propertyIds = (properties.data || []).map((row: any) => String(row.id));
-  const jobs = customerIds.length ? await service.from("jobs").select("id").in("customer_id", customerIds) : { data: [], error: null };
-  if (jobs.error) throw new Error(jobs.error.message);
-  const jobIds = (jobs.data || []).map((row: any) => String(row.id));
-  const visits = customerIds.length ? await service.from("visits").select("id,route_id").in("customer_id", customerIds) : { data: [], error: null };
-  if (visits.error) throw new Error(visits.error.message);
-  const visitIds = (visits.data || []).map((row: any) => String(row.id));
-  const routeIds = [...new Set((visits.data || []).map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];
-  const employees = profileIds.length ? await service.from("employees").select("id,crew_id").in("profile_id", profileIds) : { data: [], error: null };
-  if (employees.error) throw new Error(employees.error.message);
-  const employeeIds = (employees.data || []).map((row: any) => String(row.id));
-  const crewIds = [...new Set((employees.data || []).map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];
+  async function collectInBatches(table: string, columns: string, field: string, ids: string[]) {
+    const rows: any[] = [];
+    for (const batch of chunks(ids, 25)) {
+      const result = await service.from(table).select(columns).in(field, batch);
+      if (result.error) throw new Error(`${table}: ${result.error.message}`);
+      rows.push(...(result.data || []));
+    }
+    return rows;
+  }
+
+  const propertyRows = await collectInBatches("properties", "id", "customer_id", customerIds);
+  const propertyIds = propertyRows.map((row: any) => String(row.id));
+  const jobRows = await collectInBatches("jobs", "id", "customer_id", customerIds);
+  const jobIds = jobRows.map((row: any) => String(row.id));
+  const visitRows = await collectInBatches("visits", "id,route_id", "customer_id", customerIds);
+  const visitIds = visitRows.map((row: any) => String(row.id));
+  const routeIds: string[] = [...new Set<string>(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];
+  const employeeRows = await collectInBatches("employees", "id,crew_id", "profile_id", profileIds);
+  const employeeIds = employeeRows.map((row: any) => String(row.id));
+  const crewIds: string[] = [...new Set<string>(employeeRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];
 
   async function remove(label: string, operation: PromiseLike<{ error?: { message?: string } | null }>, optional = false) {
     const result = await operation;
@@ -667,46 +683,87 @@ async function removeSimulation(service: any, companyId: string) {
     throw new Error(`${label}: ${message}`);
   }
 
-  if (customerIds.length) {
-    await remove("feedback", service.from("feedback").delete().in("customer_id", customerIds));
-    await remove("tasks", service.from("tasks").delete().in("customer_id", customerIds));
-    await remove("service_requests", service.from("service_requests").delete().in("customer_id", customerIds));
-    await remove("payments", service.from("payments").delete().in("customer_id", customerIds), true);
-  }
-  // Every simulator Photo is linked to its Property as well as its Visit. Deleting by
-  // Property keeps the request bounded and avoids oversized Visit-ID filters after legacy runs.
-  if (propertyIds.length) await remove("property photos", service.from("photos").delete().in("property_id", propertyIds));
-  if (routeIds.length) {
-    await remove("employee_smart_route_state", service.from("employee_smart_route_state").delete().in("route_id", routeIds));
-    await remove("route_stops", service.from("route_stops").delete().in("route_id", routeIds));
-    await remove("route_order_state", service.from("route_order_state").delete().in("route_id", routeIds));
-    await remove("route_map_cache", service.from("route_map_cache").delete().in("route_id", routeIds), true);
-  }
-  if (jobIds.length) await remove("job invoice links", service.from("jobs").update({ invoice_id: null }).in("id", jobIds), true);
-  let visitsDeleted = true;
-  if (customerIds.length) {
-    await remove("invoices", service.from("invoices").delete().in("customer_id", customerIds));
-    visitsDeleted = await remove("visits", service.from("visits").delete().in("customer_id", customerIds), true);
+  async function removeByIds(label: string, table: string, field: string, ids: string[], optional = false) {
+    let removed = true;
+    for (const batch of chunks(ids, 25)) {
+      const batchRemoved = await remove(label, service.from(table).delete().in(field, batch), optional);
+      if (!batchRemoved && optional) return false;
+      removed = batchRemoved && removed;
+    }
+    return removed;
   }
 
-  if (visitsDeleted) {
-    if (routeIds.length) await remove("routes", service.from("routes").delete().in("id", routeIds));
-    if (jobIds.length) await remove("jobs", service.from("jobs").delete().in("id", jobIds));
-    if (customerIds.length) {
-      await remove("quotes", service.from("quotes").delete().in("customer_id", customerIds));
-      await remove("properties", service.from("properties").delete().in("customer_id", customerIds));
-      await remove("customers", service.from("customers").delete().in("id", customerIds));
+  async function updateByIds(label: string, table: string, values: Record<string, unknown>, field: string, ids: string[], optional = false) {
+    let updated = true;
+    for (const batch of chunks(ids, 25)) {
+      const batchUpdated = await remove(label, service.from(table).update(values).in(field, batch), optional);
+      if (!batchUpdated && optional) return false;
+      updated = batchUpdated && updated;
     }
-    if (employeeIds.length) await remove("employees", service.from("employees").delete().in("id", employeeIds));
-    if (crewIds.length) await remove("crews", service.from("crews").delete().in("id", crewIds));
-  } else {
-    const archivedAt = new Date().toISOString();
-    if (customerIds.length) await remove("archive customers", service.from("customers").update({ archived_at: archivedAt }).in("id", customerIds));
-    if (jobIds.length) await remove("deactivate jobs", service.from("jobs").update({ active: false }).in("id", jobIds));
-    if (employeeIds.length) await remove("deactivate employees", service.from("employees").update({ active: false }).in("id", employeeIds));
-    if (crewIds.length) await remove("deactivate crews", service.from("crews").update({ active: false }).in("id", crewIds));
-    if (profileIds.length) await remove("deactivate profiles", service.from("profiles").update({ active: false }).in("id", profileIds));
+    return updated;
   }
+
+  if (customerIds.length) {
+    await removeByIds("feedback", "feedback", "customer_id", customerIds);
+    await removeByIds("tasks", "tasks", "customer_id", customerIds);
+    await removeByIds("service_requests", "service_requests", "customer_id", customerIds);
+    await removeByIds("payments", "payments", "customer_id", customerIds, true);
+  }
+  if (propertyIds.length) await removeByIds("property photos", "photos", "property_id", propertyIds);
+  if (routeIds.length) {
+    await removeByIds("employee_smart_route_state", "employee_smart_route_state", "route_id", routeIds);
+    for (const batch of chunks(routeIds, 25)) {
+      await remove("route_stops", service.from("route_stops").delete().in("route_id", batch));
+    }
+    for (const batch of chunks(routeIds, 25)) {
+      await remove("route_order_state", service.from("route_order_state").delete().in("route_id", batch));
+    }
+    await removeByIds("route_map_cache", "route_map_cache", "route_id", routeIds, true);
+  }
+  if (jobIds.length) await updateByIds("job invoice links", "jobs", { invoice_id: null }, "id", jobIds, true);
+  let visitsDeleted = true;
+  if (customerIds.length) {
+    await removeByIds("invoices", "invoices", "customer_id", customerIds);
+
+    async function cleanupVisitBatch(batch: string[]): Promise<boolean> {
+      const cleanup = await service.rpc("cleanup_operational_simulation_visits", {
+        p_company_id: companyId,
+        p_customer_ids: batch,
+      });
+      if (!cleanup.error) return true;
+      const message = String(cleanup.error.message || "");
+      if (/statement timeout/i.test(message) && batch.length > 1) {
+        const midpoint = Math.ceil(batch.length / 2);
+        const left = await cleanupVisitBatch(batch.slice(0, midpoint));
+        const right = await cleanupVisitBatch(batch.slice(midpoint));
+        return left && right;
+      }
+      if (/cleanup_operational_simulation_visits|schema cache|could not find the function|permission denied/i.test(message)) {
+        return false;
+      }
+      throw new Error(`visits cleanup: ${message || "QA cleanup RPC failed"}`);
+    }
+
+    let cleanupRpcAvailable = true;
+    for (const batch of chunks<string>(customerIds, 4)) {
+      if (await cleanupVisitBatch(batch)) continue;
+      cleanupRpcAvailable = false;
+      break;
+    }
+    if (!cleanupRpcAvailable) {
+      visitsDeleted = await removeByIds("visits", "visits", "customer_id", customerIds, true);
+    }
+  }
+
+  if (!visitsDeleted) {
+    console.warn("operational-simulator cleanup archived core rows because Visit deletion was unavailable.");
+  }
+  const archivedAt = new Date().toISOString();
+  if (customerIds.length) await updateByIds("archive customers", "customers", { archived_at: archivedAt }, "id", customerIds);
+  if (jobIds.length) await updateByIds("deactivate jobs", "jobs", { active: false }, "id", jobIds);
+  if (employeeIds.length) await updateByIds("deactivate employees", "employees", { active: false }, "id", employeeIds);
+  if (crewIds.length) await updateByIds("deactivate crews", "crews", { active: false }, "id", crewIds);
+  if (profileIds.length) await updateByIds("deactivate profiles", "profiles", { active: false }, "id", profileIds);
 
   const storageDelete = await service.storage.from("work-photos").remove([`${companyId}/operational-simulation/after.svg`]);
   if (storageDelete.error && !/not found/i.test(storageDelete.error.message || "")) {
