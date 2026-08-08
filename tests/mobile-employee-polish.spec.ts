@@ -1,29 +1,24 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 
 const baseURL = process.env.NEXT_PUBLIC_APP_URL || "http://127.0.0.1:3000";
 const supabaseURL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const adminEmail = process.env.E2E_ADMIN_EMAIL || "";
 const adminPassword = process.env.E2E_ADMIN_PASSWORD || "";
 
-async function adminToken() {
+async function adminSession() {
   const client = createClient(supabaseURL, supabaseAnonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const login = await client.auth.signInWithPassword({ email: adminEmail, password: adminPassword });
   expect(login.error, login.error?.message).toBeNull();
   const token = login.data.session?.access_token || "";
+  const userId = login.data.user?.id || "";
   expect(token).toBeTruthy();
-  return token;
-}
-
-async function postSimulator(request: APIRequestContext, token: string, body: Record<string, unknown>) {
-  return request.post(`${baseURL}/api/admin/operational-simulator/v2`, {
-    headers: { authorization: `Bearer ${token}` },
-    data: body,
-    timeout: 20 * 60 * 1000,
-  });
+  expect(userId).toBeTruthy();
+  return { token, userId };
 }
 
 async function signIn(page: any, email: string, password: string) {
@@ -34,35 +29,90 @@ async function signIn(page: any, email: string, password: string) {
   await page.waitForURL(url => url.pathname.startsWith("/mobile/employee"), { timeout: 30_000 });
 }
 
-test("employee mobile polish keeps login, menu, Customers and Profile usable", async ({ browser, request }) => {
-  test.setTimeout(12 * 60 * 1000);
+test("employee mobile polish keeps login, menu, Customers and Profile usable", async ({ browser }) => {
+  test.setTimeout(5 * 60 * 1000);
   expect(supabaseURL, "NEXT_PUBLIC_SUPABASE_URL is required").toBeTruthy();
   expect(supabaseAnonKey, "NEXT_PUBLIC_SUPABASE_ANON_KEY is required").toBeTruthy();
+  expect(serviceKey, "SUPABASE_SERVICE_ROLE_KEY is required").toBeTruthy();
   expect(adminEmail, "E2E_ADMIN_EMAIL is required").toBeTruthy();
   expect(adminPassword, "E2E_ADMIN_PASSWORD is required").toBeTruthy();
 
-  const token = await adminToken();
-  const namespace = `mobile-polish-${Date.now().toString(36)}`;
+  const admin = await adminSession();
+  const service = createClient(supabaseURL, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  }) as any;
+  const adminProfile = await service.from("profiles")
+    .select("company_id,organization_id")
+    .eq("id", admin.userId)
+    .single();
+  expect(adminProfile.error, adminProfile.error?.message).toBeNull();
+  const companyId = String(adminProfile.data?.company_id || adminProfile.data?.organization_id || "");
+  expect(companyId).toBeTruthy();
+
+  const stamp = Date.now().toString(36);
+  const workerEmail = `mobile-polish-${stamp}@4everseasons.test`;
+  const workerPassword = `MobilePolish!${stamp}A9`;
+  let workerId = "";
+  let crewId = "";
+  let context: Awaited<ReturnType<typeof browser.newContext>> | null = null;
+
   const cleanup = async () => {
-    const response = await postSimulator(request, token, { action: "reset", namespace });
-    if (!response.ok()) console.warn(`Mobile polish cleanup: ${response.status()} ${await response.text()}`);
+    if (workerId) {
+      await service.from("employees").delete().eq("profile_id", workerId);
+      if (crewId) await service.from("crews").delete().eq("id", crewId);
+      await service.from("profiles").delete().eq("id", workerId);
+      const removed = await service.auth.admin.deleteUser(workerId);
+      if (removed.error && !String(removed.error.message || "").toLowerCase().includes("not found")) {
+        console.warn(`Mobile polish auth cleanup: ${removed.error.message}`);
+      }
+    }
   };
 
-  await cleanup();
-  let context: Awaited<ReturnType<typeof browser.newContext>> | null = null;
   try {
-    const createdResponse = await postSimulator(request, token, {
-      action: "create",
-      namespace,
-      scenario: "baseline",
+    const authUser = await service.auth.admin.createUser({
+      email: workerEmail,
+      password: workerPassword,
+      email_confirm: true,
+      user_metadata: { full_name: "Mobile Polish Worker", role: "employee", company_id: companyId },
     });
-    expect(createdResponse.status(), await createdResponse.text()).toBe(201);
-    const created = await createdResponse.json();
-    const worker = created.workers?.[0] as { email?: string; password?: string } | undefined;
-    const workerEmail = String(worker?.email || "");
-    const workerPassword = String(worker?.password || "");
-    expect(workerEmail).toBeTruthy();
-    expect(workerPassword).toBeTruthy();
+    expect(authUser.error, authUser.error?.message).toBeNull();
+    workerId = String(authUser.data?.user?.id || "");
+    expect(workerId).toBeTruthy();
+
+    const profile = await service.from("profiles").upsert({
+      id: workerId,
+      organization_id: companyId,
+      company_id: companyId,
+      role: "employee",
+      full_name: "Mobile Polish Worker",
+      email: workerEmail,
+      active: true,
+      invite_status: "accepted",
+    }, { onConflict: "id" });
+    expect(profile.error, profile.error?.message).toBeNull();
+
+    const crew = await service.from("crews").insert({
+      organization_id: companyId,
+      company_id: companyId,
+      name: `Mobile Polish ${stamp}`,
+      active: true,
+    }).select("id").single();
+    expect(crew.error, crew.error?.message).toBeNull();
+    crewId = String(crew.data?.id || "");
+    expect(crewId).toBeTruthy();
+
+    const employee = await service.from("employees").insert({
+      organization_id: companyId,
+      company_id: companyId,
+      profile_id: workerId,
+      crew_id: crewId,
+      full_name: "Mobile Polish Worker",
+      email: workerEmail,
+      province: "ON",
+      active: true,
+      invite_status: "accepted",
+    });
+    expect(employee.error, employee.error?.message).toBeNull();
 
     context = await browser.newContext({
       viewport: { width: 390, height: 844 },
