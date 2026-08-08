@@ -33,21 +33,26 @@ expect(data.includes("completedDurationSeconds"), "payroll reconciliation must d
 expect(data.includes("scope.emailLikePattern"), "status/reset must be namespace-scoped");
 expect(data.includes("scope.storagePrefix"), "photo evidence must be namespace-scoped");
 
-expect(runs.includes('status: "creating"'), "run lifecycle must include creating");
-expect(runs.includes('status: "ready"'), "run lifecycle must include ready");
-expect(runs.includes('status: "resetting"'), "run lifecycle must include resetting");
-expect(runs.includes('status: "removed"'), "run lifecycle must include removed");
-expect(runs.includes("company_id,namespace"), "run lifecycle must upsert by company + namespace");
+expect(runs.includes('service.rpc("begin_operational_simulation_run"'), "run creation must acquire the namespace atomically in the database");
+expect(runs.includes('service.rpc("begin_operational_simulation_reset"'), "reset must acquire the namespace atomically in the database");
+expect(runs.includes('status: "ready"'), "run lifecycle must persist ready state");
+expect(runs.includes('status: "failed"'), "run lifecycle must persist failed state");
+expect(runs.includes('status: "removed"'), "run lifecycle must persist removed state");
 
 expect(api.includes('"create" | "reset" | "remove" | "reconcile"'), "V2 API must expose create/reset/remove/reconcile actions");
 expect(api.includes("beginAdvancedSimulationRun"), "V2 create must acquire a namespaced run lifecycle");
 expect(api.includes("beginAdvancedSimulationReset"), "V2 reset must acquire a namespaced reset lifecycle");
+expect(api.includes("!transition.acquired && !transition.alreadyRemoved"), "V2 reset must reject concurrent cleanup ownership");
 expect(api.includes("reconcileAdvancedSimulation"), "V2 API must run reconciliation");
 expect(api.includes("removeAdvancedSimulationData"), "V2 create failure must have cleanup support");
 
 expect(migration.includes("unique (company_id, namespace)"), "database must enforce one registry row per company + namespace");
 expect(migration.includes("enable row level security"), "simulation registry must have RLS enabled");
 expect(migration.includes("to service_role"), "simulation registry/cleanup must remain service-role only");
+expect(migration.includes("begin_operational_simulation_run"), "database must expose atomic create acquisition");
+expect(migration.includes("begin_operational_simulation_reset"), "database must expose atomic reset acquisition");
+expect(migration.includes("existing.status in ('failed', 'removed')"), "atomic create may only reuse failed or removed namespaces");
+expect(migration.includes("for update"), "atomic reset must lock the namespace registry row");
 expect(migration.includes("ops-sim-v2-"), "Visit cleanup guard must recognize V2 namespaced simulator Customers");
 expect(migration.includes("cleanup_operational_simulation_visits"), "protected Visit cleanup RPC must remain present");
 
