@@ -49,6 +49,171 @@ grant select, insert, update, delete on table public.operational_simulation_runs
 comment on table public.operational_simulation_runs is
   'QA-only ownership/configuration registry for namespaced Operational Simulator V2 runs. Business records remain in canonical tables.';
 
+-- Atomic create acquisition. A removed/failed namespace may be reused; a ready,
+-- creating or resetting namespace cannot be acquired by a second request.
+create or replace function public.begin_operational_simulation_run(
+  p_company_id uuid,
+  p_namespace text,
+  p_scenario text,
+  p_run_id text,
+  p_created_by uuid,
+  p_config jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+  v_status text;
+  v_run jsonb;
+begin
+  if p_company_id is null then
+    raise exception 'Advanced simulation requires a company.';
+  end if;
+
+  insert into public.operational_simulation_runs as existing (
+    company_id,
+    namespace,
+    version,
+    scenario,
+    run_id,
+    status,
+    config,
+    counts,
+    created_by,
+    created_at,
+    updated_at,
+    reset_at,
+    last_error
+  )
+  values (
+    p_company_id,
+    p_namespace,
+    2,
+    p_scenario,
+    p_run_id,
+    'creating',
+    coalesce(p_config, '{}'::jsonb),
+    '{}'::jsonb,
+    p_created_by,
+    now(),
+    now(),
+    null,
+    null
+  )
+  on conflict (company_id, namespace) do update
+  set
+    version = 2,
+    scenario = excluded.scenario,
+    run_id = excluded.run_id,
+    status = 'creating',
+    config = excluded.config,
+    counts = '{}'::jsonb,
+    created_by = excluded.created_by,
+    created_at = now(),
+    updated_at = now(),
+    reset_at = null,
+    last_error = null
+  where existing.status in ('failed', 'removed')
+  returning id into v_id;
+
+  if v_id is null then
+    select status
+    into v_status
+    from public.operational_simulation_runs
+    where company_id = p_company_id
+      and namespace = p_namespace;
+    raise exception 'Simulation namespace "%" cannot be acquired while status is %.',
+      p_namespace,
+      coalesce(v_status, 'unknown');
+  end if;
+
+  select to_jsonb(r)
+  into v_run
+  from public.operational_simulation_runs r
+  where r.id = v_id;
+
+  return v_run;
+end;
+$$;
+
+revoke all on function public.begin_operational_simulation_run(uuid, text, text, text, uuid, jsonb)
+from public, anon, authenticated;
+grant execute on function public.begin_operational_simulation_run(uuid, text, text, text, uuid, jsonb)
+to service_role;
+
+-- Atomic reset acquisition. A concurrent second reset never runs cleanup in
+-- parallel: it receives acquired=false while the first request owns resetting.
+create or replace function public.begin_operational_simulation_reset(
+  p_company_id uuid,
+  p_namespace text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_run public.operational_simulation_runs%rowtype;
+begin
+  select *
+  into v_run
+  from public.operational_simulation_runs
+  where company_id = p_company_id
+    and namespace = p_namespace
+  for update;
+
+  if not found then
+    return jsonb_build_object(
+      'acquired', false,
+      'alreadyRemoved', true,
+      'run', null
+    );
+  end if;
+
+  if v_run.status = 'removed' then
+    return jsonb_build_object(
+      'acquired', false,
+      'alreadyRemoved', true,
+      'run', to_jsonb(v_run)
+    );
+  end if;
+
+  if v_run.status = 'creating' then
+    raise exception 'Simulation namespace "%" is still being created.', p_namespace;
+  end if;
+
+  if v_run.status = 'resetting' then
+    return jsonb_build_object(
+      'acquired', false,
+      'alreadyRemoved', false,
+      'run', to_jsonb(v_run)
+    );
+  end if;
+
+  update public.operational_simulation_runs
+  set
+    status = 'resetting',
+    updated_at = now(),
+    last_error = null
+  where id = v_run.id
+  returning * into v_run;
+
+  return jsonb_build_object(
+    'acquired', true,
+    'alreadyRemoved', false,
+    'run', to_jsonb(v_run)
+  );
+end;
+$$;
+
+revoke all on function public.begin_operational_simulation_reset(uuid, text)
+from public, anon, authenticated;
+grant execute on function public.begin_operational_simulation_reset(uuid, text)
+to service_role;
+
 -- Upgrade the existing QA-only Visit cleanup primitive so it recognizes both
 -- legacy V1 accounts and V2 namespaced accounts. It still refuses any Customer
 -- outside the authenticated company simulator patterns before enabling the
