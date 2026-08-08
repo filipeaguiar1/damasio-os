@@ -124,6 +124,11 @@ export default function MobileEmployeeApp(){
   function moveWeek(days:-7|7){setWeekStart(current=>shiftDateKey(current,days));setSelectedDate(current=>shiftDateKey(current,days));setSelectedId("");setTab("route")}
   const selected=useMemo(()=>route.find(l=>l.id===selectedId)||route[0]||null,[route,selectedId]);
   const session=selected?getSessionForLead(selected.id):null;
+  const canonicalStatus=selected?.canonicalVisitStatus;
+  const canonicalScheduled=Boolean(selected?.canonicalVisitId)&&canonicalStatus==="scheduled";
+  const canonicalActive=Boolean(selected?.canonicalVisitId)&&canonicalStatus==="in_progress";
+  const canonicalDone=Boolean(selected?.canonicalVisitId)&&canonicalStatus==="completed";
+  const canonicalMissed=Boolean(selected?.canonicalVisitId)&&canonicalStatus==="missed";
   const workflow=selected?getLeadWorkflowSnapshot(selected):null;
   const details=selected?.propertyDetails;
   const seconds=useMemo(()=>{
@@ -423,7 +428,7 @@ export default function MobileEmployeeApp(){
       <button className="mobile-inline-back" onClick={()=>setTab("route")}>← Route</button>
       <div className="mobile-service-head">
         <div><h1>{selected.address}</h1><p>{selected.name}</p></div>
-        <b className={selected.status==="completed"?"mobile-status done":session?.status==="skipped"?"mobile-status skipped":"mobile-status"}>{statusLabel(selected,session)}</b>
+        <b className={canonicalDone?"mobile-status done":canonicalMissed||session?.status==="skipped"?"mobile-status skipped":canonicalActive?"mobile-status in-progress":"mobile-status"}>{statusLabel(selected,session)}</b>
       </div>
       <div className="property-reference-head mobile-property-contract-head"><h2>Contract</h2><button type="button" onClick={()=>setContractOpen(value=>!value)}>{contractOpen?"Hide details":"Show details"}</button></div>
       <article className="property-contract-summary"><div className="property-contract-thumb">{selected.propertyPhoto?<img src={selected.propertyPhoto} alt="Property"/>:<span>🏡</span>}</div><div><strong>{selected.service}</strong><small>{selected.serviceFrequency||"one time"} · {selected.scheduledDate||"Route pending"}</small></div><i>ⓘ</i></article>
@@ -437,16 +442,16 @@ export default function MobileEmployeeApp(){
       </div>
       <div className="employee-visit-date">{selected.scheduledDate||"Today"}</div>
       <div className="employee-time-grid">
-        <div><span>Started</span><strong>{timeLabel(session?.startedAt||selected.visitStartedAt)}</strong></div>
+        <div><span>Started</span><strong>{timeLabel(selected.canonicalVisitId?selected.visitStartedAt:session?.startedAt)}</strong></div>
         <div><span>Duration</span><strong>{formatDuration(seconds)}</strong></div>
-        <div><span>Finished</span><strong>{timeLabel(session?.finishedAt||selected.visitFinishedAt)}</strong></div>
+        <div><span>Finished</span><strong>{timeLabel(selected.canonicalVisitId?selected.visitFinishedAt:session?.finishedAt)}</strong></div>
       </div>
       <section className="employee-image-section"><strong>Images</strong><div>{[selected.propertyPhoto,...(selected.photos||[])].filter(Boolean).map((photo,index)=><img key={index} src={photo} alt={`Service ${index+1}`}/>)}{!selected.propertyPhoto&&!(selected.photos?.length)&&<span className="mobile-property-no-images">No images yet</span>}</div></section>
       <div className="mobile-action-grid">
-        <button className="mobile-primary" disabled={busy||session?.status==="running"||selected.status==="completed"} onClick={start}>Start</button>
-        <button className="mobile-finish" disabled={busy||(!selected.canonicalVisitId&&session?.status!=="running")||(Boolean(selected.canonicalVisitId)&&!selected.visitStartedAt)||selected.status==="completed"} onClick={finish}>Finish</button>
-        <button className="mobile-reset" disabled={busy||(!session&&!selected.canonicalVisitId&&selected.status!=="completed")} onClick={reset}>Reset</button>
-        <button className="mobile-skip" disabled={busy||selected.status==="completed"} onClick={openSkip}>Skip</button>
+        <button className="mobile-primary" disabled={busy||(selected.canonicalVisitId?!canonicalScheduled:session?.status==="running"||selected.status==="completed")} onClick={start}>Start</button>
+        <button className="mobile-finish" disabled={busy||(selected.canonicalVisitId?!canonicalActive:session?.status!=="running")} onClick={finish}>Finish</button>
+        <button className="mobile-reset" disabled={busy||(selected.canonicalVisitId?!(canonicalScheduled||canonicalActive):(!session&&selected.status!=="completed"))} onClick={reset}>Reset</button>
+        <button className="mobile-skip" disabled={busy||(selected.canonicalVisitId?(canonicalDone||canonicalMissed):selected.status==="completed")} onClick={openSkip}>Skip</button>
       </div>
       <textarea className="mobile-textarea" value={comment} onChange={e=>setComment(e.target.value)} placeholder="Optional comment for this visit" />
       <button className="mobile-outline" disabled={busy||!comment.trim()} onClick={saveNote}>Save Comment</button>

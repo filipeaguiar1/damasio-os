@@ -145,11 +145,35 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Route order/membership and Visit execution change on different clocks.
+    // Always read execution state directly with the uncached service client so a
+    // Start/Finish/Reset is visible even when routeVersion itself did not change.
+    const executionResult = await service
+      .from("visits")
+      .select("id,status,scheduled_date,started_at,finished_at,duration_seconds")
+      .in("id", orderedVisitIds);
+    if (executionResult.error) throw new Error(executionResult.error.message);
+    const executionById = new Map<string, any>(
+      (executionResult.data || []).map((row: any) => [String(row.id), row]),
+    );
+    if (executionById.size !== orderedVisitIds.length) {
+      throw new Error("Canonical Visit execution state is incomplete for this Route.");
+    }
+
     const stopById = new Map(snapshot.stops.map(stop => [String(stop.visitId), stop]));
-    const stops = orderedVisitIds.map((visitId, index) => ({
-      ...stopById.get(visitId)!,
-      routeOrder: index + 1,
-    }));
+    const stops = orderedVisitIds.map((visitId, index) => {
+      const stop = stopById.get(visitId)!;
+      const execution = executionById.get(visitId)!;
+      return {
+        ...stop,
+        routeOrder: index + 1,
+        status: String(execution.status || stop.status || "scheduled"),
+        scheduledDate: execution.scheduled_date || (stop as any).scheduledDate,
+        startedAt: execution.started_at,
+        finishedAt: execution.finished_at,
+        durationSeconds: execution.duration_seconds,
+      };
+    });
 
     const smartRow = smartResult.data || null;
     const smartLatitude = numberOrNull(smartRow?.origin_latitude);
@@ -187,6 +211,7 @@ export async function GET(request: NextRequest) {
       routeVersion,
       enrichedVersion: snapshot.routeVersion,
       serviceOverride: orderChanged || originChanged,
+      freshExecutionCount: executionById.size,
       stopCount: stops.length,
       geometryStatus,
     });
