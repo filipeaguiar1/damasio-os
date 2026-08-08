@@ -29,7 +29,7 @@ function now() {
 }
 
 function asRunRecord(value: unknown): AdvancedSimulationRunRecord | null {
-  if (!value || typeof value !== "object") return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as AdvancedSimulationRunRecord;
 }
 
@@ -72,41 +72,19 @@ export async function beginAdvancedSimulationRun(
     config: Record<string, unknown>;
   },
 ): Promise<AdvancedSimulationRunRecord> {
-  const timestamp = now();
-  const existing = await loadAdvancedSimulationRun(service, scope);
+  const result = await service.rpc("begin_operational_simulation_run", {
+    p_company_id: scope.companyId,
+    p_namespace: scope.namespace,
+    p_scenario: options.scenario,
+    p_run_id: options.runId,
+    p_created_by: options.actorId,
+    p_config: options.config,
+  });
 
-  if (existing?.status === "ready") {
-    throw new Error(`Simulation namespace "${scope.namespace}" already exists.`);
-  }
-  if (existing?.status === "creating" || existing?.status === "resetting") {
-    throw new Error(`Simulation namespace "${scope.namespace}" is currently ${existing.status}.`);
-  }
-
-  const row = {
-    company_id: scope.companyId,
-    namespace: scope.namespace,
-    version: scope.version,
-    scenario: options.scenario,
-    run_id: options.runId,
-    status: "creating" as const,
-    config: options.config,
-    counts: {},
-    created_by: options.actorId,
-    updated_at: timestamp,
-    reset_at: null,
-    last_error: null,
-  };
-
-  const result = await service
-    .from("operational_simulation_runs")
-    .upsert(row, { onConflict: "company_id,namespace" })
-    .select("id,company_id,namespace,version,scenario,run_id,status,config,counts,created_by,created_at,updated_at,reset_at,last_error")
-    .single();
-
-  if (result.error || !result.data) {
-    throw new Error(`operational_simulation_runs: ${result.error?.message || "run could not be started"}`);
-  }
-  return result.data as AdvancedSimulationRunRecord;
+  if (result.error) throw new Error(`operational_simulation_runs: ${result.error.message}`);
+  const run = asRunRecord(result.data);
+  if (!run) throw new Error(`Simulation namespace "${scope.namespace}" could not be acquired.`);
+  return run;
 }
 
 export async function markAdvancedSimulationReady(
@@ -157,35 +135,21 @@ export async function markAdvancedSimulationFailed(
 export async function beginAdvancedSimulationReset(
   service: ServiceClient,
   scope: AdvancedSimulationScope,
-): Promise<{ alreadyRemoved: boolean; run: AdvancedSimulationRunRecord | null }> {
-  const existing = await loadAdvancedSimulationRun(service, scope);
-  if (!existing || existing.status === "removed") {
-    return { alreadyRemoved: true, run: existing };
-  }
-  if (existing.status === "creating") {
-    throw new Error(`Simulation namespace "${scope.namespace}" is still being created.`);
-  }
-  if (existing.status === "resetting") {
-    return { alreadyRemoved: false, run: existing };
-  }
-
-  const result = await service
-    .from("operational_simulation_runs")
-    .update({ status: "resetting", updated_at: now(), last_error: null })
-    .eq("company_id", scope.companyId)
-    .eq("namespace", scope.namespace)
-    .in("status", ["ready", "failed"])
-    .select("id,company_id,namespace,version,scenario,run_id,status,config,counts,created_by,created_at,updated_at,reset_at,last_error")
-    .maybeSingle();
-
+): Promise<{ acquired: boolean; alreadyRemoved: boolean; run: AdvancedSimulationRunRecord | null }> {
+  const result = await service.rpc("begin_operational_simulation_reset", {
+    p_company_id: scope.companyId,
+    p_namespace: scope.namespace,
+  });
   if (result.error) throw new Error(`operational_simulation_runs: ${result.error.message}`);
-  if (!result.data) {
-    const current = await loadAdvancedSimulationRun(service, scope);
-    if (!current || current.status === "removed") return { alreadyRemoved: true, run: current };
-    if (current.status === "resetting") return { alreadyRemoved: false, run: current };
-    throw new Error(`Simulation namespace "${scope.namespace}" could not enter reset state.`);
-  }
-  return { alreadyRemoved: false, run: result.data as AdvancedSimulationRunRecord };
+
+  const payload = result.data && typeof result.data === "object" && !Array.isArray(result.data)
+    ? result.data as Record<string, unknown>
+    : {};
+  return {
+    acquired: payload.acquired === true,
+    alreadyRemoved: payload.alreadyRemoved === true,
+    run: asRunRecord(payload.run),
+  };
 }
 
 export async function markAdvancedSimulationRemoved(
