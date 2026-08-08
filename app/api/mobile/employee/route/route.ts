@@ -288,7 +288,7 @@ async function fallbackVisitTransition(input: {
 
   const current = await service
     .from("visits")
-    .select("id,status,scheduled_date,assigned_employee_id,crew_id,started_at,finished_at,duration_seconds")
+    .select("id,status,scheduled_date,assigned_employee_id,crew_id,started_at,finished_at,duration_seconds,route_id,route_order")
     .eq("id", visitId)
     .or(companyFilter(companyId))
     .maybeSingle();
@@ -312,9 +312,25 @@ async function fallbackVisitTransition(input: {
   let auditAction = `visit.execution.${action}`;
 
   if (action === "start") {
-    if (previousStatus !== "scheduled") throw new Error("Only an Open Visit can be started.");
-    nextStatus = "in_progress";
-    patch = { status: nextStatus, started_at: nowIso, finished_at: null, duration_seconds: null };
+    // Repeated Start is a successful no-op once the canonical Visit is already
+    // active. This closes the race where two near-simultaneous requests both read
+    // scheduled, one commits first, and the second arrives here after the commit.
+    if (previousStatus === "in_progress") {
+      if (visit.started_at && !visit.finished_at) return visit;
+      // Repair a partially-started Visit instead of trapping the field worker in
+      // an error loop. Preserve a valid started_at; otherwise establish it once.
+      nextStatus = "in_progress";
+      patch = {
+        started_at: visit.started_at || nowIso,
+        finished_at: null,
+        duration_seconds: null,
+      };
+      auditAction = "visit.execution.auto_repair";
+    } else {
+      if (previousStatus !== "scheduled") throw new Error("Only an Open Visit can be started.");
+      nextStatus = "in_progress";
+      patch = { status: nextStatus, started_at: nowIso, finished_at: null, duration_seconds: null };
+    }
   } else if (action === "done") {
     if (previousStatus !== "in_progress" || !visit.started_at) {
       throw new Error("Start this Visit before finishing it.");
@@ -550,7 +566,17 @@ export async function PATCH(request: NextRequest) {
         storedStatus: verified.data?.status || null,
       });
     } else {
-      console.warn("employee-route-rpc-fallback", { visitId, action, message: result.error.message });
+      const currentAfterRpc = action === "start"
+        ? await service.from("visits").select("id,status,started_at,finished_at,duration_seconds").eq("id", visitId).or(companyFilter(companyId)).maybeSingle()
+        : null;
+      console.warn("employee-route-rpc-fallback", {
+        visitId,
+        action,
+        message: result.error.message,
+        storedStatus: currentAfterRpc?.data?.status || null,
+        hasStartedAt: Boolean(currentAfterRpc?.data?.started_at),
+        hasFinishedAt: Boolean(currentAfterRpc?.data?.finished_at),
+      });
     }
 
     // Authentication and assignment were already checked by this API. The service-side
