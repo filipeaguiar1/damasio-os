@@ -24,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: damasio-heavy-e2e-qa
+  group: damasio-advanced-simulation-e2e-qa
   cancel-in-progress: false
 
 jobs:
@@ -83,7 +83,7 @@ jobs:
         run: pnpm exec playwright test tests/advanced-operational-simulator-journey.spec.ts --reporter=line --workers=1
 
       - name: Run 4,620-service scale release gate
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_large_scale }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_large_scale || github.event_name == 'pull_request' }}
         run: pnpm exec playwright test tests/advanced-operational-simulator-large.spec.ts --reporter=line --workers=1
 
       - name: Upload server log
