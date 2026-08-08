@@ -70,6 +70,8 @@ jobs:
           python scripts/qa-final-two-blockers.py
           python - <<'PY'
           from pathlib import Path
+          import re
+
           path = Path("app/api/admin/operational-simulator/route.ts")
           text = path.read_text()
 
@@ -85,12 +87,10 @@ jobs:
                   raise SystemExit(f"Cleanup type anchor not found: {old}")
               text = text.replace(old, new, 1)
 
-          old_customers = '''  const customers = await service.from("customers").select("id,profile_id")
-            .or(companyFilter(companyId)).like("email", pattern);'''
-          # The source uses two-space continuation indentation. Normalize the anchor
-          # instead of matching surrounding comments so the patch is resilient.
-          old_customers = old_customers.replace("            .or", "    .or")
-          new_customers = '''  const activeCustomers = await service.from("customers").select("id,profile_id")
+          customer_pattern = re.compile(
+              r'  const customers = await service\.from\("customers"\)\.select\("id,profile_id"\)\s*\n\s*\.or\(companyFilter\(companyId\)\)\.like\("email", pattern\);'
+          )
+          customer_replacement = '''  const activeCustomers = await service.from("customers").select("id,profile_id")
             .or(companyFilter(companyId)).like("email", pattern).is("archived_at", null).limit(120);
           if (activeCustomers.error) throw new Error(activeCustomers.error.message);
           const archivedCustomers = await service.from("customers").select("id,profile_id")
@@ -99,28 +99,31 @@ jobs:
           const customers = {
             data: [...(activeCustomers.data || []), ...(archivedCustomers.data || [])],
             error: null,
-          };'''.replace("            .or", "    .or").replace("          if", "  if").replace("          const", "  const").replace("            data", "    data").replace("            error", "    error").replace("          };", "  };")
-          if old_customers not in text:
-              raise SystemExit("Customer cleanup query anchor not found")
-          text = text.replace(old_customers, new_customers, 1)
+          };'''
+          # YAML strips the common indentation from this heredoc; normalize the TS
+          # indentation explicitly after construction.
+          customer_replacement = "\n".join(
+              ("  " + line if line and not line.startswith("  ") else line)
+              for line in customer_replacement.splitlines()
+          )
+          customer_replacement = customer_replacement.replace("      .or", "    .or").replace("    data:", "    data:").replace("    error:", "    error:")
+          text, count = customer_pattern.subn(customer_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f"Customer cleanup query patch matched {count} blocks")
 
-          old_remove = '''      const batchRemoved = await remove(label, service.from(table).delete().in(field, batch), optional);
-              removed = batchRemoved && removed;'''.replace("              removed", "      removed")
-          new_remove = '''      const batchRemoved = await remove(label, service.from(table).delete().in(field, batch), optional);
-              if (!batchRemoved && optional) return false;
-              removed = batchRemoved && removed;'''.replace("              if", "      if").replace("              removed", "      removed")
-          if old_remove not in text:
-              raise SystemExit("Optional delete short-circuit anchor not found")
-          text = text.replace(old_remove, new_remove, 1)
+          delete_pattern = re.compile(
+              r'(\s+const batchRemoved = await remove\(label, service\.from\(table\)\.delete\(\)\.in\(field, batch\), optional\);\n)(\s+)(removed = batchRemoved && removed;)'
+          )
+          text, count = delete_pattern.subn(r'\1\2if (!batchRemoved && optional) return false;\n\2\3', text, count=1)
+          if count != 1:
+              raise SystemExit(f"Optional delete short-circuit patch matched {count} blocks")
 
-          old_update = '''      const batchUpdated = await remove(label, service.from(table).update(values).in(field, batch), optional);
-              updated = batchUpdated && updated;'''.replace("              updated", "      updated")
-          new_update = '''      const batchUpdated = await remove(label, service.from(table).update(values).in(field, batch), optional);
-              if (!batchUpdated && optional) return false;
-              updated = batchUpdated && updated;'''.replace("              if", "      if").replace("              updated", "      updated")
-          if old_update not in text:
-              raise SystemExit("Optional update short-circuit anchor not found")
-          text = text.replace(old_update, new_update, 1)
+          update_pattern = re.compile(
+              r'(\s+const batchUpdated = await remove\(label, service\.from\(table\)\.update\(values\)\.in\(field, batch\), optional\);\n)(\s+)(updated = batchUpdated && updated;)'
+          )
+          text, count = update_pattern.subn(r'\1\2if (!batchUpdated && optional) return false;\n\2\3', text, count=1)
+          if count != 1:
+              raise SystemExit(f"Optional update short-circuit patch matched {count} blocks")
 
           replacements = {
               '    await removeByIds("route_stops", "route_stops", "route_id", routeIds);': '''    for (const batch of chunks(routeIds, 25)) {
