@@ -39,7 +39,7 @@ export default function FeedbackPage() {
   const insufficientBalance = tipMethod === "account_balance" && validTip && wallet.balanceCredits < tip;
 
   useEffect(() => {
-    loadCustomerPortal()
+    loadCustomerPortal({ force: true })
       .then(setBoard)
       .catch((error) => setMessage(error instanceof Error ? error.message : "Feedback could not be loaded."))
       .finally(() => setLoading(false));
