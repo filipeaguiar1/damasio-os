@@ -400,10 +400,12 @@ test("full SaaS ecosystem from Master company creation through Customer History"
     expect(resolvedTask.error, resolvedTask.error?.message).toBeNull();
     expect(resolvedTask.data?.status).toBe("resolved");
 
-    // CUSTOMER HISTORY source must now converge on the completed Visit and resolved Task.
-    const historyRpc = await customerClient.rpc("get_customer_portal_board");
-    expect(historyRpc.error, historyRpc.error?.message).toBeNull();
-    const history = historyRpc.data as any;
+    // CUSTOMER HISTORY must converge through the same authenticated application contract
+    // used by the portal, including its canonical timeout fallback.
+    const historyResponse = await bodyOf(await request.get(`${appUrl}/api/customer/portal-board`, {
+      headers: { authorization: `Bearer ${customerToken}` },
+    }), "Customer History board");
+    const history = historyResponse.board as any;
     expect(history?.visits?.some((row: any) => row.id === visitId && row.status === "completed")).toBeTruthy();
     expect(history?.tasks?.some((row: any) => row.id === taskId && row.status === "resolved")).toBeTruthy();
     expect(history?.feedback?.some((row: any) => row.id === feedbackId && row.visitId === visitId)).toBeTruthy();
