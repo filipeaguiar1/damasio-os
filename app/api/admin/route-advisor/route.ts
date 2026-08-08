@@ -172,6 +172,111 @@ async function materializePublishedRoute(input: {
   };
 }
 
+async function publishExistingRouteFastPath(input: {
+  service: any;
+  user: any;
+  companyId: string;
+  employeeId: string;
+  crewId: string;
+  routeDate: string;
+  orderedJobIds: string[];
+  sourceVisitIds: string[];
+}) {
+  const {
+    service,
+    user,
+    companyId,
+    employeeId,
+    crewId,
+    routeDate,
+    orderedJobIds,
+    sourceVisitIds,
+  } = input;
+
+  // Moving a Visit from another route/date still needs the legacy publication
+  // transaction. This fast path is only for an already-materialized route.
+  if (sourceVisitIds.length) return null;
+
+  const routeResult = await service
+    .from("routes")
+    .select("id")
+    .eq("crew_id", crewId)
+    .eq("route_date", routeDate)
+    .or(companyFilter(companyId))
+    .limit(2);
+  if (routeResult.error) throw new Error(routeResult.error.message);
+
+  const routes = routeResult.data || [];
+  if (routes.length !== 1) return null;
+  const routeId = String(routes[0]?.id || "");
+  if (!routeId) return null;
+
+  // route_id is globally unique and indexed. Once the route itself has been
+  // tenant-authorized above, avoid a company/date-wide Visit scan here.
+  const visitsResult = await service
+    .from("visits")
+    .select("id,job_id,status,route_order,assigned_employee_id,crew_id,scheduled_date")
+    .eq("route_id", routeId)
+    .neq("status", "cancelled")
+    .order("route_order", { ascending: true, nullsFirst: false });
+  if (visitsResult.error) throw new Error(visitsResult.error.message);
+
+  const visits = visitsResult.data || [];
+  if (!visits.length || visits.some((visit: any) => !visit.job_id)) return null;
+  if (visits.some((visit: any) => String(visit.scheduled_date || "") !== routeDate
+    || String(visit.assigned_employee_id || "") !== employeeId
+    || String(visit.crew_id || "") !== crewId)) {
+    return null;
+  }
+
+  if (visits.some((visit: any) => visit.status === "in_progress")) {
+    throw new Error("An in-progress Visit blocks preview publication and movement.");
+  }
+  // Missed/reschedule semantics require the full publication transaction.
+  if (visits.some((visit: any) => visit.status === "missed")) return null;
+
+  const currentJobIds = visits.map((visit: any) => String(visit.job_id));
+  if (new Set(currentJobIds).size !== currentJobIds.length) return null;
+  const currentJobs = new Set(currentJobIds);
+  if (orderedJobIds.some(jobId => !currentJobs.has(jobId))) return null;
+
+  // Completed houses are immutable in membership and position, exactly as in
+  // publish_canonical_route_daily. The UI also locks them, but the API enforces it.
+  for (let index = 0; index < visits.length; index += 1) {
+    const visit = visits[index];
+    if (visit.status !== "completed") continue;
+    const requestedIndex = orderedJobIds.indexOf(String(visit.job_id));
+    if (requestedIndex < 0 || requestedIndex !== index) {
+      throw new Error("Esta casa já foi concluída hoje");
+    }
+  }
+
+  const requestedJobs = new Set(orderedJobIds);
+  const excluded = visits.filter((visit: any) => !requestedJobs.has(String(visit.job_id)));
+  if (excluded.some((visit: any) => visit.status !== "scheduled")) return null;
+
+  if (excluded.length) {
+    const removed = await user.rpc("remove_visits_from_today_route", {
+      p_visit_ids: excluded.map((visit: any) => String(visit.id)),
+      p_reason: "Route Advisor publication removed this Scheduled Visit from today's route.",
+    });
+    if (removed.error) throw rpcError(removed.error.message);
+  }
+
+  return {
+    routeId,
+    data: {
+      saved: true,
+      routeId,
+      employeeId,
+      crewId,
+      count: orderedJobIds.length,
+      assignmentScope: "dated_visit_only",
+      fastPath: true,
+    },
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { service, user, companyId, profileId } = await requireAdmin(request);
@@ -274,17 +379,36 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const result = await user.rpc("publish_canonical_route_daily_protected", {
-      p_employee_id: employeeId,
-      p_crew_id: crewId,
-      p_route_date: routeDate,
-      p_ordered_job_ids: orderedJobIds,
-      p_source_visit_ids: sourceVisitIds,
+    const fastPath = await publishExistingRouteFastPath({
+      service,
+      user,
+      companyId,
+      employeeId,
+      crewId,
+      routeDate,
+      orderedJobIds,
+      sourceVisitIds,
     });
 
-    if (result.error) throw rpcError(result.error.message);
-    const data = result.data || {};
-    const routeId = String(data.routeId || "");
+    let data: any;
+    let routeId: string;
+    if (fastPath) {
+      data = fastPath.data;
+      routeId = fastPath.routeId;
+    } else {
+      const result = await user.rpc("publish_canonical_route_daily_protected", {
+        p_employee_id: employeeId,
+        p_crew_id: crewId,
+        p_route_date: routeDate,
+        p_ordered_job_ids: orderedJobIds,
+        p_source_visit_ids: sourceVisitIds,
+      });
+
+      if (result.error) throw rpcError(result.error.message);
+      data = result.data || {};
+      routeId = String(data.routeId || "");
+    }
+
     const canonical = await materializePublishedRoute({
       service,
       companyId,
