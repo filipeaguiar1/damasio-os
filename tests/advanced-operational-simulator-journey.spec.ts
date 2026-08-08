@@ -84,8 +84,6 @@ test("advanced simulator proves Customer through Feedback, team Task and History
     expect(createdResponse.status(), await createdResponse.text()).toBe(201);
     const created = await createdResponse.json();
 
-    // Customer -> Property -> Quote -> Job -> Schedule/Dispatch -> Route all exist
-    // before field execution begins.
     expect(created.operational?.customerCount).toBe(60);
     expect(created.operational?.workerCount).toBe(2);
     expect(created.operational?.completedVisits).toBe(480);
@@ -129,7 +127,7 @@ test("advanced simulator proves Customer through Feedback, team Task and History
     expect(quote.data?.status).toBe("approved");
 
     const job = await service.from("jobs")
-      .select("id,active,quote_id,assigned_employee_id,crew_id")
+      .select("id,active,quote_id")
       .eq("customer_id", customerId)
       .eq("property_id", propertyId)
       .limit(1)
@@ -162,7 +160,6 @@ test("advanced simulator proves Customer through Feedback, team Task and History
     expect(routeStop.error, routeStop.error?.message).toBeNull();
     expect(routeStop.data?.visit_id).toBe(visitId);
 
-    // Employee Route -> Start -> Done through the same authenticated mobile API.
     const worker = await signIn(workerCredentials.email, workerCredentials.password);
     const bootstrap = await jsonOk(await request.post(`${APP_URL}/api/mobile/employee/bootstrap`, {
       headers: { authorization: `Bearer ${worker.token}` },
@@ -190,7 +187,6 @@ test("advanced simulator proves Customer through Feedback, team Task and History
     expect(done.visit?.finished_at).toBeTruthy();
     expect(Number(done.visit?.duration_seconds)).toBeGreaterThanOrEqual(0);
 
-    // Customer Feedback -> urgent canonical Task.
     const customer = await signIn(featured.email, featured.password);
     await jsonOk(await request.post(`${APP_URL}/api/customer/portal-actions`, {
       headers: { authorization: `Bearer ${customer.token}` },
@@ -227,8 +223,6 @@ test("advanced simulator proves Customer through Feedback, team Task and History
     expect(task.data?.status).toBe("open");
     expect(task.data?.priority).toBe("urgent");
 
-    // Admin sees the Customer-created Task, dispatches it to the same team Employee,
-    // Employee starts/completes it, then Admin performs the final resolution.
     const adminRequests = await jsonOk(await request.get(`${APP_URL}/api/admin/service-requests`, {
       headers: { authorization: `Bearer ${admin.token}` },
     }), "Admin feedback Task visibility");
@@ -293,8 +287,6 @@ test("advanced simulator proves Customer through Feedback, team Task and History
       expect(events, `Task event ${expected} must exist`).toContain(expected);
     }
 
-    // History is the final convergence surface. It must show the same canonical Quote,
-    // completed Visit, Feedback and resolved Task created by this journey.
     const history = await jsonOk(await request.get(`${APP_URL}/api/customer/portal-board`, {
       headers: { authorization: `Bearer ${customer.token}` },
     }), "Customer History");
