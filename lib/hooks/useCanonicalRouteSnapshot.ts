@@ -127,7 +127,7 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
     };
 
     void refresh();
-    const poll = window.setInterval(refreshCurrent, 12_000);
+    const poll = window.setInterval(refreshCurrent, 5_000);
     window.addEventListener("focus", invalidateCurrent);
     window.addEventListener("damasio:canonical-route-updated", invalidateCurrent);
     document.addEventListener("visibilitychange", visible);
