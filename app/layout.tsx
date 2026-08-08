@@ -8,6 +8,7 @@ import "./customer-mobile-overnight.css";
 import "./mobile-audit-fixes.css";
 import "./customer-wallet-feedback.css";
 import "./mobile-employee-polish.css";
+import "./mobile-employee-polish-v2.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 import {AdminAccessFallback} from "@/components/master/AdminAccessFallback";
 import {CustomerLegacyDataGuard} from "@/components/customer/CustomerLegacyDataGuard";

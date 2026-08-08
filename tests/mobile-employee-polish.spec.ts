@@ -144,11 +144,18 @@ test("employee mobile polish keeps login, menu, Customers and Profile usable", a
     await page.screenshot({ path: "employee-polish-login.png", fullPage: true });
 
     await signIn(page, workerEmail, workerPassword);
-    await expect(page.locator(".employee-polish-menu-button")).toBeVisible({ timeout: 30_000 });
-    await page.locator(".employee-polish-menu-button").click();
+    const menuButton = page.locator(".employee-polish-menu-button");
+    await expect(menuButton).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(".employee-mobile-brand small")).toHaveText("Mobile Polish Worker", { timeout: 30_000 });
+    await expect(page.locator(".employee-mobile-brand>span")).toBeHidden();
+    const menuPosition = await menuButton.evaluate(element => getComputedStyle(element).position);
+    expect(menuPosition, "Employee menu should not float with viewport scrolling").toBe("absolute");
+
+    await menuButton.click();
     const drawer = page.locator(".employee-polish-menu-drawer");
     await expect(drawer).toBeVisible({ timeout: 30_000 });
-    await expect(drawer.locator('a[href="/mobile/employee/home"]')).toBeVisible({ timeout: 30_000 });
+    await expect(drawer.locator('a[href="/mobile/employee/home"]')).toHaveCount(0);
+    await expect(drawer.getByRole("link", { name: /Routes/i })).toBeVisible({ timeout: 30_000 });
     await expect(drawer.getByRole("link", { name: /Customers/i })).toBeVisible({ timeout: 30_000 });
     await expect(drawer.getByRole("link", { name: /Profile/i })).toBeVisible({ timeout: 30_000 });
     await page.waitForTimeout(250);
@@ -166,13 +173,12 @@ test("employee mobile polish keeps login, menu, Customers and Profile usable", a
     await profileLink.click();
     await page.waitForURL("**/mobile/employee/profile", { timeout: 30_000 });
     await expect(page.getByText("My profile", { exact: true })).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByRole("button", { name: "Save profile" })).toBeVisible({ timeout: 30_000 });
-    await page.getByRole("button", { name: "Save profile" }).click();
+    const saveProfile = page.getByRole("button", { name: "Save profile" });
+    await expect(saveProfile).toBeVisible({ timeout: 30_000 });
+    await expect(saveProfile).toBeEnabled({ timeout: 30_000 });
+    await saveProfile.click();
     await expect(page.getByText("Profile saved.", { exact: true })).toBeVisible({ timeout: 30_000 });
     await page.screenshot({ path: "employee-polish-profile.png", fullPage: true });
-
-    await page.goto(`${baseURL}/mobile/employee/home`, { waitUntil: "domcontentloaded", timeout: 30_000 });
-    await expect(page.locator(".employee-polish-menu-button")).toHaveCount(0, { timeout: 30_000 });
 
     await page.goto(`${baseURL}/mobile/employee`, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await expect(page.locator(".employee-profile-trigger")).toBeVisible({ timeout: 30_000 });
