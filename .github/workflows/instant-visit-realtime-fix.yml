@@ -1,0 +1,45 @@
+name: Instant Visit realtime fix
+
+on:
+  push:
+    branches:
+      - fix/instant-visit-realtime-20260808
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/instant-visit-realtime-20260808
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Apply realtime patch
+        run: python scripts/qa-instant-visit-realtime-fix.py
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate production build
+        run: pnpm build
+      - name: Persist validated fix
+        shell: bash
+        run: |
+          git config user.name "Damasio QA Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/mobile/employee/page.tsx lib/services/employeeVisitStatusService.ts
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Instant Visit realtime fix already applied."
+            exit 0
+          fi
+          git commit -m "Fix instant universal Visit timer synchronization"
+          git push origin HEAD:fix/instant-visit-realtime-20260808
