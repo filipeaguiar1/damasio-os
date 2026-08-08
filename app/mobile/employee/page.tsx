@@ -38,7 +38,7 @@ import {signOutAccount} from "@/lib/auth/signOut";
 import {completeLiveTask,loadUnifiedTasks,startLiveTask,uploadLiveTaskPhotos,usesLiveTaskBackend} from "@/lib/services/liveTaskService";
 
 function mapsHref(address:string){return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`}
-function statusLabel(lead:Lead, session?:ReturnType<typeof getSessionForLead>){return lead.status==="completed"?"Done":session?.status==="skipped"?"Skipped":"Open"}
+function statusLabel(lead:Lead, session?:ReturnType<typeof getSessionForLead>){const canonical=(lead as Lead&{canonicalVisitStatus?:string}).canonicalVisitStatus;return canonical==="completed"||lead.status==="completed"?"Done":canonical==="missed"||session?.status==="skipped"?"Skipped":canonical==="in_progress"?"In progress":"Open"}
 function timeLabel(value?:string){return value?new Date(value).toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"}):"—"}
 function handlingLabel(value?:string){return ({mulched:"Mulched",bag_green_bin:"Green bin",bag_leave_property:"Bagged",no_preference:"No preference"} as Record<string,string>)[value||""]||"No preference"}
 function localDateKey(date:Date){const year=date.getFullYear();const month=String(date.getMonth()+1).padStart(2,"0");const day=String(date.getDate()).padStart(2,"0");return `${year}-${month}-${day}`}
@@ -97,7 +97,7 @@ export default function MobileEmployeeApp(){
       const rows=getLeads();
       setLeads(rows);
       setError("");
-      setSelectedId(current=>current&&rows.some(row=>row.id===current)?current:(rows[0]?.id||""));
+      setSelectedId(current=>current||(rows[0]?.id||""));
       if(reloadRoute)setRouteReload(value=>value+1);
       void refreshTasks();
     }catch{
@@ -313,7 +313,7 @@ export default function MobileEmployeeApp(){
     if(!selected||busy)return;
     if(!window.confirm("Reset this house? The timer will be cleared and the visit will return to Open."))return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"scheduled");setMapContext(await loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,selected.canonicalVisitId,"scheduled"));setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Reset saved offline. It will sync automatically.":"House reset to Open on every device.")}else{resetServiceSession(selected.id);setMessage("House reset to Open on every device.")} setComment(""); setRouteReload(value=>value+1); refresh();}
+    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"scheduled",selected.canonicalVisitStatus==="scheduled"?"Employee cleared an Open Visit timer.":undefined);setMapContext(await loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,selected.canonicalVisitId,"scheduled"));setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Reset saved offline. It will sync automatically.":"House reset to Open on every device.")}else{resetServiceSession(selected.id);setMessage("House reset to Open on every device.")} setComment(""); setRouteReload(value=>value+1); refresh();}
     catch{setError("House could not be reset.")}
     finally{setBusy(false)}
   }

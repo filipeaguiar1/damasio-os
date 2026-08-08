@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { verifyCanonicalRoutePersistence } from "@/lib/routes/verifyCanonicalRoutePersistence";
+import { projectCanonicalVisitOrderCompatibility } from "@/lib/routes/projectCanonicalVisitOrderCompatibility";
 
 export const dynamic = "force-dynamic";
 
@@ -365,26 +366,9 @@ function migrationMissing(message?: string) {
 async function projectCanonicalVisitOrder(
   service: any,
   routeId: string,
-): Promise<{ projected: boolean; reason?: string }> {
-  const projected = await service.rpc("sync_canonical_route_stops_v2", {
-    p_route_id: routeId,
-    p_source: "employee_smart_route_projection",
-  });
-  if (!projected.error) return { projected: true };
-
-  const message = String(projected.error.message || "");
-  if (!/permission denied|schema cache|could not find the function|does not exist/i.test(message)) {
-    throw new Error(`Canonical Visit projection failed: ${message}`);
-  }
-
-  // The protected canonical SQL writer has already committed the reviewed order.
-  // Never bypass its guard from a later HTTP transaction. Older databases can
-  // report rollout drift until the one-way Visit projection migration is applied.
-  console.warn("employee-smart-route-projection-pending-migration", {
-    routeId,
-    rpcError: message,
-  });
-  return { projected: false, reason: message };
+): Promise<{ projected: true }> {
+  await projectCanonicalVisitOrderCompatibility(service, routeId);
+  return { projected: true };
 }
 
 export async function POST(request: NextRequest) {

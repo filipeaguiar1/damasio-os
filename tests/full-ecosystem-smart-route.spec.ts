@@ -181,14 +181,13 @@ test("Employee Smart Route reorders three houses and survives relaunch", async (
     expect((stopsAfter.data || []).map((row: any) => String(row.visit_id))).toEqual(reversed);
     expect((stopsAfter.data || []).map((row: any) => Number(row.position))).toEqual([1, 2, 3]);
 
-    expect(["applied", "pending_migration"]).toContain(applied.visitProjection);
+    expect(applied.visitProjection).toBe("applied");
     const projectionAfter = await service.from("visits").select("id,route_order").in("id", reversed);
     expect(projectionAfter.error, projectionAfter.error?.message).toBeNull();
     const projected = new Map((projectionAfter.data || []).map((row: any) => [String(row.id), Number(row.route_order)]));
     console.log(JSON.stringify({ checkpoint: "smart-route-projection", status: applied.visitProjection, reversed, projected: Object.fromEntries(projected) }));
-    if (applied.visitProjection === "applied") {
-      reversed.forEach((visitId, index) => expect(projected.get(visitId), `visit ${visitId} route_order`).toBe(index + 1));
-    }
+    reversed.forEach((visitId, index) =>
+      expect(projected.get(visitId), `visit ${visitId} route_order`).toBe(index + 1));
 
     await employeeClient.auth.signOut();
     const freshSession = await authClient().auth.signInWithPassword({ email: employeeEmail, password: employeePassword });
@@ -198,6 +197,53 @@ test("Employee Smart Route reorders three houses and survives relaunch", async (
       headers: { authorization: `Bearer ${freshToken}` },
     }), "Employee route after Smart Route relaunch");
     expect((afterRelaunch.stops || []).map((stop: any) => String(stop.visitId))).toEqual(reversed);
+
+    // Regression: a single Employee may legitimately have multiple active Visits
+    // at the same time. Each Visit owns its own independent timer.
+    for (const activeVisitId of reversed.slice(0, 2)) {
+      await bodyOf(await request.patch(`${appUrl}/api/mobile/employee/route`, {
+        headers: { authorization: `Bearer ${freshToken}` },
+        data: { visitId: activeVisitId, action: "start" },
+      }), `Start concurrent Visit ${activeVisitId}`);
+    }
+    const concurrent = await service.from("visits")
+      .select("id,status,started_at,finished_at")
+      .in("id", reversed.slice(0, 2));
+    expect(concurrent.error, concurrent.error?.message).toBeNull();
+    expect(concurrent.data?.length).toBe(2);
+    for (const row of concurrent.data || []) {
+      expect(row.status).toBe("in_progress");
+      expect(row.started_at).toBeTruthy();
+      expect(row.finished_at).toBeNull();
+    }
+    const liveRoute = await bodyOf(await request.get(`${appUrl}/api/mobile/employee/route?date=${date}`, {
+      headers: { authorization: `Bearer ${freshToken}` },
+    }), "Employee route with concurrent active Visits");
+    const liveById = new Map((liveRoute.stops || []).map((stop: any) => [String(stop.visitId), stop]));
+    for (const activeVisitId of reversed.slice(0, 2)) {
+      expect(liveById.get(activeVisitId)?.status).toBe("in_progress");
+      expect(liveById.get(activeVisitId)?.startedAt).toBeTruthy();
+    }
+
+    // Reset must also be safe when the Visit is already Open/scheduled.
+    const openVisitId = reversed[2];
+    const openReset = await bodyOf(await request.patch(`${appUrl}/api/mobile/employee/route`, {
+      headers: { authorization: `Bearer ${freshToken}` },
+      data: { visitId: openVisitId, action: "reset", reason: "QA idempotent Open reset." },
+    }), "Reset already Open Visit");
+    expect(openReset.idempotent).toBe(true);
+    expect(openReset.visit?.status).toBe("scheduled");
+    expect(openReset.visit?.started_at).toBeNull();
+
+    // Return active fixtures to Open after proving independent timers.
+    for (const activeVisitId of reversed.slice(0, 2)) {
+      const resetActive = await bodyOf(await request.patch(`${appUrl}/api/mobile/employee/route`, {
+        headers: { authorization: `Bearer ${freshToken}` },
+        data: { visitId: activeVisitId, action: "reset", reason: "QA concurrent timer cleanup." },
+      }), `Reset concurrent Visit ${activeVisitId}`);
+      expect(resetActive.visit?.status).toBe("scheduled");
+    }
+    console.log(JSON.stringify({ checkpoint: "employee-multi-active-timers", activeCount: 2, resetOpen: true }));
 
     const audit = await service.from("route_order_audit").select("route_id,source,next_order,route_version")
       .eq("route_id", routeId).eq("source", "employee_smart_route")

@@ -480,6 +480,27 @@ export async function PATCH(request: NextRequest) {
       throw new Error(`${action === "reset" ? "Reset" : "Reopen"} requires a reason with at least 5 characters.`);
     }
 
+    // Reset is intentionally idempotent for an Open Visit. This lets the field app
+    // clear a stale/local timer safely without creating a fake execution transition.
+    if (action === "reset") {
+      const currentReset = await service
+        .from("visits")
+        .select("id,status,scheduled_date,assigned_employee_id,crew_id,started_at,finished_at,duration_seconds,route_id,route_order")
+        .eq("id", visitId)
+        .or(companyFilter(companyId))
+        .maybeSingle();
+      if (currentReset.error) throw new Error(currentReset.error.message);
+      const currentVisit = currentReset.data;
+      if (!currentVisit) throw new Error("Visit not found in this company.");
+      const assigned = currentVisit.assigned_employee_id === employee.id
+        || (!currentVisit.assigned_employee_id && Boolean(employee.crew_id) && currentVisit.crew_id === employee.crew_id);
+      if (!assigned) throw new Error("This Visit is not assigned to the authenticated Employee.");
+      if (currentVisit.status === "scheduled") {
+        const repaired = await fallbackVisitTransition({ service, employee, userId, companyId, visitId, action, reason });
+        return NextResponse.json({ visit: repaired, fallback: true, verified: true, idempotent: true });
+      }
+    }
+
     const result = await user.rpc("transition_visit_execution", {
       p_visit_id: visitId,
       p_action: action,
