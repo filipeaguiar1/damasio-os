@@ -480,6 +480,31 @@ export async function PATCH(request: NextRequest) {
       throw new Error(`${action === "reset" ? "Reset" : "Reopen"} requires a reason with at least 5 characters.`);
     }
 
+    // Start is intentionally idempotent for a Visit that is already active. The
+    // first tap may have committed in the database before a mobile UI refresh lands;
+    // a repeated tap must return the same canonical started_at instead of raising an
+    // error or restarting the timer. This keeps every device on one universal clock.
+    if (action === "start") {
+      const currentStart = await service
+        .from("visits")
+        .select("id,status,scheduled_date,assigned_employee_id,crew_id,started_at,finished_at,duration_seconds,route_id,route_order")
+        .eq("id", visitId)
+        .or(companyFilter(companyId))
+        .maybeSingle();
+      if (currentStart.error) throw new Error(currentStart.error.message);
+      const currentVisit = currentStart.data;
+      if (!currentVisit) throw new Error("Visit not found in this company.");
+      const assigned = currentVisit.assigned_employee_id === employee.id
+        || (!currentVisit.assigned_employee_id && Boolean(employee.crew_id) && currentVisit.crew_id === employee.crew_id);
+      if (!assigned) throw new Error("This Visit is not assigned to the authenticated Employee.");
+      if (currentVisit.scheduled_date !== torontoDateKey()) {
+        throw new Error("Employees can change execution only for today in America/Toronto.");
+      }
+      if (currentVisit.status === "in_progress" && executionTransitionConverged("start", currentVisit)) {
+        return NextResponse.json({ visit: currentVisit, fallback: false, verified: true, idempotent: true });
+      }
+    }
+
     // Reset is intentionally idempotent for an Open Visit. This lets the field app
     // clear a stale/local timer safely without creating a fake execution transition.
     if (action === "reset") {
