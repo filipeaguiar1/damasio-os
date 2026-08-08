@@ -36,11 +36,14 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
   const [loading, setLoading] = useState(Boolean(requestedRouteId || routeDate));
   const requestRef = useRef(0);
   const burstRef = useRef(0);
+  const snapshotRef = useRef<CanonicalRouteSnapshot | null>(null);
+  const invalidateTimerRef = useRef(0);
   const activeRouteId = requestedRouteId || resolvedRouteId;
 
   const refresh = useCallback(async () => {
     if (!requestedRouteId && !routeDate) {
       setResolvedRouteId(null);
+      snapshotRef.current = null;
       setSnapshot(null);
       setError("");
       setLoading(false);
@@ -57,8 +60,10 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
       setResolvedRouteId(next.routeId);
       setSnapshot(current => {
         if (current?.routeId === next.routeId && current.routeVersion > next.routeVersion) {
+          snapshotRef.current = current;
           return current;
         }
+        snapshotRef.current = next;
         return next;
       });
       setError("");
@@ -75,26 +80,36 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
 
   const invalidateAndRefresh = useCallback(async () => {
     const burst = ++burstRef.current;
+    const baselineVersion = snapshotRef.current?.routeVersion ?? null;
     requestRef.current += 1;
-    setSnapshot(null);
     setError("");
     setLoading(true);
 
-    // A database transaction, Realtime delivery, server geocoding and road
-    // geometry generation do not necessarily become visible at the same instant.
-    // Complete the whole convergence burst instead of stopping on the first
-    // successful response, which may still be the previous route membership.
-    for (const delay of [0, 150, 350, 700, 1200, 2000, 3000]) {
+    // Route writes can emit several Realtime events for one transaction. Keep a
+    // short convergence window, but stop as soon as a newer canonical version is
+    // visible instead of issuing a fixed seven-request burst from every screen.
+    for (const delay of [0, 200, 600, 1200]) {
       if (delay) await sleep(delay);
       if (burst !== burstRef.current) return;
-      await refresh();
+      const next = await refresh();
+      if (!next) continue;
+      if (baselineVersion === null || next.routeVersion > baselineVersion) return;
     }
   }, [refresh]);
+
+  const scheduleInvalidate = useCallback(() => {
+    window.clearTimeout(invalidateTimerRef.current);
+    invalidateTimerRef.current = window.setTimeout(() => {
+      void invalidateAndRefresh();
+    }, 120);
+  }, [invalidateAndRefresh]);
 
   useEffect(() => {
     requestRef.current += 1;
     burstRef.current += 1;
+    window.clearTimeout(invalidateTimerRef.current);
     setResolvedRouteId(requestedRouteId);
+    snapshotRef.current = null;
     setSnapshot(null);
     setError("");
     setLoading(Boolean(requestedRouteId || routeDate));
@@ -105,14 +120,14 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
       if (!disposed) void refresh();
     };
     const invalidateCurrent = () => {
-      if (!disposed) void invalidateAndRefresh();
+      if (!disposed) scheduleInvalidate();
     };
     const visible = () => {
       if (document.visibilityState === "visible") invalidateCurrent();
     };
 
     void refresh();
-    const poll = window.setInterval(refreshCurrent, 5_000);
+    const poll = window.setInterval(refreshCurrent, 12_000);
     window.addEventListener("focus", invalidateCurrent);
     window.addEventListener("damasio:canonical-route-updated", invalidateCurrent);
     document.addEventListener("visibilitychange", visible);
@@ -127,13 +142,14 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
       disposed = true;
       requestRef.current += 1;
       burstRef.current += 1;
+      window.clearTimeout(invalidateTimerRef.current);
       window.clearInterval(poll);
       window.removeEventListener("focus", invalidateCurrent);
       window.removeEventListener("damasio:canonical-route-updated", invalidateCurrent);
       document.removeEventListener("visibilitychange", visible);
       broadcast?.close();
     };
-  }, [requestedRouteId, routeDate, refresh, invalidateAndRefresh]);
+  }, [requestedRouteId, routeDate, refresh, scheduleInvalidate]);
 
   useEffect(() => {
     if (!activeRouteId) return;
@@ -141,7 +157,7 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
     const client = getSupabaseBrowserClient() as any;
     const subscriptionId = ++realtimeSubscriptionSequence;
     const invalidateCurrent = () => {
-      if (!disposed) void invalidateAndRefresh();
+      if (!disposed) scheduleInvalidate();
     };
     // Multiple page/map hook instances can observe the same Route at once. Supabase
     // must receive a unique topic for every subscription, including during the brief
@@ -169,7 +185,7 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
       disposed = true;
       void client.removeChannel(channel);
     };
-  }, [activeRouteId, invalidateAndRefresh]);
+  }, [activeRouteId, scheduleInvalidate]);
 
   return { snapshot, error, loading, routeId: activeRouteId, refresh, invalidateAndRefresh };
 }
