@@ -109,6 +109,14 @@ jobs:
           if count != 1:
               raise SystemExit(f"Customer cleanup query patch matched {count} blocks")
 
+          worker_anchor = '''  const workerProfiles = await service.from("profiles").select("id")
+            .eq("role", "employee").or(companyFilter(companyId)).like("email", pattern);'''.replace("            .eq", "    .eq")
+          worker_replacement = '''  const workerProfiles = await service.from("profiles").select("id")
+            .eq("role", "employee").eq("active", true).or(companyFilter(companyId)).like("email", pattern);'''.replace("            .eq", "    .eq")
+          if worker_anchor not in text:
+              raise SystemExit("Active simulator worker anchor not found")
+          text = text.replace(worker_anchor, worker_replacement, 1)
+
           delete_pattern = re.compile(
               r'(\s+const batchRemoved = await remove\(label, service\.from\(table\)\.delete\(\)\.in\(field, batch\), optional\);\n)(\s+)(removed = batchRemoved && removed;)'
           )
@@ -136,6 +144,29 @@ jobs:
               if old not in text:
                   raise SystemExit(f"Explicit canonical cleanup anchor not found: {old}")
               text = text.replace(old, new, 1)
+
+          core_cleanup_pattern = re.compile(
+              r'  if \(visitsDeleted\) \{.*?\n  \}\n\n  const storageDelete',
+              re.S,
+          )
+          core_cleanup_replacement = '''  if (!visitsDeleted) {
+            console.warn("operational-simulator cleanup archived core rows because Visit deletion was unavailable.");
+          }
+          const archivedAt = new Date().toISOString();
+          if (customerIds.length) await updateByIds("archive customers", "customers", { archived_at: archivedAt }, "id", customerIds);
+          if (jobIds.length) await updateByIds("deactivate jobs", "jobs", { active: false }, "id", jobIds);
+          if (employeeIds.length) await updateByIds("deactivate employees", "employees", { active: false }, "id", employeeIds);
+          if (crewIds.length) await updateByIds("deactivate crews", "crews", { active: false }, "id", crewIds);
+          if (profileIds.length) await updateByIds("deactivate profiles", "profiles", { active: false }, "id", profileIds);
+
+          const storageDelete'''
+          core_cleanup_replacement = "\n".join(
+              ("  " + line if line and not line.startswith("  ") else line)
+              for line in core_cleanup_replacement.splitlines()
+          )
+          text, count = core_cleanup_pattern.subn(core_cleanup_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f"Protected core archive patch matched {count} blocks")
 
           path.write_text(text)
           PY
