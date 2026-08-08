@@ -72,6 +72,7 @@ jobs:
           from pathlib import Path
           path = Path("app/api/admin/operational-simulator/route.ts")
           text = path.read_text()
+
           type_replacements = {
               '  const customerIds = (customers.data || []).map((row: any) => String(row.id));': '  const customerIds: string[] = (customers.data || []).map((row: any) => String(row.id));',
               '  const profileIds = [...new Set([': '  const profileIds: string[] = [...new Set<string>([',
@@ -84,13 +85,12 @@ jobs:
                   raise SystemExit(f"Cleanup type anchor not found: {old}")
               text = text.replace(old, new, 1)
 
-          cleanup_replacements = {
-              '''  // Include archived simulator Customers so old protected Visit residue is not
-          // left behind forever. The email pattern is company-scoped and QA-only.
-          const customers = await service.from("customers").select("id,profile_id")
-            .or(companyFilter(companyId)).like("email", pattern);''': '''  // Remove the active simulation first. Legacy archived QA residue is drained in
-          // a tiny bounded batch so one cleanup request never scans months of old runs.
-          const activeCustomers = await service.from("customers").select("id,profile_id")
+          old_customers = '''  const customers = await service.from("customers").select("id,profile_id")
+            .or(companyFilter(companyId)).like("email", pattern);'''
+          # The source uses two-space continuation indentation. Normalize the anchor
+          # instead of matching surrounding comments so the patch is resilient.
+          old_customers = old_customers.replace("            .or", "    .or")
+          new_customers = '''  const activeCustomers = await service.from("customers").select("id,profile_id")
             .or(companyFilter(companyId)).like("email", pattern).is("archived_at", null).limit(120);
           if (activeCustomers.error) throw new Error(activeCustomers.error.message);
           const archivedCustomers = await service.from("customers").select("id,profile_id")
@@ -99,57 +99,42 @@ jobs:
           const customers = {
             data: [...(activeCustomers.data || []), ...(archivedCustomers.data || [])],
             error: null,
-          };''',
-              '''  async function removeByIds(label: string, table: string, field: string, ids: string[], optional = false) {
-            let removed = true;
-            for (const batch of chunks(ids, 25)) {
-              const batchRemoved = await remove(label, service.from(table).delete().in(field, batch), optional);
-              removed = batchRemoved && removed;
-            }
-            return removed;
-          }''': '''  async function removeByIds(label: string, table: string, field: string, ids: string[], optional = false) {
-            let removed = true;
-            for (const batch of chunks(ids, 25)) {
-              const batchRemoved = await remove(label, service.from(table).delete().in(field, batch), optional);
+          };'''.replace("            .or", "    .or").replace("          if", "  if").replace("          const", "  const").replace("            data", "    data").replace("            error", "    error").replace("          };", "  };")
+          if old_customers not in text:
+              raise SystemExit("Customer cleanup query anchor not found")
+          text = text.replace(old_customers, new_customers, 1)
+
+          old_remove = '''      const batchRemoved = await remove(label, service.from(table).delete().in(field, batch), optional);
+              removed = batchRemoved && removed;'''.replace("              removed", "      removed")
+          new_remove = '''      const batchRemoved = await remove(label, service.from(table).delete().in(field, batch), optional);
               if (!batchRemoved && optional) return false;
-              removed = batchRemoved && removed;
-            }
-            return removed;
-          }''',
-              '''  async function updateByIds(label: string, table: string, values: Record<string, unknown>, field: string, ids: string[], optional = false) {
-            let updated = true;
-            for (const batch of chunks(ids, 25)) {
-              const batchUpdated = await remove(label, service.from(table).update(values).in(field, batch), optional);
-              updated = batchUpdated && updated;
-            }
-            return updated;
-          }''': '''  async function updateByIds(label: string, table: string, values: Record<string, unknown>, field: string, ids: string[], optional = false) {
-            let updated = true;
-            for (const batch of chunks(ids, 25)) {
-              const batchUpdated = await remove(label, service.from(table).update(values).in(field, batch), optional);
+              removed = batchRemoved && removed;'''.replace("              if", "      if").replace("              removed", "      removed")
+          if old_remove not in text:
+              raise SystemExit("Optional delete short-circuit anchor not found")
+          text = text.replace(old_remove, new_remove, 1)
+
+          old_update = '''      const batchUpdated = await remove(label, service.from(table).update(values).in(field, batch), optional);
+              updated = batchUpdated && updated;'''.replace("              updated", "      updated")
+          new_update = '''      const batchUpdated = await remove(label, service.from(table).update(values).in(field, batch), optional);
               if (!batchUpdated && optional) return false;
-              updated = batchUpdated && updated;
-            }
-            return updated;
-          }''',
-          }
-          for old, new in cleanup_replacements.items():
-              if old not in text:
-                  raise SystemExit("Bounded cleanup anchor not found")
-              text = text.replace(old, new, 1)
+              updated = batchUpdated && updated;'''.replace("              if", "      if").replace("              updated", "      updated")
+          if old_update not in text:
+              raise SystemExit("Optional update short-circuit anchor not found")
+          text = text.replace(old_update, new_update, 1)
 
           replacements = {
               '    await removeByIds("route_stops", "route_stops", "route_id", routeIds);': '''    for (const batch of chunks(routeIds, 25)) {
               await remove("route_stops", service.from("route_stops").delete().in("route_id", batch));
-            }''',
+            }'''.replace("              await", "      await").replace("            }", "    }"),
               '    await removeByIds("route_order_state", "route_order_state", "route_id", routeIds);': '''    for (const batch of chunks(routeIds, 25)) {
               await remove("route_order_state", service.from("route_order_state").delete().in("route_id", batch));
-            }''',
+            }'''.replace("              await", "      await").replace("            }", "    }"),
           }
           for old, new in replacements.items():
               if old not in text:
                   raise SystemExit(f"Explicit canonical cleanup anchor not found: {old}")
               text = text.replace(old, new, 1)
+
           path.write_text(text)
           PY
           git diff --check
