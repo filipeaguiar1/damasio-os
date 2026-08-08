@@ -152,7 +152,7 @@ export async function POST(request: NextRequest) {
       access_notes: body.accessNotes || null,
       property_notes: body.propertyNotes || null,
       geocode_status: "not_mapped",
-    }).select("id").single();
+    }).select("id,created_at").single();
     if (property.error || !property.data?.id) throw new Error(property.error?.message || "Property could not be created.");
     propertyId = String(property.data.id);
 
@@ -186,7 +186,37 @@ export async function POST(request: NextRequest) {
     if (job.error || !job.data?.id) throw new Error(job.error?.message || "Job could not be created.");
     jobId = String(job.data.id);
 
-    await service.from("activity_log").insert({
+    // The canonical chain was just written successfully. Returning that exact chain
+    // avoids a broad company-directory read while the database is under E2E load.
+    // The normal GET remains the authoritative directory read for subsequent screens.
+    const record = {
+      customerId,
+      propertyId,
+      fullName: body.fullName,
+      email: body.email || null,
+      phone: body.phone || null,
+      customerNotes: body.customerNotes || null,
+      addressLine1: body.addressLine1,
+      city: body.city || "Hamilton",
+      province: body.province || "ON",
+      postalCode: body.postalCode || null,
+      lotSize: body.lotSize || null,
+      grassHeight: body.grassHeight || null,
+      gate: body.gate,
+      dog: body.dog,
+      irrigation: body.irrigation,
+      accessNotes: body.accessNotes || null,
+      propertyNotes: body.propertyNotes || null,
+      officialPhotoUrl: null,
+      acquisitionSource: "company_created",
+      lockedByPlatform: false,
+      offerStatus: "accepted",
+      createdAt: property.data.created_at || new Date().toISOString(),
+    };
+
+    // Activity history is useful but must not turn a successfully-created canonical
+    // Customer chain into a failed request when logging is temporarily contended.
+    const activity = await service.from("activity_log").insert({
       organization_id: companyId,
       company_id: companyId,
       actor_profile_id: actorId,
@@ -195,9 +225,8 @@ export async function POST(request: NextRequest) {
       entity_id: customerId,
       details: `${body.fullName} was created with Property, approved Quote and active Job.`,
     });
+    if (activity.error) console.warn("admin-customers-activity-log", activity.error.message);
 
-    const context = await listOperationalCompanyCustomers(service, companyId, { repair: false });
-    const record = publicRecords(context).find(item => item.propertyId === propertyId);
     return NextResponse.json({ record, customerId, propertyId, quoteId, jobId }, { status: 201 });
   } catch (error) {
     const service = serverClient();
