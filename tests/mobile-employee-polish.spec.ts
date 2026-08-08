@@ -148,7 +148,7 @@ test("employee mobile polish keeps login, menu, Customers and Profile usable", a
     await page.locator(".employee-polish-menu-button").click();
     const drawer = page.locator(".employee-polish-menu-drawer");
     await expect(drawer).toBeVisible({ timeout: 30_000 });
-    await expect(drawer.getByRole("link", { name: /^Home/i })).toHaveAttribute("href", "/mobile/employee/home");
+    await expect(drawer.locator('a[href="/mobile/employee/home"]')).toBeVisible({ timeout: 30_000 });
     await expect(drawer.getByRole("link", { name: /Customers/i })).toBeVisible({ timeout: 30_000 });
     await expect(drawer.getByRole("link", { name: /Profile/i })).toBeVisible({ timeout: 30_000 });
     await page.waitForTimeout(250);
