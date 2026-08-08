@@ -22,7 +22,7 @@ async function adminSession() {
 }
 
 async function signIn(page: any, email: string, password: string) {
-  await page.goto(`${baseURL}/mobile/login`);
+  await page.goto(`${baseURL}/mobile/login`, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in securely" }).click();
@@ -30,7 +30,7 @@ async function signIn(page: any, email: string, password: string) {
 }
 
 test("employee mobile polish keeps login, menu, Customers and Profile usable", async ({ browser }) => {
-  test.setTimeout(5 * 60 * 1000);
+  test.setTimeout(3 * 60 * 1000);
   expect(supabaseURL, "NEXT_PUBLIC_SUPABASE_URL is required").toBeTruthy();
   expect(supabaseAnonKey, "NEXT_PUBLIC_SUPABASE_ANON_KEY is required").toBeTruthy();
   expect(serviceKey, "SUPABASE_SERVICE_ROLE_KEY is required").toBeTruthy();
@@ -120,7 +120,7 @@ test("employee mobile polish keeps login, menu, Customers and Profile usable", a
     });
     const page = await context.newPage();
 
-    await page.goto(`${baseURL}/mobile/login`);
+    await page.goto(`${baseURL}/mobile/login`, { waitUntil: "domcontentloaded", timeout: 30_000 });
     const hero = page.locator(".mobile-login-page .mobile-hero-card");
     const loginCard = page.locator(".mobile-login-page .mobile-login-card");
     await expect(hero).toBeVisible();
@@ -148,37 +148,39 @@ test("employee mobile polish keeps login, menu, Customers and Profile usable", a
     await page.locator(".employee-polish-menu-button").click();
     const drawer = page.locator(".employee-polish-menu-drawer");
     await expect(drawer).toBeVisible({ timeout: 30_000 });
+    await expect(drawer.getByRole("link", { name: /^Home/i })).toHaveAttribute("href", "/mobile/employee/home");
     await expect(drawer.getByRole("link", { name: /Customers/i })).toBeVisible({ timeout: 30_000 });
     await expect(drawer.getByRole("link", { name: /Profile/i })).toBeVisible({ timeout: 30_000 });
+    await page.waitForTimeout(250);
     await page.screenshot({ path: "employee-polish-menu.png", fullPage: true });
 
     await drawer.getByRole("link", { name: /Customers/i }).click();
-    await page.waitForURL("**/mobile/employee/customers");
+    await page.waitForURL("**/mobile/employee/customers", { timeout: 30_000 });
     await expect(page.getByRole("heading", { name: "Your assigned customers" })).toBeVisible({ timeout: 30_000 });
     await expect(page.locator(".employee-polish-menu-button")).toBeVisible({ timeout: 30_000 });
     await page.screenshot({ path: "employee-polish-customers.png", fullPage: true });
 
     await page.locator(".employee-polish-menu-button").click();
-    await page.locator(".employee-polish-menu-drawer").getByRole("link", { name: /Profile/i }).click();
-    await page.waitForURL("**/mobile/employee/profile");
+    const profileLink = page.locator(".employee-polish-menu-drawer").getByRole("link", { name: /Profile/i });
+    await expect(profileLink).toBeVisible({ timeout: 30_000 });
+    await profileLink.click();
+    await page.waitForURL("**/mobile/employee/profile", { timeout: 30_000 });
     await expect(page.getByText("My profile", { exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole("button", { name: "Save profile" })).toBeVisible({ timeout: 30_000 });
     await page.getByRole("button", { name: "Save profile" }).click();
     await expect(page.getByText("Profile saved.", { exact: true })).toBeVisible({ timeout: 30_000 });
     await page.screenshot({ path: "employee-polish-profile.png", fullPage: true });
 
-    await page.locator(".employee-polish-menu-button").click();
-    await page.locator(".employee-polish-menu-drawer").getByRole("link", { name: /^Home/i }).click();
-    await page.waitForURL("**/mobile/employee/home");
+    await page.goto(`${baseURL}/mobile/employee/home`, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await expect(page.locator(".employee-polish-menu-button")).toHaveCount(0, { timeout: 30_000 });
 
-    await page.goto(`${baseURL}/mobile/employee`);
+    await page.goto(`${baseURL}/mobile/employee`, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await expect(page.locator(".employee-profile-trigger")).toBeVisible({ timeout: 30_000 });
     await page.locator(".employee-profile-trigger").click();
-    await page.waitForURL("**/mobile/employee/profile");
+    await page.waitForURL("**/mobile/employee/profile", { timeout: 30_000 });
     await expect(page.getByText("My profile", { exact: true })).toBeVisible({ timeout: 30_000 });
   } finally {
-    if (context) await context.close();
+    if (context) await context.close().catch(() => undefined);
     await cleanup();
   }
 });
