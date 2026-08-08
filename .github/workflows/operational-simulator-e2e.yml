@@ -109,13 +109,19 @@ jobs:
           if count != 1:
               raise SystemExit(f"Customer cleanup query patch matched {count} blocks")
 
-          worker_anchor = '''  const workerProfiles = await service.from("profiles").select("id")
-            .eq("role", "employee").or(companyFilter(companyId)).like("email", pattern);'''.replace("            .eq", "    .eq")
+          worker_pattern = re.compile(
+              r'  const workerProfiles = await service\.from\("profiles"\)\.select\("id"\)\s*\n\s*\.eq\("role", "employee"\)\.or\(companyFilter\(companyId\)\)\.like\("email", pattern\);'
+          )
           worker_replacement = '''  const workerProfiles = await service.from("profiles").select("id")
-            .eq("role", "employee").eq("active", true).or(companyFilter(companyId)).like("email", pattern);'''.replace("            .eq", "    .eq")
-          if worker_anchor not in text:
-              raise SystemExit("Active simulator worker anchor not found")
-          text = text.replace(worker_anchor, worker_replacement, 1)
+            .eq("role", "employee").eq("active", true).or(companyFilter(companyId)).like("email", pattern);'''
+          worker_replacement = "\n".join(
+              ("  " + line if line and not line.startswith("  ") else line)
+              for line in worker_replacement.splitlines()
+          )
+          worker_replacement = worker_replacement.replace("      .eq", "    .eq")
+          text, count = worker_pattern.subn(worker_replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f"Active simulator worker patch matched {count} blocks")
 
           delete_pattern = re.compile(
               r'(\s+const batchRemoved = await remove\(label, service\.from\(table\)\.delete\(\)\.in\(field, batch\), optional\);\n)(\s+)(removed = batchRemoved && removed;)'
