@@ -27,7 +27,7 @@ create table if not exists public.operational_simulation_runs (
   constraint operational_simulation_runs_namespace_check
     check (
       char_length(namespace) between 1 and 32
-      and namespace ~ '^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$'
+      and namespace ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'
     ),
   constraint operational_simulation_runs_version_check
     check (version >= 2),
