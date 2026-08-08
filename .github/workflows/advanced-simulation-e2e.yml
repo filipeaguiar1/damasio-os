@@ -1,0 +1,95 @@
+name: Advanced Simulation E2E
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/api/admin/operational-simulator/v2/**"
+      - "lib/simulator/advancedSimulation*.ts"
+      - "scripts/validate-advanced-simulation.mjs"
+      - "supabase/migrations/202608080100_advanced_operational_simulation_namespace.sql"
+      - "tests/advanced-operational-simulator*.spec.ts"
+      - "package.json"
+      - ".github/workflows/advanced-simulation-e2e.yml"
+  workflow_dispatch:
+    inputs:
+      run_large_scale:
+        description: "Also run the 12-month / 4,620-service release gate"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: damasio-advanced-simulation-e2e-qa
+  cancel-in-progress: false
+
+jobs:
+  simulator-v2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install temporary Playwright package
+        run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
+
+      - name: Validate architecture and production build
+        run: pnpm build
+
+      - name: Install Chromium runtime
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start production server
+        run: |
+          pnpm start > /tmp/damasio-advanced-simulator.log 2>&1 &
+          echo $! > /tmp/damasio-advanced-simulator.pid
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/damasio-advanced-simulator.log
+          exit 1
+
+      - name: Run namespace isolation and idempotent reset gate
+        run: pnpm exec playwright test tests/advanced-operational-simulator.spec.ts --reporter=line --workers=1
+
+      - name: Run full canonical Customer-to-History journey gate
+        run: pnpm exec playwright test tests/advanced-operational-simulator-journey.spec.ts --reporter=line --workers=1
+
+      - name: Run 4,620-service scale release gate
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_large_scale || github.event_name == 'pull_request' }}
+        run: pnpm exec playwright test tests/advanced-operational-simulator-large.spec.ts --reporter=line --workers=1
+
+      - name: Upload server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: advanced-simulation-e2e
+          path: /tmp/damasio-advanced-simulator.log
+          if-no-files-found: ignore

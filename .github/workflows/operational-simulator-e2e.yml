@@ -1,7 +1,7 @@
 name: Operational Simulator E2E
-# Final authenticated release gate for the canonical Route.
-# Pending validated blocker fixes may be materialized once, then every later run
-# validates the persisted branch without changing assertions or timeouts.
+# Authenticated release gate for the canonical Route and V1 operational flow.
+# This workflow validates the checked-out commit only; it must never materialize
+# patches or push mutations as a side effect of QA.
 
 on:
   pull_request:
@@ -42,7 +42,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 # Full Ecosystem and Operational Simulator share the same QA database.
 # Keep the heavy E2E suites serialized so one cannot starve the other.
@@ -65,13 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: qa/full-ecosystem-e2e-20260807
           fetch-depth: 0
-
-      - name: Apply pending validated blocker fixes
-        run: |
-          python scripts/qa-finalize-operational-blockers.py
-          git diff --check
 
       - uses: pnpm/action-setup@v4
         with:
@@ -160,17 +154,3 @@ jobs:
             canonical-employee-mobile.png
             /tmp/damasio-simulator-server.log
           if-no-files-found: ignore
-
-      - name: Persist validated blocker fixes
-        if: success()
-        run: |
-          git config user.name "Damasio QA Bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add app/api/admin/operational-simulator/route.ts app/api/admin/operational-simulator/exceptions/route.ts lib/routes/projectCanonicalVisitOrderCompatibility.ts lib/repositories/customerPortalRepository.ts
-          git diff --cached --check
-          if git diff --cached --quiet; then
-            echo "No pending validated blocker fixes to persist."
-            exit 0
-          fi
-          git commit -m "Fix remaining operational QA blockers"
-          git push origin HEAD:qa/full-ecosystem-e2e-20260807
