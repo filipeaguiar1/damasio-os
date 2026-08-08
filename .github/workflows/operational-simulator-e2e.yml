@@ -130,6 +130,7 @@ jobs:
               '    await removeByIds("route_order_state", "route_order_state", "route_id", routeIds);': '''    for (const batch of chunks(routeIds, 25)) {
               await remove("route_order_state", service.from("route_order_state").delete().in("route_id", batch));
             }'''.replace("              await", "      await").replace("            }", "    }"),
+              '    if (routeIds.length) await removeByIds("routes", "routes", "id", routeIds);': '    if (routeIds.length) await removeByIds("routes", "routes", "id", routeIds, true);',
           }
           for old, new in replacements.items():
               if old not in text:
