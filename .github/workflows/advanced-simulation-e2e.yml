@@ -79,6 +79,9 @@ jobs:
       - name: Run namespace isolation and idempotent reset gate
         run: pnpm exec playwright test tests/advanced-operational-simulator.spec.ts --reporter=line --workers=1
 
+      - name: Run full canonical Customer-to-History journey gate
+        run: pnpm exec playwright test tests/advanced-operational-simulator-journey.spec.ts --reporter=line --workers=1
+
       - name: Run 4,620-service scale release gate
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_large_scale }}
         run: pnpm exec playwright test tests/advanced-operational-simulator-large.spec.ts --reporter=line --workers=1
