@@ -31,14 +31,14 @@ function visualState(lead: CanonicalRouteLead) {
     return { color: "#16a34a", label: "Completed" };
   }
   if (lead.canonicalVisitStatus === "missed") return { color: "#eab308", label: "Skipped" };
-  if (lead.canonicalVisitStatus === "in_progress") return { color: "#2563eb", label: "Active" };
+  if (lead.canonicalVisitStatus === "in_progress") return { color: "#2563eb", label: "In progress" };
   return { color: "#64748b", label: "Pending" };
 }
 
 function statusLabel(lead: CanonicalRouteLead) {
   if (lead.canonicalVisitStatus === "completed" || lead.status === "completed") return "Done";
   if (lead.canonicalVisitStatus === "missed") return "Skipped";
-  if (lead.canonicalVisitStatus === "in_progress") return "Active";
+  if (lead.canonicalVisitStatus === "in_progress") return "In progress";
   return "Scheduled";
 }
 
