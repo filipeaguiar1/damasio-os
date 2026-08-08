@@ -5,7 +5,9 @@
   "buildCommand": "pnpm build",
   "outputDirectory": ".next",
   "git": {
-    "deploymentEnabled": true
+    "deploymentEnabled": {
+      "qa/full-ecosystem-e2e-20260807": false
+    }
   },
   "crons": [
     { "path": "/api/map/rebuild", "schedule": "0 5 * * *" },
