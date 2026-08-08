@@ -1,0 +1,85 @@
+name: Mobile Employee Polish E2E
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/layout.tsx"
+      - "app/mobile-employee-polish.css"
+      - "app/mobile/login/**"
+      - "app/mobile/employee/profile/**"
+      - "app/mobile/employee/customers/**"
+      - "components/mobile/EmployeeMobilePolish.tsx"
+      - "tests/mobile-employee-polish.spec.ts"
+      - ".github/workflows/mobile-employee-polish-e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: damasio-mobile-employee-polish-e2e
+  cancel-in-progress: true
+
+jobs:
+  visual-mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install temporary Playwright package
+        run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
+
+      - name: Production build
+        run: pnpm build
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start production server
+        run: |
+          pnpm start > /tmp/damasio-mobile-polish.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/mobile/login >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/damasio-mobile-polish.log
+          exit 1
+
+      - name: Validate Employee mobile visual shell
+        run: pnpm exec playwright test tests/mobile-employee-polish.spec.ts --reporter=line --workers=1
+
+      - name: Upload visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-employee-polish-e2e
+          path: |
+            employee-polish-login.png
+            employee-polish-menu.png
+            employee-polish-customers.png
+            employee-polish-profile.png
+            /tmp/damasio-mobile-polish.log
+          if-no-files-found: ignore
