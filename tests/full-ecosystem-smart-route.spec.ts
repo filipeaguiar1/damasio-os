@@ -23,6 +23,11 @@ function torontoDateKey() {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+async function cleanup(label: string, operation: PromiseLike<{ error?: { message?: string } | null }>) {
+  const result = await operation;
+  if (result.error) console.warn(`smart-route cleanup skipped ${label}: ${result.error.message || "cleanup failed"}`);
+}
+
 test("Employee Smart Route reorders three houses and survives relaunch", async ({ request }) => {
   test.setTimeout(120_000);
   const service = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
@@ -203,27 +208,23 @@ test("Employee Smart Route reorders three houses and survives relaunch", async (
     expect(Number(audit.data?.route_version)).toBe(nextVersion);
     console.log(JSON.stringify({ checkpoint: "smart-route-multi-house-persisted", routeId, previousVersion, nextVersion, reversed }));
   } finally {
+    // Canonical route/core tables intentionally reject destructive cleanup in some
+    // installations. Remove safe child state, then archive/deactivate the isolated
+    // QA tenant instead of spending the test timeout retrying protected DELETEs.
     if (routeId) {
-      await service.from("route_order_audit").delete().eq("route_id", routeId);
-      await service.from("route_order_state").delete().eq("route_id", routeId);
-      await service.from("route_stops").delete().eq("route_id", routeId);
-      await service.from("visits").delete().eq("route_id", routeId);
-      await service.from("routes").delete().eq("id", routeId);
-    } else if (visitIds.length) await service.from("visits").delete().in("id", visitIds);
-    if (jobIds.length) await service.from("jobs").delete().in("id", jobIds);
-    if (quoteIds.length) await service.from("quotes").delete().in("id", quoteIds);
-    if (propertyIds.length) await service.from("properties").delete().in("id", propertyIds);
-    if (customerIds.length) await service.from("customers").delete().in("id", customerIds);
-    if (employeeId) await service.from("employees").delete().eq("id", employeeId);
-    if (crewId) await service.from("crews").delete().eq("id", crewId);
-    if (employeeProfileId) {
-      await service.from("profiles").delete().eq("id", employeeProfileId);
-      await service.auth.admin.deleteUser(employeeProfileId).catch(() => undefined);
+      await cleanup("route_order_audit", service.from("route_order_audit").delete().eq("route_id", routeId));
+      await cleanup("route_order_state", service.from("route_order_state").delete().eq("route_id", routeId));
+      await cleanup("route_stops", service.from("route_stops").delete().eq("route_id", routeId));
+      await cleanup("visits", service.from("visits").update({ status: "cancelled" }).eq("route_id", routeId));
+    } else if (visitIds.length) {
+      await cleanup("visits", service.from("visits").update({ status: "cancelled" }).in("id", visitIds));
     }
-    if (adminId) {
-      await service.from("profiles").delete().eq("id", adminId);
-      await service.auth.admin.deleteUser(adminId).catch(() => undefined);
-    }
-    await service.from("organizations").delete().eq("id", companyId);
+    if (jobIds.length) await cleanup("jobs", service.from("jobs").update({ active: false }).in("id", jobIds));
+    if (customerIds.length) await cleanup("customers", service.from("customers").update({ archived_at: new Date().toISOString() }).in("id", customerIds));
+    if (employeeId) await cleanup("employee", service.from("employees").update({ active: false }).eq("id", employeeId));
+    if (crewId) await cleanup("crew", service.from("crews").update({ active: false }).eq("id", crewId));
+    if (employeeProfileId) await cleanup("employee profile", service.from("profiles").update({ active: false }).eq("id", employeeProfileId));
+    if (adminId) await cleanup("admin profile", service.from("profiles").update({ active: false }).eq("id", adminId));
+    await cleanup("organization", service.from("organizations").update({ active: false }).eq("id", companyId));
   }
 });
