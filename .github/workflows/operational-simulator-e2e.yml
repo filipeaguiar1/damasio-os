@@ -98,7 +98,7 @@ jobs:
           if (archivedCustomers.error) throw new Error(archivedCustomers.error.message);
           const customers = {
             data: [...(activeCustomers.data || []), ...(archivedCustomers.data || [])],
-            error: null,
+            error: null as { message: string } | null,
           };'''
           customer_replacement = "\n".join(
               ("  " + line if line and not line.startswith("  ") else line)
@@ -108,11 +108,6 @@ jobs:
           text, count = customer_pattern.subn(customer_replacement, text, count=1)
           if count != 1:
               raise SystemExit(f"Customer cleanup query patch matched {count} blocks")
-
-          stale_customer_error = '  if (customers.error) throw new Error(customers.error.message);\n'
-          if stale_customer_error not in text:
-              raise SystemExit("Stale customer error check was not found")
-          text = text.replace(stale_customer_error, '', 1)
 
           delete_pattern = re.compile(
               r'(\s+const batchRemoved = await remove\(label, service\.from\(table\)\.delete\(\)\.in\(field, batch\), optional\);\n)(\s+)(removed = batchRemoved && removed;)'
