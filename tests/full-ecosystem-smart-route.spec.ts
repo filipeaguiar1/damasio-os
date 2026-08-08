@@ -181,14 +181,13 @@ test("Employee Smart Route reorders three houses and survives relaunch", async (
     expect((stopsAfter.data || []).map((row: any) => String(row.visit_id))).toEqual(reversed);
     expect((stopsAfter.data || []).map((row: any) => Number(row.position))).toEqual([1, 2, 3]);
 
-    expect(["applied", "pending_migration"]).toContain(applied.visitProjection);
+    expect(applied.visitProjection).toBe("applied");
     const projectionAfter = await service.from("visits").select("id,route_order").in("id", reversed);
     expect(projectionAfter.error, projectionAfter.error?.message).toBeNull();
     const projected = new Map((projectionAfter.data || []).map((row: any) => [String(row.id), Number(row.route_order)]));
     console.log(JSON.stringify({ checkpoint: "smart-route-projection", status: applied.visitProjection, reversed, projected: Object.fromEntries(projected) }));
-    if (applied.visitProjection === "applied") {
-      reversed.forEach((visitId, index) => expect(projected.get(visitId), `visit ${visitId} route_order`).toBe(index + 1));
-    }
+    reversed.forEach((visitId, index) =>
+      expect(projected.get(visitId), `visit ${visitId} route_order`).toBe(index + 1));
 
     await employeeClient.auth.signOut();
     const freshSession = await authClient().auth.signInWithPassword({ email: employeeEmail, password: employeePassword });
