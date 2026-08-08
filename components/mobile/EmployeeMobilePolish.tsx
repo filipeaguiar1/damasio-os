@@ -10,7 +10,21 @@ export function EmployeeMobilePolish(){
   const router=useRouter();
   const [open,setOpen]=useState(false);
   const [detailMode,setDetailMode]=useState(false);
+  const [guardLoading,setGuardLoading]=useState(true);
   const menuEnabled=pathname==="/mobile/employee"||pathname==="/mobile/employee/profile"||pathname==="/mobile/employee/customers";
+
+  useEffect(()=>{
+    if(!menuEnabled){setGuardLoading(true);return}
+    const syncGuard=()=>{
+      const loading=Boolean(document.querySelector(".mobile-splash"));
+      setGuardLoading(loading);
+      if(loading)setOpen(false);
+    };
+    syncGuard();
+    const observer=new MutationObserver(syncGuard);
+    observer.observe(document.body,{subtree:true,childList:true});
+    return()=>observer.disconnect();
+  },[menuEnabled,pathname]);
 
   useEffect(()=>{
     if(pathname!=="/mobile/employee"){
@@ -54,7 +68,7 @@ export function EmployeeMobilePolish(){
     return()=>{document.body.style.overflow=previous;window.removeEventListener("keydown",close)};
   },[open]);
 
-  if(!menuEnabled||detailMode)return null;
+  if(!menuEnabled||guardLoading||detailMode)return null;
 
   return <>
     <button type="button" className="employee-polish-menu-button" aria-label="Open employee menu" aria-expanded={open} onClick={()=>setOpen(true)}>
