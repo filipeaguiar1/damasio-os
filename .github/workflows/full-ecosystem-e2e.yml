@@ -19,9 +19,11 @@ on:
 permissions:
   contents: read
 
+# Full Ecosystem and Operational Simulator share the same QA database.
+# Keep the heavy E2E suites serialized so one cannot starve the other.
 concurrency:
-  group: full-ecosystem-e2e
-  cancel-in-progress: true
+  group: damasio-heavy-e2e-qa
+  cancel-in-progress: false
 
 jobs:
   ecosystem:
