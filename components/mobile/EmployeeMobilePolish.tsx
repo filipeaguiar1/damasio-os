@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+// Workspace-level navigation only; Visit and Task detail screens keep contextual back navigation.
 export function EmployeeMobilePolish(){
   const pathname=usePathname();
   const router=useRouter();
