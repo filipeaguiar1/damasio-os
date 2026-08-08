@@ -1,0 +1,45 @@
+name: Canonical Visit Execution Live Sync
+
+on:
+  push:
+    branches:
+      - fix/canonical-execution-live-20260808
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/canonical-execution-live-20260808
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Apply canonical execution live sync
+        run: python scripts/qa-fix-canonical-execution-live.py
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate production build
+        run: pnpm build
+      - name: Persist validated fix
+        shell: bash
+        run: |
+          git config user.name "Damasio QA Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/api/map/canonical-route-strong/route.ts app/mobile/employee/page.tsx
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Canonical execution live sync already applied."
+            exit 0
+          fi
+          git commit -m "Fix canonical Visit execution live synchronization"
+          git push origin HEAD:fix/canonical-execution-live-20260808
