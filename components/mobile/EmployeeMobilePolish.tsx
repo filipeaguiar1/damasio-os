@@ -74,7 +74,7 @@ export function EmployeeMobilePolish(){
     <button type="button" className="employee-polish-menu-button" aria-label="Open employee menu" aria-expanded={open} onClick={()=>setOpen(true)}>
       <span/><span/><span/>
     </button>
-    {open&&<div className="employee-polish-menu-backdrop" role="presentation" onClick={()=>setOpen(false)}>
+    {open&&<div className="employee-polish-menu-backdrop" style={{zIndex:4000}} role="presentation" onClick={()=>setOpen(false)}>
       <aside className="employee-polish-menu-drawer" role="dialog" aria-modal="true" aria-label="Employee navigation" onClick={event=>event.stopPropagation()}>
         <header>
           <div className="employee-polish-menu-mark">D</div>
