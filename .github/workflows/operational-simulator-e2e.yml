@@ -83,6 +83,61 @@ jobs:
               if old not in text:
                   raise SystemExit(f"Cleanup type anchor not found: {old}")
               text = text.replace(old, new, 1)
+
+          cleanup_replacements = {
+              '''  // Include archived simulator Customers so old protected Visit residue is not
+          // left behind forever. The email pattern is company-scoped and QA-only.
+          const customers = await service.from("customers").select("id,profile_id")
+            .or(companyFilter(companyId)).like("email", pattern);''': '''  // Remove the active simulation first. Legacy archived QA residue is drained in
+          // a tiny bounded batch so one cleanup request never scans months of old runs.
+          const activeCustomers = await service.from("customers").select("id,profile_id")
+            .or(companyFilter(companyId)).like("email", pattern).is("archived_at", null).limit(120);
+          if (activeCustomers.error) throw new Error(activeCustomers.error.message);
+          const archivedCustomers = await service.from("customers").select("id,profile_id")
+            .or(companyFilter(companyId)).like("email", pattern).not("archived_at", "is", null).limit(4);
+          if (archivedCustomers.error) throw new Error(archivedCustomers.error.message);
+          const customers = {
+            data: [...(activeCustomers.data || []), ...(archivedCustomers.data || [])],
+            error: null,
+          };''',
+              '''  async function removeByIds(label: string, table: string, field: string, ids: string[], optional = false) {
+            let removed = true;
+            for (const batch of chunks(ids, 25)) {
+              const batchRemoved = await remove(label, service.from(table).delete().in(field, batch), optional);
+              removed = batchRemoved && removed;
+            }
+            return removed;
+          }''': '''  async function removeByIds(label: string, table: string, field: string, ids: string[], optional = false) {
+            let removed = true;
+            for (const batch of chunks(ids, 25)) {
+              const batchRemoved = await remove(label, service.from(table).delete().in(field, batch), optional);
+              if (!batchRemoved && optional) return false;
+              removed = batchRemoved && removed;
+            }
+            return removed;
+          }''',
+              '''  async function updateByIds(label: string, table: string, values: Record<string, unknown>, field: string, ids: string[], optional = false) {
+            let updated = true;
+            for (const batch of chunks(ids, 25)) {
+              const batchUpdated = await remove(label, service.from(table).update(values).in(field, batch), optional);
+              updated = batchUpdated && updated;
+            }
+            return updated;
+          }''': '''  async function updateByIds(label: string, table: string, values: Record<string, unknown>, field: string, ids: string[], optional = false) {
+            let updated = true;
+            for (const batch of chunks(ids, 25)) {
+              const batchUpdated = await remove(label, service.from(table).update(values).in(field, batch), optional);
+              if (!batchUpdated && optional) return false;
+              updated = batchUpdated && updated;
+            }
+            return updated;
+          }''',
+          }
+          for old, new in cleanup_replacements.items():
+              if old not in text:
+                  raise SystemExit("Bounded cleanup anchor not found")
+              text = text.replace(old, new, 1)
+
           replacements = {
               '    await removeByIds("route_stops", "route_stops", "route_id", routeIds);': '''    for (const batch of chunks(routeIds, 25)) {
               await remove("route_stops", service.from("route_stops").delete().in("route_id", batch));
