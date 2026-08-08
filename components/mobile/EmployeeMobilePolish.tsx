@@ -1,0 +1,76 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+export function EmployeeMobilePolish(){
+  const pathname=usePathname();
+  const router=useRouter();
+  const [open,setOpen]=useState(false);
+  const [detailMode,setDetailMode]=useState(false);
+  const isEmployeeMobile=Boolean(pathname?.startsWith("/mobile/employee"));
+
+  useEffect(()=>{
+    if(!isEmployeeMobile)return;
+    const sync=()=>{
+      const detail=Boolean(
+        document.querySelector(".employee-task-detail") ||
+        document.querySelector(".mobile-property-reference:not(.employee-task-detail)")
+      );
+      setDetailMode(detail);
+      if(detail)setOpen(false);
+    };
+    sync();
+    const observer=new MutationObserver(sync);
+    observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:["class"]});
+    return()=>observer.disconnect();
+  },[isEmployeeMobile,pathname]);
+
+  useEffect(()=>{
+    if(!isEmployeeMobile)return;
+    const interceptProfile=(event:MouseEvent)=>{
+      const target=event.target;
+      if(!(target instanceof Element))return;
+      if(!target.closest(".employee-profile-trigger"))return;
+      event.preventDefault();
+      event.stopPropagation();
+      router.push("/mobile/employee/profile");
+    };
+    document.addEventListener("click",interceptProfile,true);
+    return()=>document.removeEventListener("click",interceptProfile,true);
+  },[isEmployeeMobile,router]);
+
+  useEffect(()=>{
+    if(!open)return;
+    const previous=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    const close=(event:KeyboardEvent)=>{if(event.key==="Escape")setOpen(false)};
+    window.addEventListener("keydown",close);
+    return()=>{document.body.style.overflow=previous;window.removeEventListener("keydown",close)};
+  },[open]);
+
+  if(!isEmployeeMobile||detailMode)return null;
+
+  return <>
+    <button type="button" className="employee-polish-menu-button" aria-label="Open employee menu" aria-expanded={open} onClick={()=>setOpen(true)}>
+      <span/><span/><span/>
+    </button>
+    {open&&<div className="employee-polish-menu-backdrop" role="presentation" onClick={()=>setOpen(false)}>
+      <aside className="employee-polish-menu-drawer" role="dialog" aria-modal="true" aria-label="Employee navigation" onClick={event=>event.stopPropagation()}>
+        <header>
+          <div className="employee-polish-menu-mark">D</div>
+          <div><small>FIELD WORKSPACE</small><strong>Employee menu</strong><span>Fast access without changing your route workflow.</span></div>
+          <button type="button" aria-label="Close employee menu" onClick={()=>setOpen(false)}>×</button>
+        </header>
+        <nav>
+          <Link href="/mobile/employee/home" onClick={()=>setOpen(false)}><i>⌂</i><span><strong>Home</strong><small>Today at a glance</small></span><b>›</b></Link>
+          <Link href="/mobile/employee" onClick={()=>setOpen(false)}><i>↗</i><span><strong>Routes</strong><small>Visits, map and Smart Route</small></span><b>›</b></Link>
+          <Link href="/mobile/employee/customers" onClick={()=>setOpen(false)}><i>◎</i><span><strong>Customers</strong><small>Assigned service accounts</small></span><b>›</b></Link>
+          <Link href="/mobile/employee/profile" onClick={()=>setOpen(false)}><i>◉</i><span><strong>Profile</strong><small>Personal and route-start details</small></span><b>›</b></Link>
+        </nav>
+        <footer><span>More employee tools can be added here later without crowding the main route screen.</span></footer>
+      </aside>
+    </div>}
+  </>;
+}
