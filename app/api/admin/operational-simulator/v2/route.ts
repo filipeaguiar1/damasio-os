@@ -12,9 +12,9 @@ import {
   ADVANCED_SIMULATION_KM_PER_COMPLETED_VISIT,
   advancedSimulationDataStatus,
   createAdvancedSimulationData,
-  reconcileAdvancedSimulation,
   removeAdvancedSimulationData,
 } from "@/lib/simulator/advancedSimulationData";
+import { reconcileAdvancedSimulationAtScale } from "@/lib/simulator/advancedScaleReconciliation";
 import {
   beginAdvancedSimulationReset,
   beginAdvancedSimulationRun,
@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
     const input = advancedScenarioInput(scenarioKey, body.assumptions || {});
 
     if (action === "reconcile") {
-      const reconciliation = await reconcileAdvancedSimulation(service, scope, scenarioKey, input);
+      const reconciliation = await reconcileAdvancedSimulationAtScale(service, scope, scenarioKey, input);
       return NextResponse.json({
         namespace: scope.namespace,
         scenario: scenarioKey,
@@ -194,7 +194,7 @@ export async function POST(request: NextRequest) {
         actorId,
         runId,
       });
-      const reconciliation = await reconcileAdvancedSimulation(service, scope, scenarioKey, input);
+      const reconciliation = await reconcileAdvancedSimulationAtScale(service, scope, scenarioKey, input);
       if (!reconciliation.passed) {
         throw new Error(`Advanced simulation reconciliation failed for namespace "${scope.namespace}".`);
       }
