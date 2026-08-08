@@ -127,16 +127,22 @@ export default function MobileEmployeeApp(){
   const workflow=selected?getLeadWorkflowSnapshot(selected):null;
   const details=selected?.propertyDetails;
   const seconds=useMemo(()=>{
-    if(!session){
-      if(selected?.visitDurationSeconds)return selected.visitDurationSeconds;
-      const started=selected?.visitStartedAt?new Date(selected.visitStartedAt).getTime():0;
-      const finished=selected?.visitFinishedAt?new Date(selected.visitFinishedAt).getTime():0;
-      if(started)return Math.max(0,Math.round(((finished||Date.now())-started)/1000));
-      return 0;
+    // Canonical Visit execution state is universal across Admin/web/mobile and must
+    // always win over legacy/local service sessions. The UI ticks locally from
+    // started_at so we never poll the database every second.
+    if(selected?.canonicalVisitId){
+      const started=selected.visitStartedAt?new Date(selected.visitStartedAt).getTime():0;
+      const finished=selected.visitFinishedAt?new Date(selected.visitFinishedAt).getTime():0;
+      if(selected.canonicalVisitStatus==="in_progress"&&started)return Math.max(0,Math.round((Date.now()-started)/1000));
+      if(selected.canonicalVisitStatus==="completed"){
+        if(selected.visitDurationSeconds)return selected.visitDurationSeconds;
+        if(started&&finished)return Math.max(0,Math.round((finished-started)/1000));
+      }
+      if(selected.canonicalVisitStatus==="scheduled"||selected.canonicalVisitStatus==="missed")return 0;
     }
-    if(session.status==="running"&&session.startedAt)return Math.max(0,Math.round((Date.now()-new Date(session.startedAt).getTime())/1000));
-    return session.durationSeconds||0;
-  },[session,tick,selected?.visitDurationSeconds,selected?.visitStartedAt,selected?.visitFinishedAt]);
+    if(session?.status==="running"&&session.startedAt)return Math.max(0,Math.round((Date.now()-new Date(session.startedAt).getTime())/1000));
+    return session?.durationSeconds||0;
+  },[session,tick,selected?.canonicalVisitId,selected?.canonicalVisitStatus,selected?.visitDurationSeconds,selected?.visitStartedAt,selected?.visitFinishedAt]);
   const tasks=useMemo(()=>{
     try{const source=usesLiveTaskBackend()?liveTasks:getEmployeeTasks();return source.filter(t=>["assigned","in_progress","completed","resolved"].includes(t.status)&&(usesLiveTaskBackend()||t.assignedTo===profile.name||t.assignedTo===crew))}
     catch{return []}
@@ -290,14 +296,21 @@ export default function MobileEmployeeApp(){
   const smartMetrics=useMemo(()=>{if(!smartPreview.length||!smartOriginPoint)return null;const points=[smartOriginPoint,...smartPreview.map(lead=>({latitude:Number(lead.latitude),longitude:Number(lead.longitude)}))];let km=0;for(let index=1;index<points.length;index++){const a=points[index-1],b=points[index];const toRad=(value:number)=>value*Math.PI/180;const dLat=toRad(b.latitude-a.latitude);const dLon=toRad(b.longitude-a.longitude);const x=Math.sin(dLat/2)**2+Math.cos(toRad(a.latitude))*Math.cos(toRad(b.latitude))*Math.sin(dLon/2)**2;km+=6371*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}const roadKm=km*1.22;return{distance:roadKm,time:Math.max(1,Math.round(roadKm/35*60))}},[smartPreview,smartOriginPoint]);
   function startRoute(){const state=startEmployeeRoute(crew,selectedDate);setRouteStarted(Boolean(state.active));setMessage("Route started.")}
 
-  function openService(lead:Lead){setSelectedId(lead.id); setComment(getSessionForLead(lead.id)?.completionComment||""); setContractOpen(true); setTab("service"); setMessage("")}
+  async function refreshCanonicalRouteNow(){
+    try{
+      const next=mapContext.routeId?await loadEmployeeRouteMapContextByRouteId(mapContext.routeId):await loadEmployeeRouteMapContext(selectedDate,crew);
+      setMapContext(next);setRouteReload(value=>value+1);setTick(value=>value+1);
+      return next;
+    }catch{return null}
+  }
+  function openService(lead:Lead){setSelectedId(lead.id); setComment(getSessionForLead(lead.id)?.completionComment||""); setContractOpen(true); setTab("service"); setMessage(""); void refreshCanonicalRouteNow()}
   function openTask(taskId:string){setSelectedTaskId(taskId);setTab("task");setMessage("")}
   function saveProfile(){const next={...profileDraft,photoLabel:(profileDraft.name||"E").slice(0,1).toUpperCase()};saveEmployeeProfile(next);setProfileDraft(next);setMessage("Profile saved.")}
   function uploadProfilePhoto(e:ChangeEvent<HTMLInputElement>){const file=e.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>setProfileDraft(current=>({...current,photoUrl:String(reader.result||"")}));reader.readAsDataURL(file);e.target.value=""}
   async function start(){
     if(!selected||busy)return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"in_progress");setMapContext(await loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,selected.canonicalVisitId,"in_progress"));setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Service start saved offline. It will sync automatically.":"Service started and synchronized.")}else{startServiceSession(selected.id,profile.name,crew);setMessage("Service started and synchronized.")} setRouteReload(value=>value+1); refresh();}
+    try{if(selected.canonicalVisitId){const visitId=selected.canonicalVisitId;const result:any=await runVisitStatusOrQueue(visitId,"in_progress");const startedAt=String(result.visit?.started_at||result.visit?.startedAt||new Date().toISOString());setMapContext(current=>({...current,stops:current.stops.map(stop=>stop.visitId===visitId?{...stop,status:"in_progress",startedAt,finishedAt:undefined,durationSeconds:undefined}:stop)}));setTick(value=>value+1);setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Service start saved offline. It will sync automatically.":"Service started and synchronized.");void loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,visitId,"in_progress").then(setMapContext).catch(()=>void refreshCanonicalRouteNow())}else{startServiceSession(selected.id,profile.name,crew);setMessage("Service started and synchronized.")} setRouteReload(value=>value+1); refresh(false);}
     catch(error){setError(error instanceof Error?error.message:"Service could not be started. Please try again.")}
     finally{setBusy(false)}
   }
@@ -305,7 +318,7 @@ export default function MobileEmployeeApp(){
     if(!selected||busy)return;
     if(!window.confirm("Finish this service and mark this house as Done?"))return;
     setBusy(true); setError("");
-    try{if(selected.canonicalVisitId){const result=await runVisitStatusOrQueue(selected.canonicalVisitId,"completed");setMapContext(await loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,selected.canonicalVisitId,"completed"));setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Completion saved offline. It will sync automatically.":"Done. Every device was updated.")}else{finishServiceSession(selected.id,comment);setMessage("Done. Every device was updated.")} setRouteReload(value=>value+1); refresh();}
+    try{if(selected.canonicalVisitId){const visitId=selected.canonicalVisitId;const result:any=await runVisitStatusOrQueue(visitId,"completed");const finishedAt=String(result.visit?.finished_at||result.visit?.finishedAt||new Date().toISOString());const durationSeconds=Number(result.visit?.duration_seconds||result.visit?.durationSeconds||seconds||0);setMapContext(current=>({...current,stops:current.stops.map(stop=>stop.visitId===visitId?{...stop,status:"completed",finishedAt,durationSeconds}:stop)}));setTick(value=>value+1);setOfflinePending(getOfflineActionCount());setMessage(result.queued?"Completion saved offline. It will sync automatically.":"Done. Every device was updated.");void loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,visitId,"completed").then(setMapContext).catch(()=>void refreshCanonicalRouteNow())}else{finishServiceSession(selected.id,comment);setMessage("Done. Every device was updated.")} setRouteReload(value=>value+1); refresh(false);}
     catch(error){setError(error instanceof Error?error.message:"Service could not be completed. Please try again.")}
     finally{setBusy(false)}
   }
@@ -353,7 +366,7 @@ export default function MobileEmployeeApp(){
 
   return <MobileRoleGuard allowed={["employee"]}><main className="mobile-app-shell">
     <header className="mobile-topbar employee-mobile-topbar">
-      <button type="button" className="employee-top-back" onClick={()=>{if(tab==="service")setTab("route");else if(tab==="task")setTab("issues");else if(tab==="profile")setTab("route");else window.history.back()}} aria-label="Go back">‹</button>
+      <button type="button" className="employee-top-back" onClick={()=>{if(tab==="service"){setTab("route");void refreshCanonicalRouteNow()}else if(tab==="task")setTab("issues");else if(tab==="profile"){setTab("route");void refreshCanonicalRouteNow()}else window.history.back()}} aria-label="Go back">‹</button>
       <div className="employee-mobile-brand"><span>D</span><div><strong>Employee</strong><small>{profile.name || "Field user"} · {crew}</small></div></div>
       <button type="button" className="mobile-avatar employee-profile-trigger" onClick={()=>{setProfileDraft(getEmployeeProfile());setTab("profile")}} aria-label="Open employee profile">{profile.photoUrl?<img src={profile.photoUrl} alt="Employee profile"/>:(profile.photoLabel||profile.name||"E").slice(0,1)}</button>
     </header>
@@ -377,7 +390,7 @@ export default function MobileEmployeeApp(){
     </section>}
 
     {homeMode==="route"&&<nav className="mobile-tabs mobile-tabs-two">
-      <button className={tab==="route"||tab==="service"?"active":""} onClick={()=>setTab("route")}>Today&apos;s Route</button>
+      <button className={tab==="route"||tab==="service"?"active":""} onClick={()=>{setTab("route");void refreshCanonicalRouteNow()}}>Today&apos;s Route</button>
       <button className={tab==="issues"||tab==="task"?"active":""} onClick={()=>setTab("issues")}>Tasks {tasks.length>0&&<b>{tasks.length}</b>}</button>
     </nav>}
 

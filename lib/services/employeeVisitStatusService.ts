@@ -46,7 +46,16 @@ async function runEmployeeVisitAction(
         }),
       });
       const result = await response.json().catch(() => ({}));
-      if (response.ok) return result;
+      if (response.ok) {
+        const routeId = String(result.visit?.route_id || result.visit?.routeId || "");
+        window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeId, visitId, status: result.visit?.status || null } }));
+        if (typeof BroadcastChannel !== "undefined") {
+          const broadcast = new BroadcastChannel("damasio-canonical-route");
+          broadcast.postMessage({ routeId, visitId, status: result.visit?.status || null });
+          broadcast.close();
+        }
+        return result;
+      }
       lastError = result.error || `Visit update failed (${response.status}).`;
       if (![502, 503, 504].includes(response.status) || attempt === 1) throw new Error(lastError);
     } catch (error) {
