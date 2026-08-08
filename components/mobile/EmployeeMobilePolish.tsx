@@ -9,10 +9,13 @@ export function EmployeeMobilePolish(){
   const router=useRouter();
   const [open,setOpen]=useState(false);
   const [detailMode,setDetailMode]=useState(false);
-  const isEmployeeMobile=Boolean(pathname?.startsWith("/mobile/employee"));
+  const menuEnabled=pathname==="/mobile/employee"||pathname==="/mobile/employee/profile"||pathname==="/mobile/employee/customers";
 
   useEffect(()=>{
-    if(!isEmployeeMobile)return;
+    if(pathname!=="/mobile/employee"){
+      setDetailMode(false);
+      return;
+    }
     const sync=()=>{
       const detail=Boolean(
         document.querySelector(".employee-task-detail") ||
@@ -25,10 +28,10 @@ export function EmployeeMobilePolish(){
     const observer=new MutationObserver(sync);
     observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:["class"]});
     return()=>observer.disconnect();
-  },[isEmployeeMobile,pathname]);
+  },[pathname]);
 
   useEffect(()=>{
-    if(!isEmployeeMobile)return;
+    if(pathname!=="/mobile/employee")return;
     const interceptProfile=(event:MouseEvent)=>{
       const target=event.target;
       if(!(target instanceof Element))return;
@@ -39,7 +42,7 @@ export function EmployeeMobilePolish(){
     };
     document.addEventListener("click",interceptProfile,true);
     return()=>document.removeEventListener("click",interceptProfile,true);
-  },[isEmployeeMobile,router]);
+  },[pathname,router]);
 
   useEffect(()=>{
     if(!open)return;
@@ -50,7 +53,7 @@ export function EmployeeMobilePolish(){
     return()=>{document.body.style.overflow=previous;window.removeEventListener("keydown",close)};
   },[open]);
 
-  if(!isEmployeeMobile||detailMode)return null;
+  if(!menuEnabled||detailMode)return null;
 
   return <>
     <button type="button" className="employee-polish-menu-button" aria-label="Open employee menu" aria-expanded={open} onClick={()=>setOpen(true)}>
