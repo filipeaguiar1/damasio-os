@@ -71,6 +71,31 @@ function scenarioPreviews() {
   });
 }
 
+async function removeAdvancedSimulationDataWithTimeoutRetry(
+  service: any,
+  scope: ReturnType<typeof createAdvancedSimulationScope>,
+) {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await removeAdvancedSimulationData(service, scope);
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/statement timeout|canceling statement due to statement timeout/i.test(message) || attempt === 3) {
+        throw error;
+      }
+      console.warn("advanced-operational-simulator-reset-retry", {
+        namespace: scope.namespace,
+        attempt,
+        message,
+      });
+      await new Promise(resolve => setTimeout(resolve, attempt * 350));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError || "Advanced simulation reset failed."));
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { service, companyId } = await requireAdmin(request);
@@ -133,7 +158,7 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        const removed = await removeAdvancedSimulationData(service, scope);
+        const removed = await removeAdvancedSimulationDataWithTimeoutRetry(service, scope);
         const remaining = await advancedSimulationDataStatus(service, scope);
         if (remaining.exists) {
           throw new Error(`Advanced simulation reset did not converge: ${remaining.customerCount} active simulation customers remain.`);
@@ -218,7 +243,7 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       let cleanupMessage = "Automatic cleanup completed.";
       try {
-        await removeAdvancedSimulationData(service, scope);
+        await removeAdvancedSimulationDataWithTimeoutRetry(service, scope);
       } catch (cleanupError) {
         cleanupMessage = `Automatic cleanup also failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`;
       }
