@@ -44,6 +44,7 @@ async function resolveCustomer(db: any, token: string): Promise<CustomerIdentity
     const byMetadata = await db.from("customers")
       .select("id,profile_id,email,company_id,organization_id,archived_at")
       .eq("id", metadataCustomerId)
+      .is("archived_at", null)
       .maybeSingle();
     if (!byMetadata.error) customer = byMetadata.data;
   }
@@ -51,6 +52,9 @@ async function resolveCustomer(db: any, token: string): Promise<CustomerIdentity
     const byProfile = await db.from("customers")
       .select("id,profile_id,email,company_id,organization_id,archived_at")
       .eq("profile_id", auth.data.user.id)
+      .is("archived_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
     if (!byProfile.error) customer = byProfile.data;
   }
@@ -64,7 +68,7 @@ async function resolveCustomer(db: any, token: string): Promise<CustomerIdentity
       .maybeSingle();
     if (!byEmail.error) customer = byEmail.data;
   }
-  if (!customer || customer.archived_at) throw new Error("Customer record was not found for this account.");
+  if (!customer) throw new Error("Customer record was not found for this account.");
 
   const profileCompanyId = profile.data.company_id || profile.data.organization_id;
   const customerCompanyId = customer.company_id || customer.organization_id;
@@ -99,12 +103,6 @@ async function companyRows(
   return result.data || [];
 }
 
-function chunks<T>(rows: T[], size: number) {
-  const result: T[][] = [];
-  for (let offset = 0; offset < rows.length; offset += size) result.push(rows.slice(offset, offset + size));
-  return result;
-}
-
 function dateValue(value: unknown) {
   return String(value || "");
 }
@@ -137,27 +135,17 @@ async function buildBoard(db: any, identity: CustomerIdentity) {
     (query) => query.eq("customer_id", identity.customerId),
   );
   const jobById = new Map<string, any>(jobs.map((row: any) => [String(row.id), row] as [string, any]));
-  const jobIds = jobs.map((row: any) => String(row.id));
 
-  const visitRows: any[] = [];
-  for (const batch of chunks(jobIds, 12)) {
-    const activeRows = await companyRows(
-      db,
-      "visits",
-      "id,job_id,status,scheduled_date,crew_id,property_id,customer_visible_summary,employee_notes,duration_seconds,started_at,finished_at,created_at",
-      identity.companyId,
-      (query) => query.in("job_id", batch).neq("status", "cancelled"),
-    );
-    visitRows.push(...activeRows);
-    const cancelledRows = await companyRows(
-      db,
-      "visits",
-      "id,job_id,status,scheduled_date,crew_id,property_id,customer_visible_summary,employee_notes,duration_seconds,started_at,finished_at,created_at",
-      identity.companyId,
-      (query) => query.in("job_id", batch).eq("status", "cancelled"),
-    );
-    visitRows.push(...cancelledRows);
-  }
+  // Visits already carry canonical customer_id. Reading the customer's own visits
+  // directly avoids fan-out queries through every Job and keeps Feedback responsive
+  // even while operational QA is creating hundreds of Visits in parallel.
+  const visitRows = await companyRows(
+    db,
+    "visits",
+    "id,job_id,status,scheduled_date,crew_id,property_id,customer_visible_summary,employee_notes,duration_seconds,started_at,finished_at,created_at",
+    identity.companyId,
+    (query) => query.eq("customer_id", identity.customerId),
+  );
 
   const crewIds = [...new Set(visitRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];
   const crewResult = crewIds.length
