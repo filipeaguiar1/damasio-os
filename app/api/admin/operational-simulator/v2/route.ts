@@ -122,6 +122,15 @@ export async function POST(request: NextRequest) {
           message: `Simulation namespace "${scope.namespace}" is already reset.`,
         });
       }
+      if (!transition.acquired && !transition.alreadyRemoved) {
+        return NextResponse.json({
+          removed: false,
+          resetting: true,
+          namespace: scope.namespace,
+          status: before,
+          message: `Simulation namespace "${scope.namespace}" is already being reset by another request.`,
+        }, { status: 409 });
+      }
 
       try {
         const removed = await removeAdvancedSimulationData(service, scope);
