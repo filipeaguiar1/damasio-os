@@ -1,7 +1,7 @@
 name: Operational Simulator E2E
 # Final authenticated release gate for the canonical Route.
-# This branch temporarily applies the remaining QA fixes in the runner and only
-# commits them if both focused E2E gates pass without changing assertions/timeouts.
+# Pending validated blocker fixes may be materialized once, then every later run
+# validates the persisted branch without changing assertions or timeouts.
 
 on:
   pull_request:
@@ -25,6 +25,7 @@ on:
       - "lib/services/routeMapService.ts"
       - "lib/simulator/**"
       - "scripts/qa-final-two-blockers.py"
+      - "scripts/qa-finalize-operational-blockers.py"
       - "supabase/migrations/202607290001_customer_portal_action_contract.sql"
       - "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql"
       - "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql"
@@ -65,117 +66,9 @@ jobs:
           ref: qa/full-ecosystem-e2e-20260807
           fetch-depth: 0
 
-      - name: Apply remaining blocker candidates
+      - name: Apply pending validated blocker fixes
         run: |
-          python scripts/qa-final-two-blockers.py
-          python - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path("app/api/admin/operational-simulator/route.ts")
-          text = path.read_text()
-
-          type_replacements = {
-              '  const customerIds = (customers.data || []).map((row: any) => String(row.id));': '  const customerIds: string[] = (customers.data || []).map((row: any) => String(row.id));',
-              '  const profileIds = [...new Set([': '  const profileIds: string[] = [...new Set<string>([',
-              '  const routeIds = [...new Set(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];': '  const routeIds: string[] = [...new Set<string>(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];',
-              '  const crewIds = [...new Set(employeeRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];': '  const crewIds: string[] = [...new Set<string>(employeeRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];',
-              '    for (const batch of chunks(customerIds, 4)) {': '    for (const batch of chunks<string>(customerIds, 4)) {',
-          }
-          for old, new in type_replacements.items():
-              if old not in text:
-                  raise SystemExit(f"Cleanup type anchor not found: {old}")
-              text = text.replace(old, new, 1)
-
-          customer_pattern = re.compile(
-              r'  const customers = await service\.from\("customers"\)\.select\("id,profile_id"\)\s*\n\s*\.or\(companyFilter\(companyId\)\)\.like\("email", pattern\);'
-          )
-          customer_replacement = '''  const activeCustomers = await service.from("customers").select("id,profile_id")
-            .or(companyFilter(companyId)).like("email", pattern).is("archived_at", null).limit(120);
-          if (activeCustomers.error) throw new Error(activeCustomers.error.message);
-          const archivedCustomers = await service.from("customers").select("id,profile_id")
-            .or(companyFilter(companyId)).like("email", pattern).not("archived_at", "is", null).limit(4);
-          if (archivedCustomers.error) throw new Error(archivedCustomers.error.message);
-          const customers = {
-            data: [...(activeCustomers.data || []), ...(archivedCustomers.data || [])],
-            error: null as { message: string } | null,
-          };'''
-          customer_replacement = "\n".join(
-              ("  " + line if line and not line.startswith("  ") else line)
-              for line in customer_replacement.splitlines()
-          )
-          customer_replacement = customer_replacement.replace("      .or", "    .or")
-          text, count = customer_pattern.subn(customer_replacement, text, count=1)
-          if count != 1:
-              raise SystemExit(f"Customer cleanup query patch matched {count} blocks")
-
-          worker_pattern = re.compile(
-              r'  const workerProfiles = await service\.from\("profiles"\)\.select\("id"\)\s*\n\s*\.eq\("role", "employee"\)\.or\(companyFilter\(companyId\)\)\.like\("email", pattern\);'
-          )
-          worker_replacement = '''  const workerProfiles = await service.from("profiles").select("id")
-            .eq("role", "employee").eq("active", true).or(companyFilter(companyId)).like("email", pattern);'''
-          worker_replacement = "\n".join(
-              ("  " + line if line and not line.startswith("  ") else line)
-              for line in worker_replacement.splitlines()
-          )
-          worker_replacement = worker_replacement.replace("      .eq", "    .eq")
-          text, count = worker_pattern.subn(worker_replacement, text, count=1)
-          if count != 1:
-              raise SystemExit(f"Active simulator worker patch matched {count} blocks")
-
-          delete_pattern = re.compile(
-              r'(\s+const batchRemoved = await remove\(label, service\.from\(table\)\.delete\(\)\.in\(field, batch\), optional\);\n)(\s+)(removed = batchRemoved && removed;)'
-          )
-          text, count = delete_pattern.subn(r'\1\2if (!batchRemoved && optional) return false;\n\2\3', text, count=1)
-          if count != 1:
-              raise SystemExit(f"Optional delete short-circuit patch matched {count} blocks")
-
-          update_pattern = re.compile(
-              r'(\s+const batchUpdated = await remove\(label, service\.from\(table\)\.update\(values\)\.in\(field, batch\), optional\);\n)(\s+)(updated = batchUpdated && updated;)'
-          )
-          text, count = update_pattern.subn(r'\1\2if (!batchUpdated && optional) return false;\n\2\3', text, count=1)
-          if count != 1:
-              raise SystemExit(f"Optional update short-circuit patch matched {count} blocks")
-
-          replacements = {
-              '    await removeByIds("route_stops", "route_stops", "route_id", routeIds);': '''    for (const batch of chunks(routeIds, 25)) {
-              await remove("route_stops", service.from("route_stops").delete().in("route_id", batch));
-            }'''.replace("              await", "      await").replace("            }", "    }"),
-              '    await removeByIds("route_order_state", "route_order_state", "route_id", routeIds);': '''    for (const batch of chunks(routeIds, 25)) {
-              await remove("route_order_state", service.from("route_order_state").delete().in("route_id", batch));
-            }'''.replace("              await", "      await").replace("            }", "    }"),
-              '    if (routeIds.length) await removeByIds("routes", "routes", "id", routeIds);': '    if (routeIds.length) await removeByIds("routes", "routes", "id", routeIds, true);',
-          }
-          for old, new in replacements.items():
-              if old not in text:
-                  raise SystemExit(f"Explicit canonical cleanup anchor not found: {old}")
-              text = text.replace(old, new, 1)
-
-          core_cleanup_pattern = re.compile(
-              r'  if \(visitsDeleted\) \{.*?\n  \}\n\n  const storageDelete',
-              re.S,
-          )
-          core_cleanup_replacement = '''  if (!visitsDeleted) {
-            console.warn("operational-simulator cleanup archived core rows because Visit deletion was unavailable.");
-          }
-          const archivedAt = new Date().toISOString();
-          if (customerIds.length) await updateByIds("archive customers", "customers", { archived_at: archivedAt }, "id", customerIds);
-          if (jobIds.length) await updateByIds("deactivate jobs", "jobs", { active: false }, "id", jobIds);
-          if (employeeIds.length) await updateByIds("deactivate employees", "employees", { active: false }, "id", employeeIds);
-          if (crewIds.length) await updateByIds("deactivate crews", "crews", { active: false }, "id", crewIds);
-          if (profileIds.length) await updateByIds("deactivate profiles", "profiles", { active: false }, "id", profileIds);
-
-          const storageDelete'''
-          core_cleanup_replacement = "\n".join(
-              ("  " + line if line and not line.startswith("  ") else line)
-              for line in core_cleanup_replacement.splitlines()
-          )
-          text, count = core_cleanup_pattern.subn(core_cleanup_replacement, text, count=1)
-          if count != 1:
-              raise SystemExit(f"Protected core archive patch matched {count} blocks")
-
-          path.write_text(text)
-          PY
+          python scripts/qa-finalize-operational-blockers.py
           git diff --check
 
       - uses: pnpm/action-setup@v4
@@ -204,10 +97,12 @@ jobs:
           }
           for path, required_fragments in migrations.items():
               source = Path(path)
-              if not source.is_file(): raise SystemExit(f"Missing canonical migration source: {path}")
+              if not source.is_file():
+                  raise SystemExit(f"Missing canonical migration source: {path}")
               text = source.read_text().lower()
               for fragment in required_fragments:
-                  if fragment.lower() not in text: raise SystemExit(f"Canonical migration source {path} is missing contract fragment: {fragment}")
+                  if fragment.lower() not in text:
+                      raise SystemExit(f"Canonical migration source {path} is missing contract fragment: {fragment}")
           print("Canonical database migration sources are present and structurally verified.")
           PY
 
@@ -264,15 +159,16 @@ jobs:
             /tmp/damasio-simulator-server.log
           if-no-files-found: ignore
 
-      - name: Commit validated fixes and restore normal QA gate
+      - name: Persist validated blocker fixes
         if: success()
         run: |
-          git checkout 28e5bba45ace5977c1b4a7b76e02a75d2fdbaa08 -- .github/workflows/operational-simulator-e2e.yml
-          git rm -f scripts/qa-final-two-blockers.py
-          if [ -f .github/workflows/qa-final-two-blockers.yml ]; then git rm -f .github/workflows/qa-final-two-blockers.yml; fi
           git config user.name "Damasio QA Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add app/api/admin/operational-simulator/route.ts app/api/admin/operational-simulator/exceptions/route.ts lib/routes/projectCanonicalVisitOrderCompatibility.ts lib/repositories/customerPortalRepository.ts .github/workflows/operational-simulator-e2e.yml
+          git add app/api/admin/operational-simulator/route.ts app/api/admin/operational-simulator/exceptions/route.ts lib/routes/projectCanonicalVisitOrderCompatibility.ts lib/repositories/customerPortalRepository.ts
           git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No pending validated blocker fixes to persist."
+            exit 0
+          fi
           git commit -m "Fix remaining operational QA blockers"
           git push origin HEAD:qa/full-ecosystem-e2e-20260807
