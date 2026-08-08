@@ -12,33 +12,38 @@ const defaults: CustomerPaymentPreferences = {
   tipPaymentMethod: "card",
 };
 
-async function accessToken() {
-  const supabase = getSupabaseBrowserClient();
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) throw new Error("Sign in before changing payment preferences.");
-  return token;
+function isMissingPreferenceRpc(message: string) {
+  const value = message.toLowerCase();
+  return value.includes("get_customer_payment_preferences") ||
+    value.includes("save_customer_payment_preferences") ||
+    value.includes("schema cache") ||
+    value.includes("pgrst202");
 }
 
 export async function getCustomerPaymentPreferences(): Promise<CustomerPaymentPreferences> {
-  const token = await accessToken();
-  const response = await fetch("/api/customer/payment-preferences", {
-    headers: { authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "Payment preferences could not be loaded.");
-  return { ...defaults, ...result };
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase.rpc("get_customer_payment_preferences" as never);
+  if (error) {
+    if (isMissingPreferenceRpc(error.message)) {
+      console.warn("customer-payment-preferences-rpc-unavailable");
+      return defaults;
+    }
+    throw new Error("Payment preferences are temporarily unavailable.");
+  }
+  return { ...defaults, ...((data || {}) as Partial<CustomerPaymentPreferences>) };
 }
 
 export async function saveCustomerPaymentPreferences(input: CustomerPaymentPreferences) {
-  const token = await accessToken();
-  const response = await fetch("/api/customer/payment-preferences", {
-    method: "PATCH",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify(input),
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "Payment preferences could not be saved. Please try again.");
-  return { ...defaults, ...result };
+  const supabase = getSupabaseBrowserClient();
+  const { data, error } = await supabase.rpc("save_customer_payment_preferences" as never, {
+    p_service_payment_method: input.servicePaymentMethod,
+    p_tip_payment_method: input.tipPaymentMethod,
+  } as never);
+  if (error) {
+    if (isMissingPreferenceRpc(error.message)) {
+      throw new Error("Payment preferences will be available after the account update is completed.");
+    }
+    throw new Error("Payment preferences could not be saved. Please try again.");
+  }
+  return { ...defaults, ...((data || {}) as Partial<CustomerPaymentPreferences>) };
 }

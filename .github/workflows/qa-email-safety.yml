@@ -1,0 +1,25 @@
+name: QA Email Safety
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "tests/**"
+      - "scripts/validate-qa-email-safety.mjs"
+      - ".github/workflows/qa-email-safety.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Block transactional email from QA fixtures
+        run: node scripts/validate-qa-email-safety.mjs

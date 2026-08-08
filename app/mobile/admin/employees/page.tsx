@@ -96,7 +96,7 @@ export default function MobileEmployees() {
       const payload = {
         id: selected.id,
         ...nextForm,
-        dailyRouteCapacity: Math.max(1, Math.min(60, Math.trunc(Number(nextForm.dailyRouteCapacity || 0)))),
+        dailyRouteCapacity: Math.max(1, Math.trunc(Number(nextForm.dailyRouteCapacity || 0))),
         phone: nextForm.phone || null,
         addressLine1: nextForm.addressLine1 || null,
         city: nextForm.city || null,
@@ -152,7 +152,7 @@ export default function MobileEmployees() {
       <label>Phone<input value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} /></label>
       <label>Home address<AddressAutocomplete value={form.addressLine1} onChange={value => setForm({ ...form, addressLine1: value, routeStartAddress: form.routeStartAddress || value })} placeholder="Employee home address" /></label>
       <label>Default route start<AddressAutocomplete value={form.routeStartAddress} onChange={value => setForm({ ...form, routeStartAddress: value })} placeholder="Where routes normally start" /></label>
-      <label>Maximum houses per day<input type="number" min="1" max="60" value={form.dailyRouteCapacity} onChange={event => setForm({ ...form, dailyRouteCapacity: Number(event.target.value) })} /></label>
+      <label>Maximum houses per day<input type="number" min="1" value={form.dailyRouteCapacity} onChange={event => setForm({ ...form, dailyRouteCapacity: Number(event.target.value) })} /></label>
       <button className="mobile-native-submit" disabled={busy} onClick={() => void save()}>{busy ? "Saving..." : "Save profile"}</button>
       <div className="mobile-return-actions"><button disabled={busy} onClick={() => void toggle()}>{form.active ? "Deactivate" : "Activate"}</button><button disabled={busy} onClick={() => void remove()}>Delete employee</button></div>
     </section></div>}

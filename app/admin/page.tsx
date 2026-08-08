@@ -281,8 +281,8 @@ export default function Admin() {
   const openInvoices = data.invoices.filter((invoice) => invoice.status !== "paid" && invoice.status !== "rejected").slice(0, 4);
 
   return (
-    <AdminShell active="Dashboard">
-      <section className="studio-page-head">
+    <AdminShell active="Operations Studio">
+      <section className="studio-page-head operations-studio-hero">
         <div>
           <h1>Operations Command Center</h1>
           <p>Live desktop view for dispatch, approvals, customers, billing and service quality.</p>

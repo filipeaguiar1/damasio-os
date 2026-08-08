@@ -56,6 +56,7 @@ export default function CustomerProfilePage({ params }: { params: { id: string }
   const [detailsOpen, setDetailsOpen] = useState(true);
   const [photoHistory, setPhotoHistory] = useState<PropertyPhotoHistory | null>(null);
   const [responseNote, setResponseNote] = useState("");
+  const [expandedVisitIds, setExpandedVisitIds] = useState<string[]>([]);
 
   async function refresh() {
     const token = await accessToken();
@@ -65,7 +66,10 @@ export default function CustomerProfilePage({ params }: { params: { id: string }
     const next = result as AdminRecord;
     setRecord(next);
 
-    const board = await loadSchedulingDispatchBoard({ force: true });
+    const [board, nextPhotoHistory] = await Promise.all([
+      loadSchedulingDispatchBoard(),
+      getPropertyPhotoHistory(next.property.id).catch(() => null),
+    ]);
     const jobs = [...board.unscheduledJobs, ...board.assignedJobs];
     const job = jobs.find((item) => item.propertyId === next.property.id);
     const visits = board.visits.filter((item) => item.propertyId === next.property.id).sort((a, b) => b.scheduledDate.localeCompare(a.scheduledDate));
@@ -103,7 +107,7 @@ export default function CustomerProfilePage({ params }: { params: { id: string }
         adminNotes: plan.notes || undefined,
       },
     });
-    await getPropertyPhotoHistory(next.property.id).then(setPhotoHistory).catch(() => setPhotoHistory(null));
+    setPhotoHistory(nextPhotoHistory);
     setMessage("");
   }
 
@@ -148,6 +152,10 @@ export default function CustomerProfilePage({ params }: { params: { id: string }
     finally { setBusy(false); }
   }
 
+  function toggleVisit(visitId: string) {
+    setExpandedVisitIds((current) => current.includes(visitId) ? current.filter((id) => id !== visitId) : [...current, visitId]);
+  }
+
   if (!record || !lead) return <AdminShell active="Customers"><div className="card profile-card"><h2>{message || "Property not found"}</h2></div></AdminShell>;
 
   const property = record.property;
@@ -173,16 +181,22 @@ export default function CustomerProfilePage({ params }: { params: { id: string }
 
     {tab === "customer" && <section className="card profile-card"><div className="table-head"><div><h2>{record.permissions.canEditCustomer ? "Customer" : "Platform customer"}</h2><p className="section-intro">{record.permissions.canEditCustomer ? "This customer belongs to your company. Changes save directly to the database." : "Contact details are protected and profile changes are Master-only."}</p></div>{record.permissions.lockedByPlatform && <span className="pill">Master managed</span>}</div><div className="form-grid"><div className="field"><label>Name</label><input className="input" disabled={!record.permissions.canEditCustomer} value={record.customer.full_name || ""} onChange={(event) => setRecord({ ...record, customer: { ...record.customer, full_name: event.target.value } })} /></div>{!record.permissions.contactHidden && <><div className="field"><label>Phone</label><input className="input" disabled={!record.permissions.canEditCustomer} value={record.customer.phone || ""} onChange={(event) => setRecord({ ...record, customer: { ...record.customer, phone: event.target.value } })} /></div><div className="field"><label>Email</label><input className="input" disabled={!record.permissions.canEditCustomer} value={record.customer.email || ""} onChange={(event) => setRecord({ ...record, customer: { ...record.customer, email: event.target.value } })} /></div></>}<div className="field"><label>Customer notes</label><input className="input" disabled={!record.permissions.canEditCustomer} value={record.customer.notes || ""} onChange={(event) => setRecord({ ...record, customer: { ...record.customer, notes: event.target.value } })} /></div></div>{record.permissions.canEditCustomer && <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}><button className="btn btn-primary" disabled={busy} onClick={() => void saveCustomer()}>{busy ? "Saving…" : "Save customer"}</button></div>}</section>}
 
-    {tab === "property" && <section className="property-reference-layout">
-      <div className="property-reference-head"><h2>Contract</h2><button type="button" onClick={() => setDetailsOpen((value) => !value)}>{detailsOpen ? "Hide details" : "Show details"}</button></div>
-      <article className="property-contract-summary"><div className="property-contract-thumb">{lead.propertyPhoto ? <img src={lead.propertyPhoto} alt="Property" /> : <span>🏡</span>}</div><div><strong>{lead.address}</strong><small>{lead.service} · {plan.frequency} · {lead.nextVisitDate || lead.scheduledDate || "Route day pending"}</small></div><i>ⓘ</i></article>
-      {detailsOpen && <article className="property-compact-card">{details.accessNotes && <div className="property-access-banner">ⓘ {details.accessNotes}</div>}<dl><div><dt>Cut height</dt><dd>{String(details.grassHeight || "").replace("in", "")} inches</dd></div><div><dt>Lot size</dt><dd>{lotLabel(property.lot_size)}</dd></div><div><dt>Gate</dt><dd>{property.gate ? "Yes" : "No"}</dd></div><div><dt>Dog</dt><dd>{property.dog ? "Yes" : "No"}</dd></div><div><dt>Irrigation</dt><dd>{property.irrigation ? "Yes" : "No"}</dd></div><div><dt>Service level</dt><dd>{plan.frequency}</dd></div></dl></article>}
-      <section className="property-images"><h3>Images</h3><div>{lead.propertyPhoto ? <img src={lead.propertyPhoto} alt="Property" /> : <div className="property-no-images">No house photo yet</div>}</div></section>
-      <div className="property-edit-toggle"><span className="pill">Property details are Master-only</span></div>
+    {tab === "property" && <section className="property-profile-card">
+      <div className="property-main-photo">
+        {lead.propertyPhoto ? <img src={lead.propertyPhoto} alt={`Front view of ${lead.address}`} /> : <div className="property-photo-placeholder"><span>⌂</span><strong>No house photo yet</strong><small>Customer or Admin can add the main property photo.</small></div>}
+      </div>
+      <div className="property-address-row"><div><small>Property</small><h2>{lead.address}</h2></div><span className={`visit-badge ${visitStatus}`}><i></i>{lead.status === "completed" ? "Done" : "Open"}</span></div>
+      <div className="property-client-row"><span>Client</span><strong>{lead.name}</strong></div>
+      <div className="property-contract-head"><div><small>Contract</small><h3>{lead.service}</h3><p>{plan.frequency} · {lead.nextVisitDate || lead.scheduledDate || "Route day pending"}</p></div><button type="button" onClick={() => setDetailsOpen((value) => !value)} aria-expanded={detailsOpen}>{detailsOpen ? "Hide details" : "Show details"}</button></div>
+      {detailsOpen && <div className="property-contract-details">
+        {details.accessNotes && <div className="property-access-banner">ⓘ {details.accessNotes}</div>}
+        <dl><div><dt>Cut height</dt><dd>{String(details.grassHeight || "").replace("in", "")} inches</dd></div><div><dt>Lot size</dt><dd>{lotLabel(property.lot_size)}</dd></div><div><dt>Gate</dt><dd>{property.gate ? "Yes" : "No"}</dd></div><div><dt>Dog</dt><dd>{property.dog ? "Yes" : "No"}</dd></div><div><dt>Irrigation</dt><dd>{property.irrigation ? "Yes" : "No"}</dd></div><div><dt>Service level</dt><dd>{plan.frequency}</dd></div></dl>
+      </div>}
+      <div className="property-master-note">Property details are Master-only</div>
     </section>}
 
     {tab === "service" && <section className="card profile-card"><div className="table-head"><div><h2>Service overview</h2><p className="section-intro">Read-only operational data from the canonical job and visit records.</p></div><span className={`visit-badge ${visitStatus}`}><i></i>{lead.status === "completed" ? "Done" : "Open"}</span></div><div className="detail-grid"><div className="detail-box"><div className="detail-label">Property</div><div className="detail-value">{lead.address}</div><small>Database address</small></div><div className="detail-box"><div className="detail-label">Service</div><div className="detail-value">{lead.service}</div><small>{plan.frequency}</small></div><div className="detail-box"><div className="detail-label">Company value</div><div className="detail-value">${Number(record.offer.price || 0).toFixed(2)}</div><small>CAD</small></div><div className="detail-box"><div className="detail-label">Status</div><div className="detail-value">{lead.status === "completed" ? "Done" : "Open"}</div><small>{lead.nextVisitDate || lead.scheduledDate || "Not scheduled"}</small></div><div className="detail-box"><div className="detail-label">Started</div><div className="detail-value">{clock(lead.visitStartedAt)}</div><small>Employee record</small></div><div className="detail-box"><div className="detail-label">Finished</div><div className="detail-value">{clock(lead.visitFinishedAt)}</div><small>{formatDuration(lead.visitDurationSeconds || 0)}</small></div></div></section>}
 
-    {tab === "history" && <section className="card profile-card"><div className="table-head"><div><h2>Service history</h2><p className="section-intro">Every service completed for this property while assigned to this company.</p></div><span className="pill">{visits.length} visits</span></div><div className="property-visit-history">{visits.map((visit) => <article key={visit.id}><header><div><small>{new Date(`${visit.scheduled_date}T12:00:00`).toLocaleDateString()}</small><h3>{visit.service_name}</h3></div><span>{visit.status}</span></header><div className="property-visit-meta"><span>Started <strong>{clock(visit.started_at)}</strong></span><span>Finished <strong>{clock(visit.finished_at)}</strong></span><span>Duration <strong>{formatDuration(visit.duration_seconds || 0)}</strong></span></div><p>{visit.customer_visible_summary || visit.employee_notes || "No completion notes recorded."}</p>{visit.photos.length ? <div className="property-visit-photos">{visit.photos.map((photo) => <figure key={photo.id}><img src={photo.url} alt={photo.caption || `${visit.service_name} ${photo.type}`} /><figcaption>{photo.caption || photo.type}</figcaption></figure>)}</div> : <div className="property-no-images">No service photos for this visit</div>}</article>)}{!visits.length && <div className="empty-state"><strong>No service history yet.</strong><p>Completed visits for this company will appear here.</p></div>}</div></section>}
+    {tab === "history" && <section className="card profile-card service-history-card"><div className="table-head service-history-head"><div><h2>Service history</h2><p className="section-intro">Every service completed for this property while assigned to this company.</p></div><span className="pill history-count-pill">{visits.length} visits</span></div><div className="property-visit-history">{visits.map((visit) => { const open = expandedVisitIds.includes(visit.id); return <article key={visit.id} className={open ? "history-visit open" : "history-visit"}><button type="button" className="history-visit-summary" onClick={() => toggleVisit(visit.id)} aria-expanded={open}><div><small>{new Date(`${visit.scheduled_date}T12:00:00`).toLocaleDateString()}</small><strong>{visit.service_name}</strong></div><span className="history-visit-status">{visit.status}</span><b aria-hidden="true">{open ? "⌃" : "⌄"}</b></button>{open && <div className="history-visit-body"><div className="property-visit-meta"><span>Started <strong>{clock(visit.started_at)}</strong></span><span>Finished <strong>{clock(visit.finished_at)}</strong></span><span>Duration <strong>{formatDuration(visit.duration_seconds || 0)}</strong></span></div><p>{visit.customer_visible_summary || visit.employee_notes || "No completion notes recorded."}</p>{visit.photos.length ? <div className="property-visit-photos">{visit.photos.map((photo) => <figure key={photo.id}><img src={photo.url} alt={photo.caption || `${visit.service_name} ${photo.type}`} /><figcaption>{photo.caption || photo.type}</figcaption></figure>)}</div> : <div className="property-no-images">No service photos for this visit</div>}</div>}</article> })}{!visits.length && <div className="empty-state"><strong>No service history yet.</strong><p>Completed visits for this company will appear here.</p></div>}</div></section>}
   </AdminShell>;
 }

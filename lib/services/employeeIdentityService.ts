@@ -19,6 +19,21 @@ function cleanFallbackCrew(value?: string) {
   return /^Crew\s+[A-C]$/i.test(crew) ? "" : crew;
 }
 
+function storedAccessToken() {
+  if (typeof window === "undefined") return null;
+  for (const key of Object.keys(window.localStorage)) {
+    if (!key.startsWith("sb-") || !key.endsWith("-auth-token")) continue;
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(key) || "null");
+      const token = stored?.access_token || stored?.currentSession?.access_token;
+      if (typeof token === "string" && token.length > 20) return token;
+    } catch {
+      // Ignore malformed unrelated browser storage.
+    }
+  }
+  return null;
+}
+
 export async function loadEmployeeOperationalIdentity(): Promise<EmployeeOperationalIdentity> {
   const local = getEmployeeProfile();
   const fallback = {
@@ -30,19 +45,49 @@ export async function loadEmployeeOperationalIdentity(): Promise<EmployeeOperati
   };
   if (!isSupabaseConfigured()) return fallback;
 
+  // Use the same service-backed bootstrap as mobile. It resolves legacy duplicate
+  // Employee rows and does not depend on the browser SDK auth lock.
+  const persistedToken = storedAccessToken();
+  if (persistedToken) {
+    try {
+      const response = await fetch("/api/mobile/employee/bootstrap", {
+        method: "POST",
+        headers: { authorization: `Bearer ${persistedToken}` },
+        cache: "no-store",
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.ok && result.employee?.id) {
+        return {
+          name: result.employee.name || fallback.name,
+          crew: result.employee.crewName || fallback.crew,
+          employeeId: result.employee.id,
+          crewId: result.employee.crewId || null,
+          routeStartAddress: result.employee.routeStartAddress || fallback.routeStartAddress,
+        };
+      }
+    } catch {
+      // Fall through to the browser query for offline/older deployments.
+    }
+  }
+
   try {
     const supabase = getSupabaseBrowserClient() as any;
     const { data: auth } = await supabase.auth.getUser();
     const user = auth?.user;
     if (!user?.id) return fallback;
 
-    const select = "id,full_name,email,crew_id,profile_id,address_line1,route_start_address,crews(id,name)";
-    let { data: employee, error } = await supabase
+    const select = "id,full_name,email,crew_id,profile_id,address_line1,route_start_address,created_at,crews(id,name)";
+    const byProfile = await supabase
       .from("employees")
       .select(select)
       .eq("profile_id", user.id)
       .eq("active", true)
-      .maybeSingle();
+      .order("created_at", { ascending: false })
+      .limit(20);
+    let error = byProfile.error;
+    let employee = (byProfile.data || []).find((candidate: any) => Boolean(candidate.crew_id))
+      || byProfile.data?.[0]
+      || null;
 
     if ((!employee || error) && user.email) {
       const byEmail = await supabase
@@ -50,8 +95,11 @@ export async function loadEmployeeOperationalIdentity(): Promise<EmployeeOperati
         .select(select)
         .ilike("email", user.email.trim())
         .eq("active", true)
-        .maybeSingle();
-      employee = byEmail.data;
+        .order("created_at", { ascending: false })
+        .limit(20);
+      employee = (byEmail.data || []).find((candidate: any) => Boolean(candidate.crew_id))
+        || byEmail.data?.[0]
+        || null;
       error = byEmail.error;
 
       if (employee && !employee.profile_id) {

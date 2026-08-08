@@ -50,12 +50,12 @@ export async function POST(request: NextRequest) {
 
     const { data: invoice, error: invoiceError } = await db
       .from("invoices")
-      .select("id,company_id,organization_id,customer_id,invoice_number,status,total,stripe_checkout_session_id")
+      .select("id,organization_id,customer_id,invoice_number,status,total,stripe_checkout_session_id")
       .eq("id", invoiceId)
       .single();
     if (invoiceError || !invoice) return failure("Invoice not found.", 404);
 
-    const companyId = invoice.company_id || invoice.organization_id;
+    const companyId = invoice.organization_id;
     const [{ data: profile }, { data: customer }] = await Promise.all([
       db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
       db.from("customers").select("id,profile_id,email,full_name").eq("id", invoice.customer_id).maybeSingle()
@@ -135,12 +135,12 @@ export async function DELETE(request: NextRequest) {
 
     const { data: invoice, error: invoiceError } = await db
       .from("invoices")
-      .select("id,company_id,organization_id,customer_id,status,stripe_checkout_session_id")
+      .select("id,organization_id,customer_id,status,stripe_checkout_session_id")
       .eq("id", invoiceId)
       .maybeSingle();
     if (invoiceError || !invoice) return failure("Invoice not found.", 404);
 
-    const companyId = invoice.company_id || invoice.organization_id;
+    const companyId = invoice.organization_id;
     const [{ data: profile }, { data: customer }] = await Promise.all([
       db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
       db.from("customers").select("profile_id").eq("id", invoice.customer_id).maybeSingle()

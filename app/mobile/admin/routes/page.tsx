@@ -9,8 +9,10 @@ import { RouteAdvisorPanel } from "@/components/admin/RouteAdvisorPanel";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulingService";
 import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
-import { belongsToCanonicalEmployee } from "@/lib/routes/canonicalRouteIdentity";
+import { canonicalRouteLeadsForEmployee } from "@/lib/routes/canonicalRouteIdentity";
 import { operationalDateKey } from "@/lib/dates/operationalDate";
+import { useCanonicalRouteSnapshot } from "@/lib/hooks/useCanonicalRouteSnapshot";
+import { applyEmployeeRouteMapContext, employeeRouteMapContextFromSnapshot } from "@/lib/services/routeMapService";
 
 type Mode = "view" | "build" | "advisor" | "move";
 type MoveMode = "temporary" | "permanent";
@@ -19,10 +21,13 @@ type RouteEmployee = {
   id: string;
   employeeId: string;
   crewId: string;
+  employeeIds?: string[];
+  crewIds?: string[];
   name: string;
   email: string;
   routeStartAddress: string | null;
 };
+type RouteOrigin = { latitude: number; longitude: number; label: string };
 
 const today = () => operationalDateKey();
 const selectionId = (home: RouteLead) => home.canonicalVisitId || home.canonicalJobId || home.id;
@@ -66,10 +71,12 @@ export default function MobileAdminRoutes() {
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [advisorHelp, setAdvisorHelp] = useState<AdvisorHelp>(null);
+  const [routeOrigin, setRouteOrigin] = useState<RouteOrigin | null>(null);
+  const [canonicalRouteId, setCanonicalRouteId] = useState<string | null>(null);
 
   async function refresh(clearMessage = true) {
     try {
-      const result = await api("/api/admin/routes");
+      const result = await api(`/api/admin/routes?date=${encodeURIComponent(date)}`);
       const realEmployees: RouteEmployee[] = result.employees || [];
       setEmployees(realEmployees);
       setLeads(schedulingBoardToLeads((result.board || {}) as SchedulingDispatchBoard));
@@ -89,22 +96,88 @@ export default function MobileAdminRoutes() {
     void refresh();
     const timer = window.setInterval(() => void refresh(false), 10_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [date]);
 
   const employee = employees.find(item => item.id === employeeId) || null;
   const targetEmployee = employees.find(item => item.id === targetEmployeeId) || null;
 
-  const route = useMemo(() => {
+  useEffect(() => {
+    let cancelled = false;
+    setCanonicalRouteId(null);
+    if (!employee?.id || !date) return () => { cancelled = true; };
+
+    const resolveCanonicalRoute = async () => {
+      let lastError: unknown = null;
+      for (const delay of [0, 250, 750, 1500, 3000]) {
+        if (delay) await new Promise(resolve => window.setTimeout(resolve, delay));
+        if (cancelled) return;
+        try {
+          const result = await api(`/api/admin/canonical-route?profileId=${encodeURIComponent(employee.id)}&date=${encodeURIComponent(date)}`);
+          if (cancelled) return;
+          setCanonicalRouteId(String(result.routeId || "") || null);
+          setMessage("");
+          return;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (!cancelled) setMessage(lastError instanceof Error ? lastError.message : "Canonical Route could not be resolved.");
+    };
+
+    void resolveCanonicalRoute();
+    return () => { cancelled = true; };
+  }, [employee?.id, date]);
+
+  const { snapshot: canonicalSnapshot, error: canonicalError, loading: canonicalLoading } = useCanonicalRouteSnapshot(canonicalRouteId);
+
+  useEffect(() => {
+    if (canonicalError) setMessage(canonicalError);
+  }, [canonicalError]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRouteOrigin(null);
+    const address = employee?.routeStartAddress?.trim();
+    if (!address) return () => { cancelled = true; };
+
+    void fetch(`/api/map/geocode?address=${encodeURIComponent(address)}`, { cache: "no-store" })
+      .then(response => {
+        if (!response.ok) throw new Error("Route start could not be mapped.");
+        return response.json() as Promise<{ latitude: number; longitude: number }>;
+      })
+      .then(point => {
+        if (cancelled || !Number.isFinite(point.latitude) || !Number.isFinite(point.longitude)) return;
+        setRouteOrigin({
+          latitude: Number(point.latitude),
+          longitude: Number(point.longitude),
+          label: `${employee?.name || "Employee"} start`,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setRouteOrigin(null);
+      });
+
+    return () => { cancelled = true; };
+  }, [employee?.id, employee?.name, employee?.routeStartAddress]);
+
+  const operationalRoute = useMemo(() => {
     if (!employee) return [];
-    const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId };
-    return leads
-      .filter(item => item.canonicalVisitId
-        && item.canonicalRouteId
-        && item.scheduledDate === date
-        && belongsToCanonicalEmployee(item, identity))
+    const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId, employeeIds: employee.employeeIds, crewIds: employee.crewIds };
+    const datedVisits = leads.filter(item => item.canonicalVisitId
+      && item.canonicalRouteId
+      && item.scheduledDate === date);
+    return canonicalRouteLeadsForEmployee(datedVisits, identity)
       .sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999)
         || a.address.localeCompare(b.address));
   }, [leads, employee, date]);
+
+  const route = useMemo(() => {
+    if (!canonicalSnapshot || canonicalSnapshot.routeId !== canonicalRouteId) return [] as RouteLead[];
+    return applyEmployeeRouteMapContext(
+      operationalRoute,
+      employeeRouteMapContextFromSnapshot(canonicalSnapshot),
+    ) as RouteLead[];
+  }, [operationalRoute, canonicalSnapshot, canonicalRouteId]);
 
   const jobs = useMemo(() => leads.filter(item => !item.canonicalVisitId), [leads]);
   const availableJobs = useMemo(() => jobs.filter(item => !item.canonicalCrewId), [jobs]);
@@ -139,11 +212,7 @@ export default function MobileAdminRoutes() {
     try {
       const result = await api("/api/admin/routes", {
         method: "POST",
-        body: JSON.stringify({
-          action: "assign",
-          jobIds: selected,
-          crewId: employee.crewId,
-        }),
+        body: JSON.stringify({ action: "assign", jobIds: selected, crewId: employee.crewId }),
       });
       setSelected([]);
       await refresh(false);
@@ -160,19 +229,16 @@ export default function MobileAdminRoutes() {
       setMessage("Select scheduled houses and the destination Employee.");
       return;
     }
-
     const visits = movableRoute.filter(home => selected.includes(selectionId(home)));
     if (!visits.length) {
       setMessage("Only Scheduled Visits from the selected day can be moved.");
       return;
     }
-
     const permanent = moveMode === "permanent";
     const confirmed = window.confirm(permanent
       ? `Permanently assign ${visits.length} house${visits.length === 1 ? "" : "s"} to ${targetEmployee.name}? Future Scheduled Visits will also move.`
       : `Temporarily send ${visits.length} house${visits.length === 1 ? "" : "s"} to ${targetEmployee.name} for ${date}? Permanent ownership will not change.`);
     if (!confirmed) return;
-
     setBusy(true);
     try {
       const result = await api("/api/admin/route-assignment", {
@@ -201,7 +267,9 @@ export default function MobileAdminRoutes() {
     ? "Assign new customers."
     : mode === "move"
       ? "Temporary or permanent move."
-      : `${route.length} published stops for ${employee?.name || "Employee"}.`;
+      : canonicalLoading
+        ? `Loading the official route for ${employee?.name || "Employee"}…`
+        : `${route.length} published stops for ${employee?.name || "Employee"}.`;
 
   const helpText = advisorHelp === "recommend"
     ? "Recommendation compares distance, workload, capacity, due date and the regular Employee. It never publishes automatically."
@@ -223,7 +291,7 @@ export default function MobileAdminRoutes() {
         <span>LIVE DATABASE</span>
         <h1>{heroTitle}</h1>
         <p>{mode === "view"
-          ? `${done} completed · ${route.length - done} remaining`
+          ? `${done} completed · ${route.length - done} remaining${canonicalSnapshot ? ` · v${canonicalSnapshot.routeVersion}` : ""}`
           : mode === "build"
             ? "Customer Job → permanent Employee"
             : "Scheduled Visit → chosen Employee"}</p>
@@ -250,7 +318,13 @@ export default function MobileAdminRoutes() {
       {mode === "view" && <>
         <div className="mobile-native-toggle"><button className={mapView ? "active" : ""} onClick={() => setMapView(true)}>Map</button><button className={!mapView ? "active" : ""} onClick={() => setMapView(false)}>List <b>{route.length}</b></button></div>
         {mapView
-          ? <EmployeeRouteMap route={route} actionLabel="Show in list" onOpenVisit={() => setMapView(false)} />
+          ? <EmployeeRouteMap
+              route={route}
+              routeId={canonicalRouteId || undefined}
+              originPoint={routeOrigin}
+              actionLabel="Show in list"
+              onOpenVisit={() => setMapView(false)}
+            />
           : <RouteList homes={route} selected={[]} onToggle={() => {}} selectable={false} />}
       </>}
 
@@ -316,7 +390,7 @@ function RouteList({ homes, selected, onToggle, selectable }: {
       const id = selectionId(home);
       const complete = home.canonicalVisitStatus === "completed" || home.status === "completed";
       return <button className={selected.includes(id) ? "selected" : ""} onClick={() => selectable && onToggle(id)} type="button" key={id}>
-        <b>{selectable ? (selected.includes(id) ? "✓" : "") : index + 1}</b>
+        <b>{selectable ? (selected.includes(id) ? "✓" : "") : home.routeOrder || index + 1}</b>
         <div><strong>{home.name}</strong><span>{home.address}</span><small>{home.service} · {home.assignedCrew || "Unassigned"}</small></div>
         <i className={complete ? "done" : ""}>{complete ? "Done" : home.canonicalRouteId ? home.assignedCrew || "Scheduled" : "Available"}</i>
       </button>;

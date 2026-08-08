@@ -1,4 +1,7 @@
 name: Operational Simulator E2E
+# Final authenticated release gate for the canonical Route.
+# Pending validated blocker fixes may be materialized once, then every later run
+# validates the persisted branch without changing assertions or timeouts.
 
 on:
   pull_request:
@@ -7,32 +10,54 @@ on:
     paths:
       - "app/api/admin/operational-simulator/**"
       - "app/api/customer/portal-actions/**"
+      - "app/api/map/**"
       - "app/admin/performance/**"
+      - "app/employee/route/page.tsx"
+      - "app/mobile/admin/routes/page.tsx"
+      - "app/mobile/employee/page.tsx"
+      - "components/admin/OfficialRoutePlanMap.tsx"
+      - "components/mobile/EmployeeRouteMap.tsx"
+      - "lib/hooks/useCanonicalRouteSnapshot.ts"
       - "lib/repositories/customerPortalRepository.ts"
+      - "lib/routes/canonicalRouteSnapshot.ts"
+      - "lib/routes/projectCanonicalVisitOrderCompatibility.ts"
+      - "lib/routes/verifyCanonicalRoutePersistence.ts"
+      - "lib/services/routeMapService.ts"
       - "lib/simulator/**"
+      - "scripts/qa-final-two-blockers.py"
+      - "scripts/qa-finalize-operational-blockers.py"
       - "supabase/migrations/202607290001_customer_portal_action_contract.sql"
+      - "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql"
+      - "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql"
+      - "supabase/migrations/202608031030_canonical_route_one_way_projection.sql"
+      - "supabase/migrations/202608031100_lock_active_canonical_route_order.sql"
+      - "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql"
+      - "supabase/migrations/202608070002_operational_simulator_visit_cleanup.sql"
+      - "supabase/migrations/202608071610_route_stops_visit_projection.sql"
+      - "supabase/migrations/202608071620_route_employee_lookup_indexes.sql"
       - "tests/operational-simulator.spec.ts"
+      - "tests/canonical-route-sync.spec.ts"
       - "public/demo/simulation-lawn-after.svg"
       - ".github/workflows/operational-simulator-e2e.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
+# Full Ecosystem and Operational Simulator share the same QA database.
+# Keep the heavy E2E suites serialized so one cannot starve the other.
 concurrency:
-  group: operational-simulator-v1
-  cancel-in-progress: true
+  group: damasio-heavy-e2e-qa
+  cancel-in-progress: false
 
 jobs:
   simulator:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_MANAGEMENT_ACCESS_TOKEN: ${{ secrets.SUPABASE_MANAGEMENT_ACCESS_TOKEN }}
       E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
       E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
       NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
@@ -40,47 +65,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: feature/25-30-homes-simulator-v1
+          ref: qa/full-ecosystem-e2e-20260807
+          fetch-depth: 0
 
-      - name: Apply Customer portal database contract when authorized
+      - name: Apply pending validated blocker fixes
         run: |
-          python - <<'PY'
-          import json
-          import os
-          import sys
-          import urllib.error
-          import urllib.parse
-          import urllib.request
-          from pathlib import Path
-
-          token = os.environ.get("SUPABASE_ACCESS_TOKEN") or os.environ.get("SUPABASE_MANAGEMENT_ACCESS_TOKEN")
-          if not token:
-              print("Supabase management token is not configured; using the database's current migration state.")
-              sys.exit(0)
-
-          project_url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL", "")
-          hostname = urllib.parse.urlparse(project_url).hostname or ""
-          project_ref = hostname.split(".")[0]
-          if not project_ref:
-              raise SystemExit("Could not resolve the Supabase project ref.")
-
-          query = Path("supabase/migrations/202607290001_customer_portal_action_contract.sql").read_text()
-          request = urllib.request.Request(
-              f"https://api.supabase.com/v1/projects/{project_ref}/database/query",
-              data=json.dumps({"query": query, "read_only": False}).encode(),
-              headers={
-                  "Authorization": f"Bearer {token}",
-                  "Content-Type": "application/json",
-              },
-              method="POST",
-          )
-          try:
-              with urllib.request.urlopen(request, timeout=180) as response:
-                  print(f"Customer portal migration applied: HTTP {response.status}")
-          except urllib.error.HTTPError as error:
-              detail = error.read().decode(errors="replace")
-              raise SystemExit(f"Supabase migration failed: HTTP {error.code}: {detail[:1000]}")
-          PY
+          python scripts/qa-finalize-operational-blockers.py
+          git diff --check
 
       - uses: pnpm/action-setup@v4
         with:
@@ -90,6 +81,32 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+
+      - name: Verify canonical database contract sources
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          migrations = {
+              "supabase/migrations/202607290001_customer_portal_action_contract.sql": [],
+              "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql": [],
+              "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql": ["route_stops_sync_visit_order_insert", "route_stops_sync_visit_order_update", "route_stops_sync_visit_order_delete"],
+              "supabase/migrations/202608031030_canonical_route_one_way_projection.sql": ["sync_canonical_route_stops_v2", "update public.visits"],
+              "supabase/migrations/202608031100_lock_active_canonical_route_order.sql": ["guard_active_canonical_route_order_trigger"],
+              "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql": ["route_order_audit", "route_stops"],
+              "supabase/migrations/202608070002_operational_simulator_visit_cleanup.sql": ["cleanup_operational_simulation_visits", "service_role"],
+              "supabase/migrations/202608071610_route_stops_visit_projection.sql": ["project_route_stop_to_visit_order", "route_stops", "visits"],
+              "supabase/migrations/202608071620_route_employee_lookup_indexes.sql": ["employees_profile_id_idx", "profiles_company_role_active_name_idx"],
+          }
+          for path, required_fragments in migrations.items():
+              source = Path(path)
+              if not source.is_file():
+                  raise SystemExit(f"Missing canonical migration source: {path}")
+              text = source.read_text().lower()
+              for fragment in required_fragments:
+                  if fragment.lower() not in text:
+                      raise SystemExit(f"Canonical migration source {path} is missing contract fragment: {fragment}")
+          print("Canonical database migration sources are present and structurally verified.")
+          PY
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -117,6 +134,15 @@ jobs:
       - name: Run full two-month operational simulation
         run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
 
+      - name: Validate canonical route on four authenticated screens
+        if: ${{ !cancelled() }}
+        run: |
+          if ! command -v pnpm >/dev/null 2>&1; then
+            echo "pnpm is unavailable because runner setup did not complete."
+            exit 1
+          fi
+          pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
+
       - name: Upload screenshots and server log
         if: always()
         uses: actions/upload-artifact@v4
@@ -127,5 +153,24 @@ jobs:
             employee-live-route.png
             customer-feedback-result.png
             customer-feedback.png
+            customer-desktop-qa.png
+            canonical-admin-web.png
+            canonical-admin-mobile.png
+            canonical-employee-web.png
+            canonical-employee-mobile.png
             /tmp/damasio-simulator-server.log
           if-no-files-found: ignore
+
+      - name: Persist validated blocker fixes
+        if: success()
+        run: |
+          git config user.name "Damasio QA Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/api/admin/operational-simulator/route.ts app/api/admin/operational-simulator/exceptions/route.ts lib/routes/projectCanonicalVisitOrderCompatibility.ts lib/repositories/customerPortalRepository.ts
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No pending validated blocker fixes to persist."
+            exit 0
+          fi
+          git commit -m "Fix remaining operational QA blockers"
+          git push origin HEAD:qa/full-ecosystem-e2e-20260807

@@ -63,6 +63,7 @@ type VisitRow = {
   id: string;
   customer_id: string;
   route_id: string | null;
+  route_order: number | null;
   scheduled_date: string;
   status: string;
   started_at: string | null;
@@ -83,16 +84,31 @@ async function simulationCustomerIds(service: any, companyId: string) {
 
 async function completedVisits(service: any, companyId: string, customerIds: string[]): Promise<VisitRow[]> {
   if (!customerIds.length) return [];
-  const result = await service.from("visits")
-    .select("id,customer_id,route_id,scheduled_date,status,started_at,finished_at,duration_seconds,employee_notes,customer_visible_summary")
-    .in("customer_id", customerIds)
-    .or(companyFilter(companyId))
-    .eq("status", "completed")
-    .order("scheduled_date", { ascending: false })
-    .order("route_order", { ascending: true })
-    .limit(200);
-  if (result.error) throw new Error(`visits: ${result.error.message}`);
-  return (result.data || []) as VisitRow[];
+
+  const jobs = await service.from("jobs")
+    .select("id")
+    .eq("company_id", companyId)
+    .in("customer_id", customerIds);
+  if (jobs.error) throw new Error(`jobs: ${jobs.error.message}`);
+  const jobIds = (jobs.data || []).map((row: any) => String(row.id));
+  if (!jobIds.length) return [];
+
+  const rows: VisitRow[] = [];
+  for (let offset = 0; offset < jobIds.length; offset += 12) {
+    const result = await service.from("visits")
+      .select("id,customer_id,route_id,route_order,scheduled_date,status,started_at,finished_at,duration_seconds,employee_notes,customer_visible_summary")
+      .eq("company_id", companyId)
+      .in("job_id", jobIds.slice(offset, offset + 12))
+      .eq("status", "completed")
+      .limit(120);
+    if (result.error) throw new Error(`visits: ${result.error.message}`);
+    rows.push(...((result.data || []) as VisitRow[]));
+  }
+
+  return rows.sort((left, right) =>
+    String(right.scheduled_date).localeCompare(String(left.scheduled_date))
+    || Number(left.route_order ?? 2147483647) - Number(right.route_order ?? 2147483647)
+    || left.id.localeCompare(right.id));
 }
 
 async function exceptionStatus(service: any, companyId: string) {

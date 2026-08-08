@@ -1,44 +1,134 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getEmployeeTasks, getSessionForLead } from "@/lib/storage";
 import type { CanonicalRouteLead } from "@/lib/routes/canonicalRouteIdentity";
-import type { RouteLineString } from "@/lib/maps/types";
-import { readRoadGeometry, saveRoadGeometry } from "@/lib/maps/clientMapCache";
+import { useCanonicalRouteSnapshot } from "@/lib/hooks/useCanonicalRouteSnapshot";
 
 declare global { interface Window { L?: any } }
 
-type Point = CanonicalRouteLead & { latitude: number; longitude: number; color: string; label: string };
-type RouteOriginPoint = { latitude: number; longitude: number; label?: string };
+type Point = CanonicalRouteLead & {
+  latitude: number;
+  longitude: number;
+  color: string;
+  label: string;
+};
+
 type Props = {
   route: CanonicalRouteLead[];
   onOpenVisit: (lead: CanonicalRouteLead) => void;
   routeId?: string;
+  routeVersion?: number | null;
   desktop?: boolean;
   actionLabel?: string;
-  originPoint?: RouteOriginPoint | null;
+  originPoint?: { latitude: number; longitude: number; label?: string } | null;
+  preview?: boolean;
 };
 
 const HAMILTON: [number, number] = [43.2557, -79.8711];
 
-function visualState(lead: CanonicalRouteLead, _isNext: boolean) {
-  const canonicalStatus = lead.canonicalVisitStatus;
-  if (canonicalStatus === "completed" || lead.status === "completed") return { color: "#16a34a", label: "Completed" };
-  if (canonicalStatus === "cancelled" || canonicalStatus === "missed") return { color: "#eab308", label: "Skipped" };
-
-  const session = getSessionForLead(lead.id);
-  if (session?.status === "skipped") return { color: "#eab308", label: "Skipped" };
-  if (session?.status === "finished") return { color: "#16a34a", label: "Completed" };
+function visualState(lead: CanonicalRouteLead) {
+  if (lead.canonicalVisitStatus === "completed" || lead.status === "completed") {
+    return { color: "#16a34a", label: "Completed" };
+  }
+  if (lead.canonicalVisitStatus === "missed") return { color: "#eab308", label: "Skipped" };
+  if (lead.canonicalVisitStatus === "in_progress") return { color: "#2563eb", label: "Active" };
   return { color: "#64748b", label: "Pending" };
+}
+
+function statusLabel(lead: CanonicalRouteLead) {
+  if (lead.canonicalVisitStatus === "completed" || lead.status === "completed") return "Done";
+  if (lead.canonicalVisitStatus === "missed") return "Skipped";
+  if (lead.canonicalVisitStatus === "in_progress") return "Active";
+  return "Scheduled";
+}
+
+function normalizeRoute(route: CanonicalRouteLead[]) {
+  return [...route]
+    .sort((left, right) =>
+      (left.routeOrder ?? 9999) - (right.routeOrder ?? 9999)
+      || String(left.canonicalVisitId || left.id).localeCompare(String(right.canonicalVisitId || right.id)))
+    .map((lead, index) => ({ ...lead, routeOrder: index + 1 }));
+}
+
+function sameVisitMembership(route: CanonicalRouteLead[], snapshot: any) {
+  if (!snapshot) return false;
+  const routeIds = route
+    .map(lead => String(lead.canonicalVisitId || lead.id || ""))
+    .filter(Boolean)
+    .sort();
+  const snapshotIds = (snapshot.stops || [])
+    .map((stop: any) => String(stop.visitId || ""))
+    .filter(Boolean)
+    .sort();
+  return routeIds.length === snapshotIds.length
+    && routeIds.every((id, index) => id === snapshotIds[index]);
+}
+
+function routeFromSnapshot(snapshot: any): CanonicalRouteLead[] {
+  return (snapshot?.stops || []).map((stop: any) => ({
+    id: stop.visitId,
+    createdAt: stop.scheduledDate ? `${stop.scheduledDate}T12:00:00.000Z` : "1970-01-01T00:00:00.000Z",
+    name: stop.customerName,
+    phone: "",
+    email: "",
+    address: stop.address,
+    service: stop.serviceName,
+    status: stop.status === "completed" ? "completed" as const : "booked" as const,
+    subtotal: 0,
+    tax: 0,
+    total: 0,
+    photos: [],
+    scheduledDate: stop.scheduledDate,
+    routeOrder: stop.routeOrder,
+    latitude: stop.latitude ?? undefined,
+    longitude: stop.longitude ?? undefined,
+    canonicalVisitId: stop.visitId,
+    canonicalJobId: stop.jobId || undefined,
+    canonicalRouteId: snapshot.routeId,
+    canonicalCustomerId: stop.customerId || undefined,
+    canonicalPropertyId: stop.propertyId || undefined,
+    canonicalEmployeeId: stop.employeeId || undefined,
+    canonicalCrewId: stop.crewId || undefined,
+    canonicalVisitStatus: stop.status as CanonicalRouteLead["canonicalVisitStatus"],
+    visitStartedAt: stop.startedAt || undefined,
+    visitFinishedAt: stop.finishedAt || undefined,
+    visitDurationSeconds: stop.durationSeconds ?? undefined,
+  }));
+}
+
+function enrichCurrentMembership(route: CanonicalRouteLead[], snapshot: any) {
+  if (!snapshot?.stops?.length) return route;
+  const snapshotByVisit = new Map<string, any>(
+    snapshot.stops.map((stop: any) => [String(stop.visitId), stop]),
+  );
+  return route.map(lead => {
+    const visitId = String(lead.canonicalVisitId || lead.id || "");
+    const stop = snapshotByVisit.get(visitId);
+    if (!stop) return lead;
+    return {
+      ...lead,
+      latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : lead.latitude,
+      longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : lead.longitude,
+      canonicalCustomerId: lead.canonicalCustomerId || stop.customerId || undefined,
+      canonicalPropertyId: lead.canonicalPropertyId || stop.propertyId || undefined,
+      canonicalJobId: lead.canonicalJobId || stop.jobId || undefined,
+    };
+  });
+}
+
+function routeKey(lead: CanonicalRouteLead) {
+  return String(lead.canonicalVisitId || lead.id);
 }
 
 export function EmployeeRouteMap({
   route,
   onOpenVisit,
   routeId,
+  routeVersion = null,
   desktop = false,
   actionLabel = "Open Visit",
   originPoint = null,
+  preview = false,
 }: Props) {
   const mapNode = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
@@ -47,107 +137,64 @@ export function EmployeeRouteMap({
   const locationLayerRef = useRef<any>(null);
   const didInitialFit = useRef(false);
   const [selectedId, setSelectedId] = useState("");
-  const [geometry, setGeometry] = useState<RouteLineString | null>(null);
-  const [resolvedRoute, setResolvedRoute] = useState<CanonicalRouteLead[]>(route);
-  const [mapStatus, setMapStatus] = useState("Locating properties...");
   const [mapReady, setMapReady] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
-  const routeKey = route.map(lead => `${lead.id}:${lead.address}:${lead.routeOrder ?? ""}:${lead.canonicalVisitStatus || lead.status}`).join("|");
-  const originKey = originPoint ? `${originPoint.latitude}:${originPoint.longitude}` : "";
+
+  const operationalRoute = useMemo(() => normalizeRoute(route), [route]);
+  const effectiveRouteId = preview
+    ? null
+    : routeId || operationalRoute.find(lead => Boolean(lead.canonicalRouteId))?.canonicalRouteId || null;
+  const { snapshot, error, loading, refresh, invalidateAndRefresh } = useCanonicalRouteSnapshot(effectiveRouteId);
+  const snapshotMatches = !preview
+    && Boolean(snapshot)
+    && snapshot?.routeId === effectiveRouteId
+    && (Boolean(routeId) || sameVisitMembership(operationalRoute, snapshot));
+  const publishedOrderSignature = useMemo(
+    () => operationalRoute.map(lead => `${lead.canonicalVisitId || lead.id}:${lead.routeOrder ?? 9999}`).join("|"),
+    [operationalRoute],
+  );
+  const publishedOrderRef = useRef(publishedOrderSignature);
 
   useEffect(() => {
-    let cancelled = false;
-    didInitialFit.current = false;
-    setSelectedId("");
-    setGeometry(null);
-
-    async function locateAndRoute() {
-      const alreadyLocated = route.filter(lead => Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude));
-      setResolvedRoute(alreadyLocated);
-      setMapStatus(alreadyLocated.length === route.length ? "Map ready" : "Locating new properties...");
-
-      const located = await Promise.all(route.map(async lead => {
-        if (Number.isFinite(lead.latitude) && Number.isFinite(lead.longitude)) return lead;
-        try {
-          const response = await fetch(`/api/map/geocode?address=${encodeURIComponent(lead.address)}`, { cache: "no-store" });
-          if (!response.ok) throw new Error("Address not found");
-          const position = await response.json() as { latitude: number; longitude: number };
-          return { ...lead, ...position };
-        } catch {
-          return null;
-        }
-      })).then(values => values.filter((lead): lead is CanonicalRouteLead => Boolean(lead)));
-
-      if (cancelled) return;
-      setResolvedRoute(located);
-
-      const coordinates = [
-        ...(originPoint
-          ? [[Number(originPoint.longitude), Number(originPoint.latitude)] as [number, number]]
-          : []),
-        ...located.map(lead => [Number(lead.longitude), Number(lead.latitude)] as [number, number]),
-      ];
-
-      if (coordinates.length < 2) {
-        setGeometry(null);
-        setMapStatus("Map ready");
-        return;
-      }
-
-      const cached = readRoadGeometry(coordinates);
-      if (cached) {
-        setGeometry(cached);
-        setMapStatus("Driving route");
-        return;
-      }
-
-      setMapStatus("Calculating driving route...");
-      try {
-        const response = await fetch("/api/map/route", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ coordinates }),
-        });
-        if (!response.ok) throw new Error("Route unavailable");
-        const result = await response.json() as { geometry: RouteLineString };
-        if (!cancelled) {
-          saveRoadGeometry(coordinates, result.geometry);
-          setGeometry(result.geometry);
-          setMapStatus("Driving route");
-        }
-      } catch {
-        if (!cancelled) setMapStatus("Properties mapped - route unavailable");
-      }
+    if (preview || !effectiveRouteId) {
+      publishedOrderRef.current = publishedOrderSignature;
+      return;
     }
+    if (publishedOrderRef.current === publishedOrderSignature) return;
+    publishedOrderRef.current = publishedOrderSignature;
+    void invalidateAndRefresh();
+  }, [preview, effectiveRouteId, publishedOrderSignature, invalidateAndRefresh]);
 
-    void locateAndRoute();
-    return () => { cancelled = true; };
-  }, [routeKey, routeId, originKey]);
+  const displayRoute = useMemo<CanonicalRouteLead[]>(() => {
+    if (preview) return operationalRoute;
+    if (snapshotMatches) return normalizeRoute(routeFromSnapshot(snapshot));
+    return normalizeRoute(enrichCurrentMembership(operationalRoute, snapshot));
+  }, [preview, operationalRoute, snapshot, snapshotMatches]);
 
-  const nextVisitId = useMemo(() => resolvedRoute.find(lead => {
-    if (lead.canonicalVisitId) return lead.status !== "completed";
-    const session = getSessionForLead(lead.id);
-    return lead.status !== "completed" && session?.status !== "finished" && session?.status !== "skipped";
-  })?.id, [resolvedRoute]);
-
-  const points = useMemo<Point[]>(() => resolvedRoute.flatMap(lead => {
+  const points = useMemo<Point[]>(() => displayRoute.flatMap(lead => {
     if (!Number.isFinite(lead.latitude) || !Number.isFinite(lead.longitude)) return [];
     return [{
       ...lead,
       latitude: Number(lead.latitude),
       longitude: Number(lead.longitude),
-      ...visualState(lead, lead.id === nextVisitId),
+      ...visualState(lead),
     }];
-  }), [resolvedRoute, nextVisitId]);
+  }), [displayRoute]);
 
-  const unmapped = route.filter(lead => !points.some(point => point.id === lead.id));
-  const selected = points.find(point => point.id === selectedId) || points[0] || null;
+  const origin = preview ? originPoint : snapshot?.origin || originPoint || null;
+  const unmapped = displayRoute.filter(lead => !points.some(point => routeKey(point) === routeKey(lead)));
+  const selected = points.find(point => routeKey(point) === selectedId) || points[0] || null;
+
+  useEffect(() => {
+    didInitialFit.current = false;
+    setSelectedId("");
+  }, [effectiveRouteId, snapshotMatches ? snapshot?.routeVersion : operationalRoute.length]);
 
   function fitRoute() {
-    if (!mapRef.current || !window.L || (!points.length && !originPoint)) return;
+    if (!mapRef.current || !window.L || (!points.length && !origin)) return;
     const bounds = [
       ...points.map(point => [point.latitude, point.longitude] as [number, number]),
-      ...(originPoint ? [[originPoint.latitude, originPoint.longitude] as [number, number]] : []),
+      ...(origin ? [[origin.latitude, origin.longitude] as [number, number]] : []),
     ];
     mapRef.current.fitBounds(window.L.latLngBounds(bounds).pad(.16), { maxZoom: 16 });
   }
@@ -179,47 +226,17 @@ export function EmployeeRouteMap({
     const setup = () => {
       if (cancelled || !mapNode.current || !window.L) return;
       const L = window.L;
-
       if (!mapRef.current) {
-        mapRef.current = L.map(mapNode.current, { zoomControl: true, attributionControl: true }).setView(HAMILTON, 12);
+        mapRef.current = L.map(mapNode.current, {
+          zoomControl: true,
+          attributionControl: true,
+        }).setView(HAMILTON, 12);
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           maxZoom: 19,
           attribution: "© OpenStreetMap contributors",
         }).addTo(mapRef.current);
         markerLayerRef.current = L.layerGroup().addTo(mapRef.current);
         setMapReady(true);
-      }
-
-      markerLayerRef.current.clearLayers();
-      if (originPoint) {
-        const originIcon = L.divIcon({
-          className: "employee-map-marker-shell",
-          html: `<div class="employee-map-origin-marker">●</div>`,
-          iconSize: [38, 38],
-          iconAnchor: [19, 19],
-        });
-        L.marker([originPoint.latitude, originPoint.longitude], { icon: originIcon })
-          .bindTooltip(originPoint.label || "Route start", { direction: "top" })
-          .addTo(markerLayerRef.current);
-      }
-
-      points.forEach((point, index) => {
-        const active = selected?.id === point.id;
-        const icon = L.divIcon({
-          className: "employee-map-marker-shell",
-          html: `<div class="employee-map-marker ${active ? "active" : ""}" style="background:${point.color}">${index + 1}</div>`,
-          iconSize: [active ? 40 : 34, active ? 40 : 34],
-          iconAnchor: [active ? 20 : 17, active ? 20 : 17],
-        });
-        L.marker([point.latitude, point.longitude], { icon })
-          .bindTooltip(`${point.name} · ${point.label}`, { direction: "top" })
-          .on("click", () => setSelectedId(point.id))
-          .addTo(markerLayerRef.current);
-      });
-
-      if (!didInitialFit.current && (points.length || originPoint)) {
-        didInitialFit.current = true;
-        fitRoute();
       }
       window.setTimeout(() => mapRef.current?.invalidateSize(), 50);
     };
@@ -233,7 +250,6 @@ export function EmployeeRouteMap({
         link.dataset.leaflet = "true";
         document.head.appendChild(link);
       }
-
       let script = document.querySelector("script[data-leaflet]") as HTMLScriptElement | null;
       if (!script) {
         script = document.createElement("script");
@@ -248,9 +264,47 @@ export function EmployeeRouteMap({
         script?.removeEventListener("load", setup);
       };
     }
-
     return () => { cancelled = true; };
-  }, [points, selected?.id, originKey]);
+  }, []);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !window.L || !markerLayerRef.current) return;
+    const L = window.L;
+    markerLayerRef.current.clearLayers();
+
+    if (origin) {
+      const originIcon = L.divIcon({
+        className: "employee-map-marker-shell",
+        html: "<div class=\"employee-map-origin-marker\">●</div>",
+        iconSize: [38, 38],
+        iconAnchor: [19, 19],
+      });
+      L.marker([origin.latitude, origin.longitude], { icon: originIcon })
+        .bindTooltip(origin.label || "Route start", { direction: "top" })
+        .addTo(markerLayerRef.current);
+    }
+
+    points.forEach(point => {
+      const id = routeKey(point);
+      const active = selected && routeKey(selected) === id;
+      const icon = L.divIcon({
+        className: "employee-map-marker-shell",
+        html: `<div class="employee-map-marker ${active ? "active" : ""}" style="background:${point.color}">${point.routeOrder}</div>`,
+        iconSize: [active ? 40 : 34, active ? 40 : 34],
+        iconAnchor: [active ? 20 : 17, active ? 20 : 17],
+      });
+      L.marker([point.latitude, point.longitude], { icon })
+        .bindTooltip(`${point.name} · ${point.label}`, { direction: "top" })
+        .on("click", () => setSelectedId(id))
+        .addTo(markerLayerRef.current);
+    });
+
+    if (!didInitialFit.current && (points.length || origin)) {
+      didInitialFit.current = true;
+      fitRoute();
+    }
+    window.setTimeout(() => mapRef.current?.invalidateSize(), 50);
+  }, [mapReady, points, selected, origin?.latitude, origin?.longitude, origin?.label]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !window.L) return;
@@ -258,29 +312,109 @@ export function EmployeeRouteMap({
       mapRef.current.removeLayer(routeLayerRef.current);
       routeLayerRef.current = null;
     }
-    if (!geometry?.coordinates?.length) return;
+    if (preview) return;
+
+    const canonicalCoordinates = snapshotMatches && snapshot?.geometry?.coordinates?.length
+      ? snapshot.geometry.coordinates.map(([longitude, latitude]: [number, number]) => [latitude, longitude])
+      : null;
+    const currentCoordinates = [
+      ...(origin ? [[origin.latitude, origin.longitude] as [number, number]] : []),
+      ...points.map(point => [point.latitude, point.longitude] as [number, number]),
+    ];
+    const coordinates = canonicalCoordinates || (currentCoordinates.length >= 2 ? currentCoordinates : null);
+    if (!coordinates) return;
 
     routeLayerRef.current = window.L.polyline(
-      geometry.coordinates.map(([longitude, latitude]) => [latitude, longitude]),
+      coordinates,
       { color: "#2563eb", weight: 5, opacity: .82, lineJoin: "round" },
     ).addTo(mapRef.current);
     routeLayerRef.current.bringToBack();
-  }, [geometry, mapReady]);
+  }, [mapReady, preview, snapshotMatches, snapshot?.routeVersion, snapshot?.geometry, points, origin?.latitude, origin?.longitude]);
+
+  const visibleCanonicalVersion = Math.max(
+    snapshotMatches ? Number(snapshot?.routeVersion || 0) : 0,
+    effectiveRouteId ? Number(routeVersion || 0) : 0,
+  );
+  const mapStatus = preview
+    ? "Smart Route preview · not published"
+    : visibleCanonicalVersion > 0
+      ? `Canonical route v${visibleCanonicalVersion}`
+      : points.length === displayRoute.length && displayRoute.length > 0
+        ? "Current route · geometry rebuilt from active stops"
+        : loading
+          ? "Loading map snapshot…"
+          : error
+            ? "Current route loaded · some coordinates unavailable"
+            : "Current canonical route · geometry refreshing";
 
   return <section className={`employee-map-panel ${desktop ? "employee-map-desktop" : ""}`}>
     <div className="employee-map-toolbar">
-      <div><strong>{points.length}/{route.length} properties mapped</strong><span>{mapStatus}{locationMessage ? ` · ${locationMessage}` : ""}</span></div>
-      <div className="employee-map-toolbar-actions"><button type="button" onClick={fitRoute} disabled={!points.length && !originPoint}>Fit Route</button><button type="button" onClick={recenterMe}>Recenter Me</button></div>
+      <div>
+        <strong>{points.length}/{displayRoute.length} properties mapped</strong>
+        <span>{mapStatus}{locationMessage ? ` · ${locationMessage}` : ""}</span>
+      </div>
+      <div className="employee-map-toolbar-actions">
+        <button type="button" onClick={fitRoute} disabled={!points.length && !origin}>Fit Route</button>
+        <button type="button" onClick={recenterMe}>Recenter Me</button>
+        {error && !preview && <button type="button" onClick={() => void refresh()}>Retry</button>}
+      </div>
     </div>
-    {unmapped.length > 0 && <p className="employee-map-notice">{unmapped.length} {unmapped.length === 1 ? "property is" : "properties are"} Not mapped.</p>}
+    {unmapped.length > 0 && <p className="employee-map-notice">
+      {unmapped.length} {unmapped.length === 1 ? "property is" : "properties are"} not mapped.
+    </p>}
     <div ref={mapNode} className="employee-route-map" aria-label="Interactive map of assigned visits" />
+
+    {desktop && <aside className="employee-canonical-route-list" aria-label="Canonical route stops">
+      <header>
+        <div>
+          <strong>Official route</strong>
+          <small>{displayRoute.length} stops · one canonical membership</small>
+        </div>
+        <b>{snapshotMatches ? `v${snapshot?.routeVersion}` : "LIVE"}</b>
+      </header>
+      <div className="employee-canonical-route-scroll">
+        {displayRoute.map(lead => {
+          const id = routeKey(lead);
+          return <button
+            type="button"
+            key={id}
+            className={selected && routeKey(selected) === id ? "active" : ""}
+            onClick={() => {
+              setSelectedId(id);
+              onOpenVisit(lead);
+            }}
+          >
+            <b>{lead.routeOrder}</b>
+            <span><strong>{lead.name}</strong><small>{lead.address}</small></span>
+            <em>{statusLabel(lead)}</em>
+          </button>;
+        })}
+      </div>
+    </aside>}
+
     {selected && <article className="employee-map-sheet">
       <div className="employee-map-sheet-main">
-        <span className="employee-map-sequence" style={{ background: selected.color }}>{selected.routeOrder || points.findIndex(point => point.id === selected.id) + 1}</span>
+        <span className="employee-map-sequence" style={{ background: selected.color }}>{selected.routeOrder}</span>
         <div><strong>{selected.address}</strong><span>{selected.name} · {selected.service}</span></div>
         <b style={{ color: selected.color }}>{selected.label}</b>
       </div>
-      <div className="employee-map-sheet-actions"><button type="button" onClick={() => onOpenVisit(selected)}>{actionLabel}</button><a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selected.address)}&travelmode=driving`} target="_blank" rel="noreferrer">Directions</a></div>
+      <div className="employee-map-sheet-actions">
+        <button type="button" onClick={() => onOpenVisit(selected)}>{actionLabel}</button>
+        <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(selected.address)}&travelmode=driving`} target="_blank" rel="noreferrer">Directions</a>
+      </div>
     </article>}
+
+    {desktop && <style jsx global>{`
+      .employee-web-map-shell:has(.employee-map-desktop){grid-template-columns:1fr!important}
+      .employee-web-map-shell:has(.employee-map-desktop)>.employee-web-map-sidebar{display:none!important}
+      .official-route-focused:has(.employee-map-desktop){grid-template-columns:1fr!important}
+      .official-route-focused:has(.employee-map-desktop)>.official-house-list{display:none!important}
+      .employee-map-desktop{position:relative;min-width:0}
+      .employee-map-desktop .employee-route-map{min-height:620px}
+      .employee-canonical-route-list{position:absolute;z-index:750;top:108px;right:18px;width:min(300px,38%);height:360px;display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;border:1px solid rgba(214,226,220,.95);border-radius:18px;background:rgba(255,255,255,.97);box-shadow:0 18px 45px rgba(20,54,40,.18);backdrop-filter:blur(10px)}
+      .employee-canonical-route-list>header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;border-bottom:1px solid #e4ece8}.employee-canonical-route-list>header div{display:grid;gap:2px}.employee-canonical-route-list>header strong{font-size:16px;color:#173d2d}.employee-canonical-route-list>header small{font-size:10px;color:#687a71}.employee-canonical-route-list>header>b{padding:4px 7px;border-radius:999px;background:#e7f6ed;color:#087247;font-size:9px}
+      .employee-canonical-route-scroll{overflow:auto;padding:6px}.employee-canonical-route-scroll>button{width:100%;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:8px;padding:8px 7px;border:1px solid transparent;border-radius:12px;background:transparent;text-align:left;cursor:pointer}.employee-canonical-route-scroll>button:hover,.employee-canonical-route-scroll>button.active{border-color:#b8ddc9;background:#eff9f3}.employee-canonical-route-scroll>button>b{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:#0c7449;color:#fff}.employee-canonical-route-scroll>button span{min-width:0;display:grid;gap:1px}.employee-canonical-route-scroll>button span strong,.employee-canonical-route-scroll>button span small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.employee-canonical-route-scroll>button span strong{font-size:12px;color:#173d2d}.employee-canonical-route-scroll>button span small{font-size:9px;color:#66766f}.employee-canonical-route-scroll>button em{font-style:normal;font-size:8px;font-weight:800;color:#607169}
+      @media(max-width:900px){.employee-canonical-route-list{top:104px;width:278px;max-width:44%;height:340px}.employee-map-desktop .employee-route-map{min-height:560px}}
+    `}</style>}
   </section>;
 }

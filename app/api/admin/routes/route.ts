@@ -78,7 +78,7 @@ async function requireAdmin(request: NextRequest) {
   };
 }
 
-async function ensureEmployees(service: any, companyId: string) {
+async function readEmployees(service: any, companyId: string) {
   const profilesResult = await service
     .from("profiles")
     .select("id,full_name,email,address_line1,route_start_address,active")
@@ -91,72 +91,46 @@ async function ensureEmployees(service: any, companyId: string) {
 
   const employeeResult = await service
     .from("employees")
-    .select("id,profile_id,crew_id,full_name,email,address_line1,route_start_address,active")
+    .select("id,profile_id,crew_id,full_name,email,address_line1,route_start_address,active,created_at")
     .eq("active", true)
-    .or(companyFilter(companyId));
+    .or(companyFilter(companyId))
+    .order("created_at", { ascending: false });
 
   if (employeeResult.error) throw new Error(employeeResult.error.message);
 
-  const byProfile = new Map<string, any>();
+  const byProfile = new Map<string, any[]>();
   for (const row of employeeResult.data || []) {
-    if (row.profile_id) byProfile.set(row.profile_id, row);
+    if (!row.profile_id) continue;
+    const aliases = byProfile.get(String(row.profile_id)) || [];
+    aliases.push(row);
+    byProfile.set(String(row.profile_id), aliases);
   }
 
   const employees: any[] = [];
   for (const profile of profilesResult.data || []) {
-    let employee = byProfile.get(profile.id);
+    let aliases = byProfile.get(String(profile.id)) || [];
+    let employee = aliases[0] || null;
 
     // Old demo logins must never become operational Employees, Crews or Route markers.
     if (isDemoIdentity(profile, employee)) continue;
 
-    if (!employee) {
-      const created = await service
-        .from("employees")
-        .insert({
-          company_id: companyId,
-          organization_id: companyId,
-          profile_id: profile.id,
-          full_name: profile.full_name,
-          email: profile.email,
-          address_line1: profile.address_line1,
-          route_start_address: profile.route_start_address || profile.address_line1,
-          active: true,
-          invite_status: "sent",
-        })
-        .select("id,profile_id,crew_id,full_name,email,address_line1,route_start_address,active")
-        .single();
+    // GET is a read model. Employee/Crew creation belongs to the explicit lifecycle flow.
+    if (!employee || !employee.crew_id) continue;
 
-      if (created.error) throw new Error(created.error.message);
-      employee = created.data;
-    }
-
-    if (!employee.crew_id) {
-      const crew = await service
-        .from("crews")
-        .insert({
-          company_id: companyId,
-          organization_id: companyId,
-          name: employee.full_name || profile.full_name || "Employee route",
-          active: true,
-        })
-        .select("id")
-        .single();
-
-      if (crew.error) throw new Error(crew.error.message);
-
-      const linked = await service
-        .from("employees")
-        .update({ crew_id: crew.data.id })
-        .eq("id", employee.id);
-      if (linked.error) throw new Error(linked.error.message);
-      employee.crew_id = crew.data.id;
-    }
+    const employeeIds = [...new Set(
+      [...aliases.map(alias => String(alias.id || "")), String(employee.id || "")].filter(Boolean),
+    )];
+    const crewIds = [...new Set(
+      [...aliases.map(alias => String(alias.crew_id || "")), String(employee.crew_id || "")].filter(Boolean),
+    )];
 
     employees.push({
       id: profile.id,
       profileId: profile.id,
       employeeId: employee.id,
       crewId: employee.crew_id,
+      employeeIds,
+      crewIds,
       name: profile.full_name || employee.full_name || "Employee",
       email: profile.email || employee.email || "",
       routeStartAddress:
@@ -189,7 +163,8 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
   const propertyResult = await service
     .from("properties")
     .select("id,customer_id,address_line1,city,province,postal_code,property_notes")
-    .in("customer_id", customerIds);
+    .in("customer_id", customerIds)
+    .or(companyFilter(companyId));
 
   if (propertyResult.error) throw new Error(propertyResult.error.message);
   const properties = propertyResult.data || [];
@@ -202,35 +177,6 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
 
   if (jobResult.error) throw new Error(jobResult.error.message);
   const jobs = jobResult.data || [];
-
-  const jobByProperty = new Map<string, any>();
-  for (const job of jobs) {
-    if (job.property_id && !jobByProperty.has(job.property_id)) jobByProperty.set(job.property_id, job);
-  }
-
-  for (const property of properties) {
-    if (!property.id || jobByProperty.has(property.id)) continue;
-    const inserted = await service
-      .from("jobs")
-      .insert({
-        organization_id: companyId,
-        company_id: companyId,
-        customer_id: property.customer_id,
-        property_id: property.id,
-        service_name: property.property_notes
-          ?.split("\n")[0]
-          ?.replace(/^Service type:\s*/i, "")
-          || "Property Service",
-        frequency: "one_time",
-        active: true,
-      })
-      .select("id,customer_id,property_id,service_name,frequency,next_visit_date,recurrence_anchor_date,default_route_order,created_at,active")
-      .single();
-
-    if (inserted.error) throw new Error(inserted.error.message);
-    jobs.push(inserted.data);
-    jobByProperty.set(property.id, inserted.data);
-  }
 
   const assignments = new Map<string, {
     crewId: string | null;
@@ -287,57 +233,151 @@ async function canonicalJobs(service: any, user: any, companyId: string) {
   });
 }
 
-async function canonicalVisits(service: any, companyId: string) {
-  const result = await service
-    .from("visits")
-    .select("id,job_id,route_id,crew_id,assigned_employee_id,customer_id,property_id,scheduled_date,status,route_order,started_at,finished_at,duration_seconds,created_at,customers(full_name),properties(address_line1,city,province,postal_code),jobs(service_name),employees(full_name)")
-    .or(companyFilter(companyId))
-    .neq("status", "cancelled")
-    .order("scheduled_date", { ascending: false })
-    .order("route_order", { ascending: true, nullsFirst: false })
-    .limit(1000);
+async function canonicalVisits(service: any, companyId: string, routeDate?: string | null) {
+  let routeQuery = service
+    .from("routes")
+    .select("id,crew_id,route_date,created_at")
+    .or(companyFilter(companyId));
 
-  if (result.error) throw new Error(result.error.message);
+  if (routeDate) routeQuery = routeQuery.eq("route_date", routeDate);
 
-  return (result.data || []).flatMap((row: any) => {
-    const employee = (Array.isArray(row.employees) ? row.employees[0] : row.employees)?.full_name || null;
+  const routesResult = await routeQuery
+    .order("route_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(routeDate ? 250 : 100);
+  if (routesResult.error) throw new Error(routesResult.error.message);
 
-    // Legacy demo Visits are not operational work and must not reappear in Route Plan/Status.
-    if (isDemoLabel(employee)) return [];
+  const routes: any[] = routesResult.data || [];
+  const routeIds = routes.map((route: any) => String(route.id));
+  if (!routeIds.length) return [] as any[];
 
-    const property = Array.isArray(row.properties) ? row.properties[0] : row.properties;
-    return [{
-      id: row.id,
-      jobId: row.job_id,
-      routeId: row.route_id,
-      crewId: row.crew_id,
-      crewName: employee,
-      employeeId: row.assigned_employee_id,
-      employeeName: employee,
-      customerId: row.customer_id,
-      customerName: (Array.isArray(row.customers) ? row.customers[0] : row.customers)?.full_name || null,
-      propertyId: row.property_id,
-      address: [
-        property?.address_line1,
-        property?.city,
-        property?.province,
-        property?.postal_code,
-      ].filter(Boolean).join(", "),
-      serviceName: (Array.isArray(row.jobs) ? row.jobs[0] : row.jobs)?.service_name || "Property Service",
-      scheduledDate: row.scheduled_date,
-      status: row.status,
-      routeOrder: row.route_order,
-      startedAt: row.started_at,
-      finishedAt: row.finished_at,
-      durationSeconds: row.duration_seconds,
-      createdAt: row.created_at,
-    }];
-  });
+  const batches = <T,>(values: T[], size = 20) => {
+    const result: T[][] = [];
+    for (let index = 0; index < values.length; index += size) {
+      result.push(values.slice(index, index + size));
+    }
+    return result;
+  };
+
+  // Keep canonical reads bounded. Large histories previously launched every batch at once,
+  // making nested Visit reads compete for the same Postgres statement budget.
+  const stopResults: any[] = [];
+  for (const ids of batches(routeIds)) {
+    const result = await service
+      .from("route_stops")
+      .select("route_id,visit_id,position")
+      .in("route_id", ids)
+      .order("position", { ascending: true });
+    if (result.error) throw new Error(result.error.message);
+    stopResults.push(result);
+  }
+
+  const stopRows: any[] = stopResults.flatMap(result => result.data || []);
+  const visitIds = [...new Set(stopRows.map((row: any) => String(row.visit_id)).filter(Boolean))];
+  if (!visitIds.length) return [] as any[];
+
+  const visitResults: any[] = [];
+  for (const ids of batches(visitIds)) {
+    const result = await service
+      .from("visits")
+      .select("id,job_id,route_id,crew_id,assigned_employee_id,customer_id,property_id,scheduled_date,status,started_at,finished_at,duration_seconds,created_at,customers(full_name,email,notes,archived_at),properties(address_line1,city,province,postal_code),jobs(service_name),employees(full_name)")
+      .in("id", ids)
+      .or(companyFilter(companyId));
+    if (result.error) throw new Error(result.error.message);
+    visitResults.push(result);
+  }
+
+  const visits = new Map<string, any>();
+  for (const result of visitResults) {
+    for (const row of result.data || []) visits.set(String(row.id), row);
+  }
+  const routeById = new Map<string, any>(routes.map((route: any) => [String(route.id), route]));
+  const candidatesByRoute = new Map<string, any[]>();
+
+  for (const stop of stopRows) {
+    const routeId = String(stop.route_id);
+    const row = visits.get(String(stop.visit_id)) || null;
+    const employee = row
+      ? (Array.isArray(row.employees) ? row.employees[0] : row.employees)?.full_name || null
+      : null;
+    const customer = row ? (Array.isArray(row.customers) ? row.customers[0] : row.customers) : null;
+    const property = row ? (Array.isArray(row.properties) ? row.properties[0] : row.properties) : null;
+    const route: any = routeById.get(routeId);
+    const candidate = {
+      routeId,
+      position: Number(stop.position),
+      missingVisit: !row,
+      cancelled: row?.status === "cancelled",
+      archived: Boolean(customer?.archived_at),
+      demo: isDemoLabel(employee),
+      visit: row ? {
+        id: row.id,
+        jobId: row.job_id,
+        routeId,
+        crewId: row.crew_id || route?.crew_id || null,
+        crewName: employee,
+        employeeId: row.assigned_employee_id,
+        employeeName: employee,
+        customerId: row.customer_id,
+        customerName: customer?.full_name || null,
+        propertyId: row.property_id,
+        address: [
+          property?.address_line1,
+          property?.city,
+          property?.province,
+          property?.postal_code,
+        ].filter(Boolean).join(", "),
+        serviceName: (Array.isArray(row.jobs) ? row.jobs[0] : row.jobs)?.service_name || "Property Service",
+        scheduledDate: row.scheduled_date || route?.route_date || null,
+        status: row.status,
+        routeOrder: Number(stop.position),
+        startedAt: row.started_at,
+        finishedAt: row.finished_at,
+        durationSeconds: row.duration_seconds,
+        createdAt: row.created_at,
+      } : null,
+    };
+    const current = candidatesByRoute.get(routeId) || [];
+    current.push(candidate);
+    candidatesByRoute.set(routeId, current);
+  }
+
+  const canonical: any[] = [];
+  for (const [id, candidates] of candidatesByRoute) {
+    candidates.sort((left, right) => left.position - right.position);
+    const positionsValid = candidates.every((candidate, index) => candidate.position === index + 1);
+    const hasBrokenVisit = candidates.some(candidate => candidate.missingVisit || candidate.cancelled);
+    const allArchived = candidates.length > 0 && candidates.every(candidate => candidate.archived);
+    const allDemo = candidates.length > 0 && candidates.every(candidate => candidate.demo);
+    const mixedRetired = candidates.some(candidate => candidate.archived || candidate.demo);
+
+    if (allArchived || allDemo) continue;
+
+    if (!positionsValid || hasBrokenVisit || mixedRetired) {
+      const reason = !positionsValid
+        ? "positions are not sequential"
+        : hasBrokenVisit
+          ? "a route_stop references a missing or cancelled Visit"
+          : "active and retired identities are mixed";
+      if (routeDate) throw new Error(`Canonical Route ${id} is invalid: ${reason}.`);
+      console.warn("admin-routes-skip-stale-route", { routeId: id, reason });
+      continue;
+    }
+
+    canonical.push(...candidates.map(candidate => candidate.visit));
+  }
+
+  return canonical.sort((left, right) =>
+    String(right.scheduledDate || "").localeCompare(String(left.scheduledDate || ""))
+    || String(left.routeId).localeCompare(String(right.routeId))
+    || left.routeOrder - right.routeOrder);
 }
 
 function canonicalHealth(employees: any[], visits: any[]) {
-  const employeeIds = new Set(employees.map(employee => employee.employeeId).filter(Boolean));
-  const crewIds = new Set(employees.map(employee => employee.crewId).filter(Boolean));
+  const employeeIds = new Set(employees.flatMap(employee =>
+    employee.employeeIds?.length ? employee.employeeIds : [employee.employeeId]).filter(Boolean));
+  const crewIds = new Set(employees.flatMap(employee =>
+    employee.crewIds?.length ? employee.crewIds : [employee.crewId]).filter(Boolean));
   const issues = visits.flatMap(visit => {
     const missing = [
       !visit.customerId && "customerId",
@@ -362,10 +402,11 @@ function canonicalHealth(employees: any[], visits: any[]) {
 export async function GET(request: NextRequest) {
   try {
     const { service, user, companyId } = await requireAdmin(request);
+    const routeDate = request.nextUrl.searchParams.get("date")?.trim() || null;
     const [employees, jobs, visits] = await Promise.all([
-      ensureEmployees(service, companyId),
+      readEmployees(service, companyId),
       canonicalJobs(service, user, companyId),
-      canonicalVisits(service, companyId),
+      canonicalVisits(service, companyId, routeDate),
     ]);
     const health = canonicalHealth(employees, visits);
 
@@ -395,8 +436,10 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Route request failed.";
+    const status = /sign in|session expired|only an active company admin/i.test(message) ? 401 : 500;
     console.error("admin-routes-get", error);
-    return fail(error, 401);
+    return fail(error, status);
   }
 }
 

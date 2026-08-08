@@ -9,7 +9,6 @@ const WORKER_NAME = "Demo Field Worker";
 
 const demoProperties = [
   ["71 Main St W", "Hamilton", "L8P 4Y5"],
-  ["55 York Blvd", "Hamilton", "L8R 3K1"],
   ["100 Main St W", "Hamilton", "L8P 1H6"],
   ["101 York Blvd", "Hamilton", "L8R 3L4"],
   ["135 Fennell Ave W", "Hamilton", "L9C 0E5"],

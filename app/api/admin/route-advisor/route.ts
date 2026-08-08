@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { enforcePublishedRouteEmployee, requireCanonicalRouteEmployee } from "@/lib/routes/routeAssignmentIntegrity";
+import { verifyCanonicalRoutePersistence } from "@/lib/routes/verifyCanonicalRoutePersistence";
 
 export const dynamic = "force-dynamic";
 
@@ -25,13 +25,23 @@ function companyFilter(companyId: string) {
   return `company_id.eq.${companyId},organization_id.eq.${companyId}`;
 }
 
+function sameOrder(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 function rpcError(message?: string) {
   const value = message || "Canonical route operation failed.";
-  if (/publish_canonical_route_daily|schema cache|could not find the function/i.test(value)) {
-    return new Error("The canonical daily-route database function is unavailable.");
+  if (/remove_visits_from_today_route/i.test(value)) {
+    return new Error("Supabase migration 202608031130_route_advisor_pending_removal.sql is pending.");
+  }
+  if (/publish_canonical_route_daily_protected/i.test(value)) {
+    return new Error("Supabase migration 202608070001_route_advisor_protected_publish.sql is pending.");
+  }
+  if (/publish_canonical_route_daily|apply_canonical_route_order_v2_service|schema cache|could not find the function/i.test(value)) {
+    return new Error("Supabase migration 202607280001_route_assignment_modes.sql is pending.");
   }
   if (/reopen_completed_visit/i.test(value)) {
-    return new Error("The completed Visit reopen function is unavailable.");
+    return new Error("Supabase migration 202607270003_completed_visit_reopen_guard.sql is pending or not confirmed.");
   }
   return new Error(value);
 }
@@ -49,55 +59,273 @@ async function requireAdmin(request: NextRequest) {
     .select("id,role,active,company_id,organization_id")
     .eq("id", auth.user.id)
     .single();
+
   if (error || !profile?.active || !["admin", "manager"].includes(profile.role)) {
-    throw new Error("Only an active company Admin can publish or reopen Visits.");
+    throw new Error("Only an active company Admin can publish, remove or reopen Visits.");
   }
 
   const companyId = profile.company_id || profile.organization_id;
   if (!companyId) throw new Error("Your Admin profile is not linked to a company.");
-  return { service, user: userClient(token), companyId: String(companyId) };
+
+  return { service, user: userClient(token), companyId, profileId: String(profile.id) };
 }
 
-async function requirePermanentOwnership(input: {
-  service: any;
-  companyId: string;
-  crewId: string;
-  jobIds: string[];
-}) {
-  const { service, companyId, crewId, jobIds } = input;
-  const result = await service
-    .from("jobs")
-    .select("id,default_crew_id,active")
-    .in("id", jobIds)
-    .eq("active", true)
+async function sourceVisitIdsForMove(
+  service: any,
+  companyId: string,
+  input?: {
+    employeeId?: string;
+    crewId?: string;
+    routeDate?: string;
+    jobIds?: string[];
+  },
+) {
+  const jobIds = [...new Set((input?.jobIds || []).map(String).filter(Boolean))];
+  if (!input?.routeDate || !jobIds.length) return [] as string[];
+
+  let query = service
+    .from("visits")
+    .select("id,job_id,status,assigned_employee_id,crew_id,scheduled_date")
+    .eq("scheduled_date", input.routeDate)
+    .in("job_id", jobIds)
+    .neq("status", "cancelled")
     .or(companyFilter(companyId));
+
+  if (input.employeeId && input.crewId) {
+    query = query.or(`assigned_employee_id.eq.${input.employeeId},crew_id.eq.${input.crewId}`);
+  } else if (input.employeeId) {
+    query = query.eq("assigned_employee_id", input.employeeId);
+  } else if (input.crewId) {
+    query = query.eq("crew_id", input.crewId);
+  }
+
+  const result = await query;
   if (result.error) throw new Error(result.error.message);
 
   const rows = result.data || [];
-  if (rows.length !== jobIds.length) {
-    throw new Error("One or more selected houses are not active Jobs in this company.");
+  if (rows.some((visit: any) => ["completed", "in_progress"].includes(visit.status))) {
+    throw new Error("Completed or active Visits cannot be moved.");
   }
 
-  const invalid = rows.filter((job: any) => job.default_crew_id !== crewId);
-  if (invalid.length) {
-    throw new Error(`${invalid.length} selected house${invalid.length === 1 ? " is" : "s are"} not permanently assigned to this Employee. Return to Build.`);
+  const byJob = new Map<string, any[]>();
+  for (const visit of rows) {
+    const current = byJob.get(visit.job_id) || [];
+    current.push(visit);
+    byJob.set(visit.job_id, current);
   }
+
+  for (const jobId of jobIds) {
+    const matches = byJob.get(jobId) || [];
+    if (matches.length !== 1) {
+      throw new Error(`Move requires exactly one canonical Visit for Job ${jobId} on ${input.routeDate}.`);
+    }
+  }
+
+  return jobIds.map(jobId => byJob.get(jobId)![0].id as string);
+}
+
+async function materializePublishedRoute(input: {
+  service: any;
+  companyId: string;
+  routeId: string;
+  routeDate: string;
+  employeeId: string;
+  crewId: string;
+  orderedJobIds: string[];
+}) {
+  const { service, companyId, routeId, routeDate, employeeId, crewId, orderedJobIds } = input;
+  if (!routeId) throw new Error("Publication returned no canonical routeId.");
+
+  const visitsResult = await service
+    .from("visits")
+    .select("id,job_id,route_id,route_order,status,assigned_employee_id,crew_id,scheduled_date")
+    .eq("route_id", routeId)
+    .eq("scheduled_date", routeDate)
+    .neq("status", "cancelled")
+    .or(companyFilter(companyId))
+    .order("route_order", { ascending: true });
+  if (visitsResult.error) throw new Error(visitsResult.error.message);
+
+  const visits = visitsResult.data || [];
+  if (visits.length !== orderedJobIds.length) {
+    throw new Error(`Published Route verification failed: expected ${orderedJobIds.length} Visits, received ${visits.length}.`);
+  }
+
+  const byJob = new Map(visits.map((visit: any) => [String(visit.job_id || ""), visit]));
+  const orderedVisits = orderedJobIds.map(jobId => {
+    const visit: any = byJob.get(jobId);
+    if (!visit) throw new Error(`Published Route is missing the Visit for Job ${jobId}.`);
+    if (String(visit.assigned_employee_id || "") !== employeeId
+      || String(visit.crew_id || "") !== crewId
+      || String(visit.route_id || "") !== routeId
+      || String(visit.scheduled_date || "") !== routeDate) {
+      throw new Error("Published Route identity verification failed.");
+    }
+    return visit;
+  });
+
+  // Do not write visits.route_order, route_stops or route_order_state here.
+  // The protected canonical RPC replaces the full order atomically below.
+  return {
+    orderedVisitIds: orderedVisits.map((visit: any) => String(visit.id)),
+    count: orderedVisits.length,
+  };
+}
+
+async function publishExistingRouteFastPath(input: {
+  service: any;
+  user: any;
+  companyId: string;
+  employeeId: string;
+  crewId: string;
+  routeDate: string;
+  orderedJobIds: string[];
+  sourceVisitIds: string[];
+}) {
+  const {
+    service,
+    user,
+    companyId,
+    employeeId,
+    crewId,
+    routeDate,
+    orderedJobIds,
+    sourceVisitIds,
+  } = input;
+
+  // Moving a Visit from another route/date still needs the legacy publication
+  // transaction. This fast path is only for an already-materialized route.
+  if (sourceVisitIds.length) return null;
+
+  const routeResult = await service
+    .from("routes")
+    .select("id")
+    .eq("crew_id", crewId)
+    .eq("route_date", routeDate)
+    .or(companyFilter(companyId))
+    .limit(2);
+  if (routeResult.error) throw new Error(routeResult.error.message);
+
+  const routes = routeResult.data || [];
+  if (routes.length !== 1) return null;
+  const routeId = String(routes[0]?.id || "");
+  if (!routeId) return null;
+
+  // route_id is globally unique and indexed. Once the route itself has been
+  // tenant-authorized above, avoid a company/date-wide Visit scan here.
+  const visitsResult = await service
+    .from("visits")
+    .select("id,job_id,status,route_order,assigned_employee_id,crew_id,scheduled_date")
+    .eq("route_id", routeId)
+    .neq("status", "cancelled")
+    .order("route_order", { ascending: true, nullsFirst: false });
+  if (visitsResult.error) throw new Error(visitsResult.error.message);
+
+  const visits = visitsResult.data || [];
+  if (!visits.length || visits.some((visit: any) => !visit.job_id)) return null;
+  if (visits.some((visit: any) => String(visit.scheduled_date || "") !== routeDate
+    || String(visit.assigned_employee_id || "") !== employeeId
+    || String(visit.crew_id || "") !== crewId)) {
+    return null;
+  }
+
+  if (visits.some((visit: any) => visit.status === "in_progress")) {
+    throw new Error("An in-progress Visit blocks preview publication and movement.");
+  }
+  // Missed/reschedule semantics require the full publication transaction.
+  if (visits.some((visit: any) => visit.status === "missed")) return null;
+
+  const currentJobIds = visits.map((visit: any) => String(visit.job_id));
+  if (new Set(currentJobIds).size !== currentJobIds.length) return null;
+  const currentJobs = new Set(currentJobIds);
+  if (orderedJobIds.some(jobId => !currentJobs.has(jobId))) return null;
+
+  // Completed houses are immutable in membership and position, exactly as in
+  // publish_canonical_route_daily. The UI also locks them, but the API enforces it.
+  for (let index = 0; index < visits.length; index += 1) {
+    const visit = visits[index];
+    if (visit.status !== "completed") continue;
+    const requestedIndex = orderedJobIds.indexOf(String(visit.job_id));
+    if (requestedIndex < 0 || requestedIndex !== index) {
+      throw new Error("Esta casa já foi concluída hoje");
+    }
+  }
+
+  const requestedJobs = new Set(orderedJobIds);
+  const excluded = visits.filter((visit: any) => !requestedJobs.has(String(visit.job_id)));
+  if (excluded.some((visit: any) => visit.status !== "scheduled")) return null;
+
+  if (excluded.length) {
+    const removed = await user.rpc("remove_visits_from_today_route", {
+      p_visit_ids: excluded.map((visit: any) => String(visit.id)),
+      p_reason: "Route Advisor publication removed this Scheduled Visit from today's route.",
+    });
+    if (removed.error) throw rpcError(removed.error.message);
+  }
+
+  return {
+    routeId,
+    data: {
+      saved: true,
+      routeId,
+      employeeId,
+      crewId,
+      count: orderedJobIds.length,
+      assignmentScope: "dated_visit_only",
+      fastPath: true,
+    },
+  };
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { service, user, companyId } = await requireAdmin(request);
+    const { service, user, companyId, profileId } = await requireAdmin(request);
     const body = await request.json() as {
-      action?: "publish" | "reopen";
+      action?: "publish" | "reopen" | "remove_today";
       employeeId?: string;
       crewId?: string;
       routeDate?: string;
       orderedJobIds?: string[];
       sourceVisitIds?: string[];
+      origin?: {
+        label?: string;
+        latitude?: number | null;
+        longitude?: number | null;
+      } | null;
       visitId?: string;
+      visitIds?: string[];
+      removalReason?: string;
       reopenReason?: string;
       confirmReopen?: boolean;
+      removeFrom?: {
+        employeeId?: string;
+        crewId?: string;
+        routeDate?: string;
+        jobIds?: string[];
+      };
     };
+
+    if (body.action === "remove_today") {
+      const visitIds = [...new Set((body.visitIds || []).map(String).filter(Boolean))];
+      const reason = String(body.removalReason || "").trim();
+      if (!visitIds.length) throw new Error("Select at least one Scheduled Visit.");
+      if (reason.length < 3) throw new Error("Choose or enter a removal reason.");
+
+      const removed = await user.rpc("remove_visits_from_today_route", {
+        p_visit_ids: visitIds,
+        p_reason: reason,
+      });
+      if (removed.error) throw rpcError(removed.error.message);
+
+      const payload = removed.data || { removed: true, count: visitIds.length, status: "pending" };
+      const routeIds = [...new Set((payload.routeIds || []).map(String).filter(Boolean))];
+      return NextResponse.json({
+        ...payload,
+        routeId: routeIds[0] || null,
+        routeIds,
+        canonicalChanged: true,
+      });
+    }
 
     if (body.action === "reopen") {
       const visitId = String(body.visitId || "");
@@ -121,50 +349,119 @@ export async function POST(request: NextRequest) {
 
     if (!employeeId || !crewId) throw new Error("Choose a canonical Employee and Crew.");
     if (!routeDate) throw new Error("Choose a route date.");
-    if (!orderedJobIds.length) throw new Error("Keep at least one house in the route.");
+    if (!orderedJobIds.length) throw new Error("Keep at least one house in the route preview.");
 
-    await requireCanonicalRouteEmployee({ service, companyId, employeeId, crewId });
-    await requirePermanentOwnership({ service, companyId, crewId, jobIds: orderedJobIds });
+    const originLabel = String(body.origin?.label || "Route start").trim() || "Route start";
+    const originLatitude = Number(body.origin?.latitude);
+    const originLongitude = Number(body.origin?.longitude);
+    if (!Number.isFinite(originLatitude) || !Number.isFinite(originLongitude)) {
+      throw new Error("Generate a valid Smart Route start point before publishing.");
+    }
 
-    const result = await user.rpc("publish_canonical_route_daily", {
-      p_employee_id: employeeId,
-      p_crew_id: crewId,
-      p_route_date: routeDate,
-      p_ordered_job_ids: orderedJobIds,
-      p_source_visit_ids: [...new Set((body.sourceVisitIds || []).map(String).filter(Boolean))],
-    });
-    if (result.error) throw rpcError(result.error.message);
+    const moveSourceIds = await sourceVisitIdsForMove(service, companyId, body.removeFrom);
+    const sourceVisitIds = [...new Set([
+      ...(body.sourceVisitIds || []).map(String).filter(Boolean),
+      ...moveSourceIds,
+    ])];
 
-    const verified = await enforcePublishedRouteEmployee({
+    if (sourceVisitIds.length) {
+      const sourceCheck = await service
+        .from("visits")
+        .select("id,status,job_id")
+        .in("id", sourceVisitIds)
+        .or(companyFilter(companyId));
+      if (sourceCheck.error) throw new Error(sourceCheck.error.message);
+      if ((sourceCheck.data || []).length !== sourceVisitIds.length) {
+        throw new Error("One or more source Visits are not canonical for this company.");
+      }
+      if ((sourceCheck.data || []).some((visit: any) => !["scheduled", "missed"].includes(visit.status))) {
+        throw new Error("Only Scheduled or Needs Reschedule Visits can be moved.");
+      }
+    }
+
+    const fastPath = await publishExistingRouteFastPath({
       service,
+      user,
       companyId,
       employeeId,
       crewId,
       routeDate,
       orderedJobIds,
-      preferredRouteId: result.data?.routeId || null,
+      sourceVisitIds,
     });
 
-    if (verified.count !== orderedJobIds.length || verified.employeeId !== employeeId) {
-      throw new Error("The published route did not match the selected Employee and was rejected.");
+    let data: any;
+    let routeId: string;
+    if (fastPath) {
+      data = fastPath.data;
+      routeId = fastPath.routeId;
+    } else {
+      const result = await user.rpc("publish_canonical_route_daily_protected", {
+        p_employee_id: employeeId,
+        p_crew_id: crewId,
+        p_route_date: routeDate,
+        p_ordered_job_ids: orderedJobIds,
+        p_source_visit_ids: sourceVisitIds,
+      });
+
+      if (result.error) throw rpcError(result.error.message);
+      data = result.data || {};
+      routeId = String(data.routeId || "");
     }
 
-    console.info("admin-route-owner-published", {
+    const canonical = await materializePublishedRoute({
+      service,
       companyId,
+      routeId,
+      routeDate,
       employeeId,
       crewId,
-      routeDate,
-      routeId: verified.routeId,
-      count: verified.count,
-      jobIds: orderedJobIds,
+      orderedJobIds,
+    });
+
+    const applied = await service.rpc("apply_canonical_route_order_v2_service", {
+      p_route_id: routeId,
+      p_ordered_visit_ids: canonical.orderedVisitIds,
+      p_origin_label: originLabel,
+      p_origin_latitude: originLatitude,
+      p_origin_longitude: originLongitude,
+      p_expected_version: null, // Admin publication is intentionally last-write-wins.
+      p_actor_profile_id: profileId,
+      p_source: "admin_route_advisor_smart_route",
+    });
+    if (applied.error) throw rpcError(applied.error.message);
+
+    const appliedData = applied.data || {};
+    const appliedOrder = Array.isArray(appliedData.appliedOrder)
+      ? appliedData.appliedOrder.map(String)
+      : Array.isArray(appliedData.applied_order)
+        ? appliedData.applied_order.map(String)
+        : [];
+    const appliedVersion = Number(appliedData.version || appliedData.routeVersion || 0);
+    if (!sameOrder(appliedOrder, canonical.orderedVisitIds) || !Number.isInteger(appliedVersion) || appliedVersion < 1) {
+      throw new Error("The database did not confirm the Smart Route order and version.");
+    }
+
+    const verified = await verifyCanonicalRoutePersistence(service, {
+      routeId,
+      orderedVisitIds: canonical.orderedVisitIds,
+      routeVersion: appliedVersion,
+      origin: {
+        label: originLabel,
+        latitude: originLatitude,
+        longitude: originLongitude,
+      },
     });
 
     return NextResponse.json({
-      ...(result.data || {}),
-      ...verified,
-      count: orderedJobIds.length,
-      assignmentVerified: true,
-      permanentOwnershipVerified: true,
+      ...data,
+      routeId,
+      routeVersion: verified.routeVersion,
+      orderedVisitIds: verified.orderedVisitIds,
+      origin: verified.origin,
+      count: verified.orderedVisitIds.length,
+      canonicalVerified: true,
+      smartRouteSaved: true,
     });
   } catch (error) {
     console.error("admin-route-advisor-post", error);

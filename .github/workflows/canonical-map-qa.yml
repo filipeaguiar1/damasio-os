@@ -1,0 +1,82 @@
+name: Canonical Map QA
+
+on:
+  push:
+    branches:
+      - feature/25-30-homes-simulator-v1
+    paths:
+      - "app/api/map/**"
+      - "app/api/admin/demo-sandbox/route.ts"
+      - "app/mobile/admin/routes/page.tsx"
+      - "app/mobile/employee/page.tsx"
+      - "app/employee/route/page.tsx"
+      - "components/admin/OfficialRoutePlanMap.tsx"
+      - "components/mobile/EmployeeRouteMap.tsx"
+      - "lib/hooks/useCanonicalRouteSnapshot.ts"
+      - "lib/routes/canonicalRouteSnapshot.ts"
+      - "lib/services/routeMapService.ts"
+      - "scripts/validate-canonical-map-sync.mjs"
+      - "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql"
+      - "tests/canonical-route-sync.spec.ts"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/canonical-map-qa.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/api/map/**"
+      - "app/api/admin/demo-sandbox/route.ts"
+      - "app/mobile/admin/routes/page.tsx"
+      - "app/mobile/employee/page.tsx"
+      - "app/employee/route/page.tsx"
+      - "components/admin/OfficialRoutePlanMap.tsx"
+      - "components/mobile/EmployeeRouteMap.tsx"
+      - "lib/hooks/useCanonicalRouteSnapshot.ts"
+      - "lib/routes/canonicalRouteSnapshot.ts"
+      - "lib/services/routeMapService.ts"
+      - "scripts/validate-canonical-map-sync.mjs"
+      - "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql"
+      - "tests/canonical-route-sync.spec.ts"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/canonical-map-qa.yml"
+
+concurrency:
+  group: canonical-map-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-map:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Canonical synchronization regression
+        run: pnpm test:map-sync
+
+      - name: TypeScript
+        run: pnpm typecheck
+
+      - name: Production build
+        run: pnpm build

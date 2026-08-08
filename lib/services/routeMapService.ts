@@ -1,17 +1,24 @@
-import { getRouteMapCache } from "@/lib/repositories/routeMapRepository";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { Lead } from "@/lib/storage";
 import type { CanonicalRouteLead, CanonicalVisitStatus } from "@/lib/routes/canonicalRouteIdentity";
+import type { RouteLineString } from "@/lib/maps/types";
 import { normalizeVisitExecutionState } from "@/lib/visits/executionState";
 import {
-  beginMobileOperation,
-  completeMobileOperation,
-  failMobileOperation,
-} from "@/lib/mobile/mobileOperationStatus";
+  loadCanonicalRouteSnapshot,
+  type CanonicalRouteOrigin,
+  type CanonicalRouteSnapshot,
+  type CanonicalRouteStop,
+} from "@/lib/routes/canonicalRouteSnapshot";
 
 export type EmployeeRouteMapContext = {
   routeId: string | null;
   routeVersion?: number | null;
+  routeDate?: string;
+  origin?: CanonicalRouteOrigin | null;
+  orderedVisitIds?: string[];
+  routeOrder?: Array<{ visitId: string; routeOrder: number }>;
+  geometry?: RouteLineString | null;
+  geometryStatus?: CanonicalRouteSnapshot["geometryStatus"];
   stops: Array<{
     visitId: string;
     jobId?: string | null;
@@ -20,7 +27,7 @@ export type EmployeeRouteMapContext = {
     addressLine1: string;
     latitude: number | null;
     longitude: number | null;
-    routeOrder: number | null;
+    routeOrder: number;
     status: string;
     customerName?: string;
     serviceName?: string;
@@ -45,18 +52,15 @@ export type EmployeeDatabaseSmartRouteState = {
   routeVersion: number;
 };
 
-type ConfirmedRouteOrder = {
-  version: number;
-  appliedOrder: string[];
-  origin: { label: string; latitude: number; longitude: number };
-  appliedAt: string;
+const emptyContext: EmployeeRouteMapContext = {
+  routeId: null,
+  routeVersion: null,
+  origin: null,
+  orderedVisitIds: [],
+  routeOrder: [],
+  geometry: null,
+  stops: [],
 };
-
-const emptyContext: EmployeeRouteMapContext = { routeId: null, routeVersion: null, stops: [] };
-const canonicalRouteVersions = new Map<string, number>();
-const smartRoutePreviewVersions = new Map<string, number>();
-const confirmedRouteOrders = new Map<string, ConfirmedRouteOrder>();
-let smartRouteApplyInFlight = false;
 
 function torontoParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -69,218 +73,109 @@ function torontoParts(date = new Date()) {
   return Object.fromEntries(parts.map(part => [part.type, part.value]));
 }
 
-function clearLegacySmartRouteStates() {
-  if (typeof window === "undefined") return;
-  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
-    const key = window.localStorage.key(index);
-    if (key?.startsWith("damasio_os_employee_smart_route_")) {
-      window.localStorage.removeItem(key);
-    }
-  }
-}
-
-function uniqueStringOrder(values: string[]) {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const value of values) {
-    const id = String(value || "");
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    result.push(id);
-  }
-  return result;
-}
-
-function applyConfirmedRouteOrder(
-  context: EmployeeRouteMapContext,
-  appliedOrder: string[],
-  routeVersion?: number | null,
-): EmployeeRouteMapContext {
-  const order = uniqueStringOrder(appliedOrder);
-  if (!order.length || !context.stops.length) return context;
-
-  const rank = new Map(order.map((visitId, index) => [visitId, index + 1]));
-  const reordered = [...context.stops]
-    .sort((left, right) =>
-      (rank.get(left.visitId) ?? 2147483647)
-      - (rank.get(right.visitId) ?? 2147483647)
-      || (left.routeOrder ?? 2147483647) - (right.routeOrder ?? 2147483647)
-      || left.visitId.localeCompare(right.visitId))
-    .map((stop, index) => ({
-      ...stop,
-      routeOrder: rank.get(stop.visitId) ?? stop.routeOrder ?? index + 1,
-    }));
-
-  return {
-    ...context,
-    routeVersion: routeVersion && routeVersion > 0
-      ? Math.max(routeVersion, context.routeVersion || 0)
-      : context.routeVersion,
-    stops: reordered,
-  };
-}
-
 export function routeDateForWeekday(dayName: string) {
-  const days = ["Monday", "Tuesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const current = torontoParts();
   const currentIndex = days.indexOf(current.weekday);
   const targetIndex = days.indexOf(dayName);
-  const base = new Date(Date.UTC(
-    Number(current.year),
-    Number(current.month) - 1,
-    Number(current.day),
-    17,
-  ));
+  const base = new Date(Date.UTC(Number(current.year), Number(current.month) - 1, Number(current.day), 17));
   if (currentIndex >= 0 && targetIndex >= 0) base.setUTCDate(base.getUTCDate() + targetIndex - currentIndex);
   const result = torontoParts(base);
   return `${result.year}-${result.month}-${result.day}`;
 }
 
-async function accessToken() {
-  const supabase = getSupabaseBrowserClient() as any;
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token || null;
-}
-
-async function rememberCanonicalRouteVersion(routeId: string) {
-  const supabase = getSupabaseBrowserClient() as any;
-  const { data, error } = await supabase.rpc("get_canonical_route_order_v2", {
-    p_route_id: routeId,
+function contextStop(stop: CanonicalRouteStop) {
+  const execution = normalizeVisitExecutionState({
+    status: stop.status,
+    startedAt: stop.startedAt,
+    finishedAt: stop.finishedAt,
+    durationSeconds: stop.durationSeconds,
   });
-  if (error) {
-    if (/get_canonical_route_order_v2|schema cache|could not find the function/i.test(error.message || "")) {
-      throw new Error("The Canonical Route Stops V2 database migration is not installed.");
-    }
-    throw new Error(error.message);
-  }
-  const version = Number(data?.version || 0);
-  if (!Number.isInteger(version) || version < 1) {
-    throw new Error("The canonical Route version could not be loaded.");
-  }
-  canonicalRouteVersions.set(routeId, version);
-  return version;
-}
-
-export async function loadEmployeeRouteMapContext(
-  routeDate: string,
-  _crewName: string,
-): Promise<EmployeeRouteMapContext> {
-  if (!routeDate || !isSupabaseConfigured()) return emptyContext;
-
-  const token = await accessToken();
-  if (!token) return emptyContext;
-
-  const response = await fetch(`/api/mobile/employee/today-route?date=${encodeURIComponent(routeDate)}`, {
-    headers: { authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    const result = await response.json().catch(() => ({}));
-    throw new Error(result.error || "Canonical Employee route could not be loaded.");
-  }
-
-  const result = await response.json() as {
-    routeId?: string | null;
-    routeVersion?: number | null;
-    stops?: Array<{
-      visitId: string;
-      jobId?: string | null;
-      customerId?: string | null;
-      propertyId?: string | null;
-      addressLine1?: string;
-      latitude?: number | null;
-      longitude?: number | null;
-      routeOrder?: number | null;
-      status?: string;
-      customerName?: string;
-      serviceName?: string;
-      scheduledDate?: string;
-      startedAt?: string | null;
-      finishedAt?: string | null;
-      durationSeconds?: number | null;
-    }>;
+  return {
+    visitId: stop.visitId,
+    jobId: stop.jobId,
+    customerId: stop.customerId,
+    propertyId: stop.propertyId,
+    addressLine1: stop.address,
+    latitude: stop.latitude,
+    longitude: stop.longitude,
+    routeOrder: stop.routeOrder,
+    status: stop.status,
+    customerName: stop.customerName,
+    serviceName: stop.serviceName,
+    scheduledDate: stop.scheduledDate,
+    startedAt: execution.startedAt,
+    finishedAt: execution.finishedAt,
+    durationSeconds: execution.durationSeconds,
   };
+}
 
-  const routeId = result.routeId || null;
-  const routeVersion = Number(result.routeVersion || 0);
-  const context = {
-    routeId,
-    routeVersion: Number.isInteger(routeVersion) && routeVersion > 0 ? routeVersion : null,
-    stops: (result.stops || []).map(stop => {
-      const execution = normalizeVisitExecutionState({
-        status: stop.status,
-        startedAt: stop.startedAt,
-        finishedAt: stop.finishedAt,
-        durationSeconds: stop.durationSeconds,
-      });
+export function employeeRouteMapContextFromSnapshot(snapshot: CanonicalRouteSnapshot): EmployeeRouteMapContext {
+  return {
+    routeId: snapshot.routeId,
+    routeVersion: snapshot.routeVersion,
+    routeDate: snapshot.routeDate,
+    origin: snapshot.origin,
+    orderedVisitIds: [...snapshot.orderedVisitIds],
+    routeOrder: snapshot.routeOrder.map(item => ({ ...item })),
+    geometry: snapshot.geometry,
+    geometryStatus: snapshot.geometryStatus,
+    stops: snapshot.stops.map(contextStop),
+  };
+}
 
-      return {
-        visitId: stop.visitId,
-        jobId: stop.jobId || null,
-        customerId: stop.customerId || null,
-        propertyId: stop.propertyId || null,
-        addressLine1: stop.addressLine1 || "",
-        latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : null,
-        longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : null,
-        routeOrder: stop.routeOrder ?? null,
-        status: stop.status || "scheduled",
-        customerName: stop.customerName || "Customer",
-        serviceName: stop.serviceName || "Property Service",
-        scheduledDate: stop.scheduledDate,
-        startedAt: execution.startedAt,
-        finishedAt: execution.finishedAt,
-        durationSeconds: execution.durationSeconds,
-      };
-    }),
-  } satisfies EmployeeRouteMapContext;
+export async function loadEmployeeRouteMapContext(routeDate: string, _crewName: string): Promise<EmployeeRouteMapContext> {
+  if (!routeDate || !isSupabaseConfigured()) return emptyContext;
+  const snapshot = await loadCanonicalRouteSnapshot({ routeDate });
+  return employeeRouteMapContextFromSnapshot(snapshot);
+}
 
-  let resolvedContext: EmployeeRouteMapContext = context;
-  if (routeId) {
-    const confirmed = confirmedRouteOrders.get(routeId);
-    if (confirmed && context.routeVersion && context.routeVersion > confirmed.version) {
-      confirmedRouteOrders.delete(routeId);
-    } else if (confirmed && confirmed.version >= (context.routeVersion || 0)) {
-      resolvedContext = applyConfirmedRouteOrder(context, confirmed.appliedOrder, confirmed.version);
-    }
+export async function loadEmployeeRouteMapContextByRouteId(routeId: string): Promise<EmployeeRouteMapContext> {
+  if (!routeId || !isSupabaseConfigured()) return emptyContext;
+  const snapshot = await loadCanonicalRouteSnapshot({ routeId });
+  return employeeRouteMapContextFromSnapshot(snapshot);
+}
+
+export async function loadEmployeeRouteMapContextUntilStatus(routeDate: string, crewName: string, visitId: string, expectedStatus: string): Promise<EmployeeRouteMapContext> {
+  let latest = await loadEmployeeRouteMapContext(routeDate, crewName);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const stop = latest.stops.find(item => item.visitId === visitId);
+    if (stop?.status === expectedStatus) return latest;
+    await new Promise(resolve => window.setTimeout(resolve, 300 + attempt * 100));
+    latest = await loadEmployeeRouteMapContext(routeDate, crewName);
   }
-
-  if (routeId && resolvedContext.routeVersion) {
-    canonicalRouteVersions.set(routeId, resolvedContext.routeVersion);
-  } else if (routeId) {
-    try {
-      await rememberCanonicalRouteVersion(routeId);
-    } catch (error) {
-      console.warn("canonical-route-version-unavailable", error);
-    }
-  }
-
-  return resolvedContext;
+  throw new Error(`The Visit was saved, but the canonical Route did not converge to ${expectedStatus}. Refresh and verify before continuing.`);
 }
 
 export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRouteMapContext): CanonicalRouteLead[] {
-  if (!context.stops.length) return [];
+  const canonicalRouteId = context.routeId;
+  if (!canonicalRouteId || !context.stops.length) return [];
 
   const byVisitId = new Map(
     route
-      .filter(lead => Boolean(lead.canonicalVisitId))
-      .map(lead => [lead.canonicalVisitId as string, lead]),
+      .filter(lead => Boolean((lead as CanonicalRouteLead).canonicalVisitId))
+      .map(lead => [String((lead as CanonicalRouteLead).canonicalVisitId), lead]),
   );
   const byJobId = new Map(
     route
-      .filter(lead => Boolean(lead.canonicalJobId))
-      .map(lead => [lead.canonicalJobId as string, lead]),
+      .filter(lead => Boolean((lead as CanonicalRouteLead).canonicalJobId))
+      .map(lead => [String((lead as CanonicalRouteLead).canonicalJobId), lead]),
   );
 
+  // Canonical stops are the only membership and order source for Employee web/mobile.
+  // Local Lead data may enrich presentation fields, but it can never re-add a house
+  // removed from today's Route or change the canonical sequence.
   return context.stops
+    .slice()
+    .sort((left, right) => left.routeOrder - right.routeOrder)
     .map(stop => {
-      const lead = byVisitId.get(stop.visitId)
-        || (stop.jobId ? byJobId.get(stop.jobId) : undefined);
-      const canonicalLead = lead as CanonicalRouteLead | undefined;
-
+      const existing = byVisitId.get(stop.visitId)
+        || (stop.jobId ? byJobId.get(String(stop.jobId)) : undefined);
+      const canonicalExisting = existing as CanonicalRouteLead | undefined;
       return {
-        ...(lead || {
+        ...(existing || {
           id: stop.visitId,
-          createdAt: new Date().toISOString(),
+          createdAt: stop.scheduledDate ? `${stop.scheduledDate}T12:00:00.000Z` : "1970-01-01T00:00:00.000Z",
           name: stop.customerName || "Customer",
           phone: "",
           email: "",
@@ -293,32 +188,25 @@ export function applyEmployeeRouteMapContext(route: Lead[], context: EmployeeRou
           photos: [],
         }),
         id: stop.visitId,
-        name: stop.customerName || lead?.name || "Customer",
-        address: stop.addressLine1 || lead?.address || "",
-        service: stop.serviceName || lead?.service || "Property Service",
-        scheduledDate: stop.scheduledDate || lead?.scheduledDate,
+        name: stop.customerName || existing?.name || "Customer",
+        address: stop.addressLine1,
+        service: stop.serviceName || existing?.service || "Property Service",
+        scheduledDate: stop.scheduledDate || existing?.scheduledDate,
         canonicalVisitId: stop.visitId,
-        canonicalJobId: stop.jobId || lead?.canonicalJobId,
-        canonicalCustomerId: stop.customerId || canonicalLead?.canonicalCustomerId,
-        canonicalPropertyId: stop.propertyId || canonicalLead?.canonicalPropertyId,
+        canonicalRouteId,
+        canonicalJobId: stop.jobId || canonicalExisting?.canonicalJobId,
+        canonicalCustomerId: stop.customerId || canonicalExisting?.canonicalCustomerId,
+        canonicalPropertyId: stop.propertyId || canonicalExisting?.canonicalPropertyId,
         canonicalVisitStatus: stop.status as CanonicalVisitStatus,
         visitStartedAt: stop.startedAt,
         visitFinishedAt: stop.finishedAt,
         visitDurationSeconds: stop.durationSeconds,
-        latitude: Number.isFinite(stop.latitude) ? Number(stop.latitude) : undefined,
-        longitude: Number.isFinite(stop.longitude) ? Number(stop.longitude) : undefined,
-        routeOrder: stop.routeOrder ?? undefined,
+        latitude: stop.latitude ?? undefined,
+        longitude: stop.longitude ?? undefined,
+        routeOrder: stop.routeOrder,
         status: stop.status === "completed" ? "completed" as const : "booked" as const,
       };
-    })
-    .sort((left, right) =>
-      (left.routeOrder ?? 9999) - (right.routeOrder ?? 9999)
-      || left.canonicalVisitId!.localeCompare(right.canonicalVisitId!));
-}
-
-export async function loadCachedRouteGeometry(routeId?: string) {
-  if (!routeId) return null;
-  return getRouteMapCache(routeId);
+    });
 }
 
 function smartRouteStateFrom(row: any): EmployeeDatabaseSmartRouteState {
@@ -326,8 +214,8 @@ function smartRouteStateFrom(row: any): EmployeeDatabaseSmartRouteState {
     routeId: row.route_id,
     crewId: row.crew_id || null,
     routeDate: row.route_date,
-    originalOrder: Array.isArray(row.original_order) ? row.original_order : [],
-    appliedOrder: Array.isArray(row.applied_order) ? row.applied_order : [],
+    originalOrder: Array.isArray(row.original_order) ? row.original_order.map(String) : [],
+    appliedOrder: Array.isArray(row.applied_order) ? row.applied_order.map(String) : [],
     originLabel: row.origin_label || "",
     originLatitude: Number.isFinite(row.origin_latitude) ? Number(row.origin_latitude) : undefined,
     originLongitude: Number.isFinite(row.origin_longitude) ? Number(row.origin_longitude) : undefined,
@@ -337,180 +225,70 @@ function smartRouteStateFrom(row: any): EmployeeDatabaseSmartRouteState {
   };
 }
 
-export async function loadEmployeeDatabaseSmartRouteState(
-  routeId?: string | null,
-): Promise<EmployeeDatabaseSmartRouteState | null> {
+export async function loadEmployeeDatabaseSmartRouteState(routeId?: string | null): Promise<EmployeeDatabaseSmartRouteState | null> {
   if (!routeId || !isSupabaseConfigured()) return null;
   const supabase = getSupabaseBrowserClient() as any;
-  const { data, error } = await supabase.rpc("get_employee_smart_route_state", {
-    p_route_id: routeId,
-  });
+  const { data, error } = await supabase.rpc("get_employee_smart_route_state", { p_route_id: routeId });
   if (error) throw new Error(error.message);
   const row = Array.isArray(data) ? data[0] : null;
-  if (!row) return null;
-
-  const state = smartRouteStateFrom(row);
-  const confirmed = confirmedRouteOrders.get(routeId);
-  if (confirmed && state.routeVersion > confirmed.version) {
-    confirmedRouteOrders.delete(routeId);
-  }
-  const resolvedState = confirmed && confirmed.version >= state.routeVersion
-    ? {
-      ...state,
-      appliedOrder: confirmed.appliedOrder,
-      originLabel: confirmed.origin.label,
-      originLatitude: confirmed.origin.latitude,
-      originLongitude: confirmed.origin.longitude,
-      appliedAt: confirmed.appliedAt,
-      active: true,
-      routeVersion: confirmed.version,
-    }
-    : state;
-
-  if (resolvedState.routeVersion > 0) {
-    canonicalRouteVersions.set(routeId, resolvedState.routeVersion);
-  }
-  if (!resolvedState.active) clearLegacySmartRouteStates();
-  return resolvedState;
+  return row ? smartRouteStateFrom(row) : null;
 }
 
-export async function optimizeEmployeeRoadRoute(params: {
-  routeId: string;
-  origin: { label: string; latitude: number; longitude: number };
-  stops: Array<{ id: string; latitude: number; longitude: number }>;
-  alternative?: number;
-}) {
-  const reviewedVersion = canonicalRouteVersions.get(params.routeId);
-  if (!reviewedVersion) {
-    throw new Error("Refresh the route before creating a Smart Route preview.");
-  }
-
-  const token = await accessToken();
-  if (!token) throw new Error("Your Employee login expired. Sign in again.");
-  const response = await fetch("/api/mobile/employee/smart-route", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify({ action: "optimize", ...params }),
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "Road Smart Route could not be calculated.");
-  smartRoutePreviewVersions.set(params.routeId, reviewedVersion);
-  return result as { orderedIds: string[]; distanceMeters: number; durationSeconds: number; alternative: number };
-}
-
-export async function applyEmployeeDatabaseSmartRoute(params: {
-  routeId: string;
-  originalOrder: string[];
-  appliedOrder: string[];
-  origin: { label: string; latitude: number; longitude: number };
-  expectedVersion?: number | null;
-}) {
-  if (smartRouteApplyInFlight) {
-    throw new Error("This route is already being saved. Please wait for confirmation.");
-  }
-
-  const reviewedVersion = smartRoutePreviewVersions.get(params.routeId)
-    ?? params.expectedVersion
-    ?? canonicalRouteVersions.get(params.routeId)
-    ?? null;
-  if (!reviewedVersion) {
-    throw new Error("Refresh the route and create the preview again before applying it.");
-  }
-
-  smartRouteApplyInFlight = true;
-  beginMobileOperation(
-    "Saving Smart Route",
-    `Confirming all ${params.appliedOrder.length} houses and updating every map…`,
-  );
-
-  try {
-    const token = await accessToken();
-    if (!token) throw new Error("Your Employee login expired. Sign in again.");
-
-    const response = await fetch("/api/mobile/employee/smart-route", {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        action: "apply",
-        routeId: params.routeId,
-        originalOrder: params.originalOrder,
-        appliedOrder: params.appliedOrder,
-        origin: params.origin,
-        expectedVersion: reviewedVersion,
-      }),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.error || "Smart Route could not be applied.");
-    }
-
-    const confirmed = result as {
-      saved: true;
-      routeId: string;
-      count: number;
-      version: number;
-      appliedOrder: string[];
-    };
-    if (
-      !confirmed.saved
-      || confirmed.routeId !== params.routeId
-      || !Number.isInteger(Number(confirmed.version))
-      || !Array.isArray(confirmed.appliedOrder)
-    ) {
-      throw new Error("The database did not confirm the reviewed route.");
-    }
-
-    const appliedOrder = uniqueStringOrder(confirmed.appliedOrder.map(String));
-    canonicalRouteVersions.set(params.routeId, confirmed.version);
-    confirmedRouteOrders.set(params.routeId, {
-      version: confirmed.version,
-      appliedOrder,
-      origin: params.origin,
-      appliedAt: new Date().toISOString(),
-    });
-
-    completeMobileOperation(
-      "Route saved",
-      `${confirmed.count} houses are synchronized for Worker and Admin.`,
-    );
-    return { ...confirmed, appliedOrder };
-  } catch (error) {
-    const message = error instanceof Error
-      ? error.message
-      : "Smart Route could not be applied.";
-    failMobileOperation("Route not changed", message);
-    throw error;
-  } finally {
-    smartRoutePreviewVersions.delete(params.routeId);
-    smartRouteApplyInFlight = false;
-  }
-}
-
-export async function restoreEmployeeDatabaseSmartRoute(
-  routeId: string,
-  expectedVersion?: number | null,
-) {
-  if (!isSupabaseConfigured()) throw new Error("Database route mode is not configured.");
-  const reviewedVersion = expectedVersion
-    ?? canonicalRouteVersions.get(routeId)
-    ?? null;
-  if (!reviewedVersion) {
-    throw new Error("Refresh the route before restoring its original order.");
-  }
-
+async function accessToken() {
   const supabase = getSupabaseBrowserClient() as any;
-  const { data, error } = await supabase.rpc("restore_employee_smart_route", {
-    p_route_id: routeId,
-    p_expected_version: reviewedVersion,
-  });
+  const { data, error } = await supabase.auth.getSession();
   if (error) throw new Error(error.message);
-  const row = Array.isArray(data) ? data[0] : null;
-  if (row?.route_version) {
-    canonicalRouteVersions.set(routeId, Number(row.route_version));
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Your session expired. Sign in again.");
+  return token as string;
+}
+
+async function canonicalOrderRequest(body: Record<string, unknown>) {
+  const token = await accessToken();
+  let lastMessage = "Canonical Route could not be saved.";
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch("/api/map/canonical-route/order", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        cache: "no-store",
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.ok) {
+        const routeId = String(result.routeId || body.routeId || "");
+        window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", { detail: { routeId } }));
+        if (typeof BroadcastChannel !== "undefined") {
+          const broadcast = new BroadcastChannel("damasio-canonical-route");
+          broadcast.postMessage({ routeId, routeVersion: result.routeVersion || result.version || null });
+          broadcast.close();
+        }
+        return result as Record<string, any>;
+      }
+      lastMessage = result.error || `Canonical Route request failed (${response.status}).`;
+      if (![502, 503, 504].includes(response.status) || attempt === 1) throw new Error(lastMessage);
+    } catch (reason) {
+      lastMessage = reason instanceof Error ? reason.message : lastMessage;
+      if (attempt === 1 || (reason instanceof Error && !/fetch|network|abort|load failed/i.test(reason.message))) throw new Error(lastMessage);
+    } finally {
+      window.clearTimeout(timeout);
+    }
+    await new Promise(resolve => window.setTimeout(resolve, 350));
   }
-  if (row?.restored) {
-    confirmedRouteOrders.delete(routeId);
-    clearLegacySmartRouteStates();
-  }
-  return Boolean(row?.restored);
+  throw new Error(`${lastMessage} No route change was saved. Refresh and try again.`);
+}
+
+export async function applyEmployeeDatabaseSmartRoute(params: { routeId: string; originalOrder: string[]; appliedOrder: string[]; origin: { label: string; latitude: number; longitude: number }; expectedVersion?: number | null }) {
+  if (!isSupabaseConfigured()) throw new Error("Database route mode is not configured.");
+  const result = await canonicalOrderRequest({ action: "apply", routeId: params.routeId, orderedVisitIds: params.appliedOrder, origin: params.origin, expectedVersion: params.expectedVersion ?? null });
+  return Number(result.routeVersion || result.version || 0);
+}
+
+export async function restoreEmployeeDatabaseSmartRoute(routeId: string, expectedVersion?: number | null) {
+  if (!isSupabaseConfigured()) throw new Error("Database route mode is not configured.");
+  const result = await canonicalOrderRequest({ action: "restore", routeId, expectedVersion: expectedVersion ?? null });
+  return Boolean(result.restored);
 }

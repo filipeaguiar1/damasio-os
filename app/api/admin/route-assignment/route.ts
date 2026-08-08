@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { enforceMovedVisitEmployee, requireCanonicalRouteEmployee } from "@/lib/routes/routeAssignmentIntegrity";
 
 export const dynamic = "force-dynamic";
 
@@ -41,10 +40,7 @@ async function requireAdmin(request: NextRequest) {
     throw new Error("Only an active company Admin can change assignments.");
   }
 
-  const companyId = profile.company_id || profile.organization_id;
-  if (!companyId) throw new Error("Your Admin profile is not linked to a company.");
-
-  return { service, user: userClient(token), companyId: String(companyId) };
+  return { user: userClient(token) };
 }
 
 function assignmentError(message?: string) {
@@ -57,7 +53,7 @@ function assignmentError(message?: string) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { service, user, companyId } = await requireAdmin(request);
+    const { user } = await requireAdmin(request);
     const body = await request.json() as {
       mode?: "temporary" | "permanent";
       visitIds?: string[];
@@ -73,8 +69,6 @@ export async function POST(request: NextRequest) {
     if (!visitIds.length) throw new Error("Select at least one scheduled Visit.");
     if (!employeeId || !crewId) throw new Error("Choose the destination Employee.");
 
-    await requireCanonicalRouteEmployee({ service, companyId, employeeId, crewId });
-
     const result = await user.rpc("move_canonical_visits", {
       p_visit_ids: visitIds,
       p_employee_id: employeeId,
@@ -83,34 +77,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (result.error) throw assignmentError(result.error.message);
-
-    const movedIds = [...new Set([
-      ...visitIds,
-      ...((result.data?.visitIds || result.data?.movedVisitIds || []) as unknown[]).map(String).filter(Boolean),
-    ])];
-    const verified = await enforceMovedVisitEmployee({
-      service,
-      companyId,
-      employeeId,
-      crewId,
-      visitIds: movedIds,
-    });
-
-    console.info("admin-route-move-verified", {
-      companyId,
-      mode,
-      employeeId: verified.employeeId,
-      visitIds: movedIds,
-      movedCount: verified.movedCount,
-    });
-
-    return NextResponse.json({
-      ...(result.data || {}),
-      ...verified,
-      selectedCount: visitIds.length,
-      movedCount: movedIds.length,
-      assignmentVerified: true,
-    });
+    return NextResponse.json(result.data);
   } catch (error) {
     console.error("admin-route-assignment-post", error);
     return NextResponse.json(

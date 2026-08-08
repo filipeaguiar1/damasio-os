@@ -1,0 +1,11 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+const employees = readFileSync("app/admin/employees/page.tsx", "utf8");
+const shell = readFileSync("components/admin/AdminShell.tsx", "utf8");
+assert.match(employees, /CONTRACTS_PER_PAGE = 18/);
+assert.match(employees, /expandedIds/);
+assert.match(employees, /localStorage\.setItem/);
+assert.match(employees, /pageContracts/);
+assert.match(employees, /router\.push\(`\\/admin\\/customers\\/\$\{contract\.customerId\}`\)/);
+assert.match(shell, /grid-template-columns:32px minmax\(0,1fr\)/);
+console.log("PASS Employee contract UX contract");

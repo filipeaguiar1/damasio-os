@@ -142,6 +142,42 @@ async function loadRoute(
       )
     ));
 
+  // route_stops is the canonical source of route order. visits.route_order is
+  // only a compatibility projection and may lag while database migrations roll
+  // out, so Employee web/mobile must never reconstruct a published route from it.
+  const routeIds = unique(visits.map((visit: any) => visit.route_id));
+  const routeStopsResult = routeIds.length
+    ? await service
+      .from("route_stops")
+      .select("route_id,visit_id,position")
+      .in("route_id", routeIds)
+    : { data: [] as any[], error: null };
+  if (routeStopsResult.error) throw new Error(routeStopsResult.error.message);
+
+  const canonicalPositions = new Map<string, number>(
+    (routeStopsResult.data || []).map((stop: any) => [
+      `${String(stop.route_id)}:${String(stop.visit_id)}`,
+      Number(stop.position),
+    ]),
+  );
+  const canonicalPosition = (visit: any) => canonicalPositions.get(
+    `${String(visit.route_id)}:${String(visit.id)}`,
+  );
+
+  visits.sort((left: any, right: any) => {
+    const leftCanonical = canonicalPosition(left);
+    const rightCanonical = canonicalPosition(right);
+    const leftOrder = Number.isFinite(leftCanonical)
+      ? Number(leftCanonical)
+      : Number.isFinite(Number(left.route_order)) ? Number(left.route_order) : 2147483647;
+    const rightOrder = Number.isFinite(rightCanonical)
+      ? Number(rightCanonical)
+      : Number.isFinite(Number(right.route_order)) ? Number(right.route_order) : 2147483647;
+    return leftOrder - rightOrder
+      || String(left.created_at || "").localeCompare(String(right.created_at || ""))
+      || String(left.id).localeCompare(String(right.id));
+  });
+
   const propertyIds = unique(visits.map((visit: any) => visit.property_id));
   const customerIds = unique(visits.map((visit: any) => visit.customer_id));
   const jobIds = unique(visits.map((visit: any) => visit.job_id));
@@ -207,7 +243,7 @@ async function loadRoute(
       postalCode: property?.postal_code || "",
       latitude: null,
       longitude: null,
-      routeOrder: visit.route_order,
+      routeOrder: canonicalPosition(visit) ?? visit.route_order,
       status: visit.status,
       customerName: customer?.full_name || "Customer",
       serviceName: job?.service_name || "Property Service",
@@ -356,6 +392,26 @@ async function fallbackVisitTransition(input: {
   return updated.data;
 }
 
+function executionTransitionConverged(action: VisitAction, visit: any) {
+  if (!visit) return false;
+  const status = String(visit.status || "");
+  if (action === "start") {
+    return status === "in_progress" && Boolean(visit.started_at) && !visit.finished_at;
+  }
+  if (action === "done") {
+    return status === "completed"
+      && Boolean(visit.started_at)
+      && Boolean(visit.finished_at)
+      && Number.isFinite(Number(visit.duration_seconds))
+      && Number(visit.duration_seconds) >= 0;
+  }
+  if (action === "skip") return status === "missed";
+  return status === "scheduled"
+    && !visit.started_at
+    && !visit.finished_at
+    && visit.duration_seconds == null;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { service, employee, companyId, avatarUrl } = await requireEmployee(request);
@@ -430,21 +486,43 @@ export async function PATCH(request: NextRequest) {
       p_reason: reason || null,
     });
 
-    if (result.error) {
-      if (!missingMigration(result.error.message)) throw new Error(result.error.message);
-      const visit = await fallbackVisitTransition({
-        service,
-        employee,
-        userId,
-        companyId,
+    if (!result.error) {
+      const verified = await service
+        .from("visits")
+        .select("id,status,scheduled_date,started_at,finished_at,duration_seconds,route_id,route_order")
+        .eq("id", visitId)
+        .or(companyFilter(companyId))
+        .maybeSingle();
+      if (verified.error) throw new Error(verified.error.message);
+      if (executionTransitionConverged(action, verified.data)) {
+        return NextResponse.json({ visit: verified.data, fallback: false, verified: true });
+      }
+      console.warn("employee-route-rpc-nonconvergent", {
         visitId,
         action,
-        reason,
+        returned: result.data,
+        storedStatus: verified.data?.status || null,
       });
-      return NextResponse.json({ visit, fallback: true });
+    } else {
+      console.warn("employee-route-rpc-fallback", { visitId, action, message: result.error.message });
     }
 
-    return NextResponse.json({ visit: result.data, fallback: false });
+    // Authentication and assignment were already checked by this API. The service-side
+    // transition is the compatibility path for an absent, stale or non-convergent RPC.
+    // Returning success is forbidden until the stored Visit satisfies the invariant.
+    const visit = await fallbackVisitTransition({
+      service,
+      employee,
+      userId,
+      companyId,
+      visitId,
+      action,
+      reason,
+    });
+    if (!executionTransitionConverged(action, visit)) {
+      throw new Error("The Visit transition did not converge in the canonical database.");
+    }
+    return NextResponse.json({ visit, fallback: true, verified: true });
   } catch (error) {
     console.error("employee-route-patch", error);
     return NextResponse.json(

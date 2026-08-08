@@ -14,7 +14,7 @@ const employeeSchema = z.object({
   postalCode: z.string().trim().max(20).nullable().optional(),
   routeStartAddress: z.string().trim().max(400).nullable().optional(),
   avatarUrl: z.string().trim().url().nullable().optional(),
-  dailyRouteCapacity: z.number().int().min(1).max(60).default(16),
+  dailyRouteCapacity: z.number().int().min(1).default(16),
   active: z.boolean().optional(),
 });
 
@@ -102,6 +102,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   let createdUserId = "";
+  let createdCrewId = "";
   try {
     const { client, companyId } = await companyAdmin(request);
     const body = employeeSchema.parse(await request.json());
@@ -117,12 +118,38 @@ export async function POST(request: NextRequest) {
     const profileResult = await writeWithCapacityFallback(includeCapacity =>
       client.from("profiles").upsert(includeCapacity ? profile : withoutCapacity(profile), { onConflict: "id" }));
     if (profileResult.error) throw new Error(profileResult.error.message);
-    const employee = { organization_id: companyId, company_id: companyId, profile_id: createdUserId, ...base, active: true, invite_status: "sent" };
+
+    const crewResult = await client.from("crews")
+      .insert({
+        organization_id: companyId,
+        company_id: companyId,
+        name: body.fullName,
+        active: true,
+      })
+      .select("id")
+      .single();
+    if (crewResult.error || !crewResult.data?.id) {
+      throw new Error(crewResult.error?.message || "The Employee Crew could not be created.");
+    }
+    createdCrewId = String(crewResult.data.id);
+
+    const employee = {
+      organization_id: companyId,
+      company_id: companyId,
+      profile_id: createdUserId,
+      crew_id: createdCrewId,
+      ...base,
+      active: true,
+      invite_status: "sent",
+    };
     const employeeResult = await writeWithCapacityFallback(includeCapacity =>
       client.from("employees").insert(includeCapacity ? employee : withoutCapacity(employee)));
     if (employeeResult.error) throw new Error(employeeResult.error.message);
     return NextResponse.json({ user: { ...profile, daily_route_capacity: body.dailyRouteCapacity }, message: `Invitation sent to ${body.email}.` }, { status: 201 });
   } catch (error) {
+    if (createdCrewId) {
+      try { await serverClient().from("crews").delete().eq("id", createdCrewId); } catch { /* best effort rollback */ }
+    }
     if (createdUserId) try { await serverClient().auth.admin.deleteUser(createdUserId); } catch { /* best effort rollback */ }
     return failure(error);
   }
@@ -174,7 +201,11 @@ export async function DELETE(request: NextRequest) {
     if (!id) throw new Error("Choose an employee.");
     const { data: profile, error } = await client.from("profiles").select("id,full_name").eq("id", id).eq("role", "employee").or(`company_id.eq.${companyId},organization_id.eq.${companyId}`).single();
     if (error || !profile) throw new Error("Employee not found in this company.");
-    await client.from("employees").update({ active: false, profile_id: null }).eq("profile_id", id).or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
+    const employeeResult = await client.from("employees")
+      .update({ active: false, profile_id: null })
+      .eq("profile_id", id)
+      .or(`company_id.eq.${companyId},organization_id.eq.${companyId}`);
+    if (employeeResult.error) throw new Error(`Employee record could not be deactivated: ${employeeResult.error.message}`);
     const { error: authError } = await client.auth.admin.deleteUser(id);
     if (authError && !authError.message.toLowerCase().includes("not found")) throw new Error(authError.message);
     return NextResponse.json({ id, message: `${profile.full_name} was removed. Historical visits remain preserved.` });

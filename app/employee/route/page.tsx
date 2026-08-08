@@ -5,7 +5,8 @@ import Link from "next/link";
 import { CompactFilter } from "@/components/admin/CompactFilter";
 import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { loadEmployeeOperationalIdentity } from "@/lib/services/employeeIdentityService";
-import { applyEmployeeRouteMapContext, loadEmployeeRouteMapContext, routeDateForWeekday, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
+import { applyEmployeeRouteMapContext, employeeRouteMapContextFromSnapshot, loadEmployeeRouteMapContextUntilStatus, routeDateForWeekday, type EmployeeRouteMapContext } from "@/lib/services/routeMapService";
+import { useCanonicalRouteSnapshot } from "@/lib/hooks/useCanonicalRouteSnapshot";
 import {runVisitStatusOrQueue} from "@/lib/mobile/offlineActionQueue";
 import type { CanonicalRouteLead } from "@/lib/routes/canonicalRouteIdentity";
 import {
@@ -81,6 +82,26 @@ export default function EmployeeRoutePage(){
   const [routeStartAddress,setRouteStartAddress]=useState("");
   const [routeOrigin,setRouteOrigin]=useState<{latitude:number;longitude:number;label:string}|null>(null);
   const photoInputRef=useRef<HTMLInputElement|null>(null);
+  const verifiedExecutionRef=useRef(new Map<string,{
+    status:string;
+    startedAt?:string;
+    finishedAt?:string;
+    durationSeconds?:number;
+  }>());
+
+  function acceptCanonicalContext(context:EmployeeRouteMapContext){
+    const rank=(status:string)=>status==="completed"||status==="missed"?2:status==="in_progress"?1:0;
+    const stops=context.stops.map(stop=>{
+      const verified=verifiedExecutionRef.current.get(stop.visitId);
+      if(!verified)return stop;
+      if(stop.status===verified.status||rank(stop.status)>rank(verified.status)){
+        verifiedExecutionRef.current.delete(stop.visitId);
+        return stop;
+      }
+      return {...stop,...verified};
+    });
+    setMapContext({...context,stops});
+  }
 
   function refresh(){
     const rows=getLeads();
@@ -93,19 +114,41 @@ export default function EmployeeRoutePage(){
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
     const qDay=params.get("day");
+    const qDate=params.get("date");
     const qProperty=params.get("property");
     const qView=params.get("view");
-    void loadEmployeeOperationalIdentity().then(identity=>{setCrew(identity.crew);setRouteStartAddress(identity.routeStartAddress||"")});
-    const today=DAMASIO_WEEK_DAYS[(new Date().getDay()+6)%7];
-    if(qDay&&DAMASIO_WEEK_DAYS.includes(qDay)){setDay(qDay);setSelectedDate(routeDateForWeekday(qDay));}
-    else setDay(today);
-    refresh();
+    // Resolve the requested canonical surface before touching legacy browser storage.
+    // A stale or blocked localStorage record must never prevent the web map from hydrating.
+    const clientNow=new Date();
+    const clientToday=localDateKey(clientNow);
+    const clientWeekStart=mondayKey(clientNow);
+    const today=DAMASIO_WEEK_DAYS[(clientNow.getDay()+6)%7];
+    if(qDate&&/^\d{4}-\d{2}-\d{2}$/.test(qDate)){
+      setSelectedDate(qDate);
+      setWeekStart(mondayKey(new Date(`${qDate}T12:00:00`)));
+      const routeDayIndex=(new Date(`${qDate}T12:00:00`).getDay()+6)%7;
+      setDay(DAMASIO_WEEK_DAYS[routeDayIndex]);
+    }else{
+      setWeekStart(clientWeekStart);
+      if(qDay&&DAMASIO_WEEK_DAYS.includes(qDay)){setDay(qDay);setSelectedDate(routeDateForWeekday(qDay));}
+      else {setDay(today);setSelectedDate(clientToday);}
+    }
     if(qProperty){setSelectedId(qProperty);setView("details");}
     else if(qView==="map")setView("map");
-    const on=()=>refresh();
+
+    void loadEmployeeOperationalIdentity()
+      .then(identity=>{setCrew(identity.crew);setRouteStartAddress(identity.routeStartAddress||"")})
+      .catch(error=>setMenuMessage(error instanceof Error?error.message:"Employee identity could not be loaded."));
+
+    const safeRefresh=()=>{
+      try{refresh()}
+      catch(error){setMenuMessage(error instanceof Error?error.message:"Legacy route data could not be loaded.")}
+    };
+    safeRefresh();
+    const on=()=>safeRefresh();
     window.addEventListener(DAMASIO_SYNC_EVENT,on as EventListener);
     window.addEventListener("storage",on);
-    const timer=setInterval(()=>{if(document.visibilityState==="visible")refresh()},15000);
+    const timer=setInterval(()=>{if(document.visibilityState==="visible")safeRefresh()},15000);
     return()=>{window.removeEventListener(DAMASIO_SYNC_EVENT,on as EventListener);window.removeEventListener("storage",on);clearInterval(timer)}
   },[]);
   useEffect(()=>{
@@ -114,13 +157,29 @@ export default function EmployeeRoutePage(){
   },[]);
 
   const localRouteLeads=useMemo(()=>leads.filter(l=>l.assignedCrew===crew&&(l.scheduledDate===selectedDate||l.nextVisitDate===selectedDate||l.serviceDay===day)).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)||a.address.localeCompare(b.address)),[leads,crew,day,selectedDate]);
-  useEffect(()=>{let cancelled=false;if(!selectedDate||!crew)return;void loadEmployeeRouteMapContext(selectedDate,crew).then(context=>{if(!cancelled)setMapContext(context)});return()=>{cancelled=true}},[selectedDate,crew]);
+  const {snapshot:liveRouteSnapshot,error:liveRouteError}=useCanonicalRouteSnapshot({routeDate:selectedDate});
+  useEffect(()=>{
+    if(liveRouteSnapshot)acceptCanonicalContext(employeeRouteMapContextFromSnapshot(liveRouteSnapshot));
+  },[liveRouteSnapshot]);
+  useEffect(()=>{
+    if(liveRouteError&&!/not found|no canonical route/i.test(liveRouteError))setMenuMessage(liveRouteError);
+  },[liveRouteError]);
   useEffect(()=>{let cancelled=false;if(!routeStartAddress){setRouteOrigin(null);return()=>{cancelled=true}}void fetch(`/api/map/geocode?address=${encodeURIComponent(routeStartAddress)}`,{cache:"no-store"}).then(response=>{if(!response.ok)throw new Error("not mapped");return response.json()}).then((point:{latitude:number;longitude:number})=>{if(!cancelled)setRouteOrigin({...point,label:`${profile.name||"Employee"} start`})}).catch(()=>{if(!cancelled)setRouteOrigin(null)});return()=>{cancelled=true}},[routeStartAddress,profile.name]);
   const allRouteLeads=useMemo(()=>applyEmployeeRouteMapContext(localRouteLeads,mapContext) as CanonicalRouteLead[],[localRouteLeads,mapContext]);
   const routeLeads=useMemo(()=>allRouteLeads.filter(l=>routeFilter==="all"?true:routeFilter==="open"?l.status!=="completed":routeFilter==="done"?l.status==="completed":true),[allRouteLeads,routeFilter]);
   const mapRouteLeads=routeLeads;
   const selected=useMemo(()=>allRouteLeads.find(l=>l.id===selectedId)||allRouteLeads[0]||null,[allRouteLeads,selectedId]);
   const session=selected?getSessionForLead(selected.id):null;
+  const canonicalActive=Boolean(selected?.canonicalVisitId)&&(
+    selected?.canonicalVisitStatus==="in_progress"
+    || (selected?.canonicalVisitStatus as string)==="active"
+    || Boolean(selected?.visitStartedAt&&!selected?.visitFinishedAt)
+  );
+  const canonicalDone=Boolean(selected?.canonicalVisitId)&&(
+    selected?.canonicalVisitStatus==="completed"
+    || Boolean(selected?.visitFinishedAt)
+  );
+  const canonicalMissed=Boolean(selected?.canonicalVisitId)&&selected?.canonicalVisitStatus==="missed";
   const openTasks=tasks.filter(t=>(t.status==="assigned"||t.status==="in_progress")&&(t.assignedTo===profile.name||t.assignedTo===crew));
 
   const runningSeconds=useMemo(()=>{
@@ -172,7 +231,36 @@ export default function EmployeeRoutePage(){
     refresh();
   }
 
-  async function start(){if(!selected)return;try{if(selected.canonicalVisitId)await runVisitStatusOrQueue(selected.canonicalVisitId,"in_progress");else startServiceSession(selected.id,profile.name,crew);setCommentOpen(false);setServiceComment("");setDoneMessage("");setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh()}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be started.")}}
+  async function start(){
+    if(!selected)return;
+    try{
+      if(selected.canonicalVisitId){
+        const visitId=selected.canonicalVisitId;
+        const transition=await runVisitStatusOrQueue(visitId,"in_progress") as {visit?:{status?:string;started_at?:string|null;finished_at?:string|null;duration_seconds?:number|null}};
+        const verified=transition.visit;
+        if(verified?.status!=="in_progress"||!verified.started_at||verified.finished_at){
+          throw new Error("The server did not confirm this Visit as active.");
+        }
+        const confirmed={
+          status:"in_progress",
+          startedAt:verified.started_at||undefined,
+          finishedAt:undefined,
+          durationSeconds:undefined,
+        };
+        verifiedExecutionRef.current.set(visitId,confirmed);
+        setMapContext(current=>({...current,stops:current.stops.map(stop=>stop.visitId===visitId?{
+          ...stop,
+          ...confirmed,
+        }:stop)}));
+        void loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,visitId,"in_progress")
+          .then(acceptCanonicalContext)
+          .catch(error=>setMenuMessage(error instanceof Error?error.message:"The active Visit could not be refreshed."));
+      }else{
+        startServiceSession(selected.id,profile.name,crew);
+      }
+      setCommentOpen(false);setServiceComment("");setDoneMessage("");refresh();
+    }catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be started.")}
+  }
   function saveComment(){
     if(!selected)return;
     if(!serviceComment.trim()){setMenuMessage("Type a comment before saving.");return;}
@@ -181,8 +269,51 @@ export default function EmployeeRoutePage(){
     setCommentOpen(false);
     refresh();
   }
-  async function finish(){if(!selected)return;if(!window.confirm("Complete this house and mark it as Done?"))return;try{if(selected.canonicalVisitId)await runVisitStatusOrQueue(selected.canonicalVisitId,"completed");else finishServiceSession(selected.id,serviceComment);setDoneMessage("Done");setServiceComment("");setCommentOpen(false);setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh();window.setTimeout(()=>{setDoneMessage("");setView("route")},850)}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be completed.")}}
-  async function reset(){if(!selected)return;if(!window.confirm("Reset only this house? Status returns to Open across Admin, Dispatch and Employee Route."))return;try{if(selected.canonicalVisitId)await runVisitStatusOrQueue(selected.canonicalVisitId,"scheduled");else resetServiceSession(selected.id);setDoneMessage("Reset to Open");setMapContext(await loadEmployeeRouteMapContext(selectedDate,crew));refresh()}catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be reset.")}}
+  async function finish(){
+    if(!selected)return;
+    if(!window.confirm("Complete this house and mark it as Done?"))return;
+    try{
+      if(selected.canonicalVisitId){
+        const visitId=selected.canonicalVisitId;
+        const transition=await runVisitStatusOrQueue(visitId,"completed") as {visit?:{status?:string;started_at?:string|null;finished_at?:string|null;duration_seconds?:number|null}};
+        const verified=transition.visit;
+        if(verified?.status!=="completed"||!verified.started_at||!verified.finished_at||!Number.isFinite(Number(verified.duration_seconds))){
+          throw new Error("The server did not confirm this Visit as completed.");
+        }
+        const confirmed={
+          status:"completed",
+          startedAt:verified.started_at||undefined,
+          finishedAt:verified.finished_at||undefined,
+          durationSeconds:Number(verified.duration_seconds),
+        };
+        verifiedExecutionRef.current.set(visitId,confirmed);
+        setMapContext(current=>({...current,stops:current.stops.map(stop=>stop.visitId===visitId?{
+          ...stop,
+          ...confirmed,
+        }:stop)}));
+        void loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,visitId,"completed")
+          .then(acceptCanonicalContext)
+          .catch(error=>setMenuMessage(error instanceof Error?error.message:"The completed Visit could not be refreshed."));
+      }else{
+        finishServiceSession(selected.id,serviceComment);
+      }
+      setDoneMessage("Done");setServiceComment("");setCommentOpen(false);refresh();window.setTimeout(()=>{setDoneMessage("");setView("route")},850);
+    }catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be completed.")}
+  }
+  async function reset(){
+    if(!selected)return;
+    if(!window.confirm("Reset only this house? Status returns to Open across Admin, Dispatch and Employee Route."))return;
+    try{
+      if(selected.canonicalVisitId){
+        await runVisitStatusOrQueue(selected.canonicalVisitId,"scheduled");
+        verifiedExecutionRef.current.delete(selected.canonicalVisitId);
+        acceptCanonicalContext(await loadEmployeeRouteMapContextUntilStatus(selectedDate,crew,selected.canonicalVisitId,"scheduled"));
+      }else{
+        resetServiceSession(selected.id);
+      }
+      setDoneMessage("Reset to Open");refresh();
+    }catch(error){setMenuMessage(error instanceof Error?error.message:"Service could not be reset.")}
+  }
 
   function addPhoto(){
     photoInputRef.current?.click();
@@ -392,7 +523,7 @@ export default function EmployeeRoutePage(){
 
       <h2>{selectedDateLabel}</h2>
       <div className="field-card timer-focus">
-        <div className={(selected.canonicalVisitStatus==="in_progress"||session?.status==="running")?"timer-status running":(selected.canonicalVisitStatus==="completed"||session?.status==="finished")?"timer-status finished":"timer-status"}>{selected.canonicalVisitStatus==="in_progress"||session?.status==="running"?"IN PROGRESS":selected.canonicalVisitStatus==="completed"||session?.status==="finished"?"DONE":selected.canonicalVisitStatus==="missed"?"SKIPPED":"NOT STARTED"}</div>
+        <div className={(canonicalActive||session?.status==="running")?"timer-status running":(canonicalDone||session?.status==="finished")?"timer-status finished":"timer-status"}>{canonicalActive||session?.status==="running"?"IN PROGRESS":canonicalDone||session?.status==="finished"?"DONE":canonicalMissed?"SKIPPED":"NOT STARTED"}</div>
         <div className="timer-big">{formatDuration(runningSeconds)}</div>
         <div className="timer-grid">
           <div className="timer-box"><div className="timer-label">Started</div><div className="timer-value">{formatClock(selected.canonicalVisitId?selected.visitStartedAt:session?.startedAt)}</div></div>
@@ -401,9 +532,9 @@ export default function EmployeeRoutePage(){
       </div>
 
       <div className="row" style={{marginBottom:12}}>
-        <button className="start-btn" onClick={start} disabled={selected.canonicalVisitId?selected.canonicalVisitStatus==="in_progress"||selected.canonicalVisitStatus==="completed"||selected.canonicalVisitStatus==="missed":session?.status==="running"}>Start</button>
+        <button className="start-btn" onClick={start} disabled={selected.canonicalVisitId?canonicalActive||canonicalDone||canonicalMissed:session?.status==="running"}>Start</button>
         <button className="btn btn-outline" onClick={()=>setCommentOpen(!commentOpen)}>💬 Comment</button>
-        <button className="finish-btn" onClick={finish} disabled={selected.canonicalVisitId?selected.canonicalVisitStatus!=="in_progress":!session||session.status==="finished"}>Finish</button>
+        <button className="finish-btn" onClick={finish} disabled={selected.canonicalVisitId?!canonicalActive:!session||session.status==="finished"}>Finish</button>
       </div>
       {commentOpen&&<div className="field-card" style={{padding:16,marginBottom:20}}>
         <label className="feedback-label">Optional employee comment</label>

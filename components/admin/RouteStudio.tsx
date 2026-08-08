@@ -6,7 +6,7 @@ import { OfficialRoutePlanMap } from "@/components/admin/OfficialRoutePlanMap";
 import { RouteAdvisorPanel } from "@/components/admin/RouteAdvisorPanel";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { operationalDateKey } from "@/lib/dates/operationalDate";
-import { belongsToCanonicalEmployee, canonicalRouteWarnings } from "@/lib/routes/canonicalRouteIdentity";
+import { canonicalRouteLeadsForEmployee, canonicalRouteWarnings } from "@/lib/routes/canonicalRouteIdentity";
 import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulingService";
 import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
 
@@ -14,6 +14,8 @@ type RouteEmployee = {
   id: string;
   employeeId: string | null;
   crewId: string;
+  employeeIds?: string[];
+  crewIds?: string[];
   name: string;
   email: string;
   routeStartAddress: string | null;
@@ -55,7 +57,7 @@ export function RouteStudio() {
   async function refresh(silent = false) {
     try {
       const token = await accessToken();
-      const response = await fetch("/api/admin/routes", {
+      const response = await fetch(`/api/admin/routes?date=${encodeURIComponent(date)}`, {
         headers: { authorization: `Bearer ${token}` },
         cache: "no-store",
       });
@@ -93,7 +95,7 @@ export function RouteStudio() {
     void refresh();
     const timer = window.setInterval(() => void refresh(true), 10_000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [date]);
 
   const jobs = useMemo(() => leads.filter(item => !item.canonicalVisitId), [leads]);
   const visits = useMemo(() => leads.filter(item => Boolean(item.canonicalVisitId)), [leads]);
@@ -101,15 +103,18 @@ export function RouteStudio() {
   const sourceEmployee = employees.find(item => item.id === employeeId) || null;
   const targetEmployee = employees.find(item => item.id === targetEmployeeId) || null;
   const sourceIdentity = sourceEmployee
-    ? { id: sourceEmployee.employeeId || sourceEmployee.id, crewId: sourceEmployee.crewId }
+    ? { id: sourceEmployee.employeeId || sourceEmployee.id, crewId: sourceEmployee.crewId, employeeIds: sourceEmployee.employeeIds, crewIds: sourceEmployee.crewIds }
     : null;
   const normalized = query.trim().toLowerCase();
   const visibleAvailable = useMemo(() => available.filter(item =>
     !normalized || `${item.name} ${item.address} ${item.service}`.toLowerCase().includes(normalized)),
   [available, normalized]);
-  const sourceRoute = useMemo(() => sourceIdentity ? visits.filter(item =>
-    item.scheduledDate === date && belongsToCanonicalEmployee(item, sourceIdentity))
-    .sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999)) : [],
+  const sourceRoute = useMemo(() => sourceIdentity
+    ? canonicalRouteLeadsForEmployee(
+        visits.filter(item => item.scheduledDate === date),
+        sourceIdentity,
+      ).sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999))
+    : [],
   [visits, date, sourceIdentity?.id, sourceIdentity?.crewId]);
   const movableSource = useMemo(() => sourceRoute.filter(item =>
     (item.canonicalVisitStatus || item.status) === "scheduled"), [sourceRoute]);
@@ -236,7 +241,7 @@ export function RouteStudio() {
     </section>}
 
     <style jsx global>{`
-      .route-simple-workspace{display:grid;gap:14px;margin-top:18px}.route-simple-controls,.route-move-controls{display:grid;grid-template-columns:280px 1fr;gap:12px;padding:16px;border:1px solid #dbe7e1;border-radius:20px;background:#fff}.route-move-controls{grid-template-columns:repeat(3,minmax(190px,1fr))}.route-simple-controls label,.route-move-controls label{display:grid;gap:6px}.route-simple-controls span,.route-move-controls span{color:#607168;font-size:10px;font-weight:900;text-transform:uppercase}.route-simple-controls input,.route-simple-controls select,.route-move-controls input,.route-move-controls select{min-height:48px;border:1px solid #cbdad2;border-radius:12px;padding:0 13px;background:#fff}.route-simple-grid{display:grid;grid-template-columns:minmax(340px,1fr) minmax(300px,.7fr);gap:14px}.route-simple-grid>aside,.route-simple-summary{overflow:hidden;border:1px solid #dbe7e1;border-radius:22px;background:#fff}.route-simple-head{display:flex;justify-content:space-between;padding:15px 16px;border-bottom:1px solid #e7eeea}.route-simple-head span{color:#64748b}.route-simple-all{margin:12px;width:calc(100% - 24px)}.route-choice-list{display:grid;gap:7px;max-height:640px;overflow:auto;padding:10px}.route-choice-list button{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;padding:12px;border:1px solid transparent;border-radius:14px;background:transparent;text-align:left;cursor:pointer}.route-choice-list button:hover{background:#f5faf7}.route-choice-list button.selected{border-color:#0b7655;background:#edf8f2}.route-choice-list b{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:#eaf2ee;color:#0b684c}.route-choice-list strong,.route-choice-list small{display:block}.route-choice-list small{margin-top:4px;color:#64748b}.route-choice-list em{font-style:normal;color:#0b7655;font-size:10px;font-weight:900}.route-simple-summary{align-content:start;display:grid;gap:12px;padding:26px;background:linear-gradient(145deg,#0a382a,#0d6545);color:#fff}.route-simple-summary>span{color:#9ce3b9;font-size:10px;font-weight:950;letter-spacing:.12em}.route-simple-summary h2{margin:0;font-size:32px}.route-simple-summary p{margin:0;color:rgba(255,255,255,.7);line-height:1.6}.route-simple-summary .btn{margin-top:10px;background:#fff;color:#0b5f42}.route-move-mode{display:grid;grid-template-columns:1fr 1fr;gap:8px}.route-move-mode button{display:grid;gap:4px;padding:14px;border:1px solid rgba(255,255,255,.2);border-radius:14px;background:rgba(255,255,255,.08);color:#fff;text-align:left;cursor:pointer}.route-move-mode button.active{border-color:#9ce3b9;background:rgba(156,227,185,.18)}.route-move-mode strong,.route-move-mode small{display:block}.route-move-mode small{color:rgba(255,255,255,.65)}.route-lock-note{margin:10px;padding:12px;border-radius:12px;background:#ecf8f0;color:#27704d;font-size:12px}.route-empty{padding:28px;text-align:center;color:#64748b}@media(max-width:1000px){.route-simple-controls,.route-move-controls,.route-simple-grid{grid-template-columns:1fr}}
+      .route-simple-workspace{display:grid;gap:14px;margin-top:18px}.route-simple-controls,.route-move-controls{display:grid;grid-template-columns:280px 1fr;gap:12px;padding:16px;border:1px solid #dbe7e1;border-radius:20px;background:#fff}.route-move-controls{grid-template-columns:repeat(3,minmax(190px,1fr))}.route-simple-controls label,.route-move-controls label{display:grid;gap:6px}.route-simple-controls span,.route-move-controls span{color:#607168;font-size:10px;font-weight:900;text-transform:uppercase}.route-simple-controls input,.route-simple-controls select,.route-move-controls input,.route-move-controls select{min-height:48px;border:1px solid #cbdad2;border-radius:12px;padding:0 13px;background:#fff}.route-simple-grid{display:grid;grid-template-columns:minmax(340px,1fr) minmax(300px,.7fr);gap:14px}.route-simple-grid>aside,.route-simple-summary{overflow:hidden;border:1px solid #dbe7e1;border-radius:22px;background:#fff}.route-simple-head{display:flex;justify-content:space-between;padding:15px 16px;border-bottom:1px solid #e7eeea}.route-simple-head span{color:#64748b}.route-simple-all{margin:12px;width:calc(100% - 24px)}.route-choice-list{display:grid;gap:7px;max-height:640px;overflow:auto;padding:10px}.route-choice-list button{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;padding:12px;border:1px solid transparent;border-radius:14px;background:transparent;text-align:left;cursor:pointer}.route-choice-list button:hover{background:#f5faf7}.route-choice-list button.selected{border-color:#0b7655;background:#edf8f2}.route-choice-list b{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:#eaf2ee;color:#0b684c}.route-choice-list strong,.route-choice-list small{display:block}.route-choice-list small{margin-top:4px;color:#64748b}.route-choice-list em{font-style:normal;color:#0b7655;font-size:10px;font-weight:900}.route-simple-summary{align-content:start;display:grid;gap:12px;padding:26px;background:linear-gradient(145deg,#0a382a,#0d6545);color:#fff}.route-simple-summary>span{color:#9ce3b9;font-size:10px;font-weight:950;letter-spacing:.12em}.route-simple-summary h2{margin:0;font-size:32px}.route-simple-summary p{margin:0;color:rgba(255,255,255,.7);line-height:1.6}.route-simple-summary .btn{margin-top:10px;background:#fff;color:#0b5f42}.route-move-mode{display:grid;grid-template-columns:1fr 1fr;gap:8px}.route-move-mode button{display:grid;gap:4px;padding:14px;border:1px solid #d7e7de;border-radius:14px;background:#f5fbf7;color:#0b3b2d;text-align:left;cursor:pointer;box-shadow:0 8px 22px rgba(3,48,31,.08);transition:transform .14s ease,box-shadow .14s ease,border-color .14s ease}.route-move-mode button:hover{transform:translateY(-1px);border-color:#b8d8c5;box-shadow:0 12px 28px rgba(3,48,31,.12)}.route-move-mode button.active{border-color:#fff;background:#fff;box-shadow:0 0 0 2px #9ce3b9,0 14px 30px rgba(3,48,31,.16)}.route-move-mode strong,.route-move-mode small{display:block}.route-move-mode small{color:#587267}.route-move-summary>.btn{background:#f8fff9!important;color:#075a3d!important;border:1px solid #d6ebdd!important;box-shadow:0 12px 28px rgba(2,44,29,.16)!important}.route-move-summary>.btn:hover{background:#fff!important;transform:translateY(-1px)}.route-move-summary>.btn:disabled{background:#edf7f0!important;color:#5f7c6e!important;border-color:#d8e8df!important;opacity:1!important;box-shadow:none!important}.route-lock-note{margin:10px;padding:12px;border-radius:12px;background:#ecf8f0;color:#27704d;font-size:12px}.route-empty{padding:28px;text-align:center;color:#64748b}@media(max-width:1000px){.route-simple-controls,.route-move-controls,.route-simple-grid{grid-template-columns:1fr}}
     `}</style>
   </section>;
 }

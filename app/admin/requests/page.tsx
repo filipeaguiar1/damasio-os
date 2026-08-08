@@ -1,117 +1,39 @@
 "use client";
-
+import {useEffect,useMemo,useState} from "react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { AdminShell } from "@/components/admin/AdminShell";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import {AdminShell} from "@/components/admin/AdminShell";
+import {DAMASIO_CREWS,DAMASIO_WEEK_DAYS,ServiceRequest,assignRequestToCrew,createEstimateFromRequest,formatLongDate,getServiceRequests,nextVisitFor,updateServiceRequest,getInvoiceForRequest,isEstimatePaid} from "@/lib/storage";
 
-type LiveRequest = {
-  id: string;
-  kind: "service_request" | "customer_task";
-  serviceName: string;
-  message: string | null;
-  status: string;
-  priority: string | null;
-  customerId: string | null;
-  customerName: string;
-  email: string | null;
-  phone: string | null;
-  propertyId: string | null;
-  address: string;
-  createdAt: string | null;
-};
+const statuses:[ServiceRequest["status"],string][]= [["pending","Pending"],["quoted","Quoted"],["accepted","Accepted"],["scheduled","Scheduled"],["rejected","Rejected"],["completed","Completed"]];
 
-async function accessToken() {
-  const client = getSupabaseBrowserClient();
-  const { data } = await client.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) throw new Error("Your Admin session expired. Sign in again.");
-  return token;
+function purgeLegacyDemoRequests(){
+  try{
+    const key="damasio_os_service_requests";
+    const current=JSON.parse(window.localStorage.getItem(key)||"[]") as ServiceRequest[];
+    const clean=current.filter(item=>!(item.id==="REQ-1"||item.customerName==="Customer Demo"||item.email==="customer@email.com"||item.address.includes("123 King St")));
+    if(clean.length!==current.length)window.localStorage.setItem(key,JSON.stringify(clean));
+  }catch{}
 }
 
-function statusLabel(value: string) {
-  return value.replaceAll("_", " ");
-}
-
-export default function AdminRequests() {
-  const [requests, setRequests] = useState<LiveRequest[]>([]);
-  const [filter, setFilter] = useState("all");
-  const [message, setMessage] = useState("Loading customer requests...");
-  const [loading, setLoading] = useState(true);
-
-  async function refresh(silent = false) {
-    if (!silent) setLoading(true);
-    try {
-      const token = await accessToken();
-      const response = await fetch("/api/admin/service-requests", {
-        headers: { authorization: `Bearer ${token}` },
-        cache: "no-store",
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Customer requests could not be loaded.");
-      setRequests(result.requests || []);
-      setMessage("");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Customer requests could not be loaded.");
-    } finally {
-      if (!silent) setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => void refresh(true), 15_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const statuses = useMemo(() => [...new Set(requests.map(item => item.status))], [requests]);
-  const pending = requests.filter(item => ["pending", "open"].includes(item.status)).length;
-  const visible = filter === "all" ? requests : requests.filter(item => item.status === filter);
-
+export default function AdminRequests(){
+  const[requests,setRequests]=useState<ServiceRequest[]>([]);
+  const[filter,setFilter]=useState<ServiceRequest["status"]|"all">("pending");
+  const[amounts,setAmounts]=useState<Record<string,string>>({});
+  const[crew,setCrew]=useState<Record<string,string>>({});
+  const[date,setDate]=useState<Record<string,string>>({});
+  const[msg,setMsg]=useState("");
+  function refresh(){setRequests(getServiceRequests())}
+  useEffect(()=>{purgeLegacyDemoRequests();refresh()},[]);
+  const counts=useMemo(()=>Object.fromEntries(statuses.map(([s])=>[s,requests.filter(r=>r.status===s).length])),[requests]) as Record<ServiceRequest["status"],number>;
+  const visible=filter==="all"?requests:requests.filter(r=>r.status===filter);
+  function updateFinalStatus(r:ServiceRequest,status:ServiceRequest["status"]){if((r.status==="accepted"||r.status==="rejected")&&(status==="accepted"||status==="rejected")){setMsg("Accepted/rejected requests are locked. Final customer decisions cannot be reversed.");return;}if((status==="accepted"||status==="rejected")&&!window.confirm(`Are you sure you want to ${status==="accepted"?"approve":"reject"} this quote? This decision is final.`)) return;updateServiceRequest(r.id,{status});refresh();}
+  function assign(r:ServiceRequest){const c=crew[r.id]||r.assignedCrew||DAMASIO_CREWS[0];const dt=date[r.id]||r.scheduledDate||nextVisitFor("Monday","seasonal");const d=new Date(dt+"T12:00:00").toLocaleDateString([], {weekday:"long"});assignRequestToCrew(r.id,c,d,dt);setMsg(`${r.service} assigned to ${c} for ${formatLongDate(dt)}.`);refresh();}
   return <AdminShell active="Requests">
-    <div className="app-top">
-      <div>
-        <span className="eyebrow">Live Customer Inbox</span>
-        <h1>Requests <em className="notification-count">{pending}</em></h1>
-        <p className="section-intro">Requests sent from the Customer app now appear directly from the company database.</p>
-      </div>
-      <button className="btn btn-outline" disabled={loading} onClick={() => void refresh()}>{loading ? "Loading..." : "Refresh"}</button>
-    </div>
-
-    {message && <div className="notice" style={{ marginBottom: 18 }}>{message}</div>}
-
-    <section className="business-metrics request-metrics">
-      <button className={filter === "all" ? "business-metric active" : "business-metric"} onClick={() => setFilter("all")}>
-        <span>All</span><strong>{requests.length}</strong><small>live requests</small>
-      </button>
-      {statuses.map(status => <button key={status} className={filter === status ? "business-metric active" : "business-metric"} onClick={() => setFilter(status)}>
-        <span>{statusLabel(status)}</span><strong>{requests.filter(item => item.status === status).length}</strong><small>{["pending", "open"].includes(status) ? "needs review" : statusLabel(status)}</small>
-      </button>)}
+    <div className="app-top"><div><span className="eyebrow">Canonical Workflow</span><h1>Requests <em className="notification-count">{counts.pending}</em></h1><p className="section-intro">Only real customer requests appear here. Request → Quote → Customer decision → Payment → Job → Route → Employee → Completed.</p></div><button className="btn btn-outline" onClick={refresh}>Refresh</button></div>
+    {msg&&<div className="notice" style={{marginBottom:18}}>{msg}</div>}
+    <section className="business-metrics request-metrics"><button className={filter==="all"?"business-metric active":"business-metric"} onClick={()=>setFilter("all")}><span>All</span><strong>{requests.length}</strong><small>all requests</small></button>{statuses.map(([s,label])=><button key={s} className={filter===s?"business-metric active":"business-metric"} onClick={()=>setFilter(s)}><span>{label}</span><strong>{counts[s]}</strong><small>{s==="pending"?"needs quote":s}</small></button>)}</section>
+    <section className="card table-card"><div className="table-head"><div><h2>Workflow Queue</h2><p className="section-intro">New accounts remain empty until a real customer submits a request.</p></div></div><div className="table-wrap workflow-desktop-table"><table><thead><tr><th>Request</th><th>Customer / House</th><th>Status</th><th>Quote</th><th>Create Job</th><th>Actions</th></tr></thead><tbody>{visible.length===0?<tr><td colSpan={6}>No requests in this status.</td></tr>:visible.map(r=>{const finalLocked=r.status==="accepted"||r.status==="rejected"||r.status==="scheduled"||r.status==="completed";const selectedDate=date[r.id]||r.scheduledDate||nextVisitFor("Monday","seasonal");const invoice=getInvoiceForRequest(r.id);const paid=r.estimateId?isEstimatePaid(r.estimateId):false;return <tr key={r.id}><td><strong>{r.service}</strong><br/><small>{new Date(r.createdAt).toLocaleString()}</small><p>{r.message||"No notes"}</p></td><td>{r.customerName}<br/><small>{r.phone} · {r.email}</small><br/><Link className="open-inline" href={`/admin/customers?search=${encodeURIComponent(r.address)}`}>Check house: {r.address}</Link></td><td><span className={`request-status ${r.status}`}>{r.status}</span>{invoice&&<p><small>Invoice: {invoice.status.replace("_"," ")}</small></p>}{r.scheduledDate&&<p><small>{formatLongDate(r.scheduledDate)}</small></p>}</td><td>{r.estimateId?<Link className="btn btn-outline" href="/admin/estimates">Open Estimate</Link>:<div className="row"><input className="input compact-input" value={amounts[r.id]||"299"} onChange={e=>setAmounts({...amounts,[r.id]:e.target.value})}/><button className="btn btn-primary" onClick={()=>{createEstimateFromRequest(r.id,Number(amounts[r.id]||299));refresh()}}>Send Quote</button></div>}</td><td><div className="request-assign-box"><select className="input" value={crew[r.id]||r.assignedCrew||DAMASIO_CREWS[0]} onChange={e=>setCrew({...crew,[r.id]:e.target.value})}>{DAMASIO_CREWS.map(c=><option key={c}>{c}</option>)}</select><input className="input" type="date" value={selectedDate} onChange={e=>setDate({...date,[r.id]:e.target.value})}/><strong className="date-preview">{formatLongDate(selectedDate)}</strong><button className="btn btn-primary" disabled={!paid&&r.status!=="scheduled"&&r.status!=="completed"} onClick={()=>assign(r)}>{r.jobId?"Update Job":"Create Job"}</button>{!paid&&r.status!=="scheduled"&&r.status!=="completed"&&<small>Available after invoice is paid.</small>}</div></td><td><div className="row"><select className="input" value={r.status} disabled={finalLocked} onChange={e=>updateFinalStatus(r,e.target.value as ServiceRequest["status"])}>{statuses.filter(([s])=>s!=="scheduled"&&s!=="completed").map(([s,label])=><option key={s} value={s}>{label}</option>)}</select>{r.status!=="completed"&&r.status!=="rejected"&&<button className="btn btn-outline" onClick={()=>{updateServiceRequest(r.id,{status:"completed"});refresh()}}>Mark Completed</button>}</div></td></tr>})}</tbody></table></div>
+      <div className="workflow-mobile-list">{visible.length===0?<div className="mobile-empty">No requests in this status.</div>:visible.map(r=>{const finalLocked=r.status==="accepted"||r.status==="rejected"||r.status==="scheduled"||r.status==="completed";const selectedDate=date[r.id]||r.scheduledDate||nextVisitFor("Monday","seasonal");const invoice=getInvoiceForRequest(r.id);const paid=r.estimateId?isEstimatePaid(r.estimateId):false;return <article className="workflow-mobile-card" key={`mobile-${r.id}`}><h3>{r.service}</h3><p><strong>{r.customerName}</strong></p><p>{r.address}</p><div className="workflow-mobile-meta"><div><span>Status</span><strong>{r.status}</strong></div><div><span>Created</span><strong>{new Date(r.createdAt).toLocaleDateString()}</strong></div><div><span>Phone</span><strong>{r.phone||"-"}</strong></div><div><span>Invoice</span><strong>{invoice?.status.replace("_"," ")||"Not created"}</strong></div></div>{r.message&&<p>{r.message}</p>}<div className="workflow-mobile-actions">{r.estimateId?<Link className="btn btn-outline" href="/admin/estimates">Open Estimate</Link>:<div className="row"><input aria-label="Quote amount" className="input" value={amounts[r.id]||"299"} onChange={e=>setAmounts({...amounts,[r.id]:e.target.value})}/><button className="btn btn-primary" onClick={()=>{createEstimateFromRequest(r.id,Number(amounts[r.id]||299));refresh()}}>Send Quote</button></div>}<select aria-label="Crew" className="input" value={crew[r.id]||r.assignedCrew||DAMASIO_CREWS[0]} onChange={e=>setCrew({...crew,[r.id]:e.target.value})}>{DAMASIO_CREWS.map(c=><option key={c}>{c}</option>)}</select><input aria-label="Service date" className="input" type="date" value={selectedDate} onChange={e=>setDate({...date,[r.id]:e.target.value})}/><button className="btn btn-primary" disabled={!paid&&r.status!=="scheduled"&&r.status!=="completed"} onClick={()=>assign(r)}>{r.jobId?"Update Job":"Create Job"}</button>{!paid&&r.status!=="scheduled"&&r.status!=="completed"&&<small>Available after invoice is paid.</small>}<select aria-label="Request status" className="input" value={r.status} disabled={finalLocked} onChange={e=>updateFinalStatus(r,e.target.value as ServiceRequest["status"])}>{statuses.filter(([s])=>s!=="scheduled"&&s!=="completed").map(([s,label])=><option key={s} value={s}>{label}</option>)}</select>{r.status!=="completed"&&r.status!=="rejected"&&<button className="btn btn-outline" onClick={()=>{updateServiceRequest(r.id,{status:"completed"});refresh()}}>Mark Completed</button>}</div></article>})}</div>
     </section>
-
-    <section className="card table-card">
-      <div className="table-head"><div><h2>Customer request queue</h2><p className="section-intro">Standard service requests and customer-created return-visit tasks share this inbox.</p></div></div>
-      <div className="table-wrap workflow-desktop-table">
-        <table>
-          <thead><tr><th>Request</th><th>Customer</th><th>Property</th><th>Status</th><th>Received</th></tr></thead>
-          <tbody>{visible.length === 0 ? <tr><td colSpan={5}>{loading ? "Loading requests..." : "No customer requests in this status."}</td></tr> : visible.map(item => <tr key={`${item.kind}-${item.id}`}>
-            <td><strong>{item.serviceName}</strong><br/><small>{item.kind === "customer_task" ? "Customer follow-up" : "Service request"}</small>{item.message && <p>{item.message}</p>}</td>
-            <td><strong>{item.customerName}</strong><br/><small>{item.phone || "No phone"}{item.email ? ` · ${item.email}` : ""}</small>{item.customerId && <p><Link className="open-inline" href={`/admin/customers/${item.customerId}`}>Open customer</Link></p>}</td>
-            <td>{item.address}</td>
-            <td><span className={`request-status ${item.status}`}>{statusLabel(item.status)}</span>{item.priority && <p><small>Priority: {item.priority}</small></p>}</td>
-            <td>{item.createdAt ? new Date(item.createdAt).toLocaleString("en-CA") : "—"}</td>
-          </tr>)}</tbody>
-        </table>
-      </div>
-
-      <div className="workflow-mobile-list">{visible.length === 0 ? <div className="mobile-empty">{loading ? "Loading requests..." : "No customer requests in this status."}</div> : visible.map(item => <article className="workflow-mobile-card" key={`mobile-${item.kind}-${item.id}`}>
-        <h3>{item.serviceName}</h3>
-        <p><strong>{item.customerName}</strong></p>
-        <p>{item.address}</p>
-        {item.message && <p>{item.message}</p>}
-        <div className="workflow-mobile-meta"><div><span>Status</span><strong>{statusLabel(item.status)}</strong></div><div><span>Received</span><strong>{item.createdAt ? new Date(item.createdAt).toLocaleDateString("en-CA") : "—"}</strong></div><div><span>Type</span><strong>{item.kind === "customer_task" ? "Follow-up" : "Service"}</strong></div><div><span>Priority</span><strong>{item.priority || "Normal"}</strong></div></div>
-        {item.customerId && <Link className="btn btn-outline" href={`/admin/customers/${item.customerId}`}>Open customer</Link>}
-      </article>)}</div>
-    </section>
-  </AdminShell>;
+  </AdminShell>
 }

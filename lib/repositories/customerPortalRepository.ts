@@ -198,18 +198,40 @@ function canUseCustomerPortalApiFallback(error: { code?: string; message?: strin
   return error?.code === "PGRST202"
     || error?.code === "42501"
     || error?.code === "42703"
-    || /could not find the function public\.(create_customer_portal_request|submit_customer_portal_feedback)|schema cache|permission denied|column .*company_id.*does not exist/i.test(message);
+    || error?.code === "57014"
+    || /could not find the function public\.(create_customer_portal_request|submit_customer_portal_feedback)|schema cache|permission denied|column .*company_id.*does not exist|canceling statement due to statement timeout/i.test(message);
 }
 
-async function rpcBoard(name: string, args?: Record<string, unknown>) {
-  const supabase = getSupabaseBrowserClient();
-  const { data, error } = await supabase.rpc(name as never, (args || {}) as never);
-  if (error) throw new Error(error.message);
-  return normalizeBoard(data || emptyBoard);
+function canUseCustomerPortalBoardFallback(error: { code?: string; message?: string } | null | undefined) {
+  const message = String(error?.message || "");
+  return error?.code === "PGRST202"
+    || error?.code === "42501"
+    || error?.code === "42703"
+    || error?.code === "57014"
+    || /could not find the function public\.get_customer_portal_board|schema cache|permission denied|canceling statement due to statement timeout/i.test(message);
 }
 
-export function getCustomerPortalBoard() {
-  return rpcBoard("get_customer_portal_board");
+async function customerPortalBoardFallback() {
+  const supabase = getSupabaseBrowserClient() as any;
+  const session = await supabase.auth.getSession();
+  const accessToken = session.data.session?.access_token;
+  if (!accessToken) throw new Error("Customer session expired.");
+  const response = await fetch("/api/customer/portal-board", {
+    method: "GET",
+    headers: { authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Customer portal board failed.");
+  return normalizeBoard(result.board || emptyBoard);
+}
+
+export async function getCustomerPortalBoard() {
+  const supabase = getSupabaseBrowserClient() as any;
+  const { data, error } = await supabase.rpc("get_customer_portal_board");
+  if (!error) return normalizeBoard(data || emptyBoard);
+  if (!canUseCustomerPortalBoardFallback(error)) throw new Error(error.message);
+  return customerPortalBoardFallback();
 }
 
 export async function getCustomerPaymentsVisitsPortal() {

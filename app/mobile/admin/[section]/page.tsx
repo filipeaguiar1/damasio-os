@@ -132,7 +132,6 @@ export default function MobileAdminSection() {
   function openRow(row: Row) {
     if (section === "customers") router.push(`/mobile/admin/customers/${row.id}`);
     if (section === "command" || section === "reports") setSelectedLog(logs.find(log => log.id === row.id) || null);
-    if (section === "settings" && ["company", "mobile"].includes(row.id)) router.push(`/mobile/admin/settings/${row.id}`);
   }
 
   return <MobileRoleGuard allowed={["admin", "manager"]}>

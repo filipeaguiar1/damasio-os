@@ -6,7 +6,7 @@ import { EmployeeRouteMap } from "@/components/mobile/EmployeeRouteMap";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulingService";
 import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
-import { belongsToCanonicalEmployee } from "@/lib/routes/canonicalRouteIdentity";
+import { belongsToCanonicalEmployee, canonicalRouteLeadsForEmployee } from "@/lib/routes/canonicalRouteIdentity";
 import { operationalDateKey } from "@/lib/dates/operationalDate";
 import styles from "./officialRoutePanels.module.css";
 
@@ -16,6 +16,8 @@ type RouteEmployee = {
   id: string;
   employeeId: string | null;
   crewId: string;
+  employeeIds?: string[];
+  crewIds?: string[];
   name: string;
   email: string;
   routeStartAddress: string | null;
@@ -120,9 +122,36 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
   async function refresh() {
     try {
       const accessToken = await token();
-      const response = await fetch("/api/admin/routes", { headers: { authorization: `Bearer ${accessToken}` }, cache: "no-store" });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Routes could not be loaded.");
+      let response: Response | null = null;
+      let result: any = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const controller = new AbortController();
+          const timeout = window.setTimeout(() => controller.abort(), 20_000);
+          try {
+            response = await fetch(`/api/admin/routes?date=${encodeURIComponent(date)}`, {
+              headers: { authorization: `Bearer ${accessToken}` },
+              cache: "no-store",
+              signal: controller.signal,
+            });
+            result = await response.json().catch(() => ({}));
+          } finally {
+            window.clearTimeout(timeout);
+          }
+          if (response.ok) break;
+          const genericBadRequest = [400, 401].includes(response.status)
+            && /^bad request$/i.test(String(result?.error || ""));
+          if ((!genericBadRequest && ![502, 503, 504].includes(response.status)) || attempt === 2) {
+            throw new Error(result.error || `Routes could not be loaded (${response.status}).`);
+          }
+          await new Promise(resolve => window.setTimeout(resolve, 400 * (attempt + 1)));
+        } catch (reason) {
+          const retryable = reason instanceof Error && /fetch|network|abort|load failed/i.test(reason.message);
+          if (attempt === 2 || !retryable) throw reason;
+          await new Promise(resolve => window.setTimeout(resolve, 400 * (attempt + 1)));
+        }
+      }
+      if (!response?.ok) throw new Error(result?.error || "Routes could not reach the server. Refresh and try again.");
       setEmployees(result.employees || []);
       setLeads(schedulingBoardToLeads((result.board || {}) as SchedulingDispatchBoard));
       setMessage("");
@@ -133,14 +162,30 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
 
   useEffect(() => {
     void refresh();
+    const client = getSupabaseBrowserClient() as any;
+    let refreshTimer = 0;
+    const refreshSoon = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => void refresh(), 120);
+    };
     const timer = window.setInterval(() => void refresh(), 5000);
-    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    const onVisible = () => { if (document.visibilityState === "visible") refreshSoon(); };
+    const channel = client
+      .channel(`admin-canonical-routes:${date}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "route_order_state" }, refreshSoon)
+      .on("postgres_changes", { event: "*", schema: "public", table: "route_stops" }, refreshSoon)
+      .on("postgres_changes", { event: "*", schema: "public", table: "visits" }, refreshSoon)
+      .subscribe();
+    window.addEventListener("damasio:canonical-route-updated", refreshSoon);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
+      window.clearTimeout(refreshTimer);
       window.clearInterval(timer);
+      window.removeEventListener("damasio:canonical-route-updated", refreshSoon);
       document.removeEventListener("visibilitychange", onVisible);
+      void client.removeChannel(channel);
     };
-  }, []);
+  }, [date]);
 
   const visits = useMemo(() => leads.filter(item =>
     Boolean(item.canonicalVisitId)
@@ -148,16 +193,16 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
     && item.scheduledDate === date
     && item.canonicalVisitStatus !== "cancelled"), [leads, date]);
   const selectedEmployee = employees.find(item => item.id === selectedId) || null;
-  const selectedIdentity = selectedEmployee ? { id: selectedEmployee.employeeId || selectedEmployee.id, crewId: selectedEmployee.crewId } : null;
+  const selectedIdentity = selectedEmployee ? { id: selectedEmployee.employeeId || selectedEmployee.id, crewId: selectedEmployee.crewId, employeeIds: selectedEmployee.employeeIds, crewIds: selectedEmployee.crewIds } : null;
   const selectedRoute = useMemo(() => selectedIdentity
-    ? visits.filter(item => belongsToCanonicalEmployee(item, selectedIdentity)).sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999))
+    ? canonicalRouteLeadsForEmployee(visits, selectedIdentity).sort((a, b) => (a.routeOrder ?? 9999) - (b.routeOrder ?? 9999))
     : [], [visits, selectedIdentity?.id, selectedIdentity?.crewId]);
 
   const counts = useMemo(() => {
     const result = new Map<string, number>();
     for (const employee of employees) {
-      const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId };
-      result.set(employee.id, visits.filter(item => belongsToCanonicalEmployee(item, identity)).length);
+      const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId, employeeIds: employee.employeeIds, crewIds: employee.crewIds };
+      result.set(employee.id, canonicalRouteLeadsForEmployee(visits, identity).length);
     }
     return result;
   }, [employees, visits]);
@@ -165,7 +210,7 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
   useEffect(() => {
     let cancelled = false;
     void Promise.all(employees.map(async (employee, index) => {
-      const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId };
+      const identity = { id: employee.employeeId || employee.id, crewId: employee.crewId, employeeIds: employee.employeeIds, crewIds: employee.crewIds };
       const firstStop = visits.find(item => belongsToCanonicalEmployee(item, identity));
       const address = employee.routeStartAddress || firstStop?.address || "";
       if (!address) return null;
@@ -319,9 +364,29 @@ export function OfficialRoutePlanMap({ date: controlledDate, onDateChange }: Pro
       </div>
     </header>
     {message && <div className="studio-empty">{message}</div>}
-    {!selectedEmployee ? <div className={`${styles.overviewMap} studio-map real-map official-route-overview`}>
-      <div ref={mapNode} className="studio-preview-leaflet" />
-    </div> : <div className={`${styles.focusedRoute} official-route-focused`}>
+    {!selectedEmployee ? <>
+      <div className={`${styles.overviewMap} studio-map real-map official-route-overview`}>
+        <div ref={mapNode} className="studio-preview-leaflet" />
+      </div>
+      <div className="official-route-worker-list" aria-label="Published employee routes" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginTop: 12 }}>
+        {employees.map(employee => <button
+          type="button"
+          key={employee.id}
+          className="official-route-worker-button studio-route-stop"
+          data-employee-id={employee.id}
+          onClick={() => {
+            setSelectedHome(null);
+            setCustomerRecord(null);
+            setCustomerMessage("");
+            setSelectedId(employee.id);
+          }}
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 48, padding: "10px 12px" }}
+        >
+          <strong>{employee.name}</strong>
+          <span>{counts.get(employee.id) || 0} house{(counts.get(employee.id) || 0) === 1 ? "" : "s"}</span>
+        </button>)}
+      </div>
+    </> : <div className={`${styles.focusedRoute} official-route-focused`}>
       <EmployeeRouteMap route={selectedRoute} routeId={selectedRoute[0]?.canonicalRouteId} originPoint={origin} desktop actionLabel="Customer & property" onOpenVisit={openCustomer} />
       <aside className={`${styles.housePanel} studio-route-popover official-house-list`}>
         <strong>{selectedEmployee.name}</strong><small>{selectedRoute.length} clients on {date}</small>

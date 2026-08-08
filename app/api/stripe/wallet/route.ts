@@ -64,7 +64,6 @@ export async function GET(request: NextRequest) {
       credits: Number(item.amount_cents || 0) / 100,
       balanceAfterCredits: Number(item.balance_after_cents || 0) / 100,
       description: item.description,
-      paymentMethod: item.transaction_type === "topup" ? "stripe" : "account_balance",
       createdAt: item.created_at,
     })),
   });
