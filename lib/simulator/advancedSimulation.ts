@@ -13,6 +13,7 @@ export type AdvancedSimulationScenario = {
   key: AdvancedSimulationScenarioKey;
   label: string;
   horizonMonths: number;
+  horizonWeeks: number;
   customerCount: number;
   employeeCount: number;
   completedWeeks: number;
@@ -43,6 +44,7 @@ export const ADVANCED_SIMULATION_SCENARIOS: Record<AdvancedSimulationScenarioKey
     key: "baseline",
     label: "Baseline · 60 customers / 2 employees / 8 weeks",
     horizonMonths: 2,
+    horizonWeeks: 8,
     customerCount: 60,
     employeeCount: 2,
     completedWeeks: 8,
@@ -58,6 +60,7 @@ export const ADVANCED_SIMULATION_SCENARIOS: Record<AdvancedSimulationScenarioKey
     key: "large_12_month",
     label: "Large · 100 customers / 10 employees / 12-month horizon",
     horizonMonths: 12,
+    horizonWeeks: 52,
     customerCount: 100,
     employeeCount: 10,
     completedWeeks: 46,
@@ -142,7 +145,23 @@ export function expectedAdvancedSimulationCounts(scenarioKeyInput: unknown) {
     customers: scenario.customerCount,
     employees: scenario.employeeCount,
     horizonMonths: scenario.horizonMonths,
+    horizonWeeks: scenario.horizonWeeks,
+    activeServiceWeeks: scenario.completedWeeks,
   };
+}
+
+export function advancedSimulationActiveWeekOffsets(scenarioKeyInput: unknown) {
+  const scenario = ADVANCED_SIMULATION_SCENARIOS[normalizeAdvancedSimulationScenario(scenarioKeyInput)];
+  const active = Math.max(1, scenario.completedWeeks);
+  const horizon = Math.max(active, scenario.horizonWeeks);
+  if (active === horizon) return Array.from({ length: active }, (_, index) => index);
+  if (active === 1) return [horizon - 1];
+
+  const offsets: number[] = [];
+  for (let index = 0; index < active; index += 1) {
+    offsets.push(Math.round(index * (horizon - 1) / (active - 1)));
+  }
+  return [...new Set(offsets)];
 }
 
 export function simulationWorkerName(index: number) {
