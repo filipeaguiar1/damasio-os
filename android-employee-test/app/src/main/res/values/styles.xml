@@ -3,15 +3,19 @@
     <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:navigationBarColor">#071F18</item>
-        <item name="android:statusBarColor">#0F6B43</item>
-        <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowBackground">#043D2E</item>
+        <item name="android:navigationBarColor">#F4EDDC</item>
+        <item name="android:statusBarColor">#F4EDDC</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
     <style name="SplashTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowFullscreen">true</item>
-        <item name="android:navigationBarColor">#071F18</item>
-        <item name="android:windowDisablePreview">true</item>
+        <item name="android:navigationBarColor">#F4EDDC</item>
+        <item name="android:statusBarColor">#F4EDDC</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
 </resources>

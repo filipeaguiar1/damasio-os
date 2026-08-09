@@ -6,6 +6,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
@@ -33,8 +34,8 @@ import java.io.File;
 import java.io.IOException;
 
 public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5217";
-    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5217";
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5218";
+    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5218";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
     private static final String MOBILE_PATH = "/mobile";
     private static final int FILE_CHOOSER_REQUEST = 4101;
@@ -53,15 +54,26 @@ public class MainActivity extends Activity {
 
         webView = findViewById(R.id.employeeWebView);
         progressBar = findViewById(R.id.pageProgress);
+        webView.setBackgroundColor(Color.rgb(244, 237, 220));
+        progressBar.setVisibility(View.GONE);
         applySystemBarInsets();
         configureWebView();
 
         if (savedInstanceState == null) {
             webView.loadUrl(APP_URL);
-            webView.postDelayed(this::requestOptionalPermissions, 3600L);
+            webView.postDelayed(this::requestOptionalPermissions, 4700L);
         } else {
             webView.restoreState(savedInstanceState);
             requestOptionalPermissions();
+        }
+    }
+
+    private boolean isStartupUrl(String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            return APP_HOST.equals(uri.getHost()) && MOBILE_PATH.equals(uri.getPath());
+        } catch (Exception ignored) {
+            return false;
         }
     }
 
@@ -76,12 +88,12 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.1.7");
+        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.1.8");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                progressBar.setVisibility(View.VISIBLE);
+                progressBar.setVisibility(isStartupUrl(url) ? View.GONE : View.VISIBLE);
             }
 
             @Override
@@ -114,6 +126,10 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onProgressChanged(WebView view, int progress) {
+                if (isStartupUrl(view.getUrl())) {
+                    progressBar.setVisibility(View.GONE);
+                    return;
+                }
                 progressBar.setProgress(progress);
                 progressBar.setVisibility(progress >= 100 ? View.GONE : View.VISIBLE);
             }
@@ -239,7 +255,7 @@ public class MainActivity extends Activity {
     }
 
     private void showOfflinePage() {
-        String html = "<!doctype html><html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='margin:0;background:#f4f7f5;font-family:sans-serif;color:#173b2a;display:grid;min-height:100vh;place-items:center'><main style='text-align:center;padding:28px'><div style='width:76px;height:76px;border-radius:24px;background:#0f6b43;color:white;display:grid;place-items:center;margin:auto;font-size:30px;font-weight:900'>4S</div><h2>Connection unavailable</h2><p>Check your internet connection and try again.</p><button onclick=\"location.href='" + APP_URL + "'\" style='border:0;border-radius:14px;background:#0f6b43;color:white;padding:14px 24px;font-weight:800'>Try again</button></main></body></html>";
+        String html = "<!doctype html><html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='margin:0;background:#f4eddc;font-family:sans-serif;color:#173b2a;display:grid;min-height:100vh;place-items:center'><main style='text-align:center;padding:28px'><div style='width:76px;height:76px;border-radius:24px;background:#0f6b43;color:white;display:grid;place-items:center;margin:auto;font-size:30px;font-weight:900'>4S</div><h2>Connection unavailable</h2><p>Check your internet connection and try again.</p><button onclick=\"location.href='" + APP_URL + "'\" style='border:0;border-radius:14px;background:#0f6b43;color:white;padding:14px 24px;font-weight:800'>Try again</button></main></body></html>";
         webView.loadDataWithBaseURL(APP_URL, html, "text/html", "UTF-8", null);
     }
 
