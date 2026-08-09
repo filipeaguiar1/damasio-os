@@ -34,7 +34,7 @@ jobs:
         run: gradle -p android-employee-test :app:assembleDebug :app:assembleRelease --no-daemon
 
       - name: Prepare base APK
-        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk 4ever-seasons-mobile-v52.2.0-base.apk
+        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk 4ever-seasons-mobile-v52.2.1-base.apk
 
       - name: Prepare local finalization kit
         shell: bash
@@ -42,7 +42,7 @@ jobs:
           set -euo pipefail
           BT="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           mkdir -p apk-buildkit/lib
-          cp android-employee-test/app/build/outputs/apk/release/app-release-unsigned.apk apk-buildkit/4ever-seasons-mobile-v52.2.0-unsigned.apk
+          cp android-employee-test/app/build/outputs/apk/release/app-release-unsigned.apk apk-buildkit/4ever-seasons-mobile-v52.2.1-unsigned.apk
           cp "$BT/apksigner" apk-buildkit/apksigner
           cp "$BT/zipalign" apk-buildkit/zipalign
           cp "$BT/lib/apksigner.jar" apk-buildkit/lib/apksigner.jar
@@ -51,14 +51,14 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: 4ever-seasons-mobile-v52.2.0-base
-          path: 4ever-seasons-mobile-v52.2.0-base.apk
+          name: 4ever-seasons-mobile-v52.2.1-base
+          path: 4ever-seasons-mobile-v52.2.1-base.apk
           if-no-files-found: error
           retention-days: 30
 
       - uses: actions/upload-artifact@v4
         with:
-          name: 4ever-seasons-mobile-v52.2.0-buildkit
+          name: 4ever-seasons-mobile-v52.2.1-buildkit
           path: apk-buildkit/
           if-no-files-found: error
           retention-days: 2
