@@ -25,10 +25,10 @@ import java.security.MessageDigest;
 
 final class NativeOpeningController {
     private static final String MANIFEST_URL = "https://damasio-os-h1mc.vercel.app/api/mobile/opening";
-    private static final String REMOTE_OPENING_FILE = "opening-remote-v5221.mp4";
-    private static final String DEFAULT_OPENING_FILE = "opening-default-v5221.mp4";
+    private static final String REMOTE_OPENING_FILE = "opening-remote-v5223.mp4";
+    private static final String DEFAULT_OPENING_FILE = "opening-default-v5223.mp4";
     private static final String DEFAULT_OPENING_ASSET = "opening_default.mp4";
-    private static final String PREFS = "mobile_opening_v3";
+    private static final String PREFS = "mobile_opening_v5";
     private static final long TIMEOUT_MS = 7000L;
 
     private final Activity activity;
@@ -70,17 +70,12 @@ final class NativeOpeningController {
         layer.setVisibility(View.VISIBLE);
         layer.postDelayed(this::finish, TIMEOUT_MS);
 
-        // Never wait on the network before showing the opening. A verified
-        // remote copy wins on later launches; otherwise the APK asset starts
-        // immediately and also works offline.
         File cached = new File(activity.getFilesDir(), REMOTE_OPENING_FILE);
         File bundled = ensureBundledOpening();
         if (usable(cached)) requestPlayback(cached);
         else if (usable(bundled)) requestPlayback(bundled);
         else finish();
 
-        // Refresh only for a future launch. The current opening is never
-        // interrupted or delayed by a network request.
         refreshCache();
     }
 
@@ -148,8 +143,6 @@ final class NativeOpeningController {
             next.setDataSource(file.getAbsolutePath());
             next.setSurface(surface);
             next.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
-            // Visual-only opening. There is no AudioManager focus request and
-            // the bundled MP4 contains no audio stream, so music keeps playing.
             next.setVolume(0f, 0f);
             next.setLooping(false);
             next.setOnPreparedListener(media -> {
@@ -198,7 +191,6 @@ final class NativeOpeningController {
                 if (!temp.renameTo(cached)) { temp.delete(); return; }
                 prefs.edit().putString("version", version).apply();
             } catch (Exception ignored) {
-                // Bundled/cached opening already handled the current launch.
             } finally {
                 if (manifestConnection != null) manifestConnection.disconnect();
             }
