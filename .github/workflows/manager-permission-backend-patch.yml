@@ -1,0 +1,102 @@
+name: Manager route API permission hardening
+
+on:
+  push:
+    branches:
+      - audit/manager-permission-enforcement-20260809
+    paths:
+      - .github/workflows/manager-permission-backend-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/manager-permission-enforcement-20260809
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Enforce Manager permissions in large route APIs
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f"missing anchor: {label}")
+              return text.replace(old, new, 1)
+
+          routes_path = Path("app/api/admin/routes/route.ts")
+          routes = routes_path.read_text()
+          routes = replace_once(
+              routes,
+              'import { createClient } from "@supabase/supabase-js";\n',
+              'import { createClient } from "@supabase/supabase-js";\nimport { hasManagerPermission } from "@/lib/auth/managerPermissions";\n',
+              "routes import",
+          )
+          routes = replace_once(
+              routes,
+              '.select("id,role,active,company_id,organization_id")',
+              '.select("id,role,active,company_id,organization_id,manager_permissions")',
+              "routes profile select",
+          )
+          routes = replace_once(
+              routes,
+              '''  if (error || !profile?.active || !["admin", "manager"].includes(profile.role)) {\n    throw new Error("Only an active company Admin can manage routes.");\n  }\n\n  const companyId = profile.company_id || profile.organization_id;''',
+              '''  if (error || !profile?.active || !["admin", "manager"].includes(profile.role)) {\n    throw new Error("Only an active company Admin can manage routes.");\n  }\n  if (profile.role === "manager") {\n    const required = request.method === "GET" ? "view" : "manage";\n    if (!hasManagerPermission(profile.manager_permissions, "routes", required)) {\n      throw new Error(`Manager Routes ${required} permission is required.`);\n    }\n  }\n\n  const companyId = profile.company_id || profile.organization_id;''',
+              "routes permission guard",
+          )
+          routes_path.write_text(routes)
+
+          advisor_path = Path("app/api/admin/route-advisor/route.ts")
+          advisor = advisor_path.read_text()
+          advisor = replace_once(
+              advisor,
+              'import { verifyCanonicalRoutePersistence } from "@/lib/routes/verifyCanonicalRoutePersistence";\n',
+              'import { verifyCanonicalRoutePersistence } from "@/lib/routes/verifyCanonicalRoutePersistence";\nimport { hasManagerPermission } from "@/lib/auth/managerPermissions";\n',
+              "advisor import",
+          )
+          advisor = replace_once(
+              advisor,
+              '.select("id,role,active,company_id,organization_id")',
+              '.select("id,role,active,company_id,organization_id,manager_permissions")',
+              "advisor profile select",
+          )
+          advisor = replace_once(
+              advisor,
+              '''  if (error || !profile?.active || !["admin", "manager"].includes(profile.role)) {\n    throw new Error("Only an active company Admin can publish, remove or reopen Visits.");\n  }\n\n  const companyId = profile.company_id || profile.organization_id;''',
+              '''  if (error || !profile?.active || !["admin", "manager"].includes(profile.role)) {\n    throw new Error("Only an active company Admin can publish, remove or reopen Visits.");\n  }\n  if (profile.role === "manager") {\n    const required = request.method === "GET" ? "view" : "manage";\n    if (!hasManagerPermission(profile.manager_permissions, "routes", required)) {\n      throw new Error(`Manager Routes ${required} permission is required.`);\n    }\n  }\n\n  const companyId = profile.company_id || profile.organization_id;''',
+              "advisor permission guard",
+          )
+          advisor_path.write_text(advisor)
+          PY
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate authorization patch
+        run: pnpm check && pnpm build
+
+      - name: Commit validated hardening
+        shell: bash
+        run: |
+          rm .github/workflows/manager-permission-backend-patch.yml
+          git diff --check
+          grep -q 'Manager Routes' app/api/admin/routes/route.ts
+          grep -q 'Manager Routes' app/api/admin/route-advisor/route.ts
+          git config user.name "Damasio Security QA"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/api/admin/routes/route.ts app/api/admin/route-advisor/route.ts .github/workflows/manager-permission-backend-patch.yml
+          git commit -m "Enforce Manager permissions on route APIs"
+          git push origin HEAD:audit/manager-permission-enforcement-20260809
