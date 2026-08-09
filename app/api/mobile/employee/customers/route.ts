@@ -14,6 +14,8 @@ type EmployeeRow = {
   active: boolean;
 };
 
+type DispatchOwnershipRow = ReturnType<typeof normalizeDispatchRow>;
+
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -118,14 +120,14 @@ export async function GET(request: NextRequest) {
     const { service, user, companyId, employee, avatarUrl } = await requireEmployee(request);
 
     let ownedJobIds: string[] = [];
-    let dispatchRows = new Map<string, ReturnType<typeof normalizeDispatchRow>>();
+    let dispatchRows = new Map<string, DispatchOwnershipRow>();
     const dispatch = await user.rpc("get_company_dispatch_jobs");
     if (!dispatch.error && Array.isArray(dispatch.data)) {
-      const owned = dispatch.data
-        .map(normalizeDispatchRow)
-        .filter(row => Boolean(row.jobId) && Boolean(employee.crew_id) && row.crewId === employee.crew_id);
-      ownedJobIds = unique(owned.map(row => row.jobId));
-      dispatchRows = new Map(owned.map(row => [row.jobId, row]));
+      const owned: DispatchOwnershipRow[] = (dispatch.data as any[])
+        .map((row: any) => normalizeDispatchRow(row))
+        .filter((row: DispatchOwnershipRow) => Boolean(row.jobId) && Boolean(employee.crew_id) && row.crewId === employee.crew_id);
+      ownedJobIds = unique(owned.map((row: DispatchOwnershipRow) => row.jobId));
+      dispatchRows = new Map(owned.map((row: DispatchOwnershipRow) => [row.jobId, row]));
     } else {
       ownedJobIds = await ownedJobIdsFromLatestVisits(service, employee, companyId);
     }
