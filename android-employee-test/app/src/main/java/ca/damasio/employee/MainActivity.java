@@ -10,7 +10,6 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
-import android.view.View;
 import android.webkit.GeolocationPermissions;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
@@ -20,6 +19,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
@@ -34,8 +34,8 @@ import java.io.File;
 import java.io.IOException;
 
 public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5218";
-    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5218";
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5219";
+    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5219";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
     private static final String MOBILE_PATH = "/mobile";
     private static final int FILE_CHOOSER_REQUEST = 4101;
@@ -43,6 +43,7 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private ProgressBar progressBar;
+    private NativeOpeningController openingController;
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraOutputUri;
     private long lastBackPressedAt = 0L;
@@ -54,16 +55,21 @@ public class MainActivity extends Activity {
 
         webView = findViewById(R.id.employeeWebView);
         progressBar = findViewById(R.id.pageProgress);
+        FrameLayout openingLayer = findViewById(R.id.openingLayer);
+        android.view.TextureView openingTexture = findViewById(R.id.openingTexture);
+        openingController = new NativeOpeningController(this, openingLayer, openingTexture);
         webView.setBackgroundColor(Color.rgb(244, 237, 220));
-        progressBar.setVisibility(View.GONE);
+        progressBar.setVisibility(android.view.View.GONE);
         applySystemBarInsets();
         configureWebView();
 
         if (savedInstanceState == null) {
             webView.loadUrl(APP_URL);
+            openingController.start();
             webView.postDelayed(this::requestOptionalPermissions, 4700L);
         } else {
             webView.restoreState(savedInstanceState);
+            openingController.finish();
             requestOptionalPermissions();
         }
     }
@@ -88,17 +94,17 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.1.8");
+        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.1.9 NativeOpening/1");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                progressBar.setVisibility(isStartupUrl(url) ? View.GONE : View.VISIBLE);
+                progressBar.setVisibility(isStartupUrl(url) ? android.view.View.GONE : android.view.View.VISIBLE);
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                progressBar.setVisibility(View.GONE);
+                progressBar.setVisibility(android.view.View.GONE);
             }
 
             @Override
@@ -117,7 +123,7 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request.isForMainFrame()) {
-                    progressBar.setVisibility(View.GONE);
+                    progressBar.setVisibility(android.view.View.GONE);
                     showOfflinePage();
                 }
             }
@@ -127,11 +133,11 @@ public class MainActivity extends Activity {
             @Override
             public void onProgressChanged(WebView view, int progress) {
                 if (isStartupUrl(view.getUrl())) {
-                    progressBar.setVisibility(View.GONE);
+                    progressBar.setVisibility(android.view.View.GONE);
                     return;
                 }
                 progressBar.setProgress(progress);
-                progressBar.setVisibility(progress >= 100 ? View.GONE : View.VISIBLE);
+                progressBar.setVisibility(progress >= 100 ? android.view.View.GONE : android.view.View.VISIBLE);
             }
 
             @Override
@@ -162,7 +168,7 @@ public class MainActivity extends Activity {
     }
 
     private void applySystemBarInsets() {
-        View root = findViewById(R.id.appRoot);
+        android.view.View root = findViewById(R.id.appRoot);
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, windowInsets) -> {
             Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
@@ -255,7 +261,7 @@ public class MainActivity extends Activity {
     }
 
     private void showOfflinePage() {
-        String html = "<!doctype html><html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='margin:0;background:#f4eddc;font-family:sans-serif;color:#173b2a;display:grid;min-height:100vh;place-items:center'><main style='text-align:center;padding:28px'><div style='width:76px;height:76px;border-radius:24px;background:#0f6b43;color:white;display:grid;place-items:center;margin:auto;font-size:30px;font-weight:900'>4S</div><h2>Connection unavailable</h2><p>Check your internet connection and try again.</p><button onclick=\"location.href='" + APP_URL + "'\" style='border:0;border-radius:14px;background:#0f6b43;color:white;padding:14px 24px;font-weight:800'>Try again</button></main></body></html>";
+        String html = "<!doctype html><html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='margin:0;background:#f4eddc;font-family:sans-serif;color:#173b2a;display:grid;min-height:100vh;place-items:center'><main style='text-align:center;padding:28px'><h2>Connection unavailable</h2><p>Check your internet connection and try again.</p><button onclick=\"location.href='" + APP_URL + "'\" style='border:0;border-radius:14px;background:#0f6b43;color:white;padding:14px 24px;font-weight:800'>Try again</button></main></body></html>";
         webView.loadDataWithBaseURL(APP_URL, html, "text/html", "UTF-8", null);
     }
 
@@ -280,6 +286,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (openingController != null) openingController.release();
         if (webView != null) {
             webView.stopLoading();
             webView.destroy();

@@ -27,15 +27,18 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Restore stable QA signing key
+        run: base64 -d android-employee-test/test-signing.keystore.b64 > android-employee-test/test-signing.keystore
+
       - name: Build installable debug APK
         run: gradle -p android-employee-test :app:assembleDebug --no-daemon
 
       - name: Prepare APK
-        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk 4ever-seasons-mobile-v52.1.8.apk
+        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk 4ever-seasons-mobile-v52.1.9.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: 4ever-seasons-mobile-v52.1.8
-          path: 4ever-seasons-mobile-v52.1.8.apk
+          name: 4ever-seasons-mobile-v52.1.9
+          path: 4ever-seasons-mobile-v52.1.9.apk
           if-no-files-found: error
           retention-days: 30

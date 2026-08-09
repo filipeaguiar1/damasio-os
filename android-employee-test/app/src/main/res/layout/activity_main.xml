@@ -20,4 +20,19 @@
         android:max="100"
         android:progressTint="#65BB70"
         android:visibility="gone" />
+
+    <FrameLayout
+        android:id="@+id/openingLayer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#F4EDDC"
+        android:clickable="true"
+        android:focusable="true">
+
+        <TextureView
+            android:id="@+id/openingTexture"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:alpha="0" />
+    </FrameLayout>
 </FrameLayout>

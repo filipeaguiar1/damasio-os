@@ -9,7 +9,7 @@
         <item name="android:windowLightNavigationBar">true</item>
         <item name="android:windowBackground">@drawable/launch_background</item>
         <item name="android:windowSplashScreenBackground">#F4EDDC</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_mark</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/transparent_splash</item>
         <item name="android:windowSplashScreenIconBackgroundColor">#F4EDDC</item>
         <item name="android:windowSplashScreenAnimationDuration">0</item>
     </style>
