@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { verifyCanonicalRoutePersistence } from "@/lib/routes/verifyCanonicalRoutePersistence";
+import { hasManagerPermission } from "@/lib/auth/managerPermissions";
 
 export const dynamic = "force-dynamic";
 
@@ -56,12 +57,18 @@ async function requireAdmin(request: NextRequest) {
 
   const { data: profile, error } = await service
     .from("profiles")
-    .select("id,role,active,company_id,organization_id")
+    .select("id,role,active,company_id,organization_id,manager_permissions")
     .eq("id", auth.user.id)
     .single();
 
   if (error || !profile?.active || !["admin", "manager"].includes(profile.role)) {
     throw new Error("Only an active company Admin can publish, remove or reopen Visits.");
+  }
+  if (profile.role === "manager") {
+    const required = request.method === "GET" ? "view" : "manage";
+    if (!hasManagerPermission(profile.manager_permissions, "routes", required)) {
+      throw new Error(`Manager Routes ${required} permission is required.`);
+    }
   }
 
   const companyId = profile.company_id || profile.organization_id;
