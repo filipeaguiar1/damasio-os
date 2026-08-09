@@ -63,6 +63,11 @@ export type CreateCustomerPropertyInput = {
   subtotal?: number;
 };
 
+const directoryCache = new Map<string,{expires:number;value:CustomerDirectoryPage}>();
+const DIRECTORY_CACHE_MS = 15_000;
+
+function clearDirectoryCache(){directoryCache.clear()}
+
 async function accessToken(refresh = false) {
   const supabase = getSupabaseBrowserClient() as any;
   const response = refresh
@@ -100,25 +105,38 @@ export async function listCustomerProperties(params: {
   query?: string;
   city?: string;
 } = {}): Promise<CustomerDirectoryPage> {
+  const normalizedParams={
+    page:Math.max(1,params.page||1),
+    pageSize:Math.min(100,Math.max(10,params.pageSize||50)),
+    query:params.query?.trim()||"",
+    city:params.city?.trim()&&params.city!=="all"?params.city.trim():"",
+  };
+  const cacheKey=JSON.stringify(normalizedParams);
+  const cached=directoryCache.get(cacheKey);
+  if(cached&&cached.expires>Date.now())return cached.value;
+
   const search = new URLSearchParams({
-    page: String(Math.max(1, params.page || 1)),
-    pageSize: String(Math.min(100, Math.max(10, params.pageSize || 50))),
+    page: String(normalizedParams.page),
+    pageSize: String(normalizedParams.pageSize),
   });
-  if (params.query?.trim()) search.set("query", params.query.trim());
-  if (params.city?.trim() && params.city !== "all") search.set("city", params.city.trim());
+  if (normalizedParams.query) search.set("query", normalizedParams.query);
+  if (normalizedParams.city) search.set("city", normalizedParams.city);
   const result = await customerApi(`/api/admin/customers/directory?${search.toString()}`);
-  return {
+  const value={
     records: Array.isArray(result.records) ? result.records as CustomerPropertyRecord[] : [],
     pagination: result.pagination || {
       page: 1, pageSize: 50, total: 0, pageCount: 1, hasNext: false, hasPrevious: false,
     },
     counts: result.counts || { customers: 0, properties: 0, pageJobs: 0 },
   };
+  directoryCache.set(cacheKey,{expires:Date.now()+DIRECTORY_CACHE_MS,value});
+  return value;
 }
 
 export async function createCustomerProperty(input: CreateCustomerPropertyInput): Promise<CustomerPropertyRecord> {
   const result = await customerApi("/api/admin/customers", { method: "POST", body: JSON.stringify(input) });
   if (!result.record) throw new Error("Customer chain was created but could not be verified.");
+  clearDirectoryCache();
   return result.record as CustomerPropertyRecord;
 }
 
@@ -127,5 +145,6 @@ export async function deleteCustomerRecords(customerIds:string[]):Promise<number
     method: "DELETE",
     body: JSON.stringify({ customerIds }),
   });
+  clearDirectoryCache();
   return Number(result.removed || 0);
 }
