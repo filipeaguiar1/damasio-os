@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { MobileBackButton } from "@/components/mobile/MobileBackButton";
 import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
@@ -66,6 +67,7 @@ function formFrom(employee: Employee): Form {
 }
 
 export default function MobileEmployees() {
+  const search = useSearchParams();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selected, setSelected] = useState<Employee | null>(null);
   const [form, setForm] = useState<Form | null>(null);
@@ -83,6 +85,15 @@ export default function MobileEmployees() {
   }
 
   useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    const requested = search.get("employee");
+    if (!requested || selected || !employees.length) return;
+    const match = employees.find(employee => employee.id === requested || employee.full_name === requested);
+    if (match) {
+      setSelected(match);
+      setForm(formFrom(match));
+    }
+  }, [employees, search, selected]);
 
   function open(employee: Employee) {
     setSelected(employee);
