@@ -26,11 +26,12 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - name: Enforce Manager permissions in large route APIs
+      - name: Enforce Manager permissions in large Admin APIs
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           def replace_once(text, old, new, label):
               if old not in text:
@@ -80,6 +81,23 @@ jobs:
               "advisor permission guard",
           )
           advisor_path.write_text(advisor)
+
+          # Operational simulation is an Admin-only QA tool. There is no Manager
+          # permission module for simulator/database mutation, so do not allow a
+          # Manager role to inherit it through generic Admin checks.
+          changed_simulator_files = 0
+          pattern_plain = re.compile(r'!\[\s*"admin"\s*,\s*"manager"\s*\]\.includes\((profile(?:\.data)?\.role)\)')
+          pattern_string = re.compile(r'!\[\s*"admin"\s*,\s*"manager"\s*\]\.includes\(String\((profile(?:\.data)?\.role)\)\)')
+          for path in Path("app/api/admin/operational-simulator").rglob("route.ts"):
+              text = path.read_text()
+              updated = pattern_string.sub(r'\1 !== "admin"', text)
+              updated = pattern_plain.sub(r'\1 !== "admin"', updated)
+              if updated != text:
+                  path.write_text(updated)
+                  changed_simulator_files += 1
+          if changed_simulator_files < 1:
+              raise SystemExit("no operational simulator Manager guard was patched")
+          print(f"hardened {changed_simulator_files} operational simulator API files")
           PY
 
       - name: Install dependencies
@@ -97,6 +115,6 @@ jobs:
           grep -q 'Manager Routes' app/api/admin/route-advisor/route.ts
           git config user.name "Damasio Security QA"
           git config user.email "actions@users.noreply.github.com"
-          git add app/api/admin/routes/route.ts app/api/admin/route-advisor/route.ts .github/workflows/manager-permission-backend-patch.yml
-          git commit -m "Enforce Manager permissions on route APIs"
+          git add app/api/admin/routes/route.ts app/api/admin/route-advisor/route.ts app/api/admin/operational-simulator .github/workflows/manager-permission-backend-patch.yml
+          git commit -m "Enforce Manager permissions on privileged Admin APIs"
           git push origin HEAD:audit/manager-permission-enforcement-20260809
