@@ -3,6 +3,7 @@ package ca.damasio.employee;
 import android.Manifest;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -11,6 +12,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.webkit.GeolocationPermissions;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -34,8 +36,8 @@ import java.io.File;
 import java.io.IOException;
 
 public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5219";
-    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5219";
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5223";
+    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5223";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
     private static final String MOBILE_PATH = "/mobile";
     private static final int FILE_CHOOSER_REQUEST = 4101;
@@ -94,7 +96,11 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.1.9 NativeOpening/1");
+        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.2.3 NativeOpening/2");
+
+        // Allows the remote web shell to switch only between launcher icons
+        // that were already bundled in this APK. No arbitrary native action is exposed.
+        webView.addJavascriptInterface(new LauncherIconBridge(), "FourSeasonsNative");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -165,6 +171,30 @@ public class MainActivity extends Activity {
         });
 
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, length) -> openExternal(Uri.parse(url)));
+    }
+
+    private final class LauncherIconBridge {
+        @JavascriptInterface
+        public void setLauncherIcon(String icon) {
+            final boolean legacy = "legacy".equalsIgnoreCase(icon);
+            final boolean seasonal = "seasonal".equalsIgnoreCase(icon) || "default".equalsIgnoreCase(icon);
+            if (!legacy && !seasonal) return;
+            runOnUiThread(() -> {
+                PackageManager packageManager = getPackageManager();
+                ComponentName seasonalAlias = new ComponentName(MainActivity.this, getPackageName() + ".LauncherDefault");
+                ComponentName legacyAlias = new ComponentName(MainActivity.this, getPackageName() + ".LauncherLegacy");
+                packageManager.setComponentEnabledSetting(
+                    seasonalAlias,
+                    seasonal ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    PackageManager.DONT_KILL_APP
+                );
+                packageManager.setComponentEnabledSetting(
+                    legacyAlias,
+                    legacy ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    PackageManager.DONT_KILL_APP
+                );
+            });
+        }
     }
 
     private void applySystemBarInsets() {
