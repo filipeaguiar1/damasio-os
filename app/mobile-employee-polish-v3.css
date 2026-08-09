@@ -1,0 +1,86 @@
+/* Employee Mobile polish round 3 — visibility fixes only.
+   No Route, Visit, Start, Finish, Task or Smart Route behavior changes. */
+
+/* Leaflet panes use high z-index values. Keep the navigation drawer above every map layer. */
+.employee-polish-menu-backdrop{
+  position:fixed!important;
+  inset:0!important;
+  width:100vw!important;
+  height:100dvh!important;
+  min-height:100dvh!important;
+  z-index:10000!important;
+  background:rgba(6,24,18,.5)!important;
+  isolation:isolate;
+}
+.employee-polish-menu-drawer{
+  position:absolute!important;
+  top:0!important;
+  bottom:0!important;
+  left:0!important;
+  height:100dvh!important;
+  min-height:100dvh!important;
+  z-index:10001!important;
+  overflow-y:auto!important;
+  overscroll-behavior:contain;
+}
+/* Extra guard: the map must never bleed through or capture touches while the drawer is open. */
+body:has(.employee-polish-menu-backdrop) .employee-map-panel{
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+
+/* Restore strong contrast after the route summary changed from a dark to a light card. */
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-mobile-progress{
+  color:#173127!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-mobile-progress strong{
+  color:#10271d!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-mobile-progress span,
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-mobile-progress small{
+  color:#536a60!important;
+  opacity:1!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-progress-track{
+  background:#dceae2!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-progress-track i{
+  background:#1aa66f!important;
+}
+
+/* Calendar: inactive/past days stay readable; only the selected day uses white text. */
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip>button:not(.active){
+  color:#173127!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip>button:not(.active) span{
+  color:#5c7167!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip>button:not(.active) strong{
+  color:#173127!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip>button:not(.active) i{
+  color:#08704c!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip>button.past{
+  opacity:.82!important;
+}
+
+/* Route cards: force dark readable copy on the white cards. */
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-route-card.employee-video-route-card strong{
+  color:#10271d!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-route-card.employee-video-route-card p{
+  color:#445d52!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-route-card.employee-video-route-card em{
+  color:#667b71!important;
+}
+
+/* Keep secondary navigation readable without making inactive items look disabled. */
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-home-switch button:not(.active) strong,
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-tabs button:not(.active){
+  color:#42584e!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-home-switch button:not(.active) small{
+  color:#6e8178!important;
+}
