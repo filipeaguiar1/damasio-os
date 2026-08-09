@@ -4,6 +4,7 @@ import {useCallback,useEffect,useRef} from "react";
 
 const VIDEO_SRC="/brand/4ever-seasons-opening-image-summer.mp4";
 const FALLBACK_MS=3500;
+const LEGACY_NATIVE_STARTUP_UA="4EverSeasonsAndroid/52.1.5";
 
 export function MobileStartupSplash({onOpen}:{onOpen:()=>void;showMark?:boolean;message?:string}){
   const openRef=useRef(onOpen);
@@ -17,6 +18,12 @@ export function MobileStartupSplash({onOpen}:{onOpen:()=>void;showMark?:boolean;
   },[]);
 
   useEffect(()=>{
+    // v52.1.5 APK still owns a native startup player. Do not stack the web
+    // opening on top of it; its remote cache is migrated by mobile-startup.json.
+    if(window.navigator.userAgent.includes(LEGACY_NATIVE_STARTUP_UA)){
+      finish();
+      return;
+    }
     const timer=window.setTimeout(finish,FALLBACK_MS);
     return()=>window.clearTimeout(timer);
   },[finish]);
