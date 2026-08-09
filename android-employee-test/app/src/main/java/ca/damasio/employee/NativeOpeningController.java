@@ -25,9 +25,11 @@ import java.security.MessageDigest;
 
 final class NativeOpeningController {
     private static final String MANIFEST_URL = "https://damasio-os-h1mc.vercel.app/api/mobile/opening";
-    private static final String OPENING_FILE = "opening-current.mp4";
-    private static final String PREFS = "mobile_opening";
-    private static final long TIMEOUT_MS = 9000L;
+    private static final String REMOTE_OPENING_FILE = "opening-remote-v5220.mp4";
+    private static final String DEFAULT_OPENING_FILE = "opening-default-v5220.mp4";
+    private static final String DEFAULT_OPENING_ASSET = "opening_default.mp4";
+    private static final String PREFS = "mobile_opening_v2";
+    private static final long TIMEOUT_MS = 7000L;
 
     private final Activity activity;
     private final FrameLayout layer;
@@ -67,7 +69,19 @@ final class NativeOpeningController {
         layer.setAlpha(1f);
         layer.setVisibility(View.VISIBLE);
         layer.postDelayed(this::finish, TIMEOUT_MS);
-        refreshAndPlay();
+
+        // Never wait on the network before showing the opening. A verified
+        // remote copy wins on later launches; otherwise the APK asset starts
+        // immediately and also works offline.
+        File cached = new File(activity.getFilesDir(), REMOTE_OPENING_FILE);
+        File bundled = ensureBundledOpening();
+        if (usable(cached)) requestPlayback(cached);
+        else if (usable(bundled)) requestPlayback(bundled);
+        else finish();
+
+        // Refresh only for a future launch. The current opening is never
+        // interrupted or delayed by a network request.
+        refreshCache();
     }
 
     void finish() {
@@ -76,7 +90,7 @@ final class NativeOpeningController {
         playbackRequested = false;
         pendingFile = null;
         releasePlayer();
-        layer.animate().alpha(0f).setDuration(180L).withEndAction(() -> {
+        layer.animate().alpha(0f).setDuration(160L).withEndAction(() -> {
             layer.setVisibility(View.GONE);
             layer.setAlpha(1f);
         }).start();
@@ -86,6 +100,36 @@ final class NativeOpeningController {
         finished = true;
         releasePlayer();
         if (surface != null) { surface.release(); surface = null; }
+    }
+
+    private File ensureBundledOpening() {
+        File target = new File(activity.getFilesDir(), DEFAULT_OPENING_FILE);
+        if (usable(target)) return target;
+
+        File temp = new File(activity.getFilesDir(), DEFAULT_OPENING_FILE + ".tmp");
+        try (InputStream input = activity.getAssets().open(DEFAULT_OPENING_ASSET);
+             BufferedOutputStream output = new BufferedOutputStream(new FileOutputStream(temp))) {
+            byte[] buffer = new byte[32768];
+            int read;
+            while ((read = input.read(buffer)) >= 0) output.write(buffer, 0, read);
+        } catch (Exception error) {
+            temp.delete();
+            return target;
+        }
+
+        if (!usable(temp)) {
+            temp.delete();
+            return target;
+        }
+        if (target.exists() && !target.delete()) {
+            temp.delete();
+            return target;
+        }
+        if (!temp.renameTo(target)) {
+            temp.delete();
+            return target;
+        }
+        return target;
     }
 
     private void requestPlayback(File file) {
@@ -104,6 +148,8 @@ final class NativeOpeningController {
             next.setDataSource(file.getAbsolutePath());
             next.setSurface(surface);
             next.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
+            // Visual-only opening. There is no AudioManager focus request and
+            // the bundled MP4 contains no audio stream, so music keeps playing.
             next.setVolume(0f, 0f);
             next.setLooping(false);
             next.setOnPreparedListener(media -> {
@@ -112,14 +158,23 @@ final class NativeOpeningController {
                 media.start();
             });
             next.setOnCompletionListener(media -> finish());
-            next.setOnErrorListener((media, what, extra) -> { finish(); return true; });
+            next.setOnErrorListener((media, what, extra) -> {
+                playBundledFallback(file);
+                return true;
+            });
             next.prepareAsync();
         } catch (Exception error) {
-            fallback();
+            playBundledFallback(file);
         }
     }
 
-    private void refreshAndPlay() {
+    private void playBundledFallback(File failedFile) {
+        File bundled = new File(activity.getFilesDir(), DEFAULT_OPENING_FILE);
+        if (!failedFile.equals(bundled) && usable(bundled)) requestPlayback(bundled);
+        else finish();
+    }
+
+    private void refreshCache() {
         new Thread(() -> {
             HttpURLConnection manifestConnection = null;
             try {
@@ -130,41 +185,30 @@ final class NativeOpeningController {
                 String version = manifest.optString("version", "");
                 String videoUrl = manifest.optString("url", "");
                 String expectedSha = manifest.optString("sha256", "");
-                if (version.isEmpty() || videoUrl.isEmpty()) { fallback(); return; }
+                if (version.isEmpty() || videoUrl.isEmpty()) return;
 
-                File cached = new File(activity.getFilesDir(), OPENING_FILE);
+                File cached = new File(activity.getFilesDir(), REMOTE_OPENING_FILE);
                 SharedPreferences prefs = activity.getSharedPreferences(PREFS, Activity.MODE_PRIVATE);
-                if (version.equals(prefs.getString("version", "")) && usable(cached)) {
-                    activity.runOnUiThread(() -> requestPlayback(cached));
-                    return;
-                }
+                if (version.equals(prefs.getString("version", "")) && usable(cached)) return;
 
-                File temp = new File(activity.getFilesDir(), OPENING_FILE + ".tmp");
-                if (!download(videoUrl, temp) || !usable(temp)) { temp.delete(); fallback(); return; }
-                if (!expectedSha.isEmpty() && !expectedSha.equalsIgnoreCase(sha256(temp))) { temp.delete(); fallback(); return; }
-                if (cached.exists() && !cached.delete()) { temp.delete(); fallback(); return; }
-                if (!temp.renameTo(cached)) { temp.delete(); fallback(); return; }
+                File temp = new File(activity.getFilesDir(), REMOTE_OPENING_FILE + ".tmp");
+                if (!download(videoUrl, temp) || !usable(temp)) { temp.delete(); return; }
+                if (!expectedSha.isEmpty() && !expectedSha.equalsIgnoreCase(sha256(temp))) { temp.delete(); return; }
+                if (cached.exists() && !cached.delete()) { temp.delete(); return; }
+                if (!temp.renameTo(cached)) { temp.delete(); return; }
                 prefs.edit().putString("version", version).apply();
-                activity.runOnUiThread(() -> requestPlayback(cached));
-            } catch (Exception error) {
-                fallback();
+            } catch (Exception ignored) {
+                // Bundled/cached opening already handled the current launch.
             } finally {
                 if (manifestConnection != null) manifestConnection.disconnect();
             }
-        }, "opening-cache").start();
-    }
-
-    private void fallback() {
-        File cached = new File(activity.getFilesDir(), OPENING_FILE);
-        activity.runOnUiThread(() -> {
-            if (usable(cached)) requestPlayback(cached); else finish();
-        });
+        }, "opening-cache-refresh").start();
     }
 
     private HttpURLConnection open(String address) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
-        connection.setConnectTimeout(5000);
-        connection.setReadTimeout(10000);
+        connection.setConnectTimeout(3500);
+        connection.setReadTimeout(8000);
         connection.setRequestMethod("GET");
         connection.setRequestProperty("Accept", "application/json,video/mp4,*/*");
         connection.setUseCaches(false);
