@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { verifyCanonicalRoutePersistence } from "@/lib/routes/verifyCanonicalRoutePersistence";
 import { projectCanonicalVisitOrderCompatibility } from "@/lib/routes/projectCanonicalVisitOrderCompatibility";
+import { hasManagerPermission } from "@/lib/auth/managerPermissions";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +67,7 @@ async function requireContext(request: NextRequest) {
   const service = serviceClient();
   const auth = await service.auth.getUser(token);
   if (auth.error || !auth.data.user) throw new Error("Your session expired. Sign in again.");
-  const profileResult = await service.from("profiles").select("id,role,active,company_id,organization_id").eq("id", auth.data.user.id).maybeSingle();
+  const profileResult = await service.from("profiles").select("id,role,active,company_id,organization_id,manager_permissions").eq("id", auth.data.user.id).maybeSingle();
   if (profileResult.error) throw new Error(profileResult.error.message);
   const profile = profileResult.data;
   if (!profile?.active) throw new Error("This account is not active.");
@@ -89,7 +90,11 @@ async function requireRouteAccess(context: Awaited<ReturnType<typeof requireCont
     const assigned = await context.service.from("visits").select("id", { count: "exact", head: true }).eq("route_id", routeId).eq("assigned_employee_id", employee.id).neq("status", "cancelled");
     if (assigned.error) throw new Error(assigned.error.message);
     if (route.crew_id !== employee.crew_id && !assigned.count) throw new Error("This Route is not assigned to the authenticated Employee.");
-  } else if (!["admin", "manager", "master"].includes(String(context.profile.role))) {
+  } else if (String(context.profile.role) === "manager") {
+    if (!hasManagerPermission(context.profile.manager_permissions, "routes", "manage")) {
+      throw new Error("Manager Routes management permission is required.");
+    }
+  } else if (!["admin", "master"].includes(String(context.profile.role))) {
     throw new Error("This account cannot change operational routes.");
   }
 }
