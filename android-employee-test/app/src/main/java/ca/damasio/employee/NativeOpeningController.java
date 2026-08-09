@@ -25,10 +25,10 @@ import java.security.MessageDigest;
 
 final class NativeOpeningController {
     private static final String MANIFEST_URL = "https://damasio-os-h1mc.vercel.app/api/mobile/opening";
-    private static final String REMOTE_OPENING_FILE = "opening-remote-v5220.mp4";
-    private static final String DEFAULT_OPENING_FILE = "opening-default-v5220.mp4";
+    private static final String REMOTE_OPENING_FILE = "opening-remote-v5221.mp4";
+    private static final String DEFAULT_OPENING_FILE = "opening-default-v5221.mp4";
     private static final String DEFAULT_OPENING_ASSET = "opening_default.mp4";
-    private static final String PREFS = "mobile_opening_v2";
+    private static final String PREFS = "mobile_opening_v3";
     private static final long TIMEOUT_MS = 7000L;
 
     private final Activity activity;
