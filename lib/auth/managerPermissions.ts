@@ -34,7 +34,7 @@ export function managerPermissionForPath(pathname: string): ManagerPermissionKey
   if (/^\/(?:mobile\/)?admin\/(?:customers|add-customer|add-client|recommend-service)(?:\/|$)/.test(path)) return "customers";
   if (/^\/(?:mobile\/)?admin\/properties(?:\/|$)/.test(path)) return "properties";
   if (/^\/(?:mobile\/)?admin\/(?:estimates|quotes)(?:\/|$)/.test(path)) return "quotes";
-  if (/^\/(?:mobile\/)?admin\/(?:jobs|operations)(?:\/|$)/.test(path)) return "jobs";
+  if (/^\/(?:mobile\/)?admin\/jobs(?:\/|$)/.test(path)) return "jobs";
   if (/^\/(?:mobile\/)?admin\/schedule(?:\/|$)/.test(path)) return "schedule";
   if (/^\/(?:mobile\/)?admin\/(?:dispatch|command|status)(?:\/|$)/.test(path)) return "dispatch";
   if (/^\/(?:mobile\/)?admin\/(?:routes|map|route-advisor)(?:\/|$)/.test(path)) return "routes";
@@ -45,7 +45,8 @@ export function managerPermissionForPath(pathname: string): ManagerPermissionKey
   if (/^\/(?:mobile\/)?admin\/(?:finance|payments)(?:\/|$)/.test(path)) return "finance";
   if (/^\/(?:mobile\/)?admin\/(?:settings|company|opening)(?:\/|$)/.test(path)) return "settings";
 
-  // Unmapped Admin surfaces are Admin-only by default.
+  // Unmapped Admin surfaces are Admin-only by default. In particular,
+  // /admin/operations stays Admin-only because it combines Jobs, Quotes and Tasks.
   return null;
 }
 
@@ -53,7 +54,6 @@ const DESKTOP_DESTINATIONS: Array<[ManagerPermissionKey, string]> = [
   ["customers", "/admin/customers"],
   ["properties", "/admin/properties"],
   ["quotes", "/admin/estimates"],
-  ["jobs", "/admin/operations"],
   ["schedule", "/admin/schedule"],
   ["dispatch", "/admin/dispatch"],
   ["routes", "/admin/routes"],
