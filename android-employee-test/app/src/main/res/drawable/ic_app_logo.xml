@@ -4,9 +4,33 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:fillColor="#0F6B43" android:pathData="M20,8h68a12,12 0,0 1,12 12v68a12,12 0,0 1,-12 12h-68a12,12 0,0 1,-12 -12v-68a12,12 0,0 1,12 -12" />
-    <group android:translateX="-12">
-        <path android:fillColor="#FFFFFF" android:pathData="M26,62L47,27h14v34h8v12h-8v12H47V73H26zM47,61V48L39,61z" />
-        <path android:fillColor="#9EE36D" android:pathData="M80,28h20v12H82c-4,0 -6,2 -6,5c0,3 2,5 6,5h8c10,0 16,6 16,16c0,12 -8,19 -20,19H68V73h19c4,0 6,-2 6,-5c0,-3 -2,-5 -6,-5h-8c-10,0 -16,-6 -16,-16c0,-12 7,-19 17,-19z" />
-    </group>
+
+    <!-- Dark rounded-square app tile -->
+    <path android:fillColor="#06182A" android:pathData="M18,4h72a14,14 0,0 1,14 14v72a14,14 0,0 1,-14 14H18A14,14 0,0 1,4 90V18A14,14 0,0 1,18 4" />
+    <path android:fillColor="#0A3E6B" android:pathData="M18,7h72a11,11 0,0 1,11 11v72a11,11 0,0 1,-11 11H18A11,11 0,0 1,7 90V18A11,11 0,0 1,18 7" />
+    <path android:fillColor="#081C30" android:pathData="M18,11h72a7,7 0,0 1,7 7v72a7,7 0,0 1,-7 7H18A7,7 0,0 1,11 90V18A7,7 0,0 1,18 11" />
+
+    <!-- 4 -->
+    <path android:fillColor="#66BFF4" android:pathData="M23,62L43,27h13v31h8v12h-8v15H43V70H23zM43,58V47L36,58z" />
+    <path android:fillColor="#B8E7FF" android:pathData="M43,27h5v31h-5z" />
+
+    <!-- S -->
+    <path android:fillColor="#9EE7FF" android:pathData="M71,31h20v11H74c-4,0 -6,2 -6,5c0,3 2,5 6,5h7c10,0 16,6 16,16c0,11 -8,18 -20,18H61V75h17c4,0 6,-2 6,-5c0,-3 -2,-5 -6,-5h-7c-10,0 -16,-6 -16,-16c0,-11 7,-18 16,-18z" />
+
+    <!-- Summer sun -->
+    <path android:fillColor="#FFD34D" android:pathData="M26,18a7,7 0,1 0,0.1,0M26,7v5M26,31v5M15,18h-5M42,18h-5M18,10l-3,-3M34,26l4,4M18,26l-4,4M34,10l4,-4" />
+    <path android:fillColor="#FFB62C" android:pathData="M26,12a6,6 0,1 0,0.1,0" />
+
+    <!-- Winter snowflake -->
+    <path android:strokeColor="#F7FBFF" android:strokeWidth="2.4" android:strokeLineCap="round" android:fillColor="@android:color/transparent"
+        android:pathData="M24,77v18M16,81l16,10M16,91l16,-10M24,77l-3,4M24,77l3,4M24,95l-3,-4M24,95l3,-4M16,81l5,1M16,81l1,5M32,91l-5,-1M32,91l-1,-5M16,91l5,-1M16,91l1,-5M32,81l-5,1M32,81l-1,5" />
+
+    <!-- Spring leaves -->
+    <path android:fillColor="#62C77A" android:pathData="M84,24c7,1 11,5 12,12c-7,0 -12,-4 -12,-12" />
+    <path android:fillColor="#B8E48A" android:pathData="M79,30c6,0 10,3 12,9c-6,1 -11,-2 -12,-9" />
+    <path android:strokeColor="#4A9C58" android:strokeWidth="1.4" android:fillColor="@android:color/transparent" android:pathData="M79,39c6,-4 11,-8 16,-14" />
+
+    <!-- Fall maple leaf -->
+    <path android:fillColor="#D86A24" android:pathData="M84,72l3,6l6,-3l-2,6l6,1l-5,4l3,5l-7,-2l-1,8h-6l1,-8l-7,2l3,-5l-5,-4l6,-1l-2,-6l6,3z" />
+    <path android:fillColor="#F2A33A" android:pathData="M84,72l2,7l4,-2l-2,5l5,1l-5,3l2,4l-6,-2z" />
 </vector>

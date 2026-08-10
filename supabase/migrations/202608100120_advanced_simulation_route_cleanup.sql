@@ -23,7 +23,9 @@ begin
     raise exception 'Advanced simulation Route cleanup requires a company.';
   end if;
 
-  if v_namespace = '' or v_namespace !~ '^[a-z0-9][a-z0-9-]{0,63}$' then
+  if v_namespace = ''
+     or char_length(v_namespace) > 32
+     or v_namespace !~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$' then
     raise exception 'Advanced simulation Route cleanup received an invalid namespace.';
   end if;
 

@@ -3,12 +3,13 @@
     android:id="@+id/appRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#043D2E">
+    android:background="#F4EDDC">
 
     <WebView
         android:id="@+id/employeeWebView"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:background="#F4EDDC" />
 
     <ProgressBar
         android:id="@+id/pageProgress"
@@ -17,29 +18,21 @@
         android:layout_height="3dp"
         android:layout_gravity="top"
         android:max="100"
-        android:progressTint="#65BB70" />
+        android:progressTint="#65BB70"
+        android:visibility="gone" />
 
     <FrameLayout
-        android:id="@+id/startupOverlay"
+        android:id="@+id/openingLayer"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#043D2E">
+        android:background="#F4EDDC"
+        android:clickable="true"
+        android:focusable="true">
 
-        <VideoView
-            android:id="@+id/startupVideo"
+        <TextureView
+            android:id="@+id/openingTexture"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-
-        <ProgressBar
-            android:id="@+id/startupProgress"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="5dp"
-            android:layout_gravity="bottom"
-            android:max="1000"
-            android:progress="0"
-            android:progressBackgroundTint="#135743"
-            android:progressTint="#65E88D"
-            android:visibility="invisible" />
+            android:layout_height="match_parent"
+            android:alpha="0" />
     </FrameLayout>
 </FrameLayout>

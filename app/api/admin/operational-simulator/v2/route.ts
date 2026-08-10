@@ -48,7 +48,7 @@ async function requireAdmin(request: NextRequest) {
     .select("id,role,active,full_name,company_id,organization_id")
     .eq("id", auth.data.user.id)
     .single();
-  if (profile.error || !profile.data?.active || !["admin", "manager"].includes(profile.data.role)) {
+  if (profile.error || !profile.data?.active || profile.data.role !== "admin") {
     throw new Error("Only an active company Admin can run the advanced operational simulation.");
   }
 

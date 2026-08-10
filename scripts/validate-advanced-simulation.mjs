@@ -8,6 +8,7 @@ const data = read("lib/simulator/advancedSimulationData.ts");
 const runs = read("lib/simulator/advancedSimulationRuns.ts");
 const api = read("app/api/admin/operational-simulator/v2/route.ts");
 const migration = read("supabase/migrations/202608080100_advanced_operational_simulation_namespace.sql");
+const routeCleanup = read("supabase/migrations/202608100120_advanced_simulation_route_cleanup.sql");
 
 const failures = [];
 const expect = (condition, message) => {
@@ -40,6 +41,7 @@ expect(runs.includes('status: "failed"'), "run lifecycle must persist failed sta
 expect(runs.includes('status: "removed"'), "run lifecycle must persist removed state");
 
 expect(api.includes('"create" | "reset" | "remove" | "reconcile"'), "V2 API must expose create/reset/remove/reconcile actions");
+expect(api.includes('profile.data.role !== "admin"'), "V2 API must remain restricted to active company Admins");
 expect(api.includes("beginAdvancedSimulationRun"), "V2 create must acquire a namespaced run lifecycle");
 expect(api.includes("beginAdvancedSimulationReset"), "V2 reset must acquire a namespaced reset lifecycle");
 expect(api.includes("!transition.acquired && !transition.alreadyRemoved"), "V2 reset must reject concurrent cleanup ownership");
@@ -55,6 +57,9 @@ expect(migration.includes("existing.status in ('failed', 'removed')"), "atomic c
 expect(migration.includes("for update"), "atomic reset must lock the namespace registry row");
 expect(migration.includes("ops-sim-v2-"), "Visit cleanup guard must recognize V2 namespaced simulator Customers");
 expect(migration.includes("cleanup_operational_simulation_visits"), "protected Visit cleanup RPC must remain present");
+expect(routeCleanup.includes("char_length(v_namespace) > 32"), "Route cleanup must enforce the same namespace length contract as the API");
+expect(routeCleanup.includes("from authenticated"), "Route cleanup RPC must not be executable by authenticated browser sessions");
+expect(routeCleanup.includes("to service_role"), "Route cleanup RPC must remain service-role only");
 
 if (failures.length) {
   console.error("Advanced Simulation validation failed:");

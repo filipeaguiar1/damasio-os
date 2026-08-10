@@ -10,11 +10,26 @@ android {
         applicationId "ca.damasio.employee.test"
         minSdk 24
         targetSdk 35
-        versionCode 12
-        versionName "52.1.5-test"
+        versionCode 21
+        versionName "52.2.4-test"
+    }
+
+    // Public TEST signing only for ca.damasio.employee.test. This keeps direct
+    // QA APK updates installable over future test builds. Production releases
+    // use Google Play App Signing and must not reuse this key.
+    signingConfigs {
+        qaStable {
+            storeFile file("../test-signing.keystore")
+            storePassword "4everseasons-test"
+            keyAlias "4ever-test"
+            keyPassword "4everseasons-test"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.qaStable
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"

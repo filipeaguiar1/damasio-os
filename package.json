@@ -8,7 +8,7 @@
     "test:map-sync": "node scripts/validate-canonical-map-sync.mjs",
     "test:current-snapshot": "node scripts/validate-canonical-current-snapshot.mjs",
     "test:advanced-simulation": "node scripts/validate-advanced-simulation.mjs",
-    "build": "pnpm test:route-writers && pnpm test:map-sync && pnpm test:current-snapshot && pnpm test:smart-route-capacity && pnpm test:route-move && pnpm test:advanced-simulation && pnpm typecheck && next build",
+    "build": "node scripts/materialize-mobile-opening.mjs && pnpm test:route-writers && pnpm test:map-sync && pnpm test:current-snapshot && pnpm test:smart-route-capacity && pnpm test:route-move && pnpm test:advanced-simulation && pnpm typecheck && next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "check": "pnpm test:route-writers && pnpm test:map-sync && pnpm test:current-snapshot && pnpm test:smart-route-capacity && pnpm test:route-move && pnpm test:advanced-simulation && pnpm typecheck",

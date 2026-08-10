@@ -83,6 +83,16 @@ export default function MobileEmployees() {
   }
 
   useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    if (selected || !employees.length) return;
+    const requested = new URLSearchParams(window.location.search).get("employee");
+    if (!requested) return;
+    const match = employees.find(employee => employee.id === requested || employee.full_name === requested);
+    if (match) {
+      setSelected(match);
+      setForm(formFrom(match));
+    }
+  }, [employees, selected]);
 
   function open(employee: Employee) {
     setSelected(employee);

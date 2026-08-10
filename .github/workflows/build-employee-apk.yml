@@ -27,15 +27,38 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Build installable debug APK
-        run: gradle -p android-employee-test :app:assembleDebug --no-daemon
+      - name: Restore stable QA signing key
+        run: base64 -d android-employee-test/test-signing.keystore.b64 > android-employee-test/test-signing.keystore
 
-      - name: Prepare APK
-        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk 4ever-seasons-mobile-v52.1.5.apk
+      - name: Build base and unsigned APKs
+        run: gradle -p android-employee-test :app:assembleDebug :app:assembleRelease --no-daemon
+
+      - name: Prepare base APK
+        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk 4ever-seasons-mobile-v52.2.4-base.apk
+
+      - name: Prepare local finalization kit
+        shell: bash
+        run: |
+          set -euo pipefail
+          BT="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          mkdir -p apk-buildkit/lib
+          cp android-employee-test/app/build/outputs/apk/release/app-release-unsigned.apk apk-buildkit/4ever-seasons-mobile-v52.2.4-unsigned.apk
+          cp "$BT/apksigner" apk-buildkit/apksigner
+          cp "$BT/zipalign" apk-buildkit/zipalign
+          cp "$BT/lib/apksigner.jar" apk-buildkit/lib/apksigner.jar
+          cp android-employee-test/test-signing.keystore apk-buildkit/test-signing.keystore
+          chmod +x apk-buildkit/apksigner apk-buildkit/zipalign
 
       - uses: actions/upload-artifact@v4
         with:
-          name: 4ever-seasons-mobile-v52.1.5
-          path: 4ever-seasons-mobile-v52.1.5.apk
+          name: 4ever-seasons-mobile-v52.2.4-base
+          path: 4ever-seasons-mobile-v52.2.4-base.apk
           if-no-files-found: error
           retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 4ever-seasons-mobile-v52.2.4-buildkit
+          path: apk-buildkit/
+          if-no-files-found: error
+          retention-days: 2

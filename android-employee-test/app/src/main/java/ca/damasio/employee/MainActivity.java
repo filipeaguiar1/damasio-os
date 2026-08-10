@@ -1,19 +1,18 @@
 package ca.damasio.employee;
 
 import android.Manifest;
-import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.ComponentName;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
-import android.view.animation.LinearInterpolator;
 import android.provider.MediaStore;
-import android.view.View;
 import android.webkit.GeolocationPermissions;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -22,9 +21,9 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.Toast;
-import android.widget.VideoView;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -34,21 +33,11 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
 import java.io.IOException;
-import java.net.HttpURLConnection;
-import java.net.URL;
-
-import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5215";
-    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5215";
-    private static final String STARTUP_CONFIG_URL = "https://damasio-os-h1mc.vercel.app/brand/mobile-startup.json";
-    private static final String STARTUP_PREFS = "four_ever_startup";
-    private static final String STARTUP_VERSION_KEY = "cached_video_version";
-    private static final String STARTUP_VIDEO_FILE = "four-ever-startup.mp4";
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5223";
+    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5223";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
     private static final String MOBILE_PATH = "/mobile";
     private static final int FILE_CHOOSER_REQUEST = 4101;
@@ -56,12 +45,7 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private ProgressBar progressBar;
-    private View startupOverlay;
-    private VideoView startupVideo;
-    private ProgressBar startupProgress;
-    private ObjectAnimator startupProgressAnimator;
-    private long startupDurationMs = 3000L;
-    private boolean playingCachedStartupVideo = false;
+    private NativeOpeningController openingController;
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraOutputUri;
     private long lastBackPressedAt = 0L;
@@ -73,122 +57,32 @@ public class MainActivity extends Activity {
 
         webView = findViewById(R.id.employeeWebView);
         progressBar = findViewById(R.id.pageProgress);
-        startupOverlay = findViewById(R.id.startupOverlay);
-        startupVideo = findViewById(R.id.startupVideo);
-        startupProgress = findViewById(R.id.startupProgress);
+        FrameLayout openingLayer = findViewById(R.id.openingLayer);
+        android.view.TextureView openingTexture = findViewById(R.id.openingTexture);
+        openingController = new NativeOpeningController(this, openingLayer, openingTexture);
+        webView.setBackgroundColor(Color.rgb(244, 237, 220));
+        progressBar.setVisibility(android.view.View.GONE);
         applySystemBarInsets();
         configureWebView();
 
         if (savedInstanceState == null) {
             webView.loadUrl(APP_URL);
-            startStartupVideo();
+            openingController.start();
+            webView.postDelayed(this::requestOptionalPermissions, 4700L);
         } else {
-            startupOverlay.setVisibility(View.GONE);
             webView.restoreState(savedInstanceState);
+            openingController.finish();
             requestOptionalPermissions();
         }
     }
 
-    private void startStartupVideo() {
-        startupVideo.setOnPreparedListener(player -> {
-            player.setVolume(0f, 0f);
-            if (player.getDuration() > 0) startupDurationMs = player.getDuration();
-            startupVideo.start();
-            startupVideo.postDelayed(this::startStartupProgress, 70L);
-        });
-        startupVideo.setOnCompletionListener(player -> finishStartup());
-        startupVideo.setOnErrorListener((player, what, extra) -> {
-            if (playingCachedStartupVideo) {
-                playingCachedStartupVideo = false;
-                File cached = new File(getFilesDir(), STARTUP_VIDEO_FILE);
-                if (cached.exists()) cached.delete();
-                getSharedPreferences(STARTUP_PREFS, MODE_PRIVATE).edit().remove(STARTUP_VERSION_KEY).apply();
-                startupDurationMs = 3000L;
-                startupVideo.post(() -> startupVideo.setVideoURI(Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.four_ever_seasons_opening)));
-                return true;
-            }
-            finishStartup();
-            return true;
-        });
-        File cachedVideo = new File(getFilesDir(), STARTUP_VIDEO_FILE);
-        playingCachedStartupVideo = cachedVideo.isFile() && cachedVideo.length() > 100_000L;
-        if (playingCachedStartupVideo) startupVideo.setVideoPath(cachedVideo.getAbsolutePath());
-        else startupVideo.setVideoURI(Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.four_ever_seasons_opening));
-        refreshRemoteStartupVideo();
-    }
-
-    private void startStartupProgress() {
-        if (!startupVideo.isPlaying() || startupOverlay.getVisibility() != View.VISIBLE) return;
-        startupProgress.setProgress(0);
-        startupProgress.setVisibility(View.VISIBLE);
-        startupProgressAnimator = ObjectAnimator.ofInt(startupProgress, "progress", 0, 1000);
-        startupProgressAnimator.setDuration(Math.max(1L, startupDurationMs - 140L));
-        startupProgressAnimator.setInterpolator(new LinearInterpolator());
-        startupProgressAnimator.start();
-    }
-
-    private void refreshRemoteStartupVideo() {
-        new Thread(() -> {
-            HttpURLConnection configConnection = null;
-            HttpURLConnection videoConnection = null;
-            File temporary = new File(getFilesDir(), STARTUP_VIDEO_FILE + ".download");
-            try {
-                configConnection = openConnection(STARTUP_CONFIG_URL + "?t=" + System.currentTimeMillis());
-                JSONObject config = new JSONObject(readText(configConnection.getInputStream()));
-                String version = config.optString("version", "").trim();
-                String videoUrl = config.optString("videoUrl", "").trim();
-                if (version.isEmpty() || !videoUrl.startsWith("https://")) return;
-                SharedPreferences preferences = getSharedPreferences(STARTUP_PREFS, MODE_PRIVATE);
-                File cached = new File(getFilesDir(), STARTUP_VIDEO_FILE);
-                if (version.equals(preferences.getString(STARTUP_VERSION_KEY, "")) && cached.length() > 100_000L) return;
-
-                videoConnection = openConnection(videoUrl + (videoUrl.contains("?") ? "&" : "?") + "v=" + Uri.encode(version));
-                try (InputStream input = videoConnection.getInputStream(); FileOutputStream output = new FileOutputStream(temporary)) {
-                    byte[] buffer = new byte[16_384];
-                    int count;
-                    while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
-                    output.getFD().sync();
-                }
-                if (temporary.length() < 100_000L) return;
-                if (cached.exists() && !cached.delete()) return;
-                if (temporary.renameTo(cached)) preferences.edit().putString(STARTUP_VERSION_KEY, version).apply();
-            } catch (Exception ignored) {
-                // The bundled video remains the offline-safe fallback.
-            } finally {
-                if (configConnection != null) configConnection.disconnect();
-                if (videoConnection != null) videoConnection.disconnect();
-                if (temporary.exists()) temporary.delete();
-            }
-        }, "startup-video-refresh").start();
-    }
-
-    private HttpURLConnection openConnection(String address) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
-        connection.setConnectTimeout(5000);
-        connection.setReadTimeout(15000);
-        connection.setUseCaches(false);
-        connection.setRequestProperty("Accept", "application/json,video/mp4,*/*");
-        connection.connect();
-        if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) throw new IOException("HTTP " + connection.getResponseCode());
-        return connection;
-    }
-
-    private String readText(InputStream input) throws IOException {
-        try (InputStream stream = input) {
-            byte[] buffer = new byte[4096];
-            StringBuilder text = new StringBuilder();
-            int count;
-            while ((count = stream.read(buffer)) != -1) text.append(new String(buffer, 0, count, java.nio.charset.StandardCharsets.UTF_8));
-            return text.toString();
+    private boolean isStartupUrl(String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            return APP_HOST.equals(uri.getHost()) && MOBILE_PATH.equals(uri.getPath());
+        } catch (Exception ignored) {
+            return false;
         }
-    }
-
-    private void finishStartup() {
-        if (startupProgressAnimator != null) startupProgressAnimator.cancel();
-        startupProgress.setProgress(1000);
-        startupOverlay.setVisibility(View.GONE);
-        startupVideo.stopPlayback();
-        requestOptionalPermissions();
     }
 
     private void configureWebView() {
@@ -202,17 +96,21 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.1.5");
+        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.2.3 NativeOpening/2");
+
+        // Allows the remote web shell to switch only between launcher icons
+        // that were already bundled in this APK. No arbitrary native action is exposed.
+        webView.addJavascriptInterface(new LauncherIconBridge(), "FourSeasonsNative");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                progressBar.setVisibility(View.VISIBLE);
+                progressBar.setVisibility(isStartupUrl(url) ? android.view.View.GONE : android.view.View.VISIBLE);
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                progressBar.setVisibility(View.GONE);
+                progressBar.setVisibility(android.view.View.GONE);
             }
 
             @Override
@@ -231,7 +129,7 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request.isForMainFrame()) {
-                    progressBar.setVisibility(View.GONE);
+                    progressBar.setVisibility(android.view.View.GONE);
                     showOfflinePage();
                 }
             }
@@ -240,8 +138,12 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onProgressChanged(WebView view, int progress) {
+                if (isStartupUrl(view.getUrl())) {
+                    progressBar.setVisibility(android.view.View.GONE);
+                    return;
+                }
                 progressBar.setProgress(progress);
-                progressBar.setVisibility(progress >= 100 ? View.GONE : View.VISIBLE);
+                progressBar.setVisibility(progress >= 100 ? android.view.View.GONE : android.view.View.VISIBLE);
             }
 
             @Override
@@ -271,8 +173,32 @@ public class MainActivity extends Activity {
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, length) -> openExternal(Uri.parse(url)));
     }
 
+    private final class LauncherIconBridge {
+        @JavascriptInterface
+        public void setLauncherIcon(String icon) {
+            final boolean legacy = "legacy".equalsIgnoreCase(icon);
+            final boolean seasonal = "seasonal".equalsIgnoreCase(icon) || "default".equalsIgnoreCase(icon);
+            if (!legacy && !seasonal) return;
+            runOnUiThread(() -> {
+                PackageManager packageManager = getPackageManager();
+                ComponentName seasonalAlias = new ComponentName(MainActivity.this, getPackageName() + ".LauncherDefault");
+                ComponentName legacyAlias = new ComponentName(MainActivity.this, getPackageName() + ".LauncherLegacy");
+                packageManager.setComponentEnabledSetting(
+                    seasonalAlias,
+                    seasonal ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    PackageManager.DONT_KILL_APP
+                );
+                packageManager.setComponentEnabledSetting(
+                    legacyAlias,
+                    legacy ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    PackageManager.DONT_KILL_APP
+                );
+            });
+        }
+    }
+
     private void applySystemBarInsets() {
-        View root = findViewById(R.id.appRoot);
+        android.view.View root = findViewById(R.id.appRoot);
         ViewCompat.setOnApplyWindowInsetsListener(root, (view, windowInsets) -> {
             Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
@@ -365,7 +291,7 @@ public class MainActivity extends Activity {
     }
 
     private void showOfflinePage() {
-        String html = "<!doctype html><html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='margin:0;background:#f4f7f5;font-family:sans-serif;color:#173b2a;display:grid;min-height:100vh;place-items:center'><main style='text-align:center;padding:28px'><div style='width:76px;height:76px;border-radius:24px;background:#0f6b43;color:white;display:grid;place-items:center;margin:auto;font-size:30px;font-weight:900'>4S</div><h2>Connection unavailable</h2><p>Check your internet connection and try again.</p><button onclick=\"location.href='" + APP_URL + "'\" style='border:0;border-radius:14px;background:#0f6b43;color:white;padding:14px 24px;font-weight:800'>Try again</button></main></body></html>";
+        String html = "<!doctype html><html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='margin:0;background:#f4eddc;font-family:sans-serif;color:#173b2a;display:grid;min-height:100vh;place-items:center'><main style='text-align:center;padding:28px'><h2>Connection unavailable</h2><p>Check your internet connection and try again.</p><button onclick=\"location.href='" + APP_URL + "'\" style='border:0;border-radius:14px;background:#0f6b43;color:white;padding:14px 24px;font-weight:800'>Try again</button></main></body></html>";
         webView.loadDataWithBaseURL(APP_URL, html, "text/html", "UTF-8", null);
     }
 
@@ -390,6 +316,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (openingController != null) openingController.release();
         if (webView != null) {
             webView.stopLoading();
             webView.destroy();

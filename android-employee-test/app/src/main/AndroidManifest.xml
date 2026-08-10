@@ -11,7 +11,7 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@drawable/ic_app_logo"
+        android:icon="@drawable/ic_app_logo_premium"
         android:label="4Ever Seasons"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
@@ -22,12 +22,33 @@
             android:name=".MainActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"
-            android:screenOrientation="portrait">
+            android:screenOrientation="portrait" />
+
+        <activity-alias
+            android:name=".LauncherDefault"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_app_logo_premium"
+            android:label="4Ever Seasons"
+            android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherLegacy"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/ic_app_logo_legacy"
+            android:label="4Ever Seasons"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <provider
             android:name="androidx.core.content.FileProvider"

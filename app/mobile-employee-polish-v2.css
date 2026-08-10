@@ -1,0 +1,514 @@
+/* Employee Mobile polish round 2.
+   Presentation only: no Route, Visit, Start, Finish, Task or Smart Route behavior changes. */
+
+/* The menu occupies the old back-arrow slot on workspace pages, but no longer floats with scroll. */
+.employee-polish-menu-button{
+  position:absolute!important;
+  top:calc(10px + env(safe-area-inset-top))!important;
+  left:16px!important;
+  z-index:185!important;
+}
+body:has(.employee-polish-menu-button) .employee-mobile-topbar .employee-top-back{
+  opacity:0!important;
+  pointer-events:none!important;
+}
+.employee-polish-menu-drawer>header{
+  grid-template-columns:minmax(0,1fr) 36px!important;
+}
+.employee-polish-menu-drawer>header>div:first-child{
+  min-width:0;
+  padding:4px 2px;
+}
+
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-mobile-topbar{
+  border-bottom:0!important;
+  background:linear-gradient(145deg,#043d2e,#0a684a)!important;
+  box-shadow:0 10px 28px rgba(4,61,46,.2)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-top-back{
+  border:1px solid rgba(255,255,255,.18)!important;
+  background:rgba(255,255,255,.1)!important;
+  color:#fff!important;
+}
+
+/* Remove decorative D marks and keep the canonical employee name clean and readable. */
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-mobile-brand>span{
+  display:none!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-mobile-brand{
+  display:block!important;
+  min-width:0;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-mobile-brand>div{
+  min-width:0;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-mobile-brand strong,
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-mobile-brand small{
+  display:block!important;
+  color:#fff!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-mobile-brand strong{
+  font-size:13px!important;
+  font-weight:900!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-mobile-brand small{
+  margin-top:2px!important;
+  max-width:220px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:10px!important;
+  font-weight:750!important;
+  opacity:.9;
+}
+
+/* Avatar/photo crop: always preserve the subject instead of stretching the image. */
+.employee-polish-mini-avatar img,
+.employee-polish-profile-photo>img,
+.mobile-avatar img,
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-profile-photo img{
+  display:block!important;
+  width:100%!important;
+  height:100%!important;
+  max-width:none!important;
+  object-fit:cover!important;
+  object-position:center!important;
+}
+.employee-polish-profile-photo>img{
+  overflow:hidden;
+}
+
+/* Stronger but still compact workspace navigation. */
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-home-switch{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:8px!important;
+  margin:12px 0!important;
+  padding:6px!important;
+  border:1px solid #d9e5de!important;
+  border-radius:20px!important;
+  background:#f4f8f5!important;
+  box-shadow:0 10px 28px rgba(20,52,40,.07)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-home-switch button{
+  min-height:62px!important;
+  padding:10px 11px!important;
+  border:1px solid transparent!important;
+  border-radius:15px!important;
+  background:transparent!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-home-switch button.active{
+  border-color:rgba(7,88,58,.16)!important;
+  background:#fff!important;
+  box-shadow:0 7px 20px rgba(17,62,44,.09)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-home-switch button i{
+  border-radius:11px!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-home-switch button strong{
+  font-size:12px!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-home-switch button small{
+  margin-top:2px!important;
+  color:#6d8177!important;
+  font-size:8px!important;
+}
+
+/* Calendar becomes a single bordered planning card with clearer day tiles. */
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-week-picker{
+  margin:10px 0!important;
+  padding:13px!important;
+  border:1px solid #d9e5de!important;
+  border-radius:21px!important;
+  background:#fff!important;
+  box-shadow:0 10px 30px rgba(21,57,43,.07)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-week-picker>div{
+  display:grid!important;
+  grid-template-columns:38px minmax(0,1fr) 38px!important;
+  gap:8px!important;
+  align-items:center!important;
+  margin-bottom:10px!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-week-picker>div>strong{
+  color:#173127!important;
+  font-size:11px!important;
+  text-align:center!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-week-picker>div>button{
+  width:38px!important;
+  height:36px!important;
+  border:1px solid #dce7e0!important;
+  border-radius:12px!important;
+  background:#f7faf8!important;
+  color:#07583a!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip{
+  display:grid!important;
+  grid-template-columns:repeat(7,minmax(42px,1fr))!important;
+  gap:6px!important;
+  overflow-x:auto!important;
+  padding:2px 0!important;
+  scrollbar-width:none;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip::-webkit-scrollbar{display:none}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip>button{
+  min-width:42px!important;
+  min-height:60px!important;
+  padding:7px 4px!important;
+  border:1px solid #e0e8e3!important;
+  border-radius:14px!important;
+  background:#f8faf9!important;
+  box-shadow:none!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip>button.active{
+  border-color:#0b6c4c!important;
+  background:linear-gradient(145deg,#07583a,#11815b)!important;
+  color:#fff!important;
+  box-shadow:0 8px 18px rgba(7,88,58,.18)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip>button.active span,
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip>button.active strong,
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip>button.active i{
+  color:#fff!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip>button.past{
+  opacity:.62;
+}
+
+/* Route summary and route houses read as discrete cards. */
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-mobile-progress{
+  margin:10px 0!important;
+  padding:14px!important;
+  border:1px solid rgba(7,88,58,.12)!important;
+  border-radius:20px!important;
+  background:linear-gradient(145deg,#f9fbfa,#eef6f1)!important;
+  box-shadow:0 9px 26px rgba(21,57,43,.065)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-card-list{
+  display:grid!important;
+  gap:10px!important;
+  padding:2px 0 5px!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-route-card.employee-video-route-card{
+  width:100%!important;
+  min-height:78px!important;
+  padding:13px!important;
+  border:1.5px solid rgba(7,88,58,.16)!important;
+  border-radius:19px!important;
+  background:#fff!important;
+  box-shadow:0 10px 26px rgba(19,55,41,.075)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-route-card.employee-video-route-card:active{
+  transform:translateY(1px);
+  box-shadow:0 5px 16px rgba(19,55,41,.08)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-route-card.employee-video-route-card.completed{
+  border-color:#cfe3d7!important;
+  background:#f7fbf8!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-route-index{
+  border:1px solid #d6e5dc!important;
+  border-radius:12px!important;
+  background:#edf5f0!important;
+  color:#07583a!important;
+}
+
+/* Smart Route gets the same card language without touching its behavior. */
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-smart-route{
+  margin-top:10px!important;
+  padding:14px!important;
+  border:1px solid #d8e5dd!important;
+  border-radius:24px!important;
+  background:linear-gradient(180deg,#f9fbfa,#f1f6f3)!important;
+  box-shadow:0 14px 36px rgba(21,57,43,.08)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-smart-route>header{
+  margin:-2px -2px 12px!important;
+  padding:16px!important;
+  border-radius:19px!important;
+  background:linear-gradient(145deg,#063e30,#0b6d4d)!important;
+  color:#fff!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-smart-route>header h1,
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-smart-route>header p,
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-smart-route>header small{
+  color:#fff!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-smart-origin,
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-smart-preview{
+  border:1px solid #dbe6df!important;
+  border-radius:19px!important;
+  background:#fff!important;
+  box-shadow:0 8px 22px rgba(19,55,41,.06)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-smart-origin{
+  padding:13px!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-smart-list{
+  display:grid!important;
+  gap:8px!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-smart-list>button{
+  border:1px solid #dbe6df!important;
+  border-radius:17px!important;
+  background:#fff!important;
+  box-shadow:0 7px 18px rgba(19,55,41,.055)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .employee-smart-list>button.selected{
+  border-color:#16865c!important;
+  box-shadow:0 0 0 2px rgba(22,134,92,.08),0 8px 20px rgba(19,55,41,.07)!important;
+}
+
+/* Visit/property detail: one obvious outer card, with smaller contained cards inside. */
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-property-reference{
+  margin:10px 0 24px!important;
+  padding:14px!important;
+  border:1.5px solid rgba(7,88,58,.17)!important;
+  border-radius:25px!important;
+  background:linear-gradient(180deg,#f8fbf9,#eef5f1)!important;
+  box-shadow:0 15px 40px rgba(18,55,41,.1)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-property-reference .mobile-inline-back{
+  min-height:38px!important;
+  margin:0 0 10px!important;
+  padding:0 12px!important;
+  border:1px solid #d7e3dc!important;
+  border-radius:12px!important;
+  background:#fff!important;
+  color:#07583a!important;
+  font-weight:850!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-property-reference .mobile-service-head{
+  margin-bottom:10px!important;
+  padding:15px!important;
+  border:1px solid #dbe6df!important;
+  border-radius:19px!important;
+  background:#fff!important;
+  box-shadow:0 7px 20px rgba(19,55,41,.06)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-property-reference .property-reference-head{
+  margin-top:10px!important;
+  padding:0 2px!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-property-reference .property-contract-summary,
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-property-reference .mobile-property-data-card,
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-property-reference .employee-time-grid,
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-property-reference .employee-image-section{
+  border:1px solid #dbe6df!important;
+  border-radius:19px!important;
+  background:#fff!important;
+  box-shadow:0 7px 20px rgba(19,55,41,.055)!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-property-reference .property-contract-summary{
+  padding:12px!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-property-reference .property-contract-thumb{
+  overflow:hidden!important;
+  border:1px solid #dbe6df!important;
+  border-radius:14px!important;
+}
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-property-reference .property-contract-thumb img,
+.mobile-app-shell:has(.employee-mobile-topbar) .mobile-property-reference .employee-image-section img{
+  display:block!important;
+  width:100%!important;
+  height:100%!important;
+  object-fit:cover!important;
+  object-position:center!important;
+}
+
+/* Customers list: every property is a real tappable card. */
+.employee-customers-list .employee-customer-card{
+  width:100%;
+  display:grid;
+  grid-template-columns:42px minmax(0,1fr) auto;
+  gap:11px;
+  align-items:center;
+  padding:13px;
+  border:1.5px solid rgba(7,88,58,.14);
+  border-radius:19px;
+  background:#fff;
+  color:#10271d;
+  text-align:left;
+  box-shadow:0 9px 25px rgba(24,56,44,.07);
+}
+.employee-customers-list .employee-customer-card:active{
+  transform:translateY(1px);
+}
+.employee-customers-list .employee-customer-card em{
+  padding:6px 8px;
+  border-radius:999px;
+  background:#eff4f1;
+  color:#62766d;
+  font-size:7px;
+  font-style:normal;
+  font-weight:900;
+}
+.employee-customers-list .employee-customer-card em.active{background:#fff2d9;color:#98630c}
+.employee-customers-list .employee-customer-card em.done{background:#e4f4e9;color:#087047}
+
+/* Customer -> canonical property detail. */
+.employee-customer-property-card{
+  overflow:hidden;
+  margin-top:4px;
+  padding:14px;
+  border:1.5px solid rgba(7,88,58,.16);
+  border-radius:25px;
+  background:#fff;
+  box-shadow:0 16px 40px rgba(18,55,41,.1);
+}
+.employee-customer-property-back{
+  min-height:38px;
+  margin:0 0 11px;
+  padding:0 12px;
+  border:1px solid #d7e3dc;
+  border-radius:12px;
+  background:#f7faf8;
+  color:#07583a;
+  font-size:10px;
+  font-weight:900;
+}
+.employee-customer-property-photo{
+  position:relative;
+  overflow:hidden;
+  width:100%;
+  aspect-ratio:16/10;
+  display:grid;
+  place-items:center;
+  border:1px solid #d9e5de;
+  border-radius:19px;
+  background:linear-gradient(145deg,#e8f2ec,#f8fbf9);
+}
+.employee-customer-property-photo img{
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  object-position:center;
+}
+.employee-customer-property-photo>span{
+  font-size:48px;
+}
+.employee-customer-property-photo>em{
+  position:absolute;
+  right:10px;
+  bottom:10px;
+  padding:7px 10px;
+  border-radius:999px;
+  background:rgba(255,255,255,.94);
+  color:#5d7167;
+  font-size:8px;
+  font-style:normal;
+  font-weight:950;
+  box-shadow:0 5px 14px rgba(0,0,0,.1);
+}
+.employee-customer-property-photo>em.active{color:#98630c}
+.employee-customer-property-photo>em.done{color:#087047}
+.employee-customer-property-heading{
+  padding:15px 2px 12px;
+}
+.employee-customer-property-heading small{
+  color:#16865c;
+  font-size:8px;
+  font-weight:950;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+}
+.employee-customer-property-heading h1{
+  margin:5px 0 4px;
+  color:#10271d;
+  font-size:22px;
+  line-height:1.12;
+  letter-spacing:-.035em;
+}
+.employee-customer-property-heading p{
+  margin:0;
+  color:#6c8076;
+  font-size:10px;
+  line-height:1.45;
+}
+.employee-customer-property-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+  margin:0;
+}
+.employee-customer-property-grid>div{
+  padding:11px;
+  border:1px solid #e0e9e4;
+  border-radius:15px;
+  background:#f8faf9;
+}
+.employee-customer-property-grid dt{
+  color:#73857c;
+  font-size:8px;
+  font-weight:850;
+}
+.employee-customer-property-grid dd{
+  margin:4px 0 0;
+  color:#173127;
+  font-size:10px;
+  font-weight:900;
+}
+.employee-customer-property-note{
+  margin-top:10px;
+  padding:12px;
+  border:1px solid #dce8e1;
+  border-radius:16px;
+  background:#f2f8f4;
+}
+.employee-customer-property-note strong{
+  color:#07583a;
+  font-size:9px;
+}
+.employee-customer-property-note p{
+  margin:5px 0 0;
+  color:#536a60;
+  font-size:10px;
+  line-height:1.5;
+}
+.employee-customer-property-directions{
+  min-height:50px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-top:12px;
+  padding:0 15px;
+  border-radius:15px;
+  background:linear-gradient(145deg,#043d2e,#08704c);
+  color:#fff;
+  font-size:11px;
+  font-weight:950;
+  text-decoration:none;
+  box-shadow:0 10px 24px rgba(7,88,58,.18);
+}
+.employee-customer-property-directions span{font-size:17px}
+
+/* Read-only canonical e-mail should look intentional. */
+.employee-polish-profile-form input[readonly]{
+  color:#65786f!important;
+  background:#f1f5f3!important;
+  cursor:default;
+}
+
+@media(min-width:760px){
+  .employee-polish-menu-button{left:calc(50% - 356px)!important}
+}
+@media(max-width:520px){
+  .mobile-app-shell:has(.employee-mobile-topbar) .employee-day-strip{
+    grid-template-columns:repeat(7,48px)!important;
+  }
+}
+@media(max-width:420px){
+  .employee-polish-menu-button{left:12px!important}
+  .employee-customers-list .employee-customer-card{
+    grid-template-columns:38px minmax(0,1fr);
+  }
+  .employee-customers-list .employee-customer-card em{
+    grid-column:2;
+    justify-self:start;
+  }
+  .employee-customer-property-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
