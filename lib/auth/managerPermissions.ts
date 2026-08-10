@@ -38,15 +38,16 @@ export function managerPermissionForPath(pathname: string): ManagerPermissionKey
   if (/^\/(?:mobile\/)?admin\/schedule(?:\/|$)/.test(path)) return "schedule";
   if (/^\/(?:mobile\/)?admin\/(?:dispatch|command|status)(?:\/|$)/.test(path)) return "dispatch";
   if (/^\/(?:mobile\/)?admin\/(?:routes|map|route-advisor)(?:\/|$)/.test(path)) return "routes";
-  if (/^\/(?:mobile\/)?admin\/(?:employees|users)(?:\/|$)/.test(path)) return "employees";
+  if (/^\/(?:mobile\/)?admin\/employees(?:\/|$)/.test(path)) return "employees";
   if (/^\/(?:mobile\/)?admin\/(?:tasks|alerts|requests)(?:\/|$)/.test(path)) return "tasks";
   if (/^\/(?:mobile\/)?admin\/feedback(?:\/|$)/.test(path)) return "feedback";
   if (/^\/(?:mobile\/)?admin\/reports(?:\/|$)/.test(path)) return "reports";
   if (/^\/(?:mobile\/)?admin\/(?:finance|payments)(?:\/|$)/.test(path)) return "finance";
   if (/^\/(?:mobile\/)?admin\/(?:settings|company|opening)(?:\/|$)/.test(path)) return "settings";
 
-  // Unmapped Admin surfaces are Admin-only by default. In particular,
-  // /admin/operations stays Admin-only because it combines Jobs, Quotes and Tasks.
+  // Unmapped Admin surfaces are Admin-only by default. In particular:
+  // - /admin/operations combines Jobs, Quotes and Tasks;
+  // - /admin/users manages account creation, activation and Manager permissions.
   return null;
 }
 
