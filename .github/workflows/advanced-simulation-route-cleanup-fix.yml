@@ -56,116 +56,75 @@ jobs:
           data_path = Path("lib/simulator/advancedSimulationData.ts")
           data = data_path.read_text()
 
-          old = '''  const workerProfiles = await service
-            .from("profiles")
-            .select("id")
-            .or(companyFilter(scope.companyId))
-            .like("email", scope.emailLikePattern)
-            .limit(5000);
+          old = '''  const workerProfiles = await service.from("profiles").select("id")
+            .eq("role", "employee").or(companyFilter(scope.companyId)).like("email", scope.emailLikePattern).limit(5000);
           if (workerProfiles.error) throw new Error(workerProfiles.error.message);
-
-          const customerIds = customers.map((row: any) => String(row.id));
-          const profileIds = [...new Set<string>([
-            ...customers.map((row: any) => String(row.profile_id || "")),
-            ...(workerProfiles.data || []).map((row: any) => String(row.id || "")),
-          ].filter(Boolean))];
+          const profileIds: string[] = [...new Set<string>([
+            ...(workerProfiles.data || []).map((row: any) => String(row.id)),
+            ...(customerResult.data || []).map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),
+          ])];
 
           if (!customerIds.length && !profileIds.length) {'''
-          new = '''  const workerProfiles = await service
-            .from("profiles")
-            .select("id")
-            .or(companyFilter(scope.companyId))
-            .like("email", scope.emailLikePattern)
-            .limit(5000);
+          new = '''  const workerProfiles = await service.from("profiles").select("id")
+            .eq("role", "employee").or(companyFilter(scope.companyId)).like("email", scope.emailLikePattern).limit(5000);
           if (workerProfiles.error) throw new Error(workerProfiles.error.message);
-
-          // Profiles/Auth are intentionally deleted before soft Employee/Crew rows.
-          // Discover simulation Employees by namespace email as well, otherwise a
-          // second reset cannot find their Crews and the empty Routes are orphaned.
-          const simulationEmployees = await service
-            .from("employees")
-            .select("id,profile_id,crew_id")
-            .or(companyFilter(scope.companyId))
-            .like("email", scope.emailLikePattern)
-            .limit(5000);
+          const simulationEmployees = await service.from("employees").select("id,profile_id,crew_id")
+            .or(companyFilter(scope.companyId)).like("email", scope.emailLikePattern).limit(5000);
           if (simulationEmployees.error) throw new Error(simulationEmployees.error.message);
           const simulationEmployeeRows = simulationEmployees.data || [];
-
-          const customerIds = customers.map((row: any) => String(row.id));
-          const profileIds = [...new Set<string>([
-            ...customers.map((row: any) => String(row.profile_id || "")),
-            ...(workerProfiles.data || []).map((row: any) => String(row.id || "")),
-            ...simulationEmployeeRows.map((row: any) => String(row.profile_id || "")),
-          ].filter(Boolean))];
+          const profileIds: string[] = [...new Set<string>([
+            ...(workerProfiles.data || []).map((row: any) => String(row.id)),
+            ...(customerResult.data || []).map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),
+            ...simulationEmployeeRows.map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),
+          ])];
 
           if (!customerIds.length && !profileIds.length && !simulationEmployeeRows.length) {'''
           data = replace_once(data, old, new, "simulation employee discovery")
 
-          old = '''  const routeIds = [...new Set<string>(visitRows.map((row: any) => String(row.route_id || "")).filter(Boolean))];
-          const jobRows = customerIds.length
-            ? await collectInBatches(service, "jobs", "id", "customer_id", customerIds)
-            : [];'''
-          new = '''  const visitRouteIds = [...new Set<string>(visitRows.map((row: any) => String(row.route_id || "")).filter(Boolean))];
-          const jobRows = customerIds.length
-            ? await collectInBatches(service, "jobs", "id", "customer_id", customerIds)
-            : [];'''
-          data = replace_once(data, old, new, "visit route ids")
-
-          old = '''  const employeeRows = profileIds.length
-            ? await collectInBatches(service, "employees", "id,crew_id", "profile_id", profileIds)
-            : [];
+          old = '''  const routeIds: string[] = [...new Set<string>(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];
+          const employeeRows = profileIds.length ? await collectInBatches(service, "employees", "id,crew_id", "profile_id", profileIds) : [];
           const employeeIds = employeeRows.map((row: any) => String(row.id));
-          const crewIds = [...new Set<string>(employeeRows.map((row: any) => String(row.crew_id || "")).filter(Boolean))];
-
-          let visitsRemoved = 0;'''
-          new = '''  const profileEmployeeRows = profileIds.length
-            ? await collectInBatches(service, "employees", "id,profile_id,crew_id", "profile_id", profileIds)
-            : [];
+          const crewIds: string[] = [...new Set<string>(employeeRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];'''
+          new = '''  const visitRouteIds: string[] = [...new Set<string>(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];
+          const profileEmployeeRows = profileIds.length ? await collectInBatches(service, "employees", "id,profile_id,crew_id", "profile_id", profileIds) : [];
           const employeeRows = [...new Map(
             [...simulationEmployeeRows, ...profileEmployeeRows].map((row: any) => [String(row.id), row]),
           ).values()];
           const employeeIds = employeeRows.map((row: any) => String(row.id));
-          const crewIds = [...new Set<string>(employeeRows.map((row: any) => String(row.crew_id || "")).filter(Boolean))];
-          const crewRouteRows = crewIds.length
-            ? await collectInBatches(service, "routes", "id", "crew_id", crewIds)
-            : [];
-          const routeIds = [...new Set<string>([
+          const crewIds: string[] = [...new Set<string>(employeeRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];
+          const crewRouteRows = crewIds.length ? await collectInBatches(service, "routes", "id", "crew_id", crewIds) : [];
+          const routeIds: string[] = [...new Set<string>([
             ...visitRouteIds,
-            ...crewRouteRows.map((row: any) => String(row.id || "")),
-          ].filter(Boolean))];
-
-          let visitsRemoved = 0;'''
-          data = replace_once(data, old, new, "route discovery through crews")
+            ...crewRouteRows.map((row: any) => row.id ? String(row.id) : ""),
+          ].filter(Boolean))];'''
+          data = replace_once(data, old, new, "route discovery through simulation crews")
           data_path.write_text(data)
 
           api_path = Path("app/api/admin/operational-simulator/v2/route.ts")
           api = api_path.read_text()
-          old = '''    if (transition.alreadyRemoved && !before.exists) {
-              return NextResponse.json({
-                removed: true,
-                alreadyRemoved: true,
-                namespace,
-                visitsRemoved: 0,
-                routesRemoved: 0,
-                customersRemoved: 0,
-                accountsRemoved: 0,
-              }, { headers: { "Cache-Control": "no-store, max-age=0" } });
-            }'''
-          new = '''    if (transition.alreadyRemoved && !before.exists) {
-              // Idempotent reset still performs a residual sweep. This matters
-              // when an older cleanup removed Auth/Profiles/Visits first but left
-              // soft Employee/Crew rows and their now-empty Routes behind.
-              const residual = await removeAdvancedSimulationDataWithTimeoutRetry(service, scope);
-              const afterResidual = await advancedSimulationDataStatus(service, scope);
-              if (afterResidual.exists) throw new Error("Advanced simulator residual reset was incomplete.");
-              await markAdvancedSimulationRemoved(service, scope, residual);
-              return NextResponse.json({
-                removed: true,
-                alreadyRemoved: true,
-                namespace,
-                ...residual,
-              }, { headers: { "Cache-Control": "no-store, max-age=0" } });
-            }'''
+          old = '''      if (transition.alreadyRemoved && !before.exists) {
+                return NextResponse.json({
+                  removed: true,
+                  alreadyRemoved: true,
+                  namespace: scope.namespace,
+                  status: before,
+                  message: `Simulation namespace "${scope.namespace}" is already reset.`,
+                });
+              }'''
+          new = '''      if (transition.alreadyRemoved && !before.exists) {
+                const residual = await removeAdvancedSimulationDataWithTimeoutRetry(service, scope);
+                const afterResidual = await advancedSimulationDataStatus(service, scope);
+                if (afterResidual.exists) throw new Error("Advanced simulator residual reset was incomplete.");
+                await markAdvancedSimulationRemoved(service, scope, residual);
+                return NextResponse.json({
+                  removed: true,
+                  alreadyRemoved: true,
+                  namespace: scope.namespace,
+                  ...residual,
+                  status: afterResidual,
+                  message: `Simulation namespace "${scope.namespace}" was already reset; residual QA artifacts were swept again.`,
+                });
+              }'''
           api = replace_once(api, old, new, "idempotent residual sweep")
           api_path.write_text(api)
 
@@ -205,41 +164,34 @@ jobs:
           await cleanup();
           let finalCleanup: any = null;
           try {'''
-          test = replace_once(test, old, new, "cleanup return body")
-          test = replace_once(
-            test,
-            '''  } finally {
-              await cleanup();
-            }
+          test = replace_once(test, old, new, "cleanup result")
+          old = '''  } finally {
+            await cleanup();
+          }
 
-            const resetAgain = await postSimulator(request, token, { action: "reset", namespace });
-            expect(resetAgain.ok(), await resetAgain.text()).toBe(true);
-            expect((await resetAgain.json()).alreadyRemoved).toBe(true);''',
-            '''  } finally {
-              finalCleanup = await cleanup();
-            }
+          const resetAgain = await postSimulator(request, token, { action: "reset", namespace });
+          expect(resetAgain.ok(), await resetAgain.text()).toBe(true);
+          expect((await resetAgain.json()).alreadyRemoved).toBe(true);'''
+          new = '''  } finally {
+            finalCleanup = await cleanup();
+          }
 
-            expect(finalCleanup?.routesRemoved).toBeGreaterThan(0);
+          expect(finalCleanup?.routesRemoved).toBeGreaterThan(0);
+          const residualEmployees = await service.from("employees").select("crew_id").like("email", `%${namespace}%`);
+          expect(residualEmployees.error?.message || "").toBe("");
+          const crewIds = [...new Set((residualEmployees.data || []).map((row: any) => String(row.crew_id || "")).filter(Boolean))];
+          const residualRoutes = crewIds.length
+            ? await service.from("routes").select("id", { count: "exact", head: true }).in("crew_id", crewIds)
+            : { count: 0, error: null };
+          expect(residualRoutes.error?.message || "").toBe("");
+          expect(residualRoutes.count || 0).toBe(0);
 
-            const residualEmployees = await service
-              .from("employees")
-              .select("crew_id")
-              .like("email", `%${namespace}%`);
-            expect(residualEmployees.error?.message || "").toBe("");
-            const crewIds = [...new Set((residualEmployees.data || []).map((row: any) => String(row.crew_id || "")).filter(Boolean))];
-            const residualRoutes = crewIds.length
-              ? await service.from("routes").select("id", { count: "exact", head: true }).in("crew_id", crewIds)
-              : { count: 0, error: null };
-            expect(residualRoutes.error?.message || "").toBe("");
-            expect(residualRoutes.count || 0).toBe(0);
-
-            const resetAgain = await postSimulator(request, token, { action: "reset", namespace });
-            expect(resetAgain.ok(), await resetAgain.text()).toBe(true);
-            const resetAgainBody = await resetAgain.json();
-            expect(resetAgainBody.alreadyRemoved).toBe(true);
-            expect(resetAgainBody.routesRemoved || 0).toBe(0);''',
-            "route cleanup assertions",
-          )
+          const resetAgain = await postSimulator(request, token, { action: "reset", namespace });
+          expect(resetAgain.ok(), await resetAgain.text()).toBe(true);
+          const resetAgainBody = await resetAgain.json();
+          expect(resetAgainBody.alreadyRemoved).toBe(true);
+          expect(resetAgainBody.routesRemoved || 0).toBe(0);'''
+          test = replace_once(test, old, new, "zero route residue assertion")
           test_path.write_text(test)
           PY
 
