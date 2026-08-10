@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { hasManagerPermission } from "@/lib/auth/managerPermissions";
 
 export const dynamic = "force-dynamic";
 
@@ -26,11 +27,17 @@ async function context(request: NextRequest) {
   const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data: profile, error: profileError } = await admin
     .from("profiles")
-    .select("id,role,active,full_name,email,phone,recovery_email,company_id,organization_id")
+    .select("id,role,active,full_name,email,phone,recovery_email,company_id,organization_id,manager_permissions")
     .eq("id", auth.user.id)
     .maybeSingle();
   if (profileError || !profile) throw new Error(profileError?.message || "Company Admin profile was not found.");
   if (!profile.active || !["admin", "manager"].includes(profile.role)) throw new Error("Only an active company Admin can complete this profile.");
+  if (profile.role === "manager") {
+    const required = request.method === "GET" ? "view" : "manage";
+    if (!hasManagerPermission(profile.manager_permissions, "settings", required)) {
+      throw new Error(`Manager Settings ${required} permission is required.`);
+    }
+  }
   const companyId = profile.company_id || profile.organization_id;
   if (!companyId) throw new Error("This Admin is not linked to a company.");
   return { admin, profile, companyId, loginEmail: auth.user.email || profile.email };
