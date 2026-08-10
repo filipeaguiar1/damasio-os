@@ -6,6 +6,8 @@ on:
       - feature/advanced-simulation-foundation-20260808
     paths:
       - .github/workflows/advanced-simulation-route-cleanup-fix.yml
+      - scripts/fix-advanced-simulation-route-cleanup.py
+      - supabase/migrations/202608100120_advanced_simulation_route_cleanup.sql
 
 permissions:
   contents: write
