@@ -65,6 +65,27 @@ employee_replacement = (
     '  ].filter(Boolean))];\n'
 )
 data = replace_once(data, employee_block, employee_replacement, "route discovery through simulation crews")
+
+route_delete_block = '''  let routesRemoved = 0;
+  if (visitsDeleted && routeIds.length) {
+    const deletedRoutes = await removeByIds("routes", "routes", "id", routeIds, true);
+    if (deletedRoutes) routesRemoved = routeIds.length;
+  }
+'''
+route_delete_replacement = '''  let routesRemoved = 0;
+  if (visitsDeleted && crewIds.length) {
+    const cleanupRoutes = await service.rpc("cleanup_operational_simulation_routes", {
+      p_company_id: scope.companyId,
+      p_namespace: scope.namespace,
+      p_crew_ids: crewIds,
+    });
+    if (cleanupRoutes.error) {
+      throw new Error(`routes cleanup: ${cleanupRoutes.error.message || "protected QA Route cleanup failed"}`);
+    }
+    routesRemoved = Number(cleanupRoutes.data?.routeCount || 0);
+  }
+'''
+data = replace_once(data, route_delete_block, route_delete_replacement, "protected Route cleanup RPC")
 data_path.write_text(data)
 
 api_path = Path("app/api/admin/operational-simulator/v2/route.ts")
