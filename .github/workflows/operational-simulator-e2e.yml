@@ -24,6 +24,7 @@ on:
       - "lib/routes/verifyCanonicalRoutePersistence.ts"
       - "lib/services/routeMapService.ts"
       - "lib/simulator/**"
+      - "scripts/purge-operational-simulation-v1.mjs"
       - "scripts/qa-final-two-blockers.py"
       - "scripts/qa-finalize-operational-blockers.py"
       - "supabase/migrations/202607290001_customer_portal_action_contract.sql"
@@ -35,6 +36,7 @@ on:
       - "supabase/migrations/202608070002_operational_simulator_visit_cleanup.sql"
       - "supabase/migrations/202608071610_route_stops_visit_projection.sql"
       - "supabase/migrations/202608071620_route_employee_lookup_indexes.sql"
+      - "supabase/migrations/202608100210_operational_simulation_exact_purge.sql"
       - "tests/operational-simulator.spec.ts"
       - "tests/canonical-route-sync.spec.ts"
       - "public/demo/simulation-lawn-after.svg"
@@ -90,6 +92,7 @@ jobs:
               "supabase/migrations/202608070002_operational_simulator_visit_cleanup.sql": ["cleanup_operational_simulation_visits", "service_role"],
               "supabase/migrations/202608071610_route_stops_visit_projection.sql": ["project_route_stop_to_visit_order", "route_stops", "visits"],
               "supabase/migrations/202608071620_route_employee_lookup_indexes.sql": ["employees_profile_id_idx", "profiles_company_role_active_name_idx"],
+              "supabase/migrations/202608100210_operational_simulation_exact_purge.sql": ["purge_operational_simulation_v1_run", "purge_operational_simulation_v2_namespace", "service_role"],
           }
           for path, required_fragments in migrations.items():
               source = Path(path)
@@ -136,6 +139,10 @@ jobs:
             exit 1
           fi
           pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
+
+      - name: Purge exact V1 simulation run
+        if: always()
+        run: node scripts/purge-operational-simulation-v1.mjs
 
       - name: Upload screenshots and server log
         if: always()
