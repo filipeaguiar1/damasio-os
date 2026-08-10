@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://127.0.0.1:3000";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL || "";
 const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || "";
 
@@ -34,18 +35,27 @@ test("large advanced simulator reconciles 12-month / 4,620-service scenario", as
   test.setTimeout(55 * 60 * 1000);
   expect(SUPABASE_URL, "NEXT_PUBLIC_SUPABASE_URL is required").toBeTruthy();
   expect(SUPABASE_ANON_KEY, "NEXT_PUBLIC_SUPABASE_ANON_KEY is required").toBeTruthy();
+  expect(SUPABASE_SERVICE_ROLE_KEY, "SUPABASE_SERVICE_ROLE_KEY is required").toBeTruthy();
   expect(ADMIN_EMAIL, "E2E_ADMIN_EMAIL is required").toBeTruthy();
   expect(ADMIN_PASSWORD, "E2E_ADMIN_PASSWORD is required").toBeTruthy();
 
   const token = await adminAccessToken();
   const namespace = `scale-${Date.now().toString(36)}`;
 
+  const service = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
   const cleanup = async () => {
     const response = await postSimulator(request, token, { action: "reset", namespace });
-    if (!response.ok()) console.warn(`Scale cleanup: ${response.status()} ${await response.text()}`);
+    if (!response.ok()) {
+      console.warn(`Scale cleanup: ${response.status()} ${await response.text()}`);
+      return null;
+    }
+    return response.json();
   };
 
   await cleanup();
+  let finalCleanup: any = null;
   try {
     const created = await postSimulator(request, token, {
       action: "create",
@@ -81,10 +91,22 @@ test("large advanced simulator reconciles 12-month / 4,620-service scenario", as
     expect(reconciled.reconciliation?.visits?.actualCompleted).toBe(4600);
     expect(reconciled.reconciliation?.visits?.actualScheduled).toBe(20);
   } finally {
-    await cleanup();
+    finalCleanup = await cleanup();
   }
+
+  expect(finalCleanup?.routesRemoved).toBeGreaterThan(0);
+  const residualEmployees = await service.from("employees").select("crew_id").like("email", `%${namespace}%`);
+  expect(residualEmployees.error?.message || "").toBe("");
+  const crewIds = [...new Set((residualEmployees.data || []).map((row: any) => String(row.crew_id || "")).filter(Boolean))];
+  const residualRoutes = crewIds.length
+    ? await service.from("routes").select("id", { count: "exact", head: true }).in("crew_id", crewIds)
+    : { count: 0, error: null };
+  expect(residualRoutes.error?.message || "").toBe("");
+  expect(residualRoutes.count || 0).toBe(0);
 
   const resetAgain = await postSimulator(request, token, { action: "reset", namespace });
   expect(resetAgain.ok(), await resetAgain.text()).toBe(true);
-  expect((await resetAgain.json()).alreadyRemoved).toBe(true);
+  const resetAgainBody = await resetAgain.json();
+  expect(resetAgainBody.alreadyRemoved).toBe(true);
+  expect(resetAgainBody.routesRemoved || 0).toBe(0);
 });

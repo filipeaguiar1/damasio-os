@@ -139,12 +139,17 @@ export async function POST(request: NextRequest) {
       const transition = await beginAdvancedSimulationReset(service, scope);
       const before = await advancedSimulationDataStatus(service, scope);
       if (transition.alreadyRemoved && !before.exists) {
+        const residual = await removeAdvancedSimulationDataWithTimeoutRetry(service, scope);
+        const afterResidual = await advancedSimulationDataStatus(service, scope);
+        if (afterResidual.exists) throw new Error("Advanced simulator residual reset was incomplete.");
+        await markAdvancedSimulationRemoved(service, scope, residual);
         return NextResponse.json({
           removed: true,
           alreadyRemoved: true,
           namespace: scope.namespace,
-          status: before,
-          message: `Simulation namespace "${scope.namespace}" is already reset.`,
+          ...residual,
+          status: afterResidual,
+          message: `Simulation namespace "${scope.namespace}" was already reset; residual QA artifacts were swept again.`,
         });
       }
       if (!transition.acquired && !transition.alreadyRemoved) {

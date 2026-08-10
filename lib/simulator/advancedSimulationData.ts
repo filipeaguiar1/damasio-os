@@ -898,12 +898,17 @@ export async function removeAdvancedSimulationData(
   const workerProfiles = await service.from("profiles").select("id")
     .eq("role", "employee").or(companyFilter(scope.companyId)).like("email", scope.emailLikePattern).limit(5000);
   if (workerProfiles.error) throw new Error(workerProfiles.error.message);
+  const simulationEmployees = await service.from("employees").select("id,profile_id,crew_id")
+    .or(companyFilter(scope.companyId)).like("email", scope.emailLikePattern).limit(5000);
+  if (simulationEmployees.error) throw new Error(simulationEmployees.error.message);
+  const simulationEmployeeRows = simulationEmployees.data || [];
   const profileIds: string[] = [...new Set<string>([
     ...(workerProfiles.data || []).map((row: any) => String(row.id)),
     ...(customerResult.data || []).map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),
+    ...simulationEmployeeRows.map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),
   ])];
 
-  if (!customerIds.length && !profileIds.length) {
+  if (!customerIds.length && !profileIds.length && !simulationEmployeeRows.length) {
     const storageDelete = await service.storage.from("work-photos").remove([`${scope.storagePrefix}/after.svg`]);
     if (storageDelete.error && !/not found/i.test(storageDelete.error.message || "")) {
       throw new Error(`work-photos: ${storageDelete.error.message}`);
@@ -917,10 +922,18 @@ export async function removeAdvancedSimulationData(
   const jobIds = jobRows.map((row: any) => String(row.id));
   const visitRows = customerIds.length ? await collectInBatches(service, "visits", "id,route_id", "customer_id", customerIds) : [];
   const visitIds = visitRows.map((row: any) => String(row.id));
-  const routeIds: string[] = [...new Set<string>(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];
-  const employeeRows = profileIds.length ? await collectInBatches(service, "employees", "id,crew_id", "profile_id", profileIds) : [];
+  const visitRouteIds: string[] = [...new Set<string>(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];
+  const profileEmployeeRows = profileIds.length ? await collectInBatches(service, "employees", "id,profile_id,crew_id", "profile_id", profileIds) : [];
+  const employeeRows = [...new Map(
+    [...simulationEmployeeRows, ...profileEmployeeRows].map((row: any) => [String(row.id), row]),
+  ).values()];
   const employeeIds = employeeRows.map((row: any) => String(row.id));
   const crewIds: string[] = [...new Set<string>(employeeRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];
+  const crewRouteRows = crewIds.length ? await collectInBatches(service, "routes", "id", "crew_id", crewIds) : [];
+  const routeIds: string[] = [...new Set<string>([
+    ...visitRouteIds,
+    ...crewRouteRows.map((row: any) => row.id ? String(row.id) : ""),
+  ].filter(Boolean))];
 
   async function remove(label: string, operation: PromiseLike<{ error?: { message?: string } | null }>, optional = false) {
     const result = await operation;
@@ -1006,9 +1019,16 @@ export async function removeAdvancedSimulationData(
   }
 
   let routesRemoved = 0;
-  if (visitsDeleted && routeIds.length) {
-    const deletedRoutes = await removeByIds("routes", "routes", "id", routeIds, true);
-    if (deletedRoutes) routesRemoved = routeIds.length;
+  if (visitsDeleted && crewIds.length) {
+    const cleanupRoutes = await service.rpc("cleanup_operational_simulation_routes", {
+      p_company_id: scope.companyId,
+      p_namespace: scope.namespace,
+      p_crew_ids: crewIds,
+    });
+    if (cleanupRoutes.error) {
+      throw new Error(`routes cleanup: ${cleanupRoutes.error.message || "protected QA Route cleanup failed"}`);
+    }
+    routesRemoved = Number(cleanupRoutes.data?.routeCount || 0);
   }
 
   const archivedAt = new Date().toISOString();
