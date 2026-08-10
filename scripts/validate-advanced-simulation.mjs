@@ -7,8 +7,11 @@ const contract = read("lib/simulator/advancedSimulation.ts");
 const data = read("lib/simulator/advancedSimulationData.ts");
 const runs = read("lib/simulator/advancedSimulationRuns.ts");
 const api = read("app/api/admin/operational-simulator/v2/route.ts");
+const v1Api = read("app/api/admin/operational-simulator/route.ts");
+const v1VisitCleanup = read("app/api/admin/operational-simulator/cleanup-visits/route.ts");
 const migration = read("supabase/migrations/202608080100_advanced_operational_simulation_namespace.sql");
 const routeCleanup = read("supabase/migrations/202608100120_advanced_simulation_route_cleanup.sql");
+const exactPurge = read("supabase/migrations/202608100210_operational_simulation_exact_purge.sql");
 
 const failures = [];
 const expect = (condition, message) => {
@@ -42,6 +45,8 @@ expect(runs.includes('status: "removed"'), "run lifecycle must persist removed s
 
 expect(api.includes('"create" | "reset" | "remove" | "reconcile"'), "V2 API must expose create/reset/remove/reconcile actions");
 expect(api.includes('profile.data.role !== "admin"'), "V2 API must remain restricted to active company Admins");
+expect(v1Api.includes('profile.data.role !== "admin"'), "V1 API must remain restricted to active company Admins");
+expect(v1VisitCleanup.includes('profile.data.role !== "admin"'), "V1 Visit cleanup must remain restricted to active company Admins");
 expect(api.includes("beginAdvancedSimulationRun"), "V2 create must acquire a namespaced run lifecycle");
 expect(api.includes("beginAdvancedSimulationReset"), "V2 reset must acquire a namespaced reset lifecycle");
 expect(api.includes("!transition.acquired && !transition.alreadyRemoved"), "V2 reset must reject concurrent cleanup ownership");
@@ -60,6 +65,10 @@ expect(migration.includes("cleanup_operational_simulation_visits"), "protected V
 expect(routeCleanup.includes("char_length(v_namespace) > 32"), "Route cleanup must enforce the same namespace length contract as the API");
 expect(routeCleanup.includes("from authenticated"), "Route cleanup RPC must not be executable by authenticated browser sessions");
 expect(routeCleanup.includes("to service_role"), "Route cleanup RPC must remain service-role only");
+expect(exactPurge.includes("purge_operational_simulation_v1_run"), "V1 QA must have an exact run-scoped hard purge");
+expect(exactPurge.includes("purge_operational_simulation_v2_namespace"), "V2 QA must have an exact namespace-scoped hard purge");
+expect(exactPurge.includes("refused a Route shared with non-simulation Visits"), "hard purge must refuse shared Routes");
+expect(exactPurge.includes("to service_role"), "hard purge entry points must remain service-role only");
 
 if (failures.length) {
   console.error("Advanced Simulation validation failed:");
