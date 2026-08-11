@@ -9,6 +9,10 @@ const SERVICE_VIEWBOX = "-80.35,43.65,-79.35,42.85";
 const SERVICE_BBOX = "-80.35,42.85,-79.35,43.65";
 const geocodeCache = new Map<string, { point: Point | null; expiresAt: number }>();
 const geometryCache = new Map<string, { geometry: RouteLineString | null; expiresAt: number }>();
+const uncachedFetch: typeof fetch = (input, init) => fetch(input, {
+  ...init,
+  cache: "no-store",
+});
 
 type Point = { latitude: number; longitude: number };
 type RouteVisit = Record<string, any>;
@@ -39,6 +43,7 @@ function serviceClient() {
   if (!url || !key) throw new Error("Canonical route snapshot service is not configured.");
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: uncachedFetch },
   }) as any;
 }
 

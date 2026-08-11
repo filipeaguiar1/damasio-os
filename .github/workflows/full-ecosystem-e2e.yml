@@ -19,16 +19,17 @@ on:
 permissions:
   contents: read
 
-# Full Ecosystem and Operational Simulator share the same QA database.
-# Keep the heavy E2E suites serialized so one cannot starve the other.
+# This named PR check is intentionally non-mutating. Authenticated Full Ecosystem
+# journeys run at the end of Operational Simulator E2E, the single heavy writer
+# for the shared QA database.
 concurrency:
-  group: damasio-heavy-e2e-qa
-  cancel-in-progress: false
+  group: damasio-full-ecosystem-static-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  ecosystem:
+  ecosystem-architecture:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
@@ -47,29 +48,5 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Install temporary Playwright package
-        run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
-      - name: TypeScript and production build
+      - name: Validate ecosystem architecture and production build
         run: pnpm build
-      - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
-      - name: Start production server
-        run: |
-          pnpm start > /tmp/damasio-full-ecosystem.log 2>&1 &
-          for attempt in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
-            sleep 1
-          done
-          cat /tmp/damasio-full-ecosystem.log
-          exit 1
-      - name: Run full ecosystem journeys
-        run: pnpm exec playwright test tests/full-ecosystem.spec.ts tests/full-ecosystem-smart-route.spec.ts tests/full-ecosystem-stripe.spec.ts tests/full-ecosystem-tenant-isolation.spec.ts --reporter=line --workers=1
-      - name: Upload ecosystem evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: full-ecosystem-e2e
-          path: |
-            /tmp/damasio-full-ecosystem.log
-            test-results/**
-          if-no-files-found: ignore

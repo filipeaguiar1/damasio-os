@@ -1,0 +1,56 @@
+name: Advanced Simulation E2E
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/api/admin/operational-simulator/v2/**"
+      - "lib/simulator/advancedSimulation*.ts"
+      - "scripts/validate-advanced-simulation.mjs"
+      - "supabase/migrations/202608080100_advanced_operational_simulation_namespace.sql"
+      - "supabase/migrations/202608100120_advanced_simulation_route_cleanup.sql"
+      - "tests/advanced-operational-simulator*.spec.ts"
+      - "package.json"
+      - ".github/workflows/advanced-simulation-e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Keep this PR check non-mutating. The authenticated V2 database journeys run
+# sequentially inside Operational Simulator E2E, which owns the shared heavy-QA
+# lock together with Full Ecosystem E2E.
+concurrency:
+  group: damasio-advanced-simulation-static-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator-v2-architecture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Advanced Simulation architecture and production build
+        run: pnpm build
