@@ -94,7 +94,7 @@ test("large advanced simulator reconciles 12-month / 4,620-service scenario", as
     finalCleanup = await cleanup();
   }
 
-  // Release gate: a successful reset must leave no canonical Route residue behind.
+  // Release gate: timeout-safe per-Crew cleanup must leave no canonical Route residue behind.
   expect(finalCleanup?.routesRemoved).toBeGreaterThan(0);
   const residualEmployees = await service.from("employees").select("crew_id").like("email", `%${namespace}%`);
   expect(residualEmployees.error?.message || "").toBe("");
