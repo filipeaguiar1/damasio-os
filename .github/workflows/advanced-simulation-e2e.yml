@@ -82,6 +82,7 @@ jobs:
       - name: Run full canonical Customer-to-History journey gate
         run: pnpm exec playwright test tests/advanced-operational-simulator-journey.spec.ts --reporter=line --workers=1
 
+      # Release gate also asserts that reset leaves zero canonical Routes for the simulation namespace.
       - name: Run 4,620-service scale release gate
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_large_scale || github.event_name == 'pull_request' }}
         run: pnpm exec playwright test tests/advanced-operational-simulator-large.spec.ts --reporter=line --workers=1
