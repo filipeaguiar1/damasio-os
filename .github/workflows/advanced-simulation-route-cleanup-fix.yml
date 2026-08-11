@@ -10,10 +10,6 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: damasio-advanced-simulation-route-cleanup-fix
-  cancel-in-progress: false
-
 jobs:
   fix-and-validate:
     runs-on: ubuntu-latest
@@ -42,160 +38,8 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - name: Patch residual Route cleanup
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          def replace_once(text, old, new, label):
-              if old not in text:
-                  raise SystemExit(f"missing anchor: {label}")
-              return text.replace(old, new, 1)
-
-          data_path = Path("lib/simulator/advancedSimulationData.ts")
-          data = data_path.read_text()
-
-          anchor = '  if (workerProfiles.error) throw new Error(workerProfiles.error.message);\n'
-          addition = '''  if (workerProfiles.error) throw new Error(workerProfiles.error.message);
-
-          const simulationEmployees = await service.from("employees").select("id,profile_id,crew_id")
-            .or(companyFilter(scope.companyId)).like("email", scope.emailLikePattern).limit(5000);
-          if (simulationEmployees.error) throw new Error(simulationEmployees.error.message);
-          const simulationEmployeeRows = simulationEmployees.data || [];
-'''
-          data = replace_once(data, anchor, addition, "simulation employee discovery")
-
-          anchor = '''  const profileIds: string[] = [...new Set<string>([
-            ...(workerProfiles.data || []).map((row: any) => String(row.id)),
-            ...(customerResult.data || []).map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),
-          ])];'''
-          replacement = '''  const profileIds: string[] = [...new Set<string>([
-            ...(workerProfiles.data || []).map((row: any) => String(row.id)),
-            ...(customerResult.data || []).map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),
-            ...simulationEmployeeRows.map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),
-          ])];'''
-          data = replace_once(data, anchor, replacement, "profile ids include residual employees")
-          data = replace_once(
-            data,
-            '  if (!customerIds.length && !profileIds.length) {',
-            '  if (!customerIds.length && !profileIds.length && !simulationEmployeeRows.length) {',
-            "residual early return",
-          )
-
-          anchor = '''  const routeIds: string[] = [...new Set<string>(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];
-          const employeeRows = profileIds.length ? await collectInBatches(service, "employees", "id,crew_id", "profile_id", profileIds) : [];
-          const employeeIds = employeeRows.map((row: any) => String(row.id));
-          const crewIds: string[] = [...new Set<string>(employeeRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];'''
-          replacement = '''  const visitRouteIds: string[] = [...new Set<string>(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean))];
-          const profileEmployeeRows = profileIds.length ? await collectInBatches(service, "employees", "id,profile_id,crew_id", "profile_id", profileIds) : [];
-          const employeeRows = [...new Map(
-            [...simulationEmployeeRows, ...profileEmployeeRows].map((row: any) => [String(row.id), row]),
-          ).values()];
-          const employeeIds = employeeRows.map((row: any) => String(row.id));
-          const crewIds: string[] = [...new Set<string>(employeeRows.map((row: any) => row.crew_id ? String(row.crew_id) : "").filter(Boolean))];
-          const crewRouteRows = crewIds.length ? await collectInBatches(service, "routes", "id", "crew_id", crewIds) : [];
-          const routeIds: string[] = [...new Set<string>([
-            ...visitRouteIds,
-            ...crewRouteRows.map((row: any) => row.id ? String(row.id) : ""),
-          ].filter(Boolean))];'''
-          data = replace_once(data, anchor, replacement, "route discovery through simulation crews")
-          data_path.write_text(data)
-
-          api_path = Path("app/api/admin/operational-simulator/v2/route.ts")
-          api = api_path.read_text()
-          anchor = '''      if (transition.alreadyRemoved && !before.exists) {
-                return NextResponse.json({
-                  removed: true,
-                  alreadyRemoved: true,
-                  namespace: scope.namespace,
-                  status: before,
-                  message: `Simulation namespace "${scope.namespace}" is already reset.`,
-                });
-              }'''
-          replacement = '''      if (transition.alreadyRemoved && !before.exists) {
-                const residual = await removeAdvancedSimulationDataWithTimeoutRetry(service, scope);
-                const afterResidual = await advancedSimulationDataStatus(service, scope);
-                if (afterResidual.exists) throw new Error("Advanced simulator residual reset was incomplete.");
-                await markAdvancedSimulationRemoved(service, scope, residual);
-                return NextResponse.json({
-                  removed: true,
-                  alreadyRemoved: true,
-                  namespace: scope.namespace,
-                  ...residual,
-                  status: afterResidual,
-                  message: `Simulation namespace "${scope.namespace}" was already reset; residual QA artifacts were swept again.`,
-                });
-              }'''
-          api = replace_once(api, anchor, replacement, "idempotent residual sweep")
-          api_path.write_text(api)
-
-          test_path = Path("tests/advanced-operational-simulator-large.spec.ts")
-          test = test_path.read_text()
-          test = replace_once(
-            test,
-            'const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";\n',
-            'const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";\nconst SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";\n',
-            "service role env",
-          )
-          test = replace_once(
-            test,
-            '  expect(SUPABASE_ANON_KEY, "NEXT_PUBLIC_SUPABASE_ANON_KEY is required").toBeTruthy();\n',
-            '  expect(SUPABASE_ANON_KEY, "NEXT_PUBLIC_SUPABASE_ANON_KEY is required").toBeTruthy();\n  expect(SUPABASE_SERVICE_ROLE_KEY, "SUPABASE_SERVICE_ROLE_KEY is required").toBeTruthy();\n',
-            "service role requirement",
-          )
-          anchor = '''  const cleanup = async () => {
-            const response = await postSimulator(request, token, { action: "reset", namespace });
-            if (!response.ok()) console.warn(`Scale cleanup: ${response.status()} ${await response.text()}`);
-          };
-
-          await cleanup();
-          try {'''
-          replacement = '''  const service = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-            auth: { persistSession: false, autoRefreshToken: false },
-          });
-          const cleanup = async () => {
-            const response = await postSimulator(request, token, { action: "reset", namespace });
-            if (!response.ok()) {
-              console.warn(`Scale cleanup: ${response.status()} ${await response.text()}`);
-              return null;
-            }
-            return response.json();
-          };
-
-          await cleanup();
-          let finalCleanup: any = null;
-          try {'''
-          test = replace_once(test, anchor, replacement, "cleanup result")
-          anchor = '''  } finally {
-            await cleanup();
-          }
-
-          const resetAgain = await postSimulator(request, token, { action: "reset", namespace });
-          expect(resetAgain.ok(), await resetAgain.text()).toBe(true);
-          expect((await resetAgain.json()).alreadyRemoved).toBe(true);'''
-          replacement = '''  } finally {
-            finalCleanup = await cleanup();
-          }
-
-          expect(finalCleanup?.routesRemoved).toBeGreaterThan(0);
-          const residualEmployees = await service.from("employees").select("crew_id").like("email", `%${namespace}%`);
-          expect(residualEmployees.error?.message || "").toBe("");
-          const crewIds = [...new Set((residualEmployees.data || []).map((row: any) => String(row.crew_id || "")).filter(Boolean))];
-          const residualRoutes = crewIds.length
-            ? await service.from("routes").select("id", { count: "exact", head: true }).in("crew_id", crewIds)
-            : { count: 0, error: null };
-          expect(residualRoutes.error?.message || "").toBe("");
-          expect(residualRoutes.count || 0).toBe(0);
-
-          const resetAgain = await postSimulator(request, token, { action: "reset", namespace });
-          expect(resetAgain.ok(), await resetAgain.text()).toBe(true);
-          const resetAgainBody = await resetAgain.json();
-          expect(resetAgainBody.alreadyRemoved).toBe(true);
-          expect(resetAgainBody.routesRemoved || 0).toBe(0);'''
-          test = replace_once(test, anchor, replacement, "zero route residue assertion")
-          test_path.write_text(test)
-          PY
+      - name: Apply cleanup patch
+        run: node scripts/patch-advanced-sim-route-cleanup.mjs
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -211,7 +55,6 @@ jobs:
       - name: Start production server
         run: |
           pnpm start > /tmp/damasio-advanced-route-cleanup.log 2>&1 &
-          echo $! > /tmp/damasio-advanced-route-cleanup.pid
           for attempt in $(seq 1 60); do
             if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
             sleep 1
@@ -225,17 +68,17 @@ jobs:
       - name: Run Customer-to-History gate
         run: pnpm exec playwright test tests/advanced-operational-simulator-journey.spec.ts --reporter=line --workers=1
 
-      - name: Run 4,620-service gate with zero-route-residue assertion
+      - name: Run 4,620-service gate with zero Route residue
         run: pnpm exec playwright test tests/advanced-operational-simulator-large.spec.ts --reporter=line --workers=1
 
       - name: Commit validated fix
-        shell: bash
         run: |
           rm .github/workflows/advanced-simulation-route-cleanup-fix.yml
+          rm scripts/patch-advanced-sim-route-cleanup.mjs
           git diff --check
           git config user.name "Damasio Simulation QA"
           git config user.email "actions@users.noreply.github.com"
-          git add lib/simulator/advancedSimulationData.ts app/api/admin/operational-simulator/v2/route.ts tests/advanced-operational-simulator-large.spec.ts .github/workflows/advanced-simulation-route-cleanup-fix.yml
+          git add -A
           git commit -m "Fix advanced simulation Route cleanup"
           git push origin HEAD:feature/advanced-simulation-foundation-20260808
 
