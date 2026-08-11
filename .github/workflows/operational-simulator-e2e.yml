@@ -1,6 +1,7 @@
 name: Operational Simulator E2E
 # Single authenticated writer gate for the shared QA database.
 # V1, canonical four-screen Route, V2 scale and Full Ecosystem run sequentially.
+# Revalidation marker: canonical UI assertions now foreground each surface before checking the rendered version.
 
 on:
   pull_request:
