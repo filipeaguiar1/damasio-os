@@ -5,6 +5,11 @@ function replaceOnce(text, oldValue, newValue, label) {
   return text.replace(oldValue, newValue);
 }
 
+function replaceRegex(text, pattern, replacement, label) {
+  if (!pattern.test(text)) throw new Error(`missing anchor: ${label}`);
+  return text.replace(pattern, replacement);
+}
+
 const dataPath = "lib/simulator/advancedSimulationData.ts";
 let data = fs.readFileSync(dataPath, "utf8");
 
@@ -22,10 +27,10 @@ data = replaceOnce(
   "residual employee profile IDs",
 );
 
-data = replaceOnce(
+data = replaceRegex(
   data,
-  "  if (!customerIds.length && !profileIds.length) {",
-  "  if (!customerIds.length && !profileIds.length && !simulationEmployeeRows.length) {",
+  /if\s*\(\s*!customerIds\.length\s*&&\s*!profileIds\.length\s*\)\s*\{/,
+  "if (!customerIds.length && !profileIds.length && !simulationEmployeeRows.length) {",
   "residual early return",
 );
 
