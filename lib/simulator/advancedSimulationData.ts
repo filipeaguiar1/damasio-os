@@ -1019,19 +1019,23 @@ export async function removeAdvancedSimulationData(
   }
 
   let routesRemoved = 0;
-  if (visitsDeleted && crewIds.length) {
+if (visitsDeleted && crewIds.length) {
+  // Keep each protected Route cleanup below the database statement timeout.
+  // One simulation Crew owns about 47 Routes in the 12-month scale gate.
+  for (const crewId of crewIds) {
     const cleanupRoutes = await service.rpc("cleanup_operational_simulation_routes", {
       p_company_id: scope.companyId,
       p_namespace: scope.namespace,
-      p_crew_ids: crewIds,
+      p_crew_ids: [crewId],
     });
     if (cleanupRoutes.error) {
       throw new Error(`routes cleanup: ${cleanupRoutes.error.message || "protected QA Route cleanup failed"}`);
     }
-    routesRemoved = Number(cleanupRoutes.data?.routeCount || 0);
+    routesRemoved += Number(cleanupRoutes.data?.routeCount || 0);
   }
+}
 
-  const archivedAt = new Date().toISOString();
+const archivedAt = new Date().toISOString();
   if (customerIds.length) await updateByIds("archive customers", "customers", { archived_at: archivedAt }, "id", customerIds);
   if (jobIds.length) await updateByIds("deactivate jobs", "jobs", { active: false }, "id", jobIds);
   if (employeeIds.length) await updateByIds("deactivate employees", "employees", { active: false }, "id", employeeIds);
