@@ -20,6 +20,12 @@ function missingColumn(error: DatabaseError, column: string) {
     && message.includes(column.toLowerCase());
 }
 
+function optionalTableUnavailable(error: DatabaseError, table: string) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes(table.toLowerCase())
+    && (message.includes("does not exist") || message.includes("schema cache") || message.includes("could not find"));
+}
+
 async function insertCompanyCompatible(
   db: any,
   table: string,
@@ -283,7 +289,62 @@ async function markInvoicePaid(db: any, paymentIntent: Stripe.PaymentIntent) {
   if (activity.error) console.error("Stripe payment activity log failed", activity.error);
 }
 
+async function markCustomerTipPaid(db: any, paymentIntent: Stripe.PaymentIntent) {
+  const metadata = paymentIntent.metadata || {};
+  const companyId = String(metadata.companyId || "");
+  const customerId = String(metadata.customerId || "");
+  const profileId = String(metadata.profileId || "");
+  const amountCents = Number(metadata.amountCents || paymentIntent.amount_received || paymentIntent.amount || 0);
+  if (!companyId || !customerId || !Number.isSafeInteger(amountCents) || amountCents < 100) {
+    throw new Error("Stripe tip metadata is incomplete.");
+  }
+
+  const existing = await db
+    .from("customer_tips")
+    .select("id")
+    .eq("stripe_payment_intent_id", paymentIntent.id)
+    .maybeSingle();
+  if (existing.error) {
+    if (optionalTableUnavailable(existing.error, "customer_tips")) {
+      console.warn("Stripe customer tip table is unavailable; event marked processed without a tip ledger row.", {
+        paymentIntentId: paymentIntent.id,
+        companyId,
+        customerId,
+      });
+      return;
+    }
+    requireDatabaseSuccess(existing.error, "Find Stripe customer tip");
+  }
+  if (existing.data?.id) return;
+
+  const amount = Math.round(amountCents) / 100;
+  const chargeId = typeof paymentIntent.latest_charge === "string"
+    ? paymentIntent.latest_charge
+    : paymentIntent.latest_charge?.id || null;
+  const inserted = await insertCompanyCompatible(db, "customer_tips", {
+    organization_id: companyId,
+    company_id: companyId,
+    customer_id: customerId,
+    profile_id: profileId || null,
+    amount,
+    amount_cents: amountCents,
+    note: String(metadata.note || "").slice(0, 200) || null,
+    status: "paid",
+    stripe_payment_intent_id: paymentIntent.id,
+    stripe_charge_id: chargeId,
+    paid_at: new Date().toISOString(),
+  }, "id");
+  if (inserted.error) {
+    if (optionalTableUnavailable(inserted.error, "customer_tips")) {
+      console.warn("Stripe customer tip table is unavailable; event marked processed without a tip ledger row.");
+      return;
+    }
+    requireDatabaseSuccess(inserted.error, "Create Stripe customer tip");
+  }
+}
+
 async function markPaymentFailed(db: any, intent: Stripe.PaymentIntent) {
+  if (intent.metadata?.paymentKind === "customer_tip") return;
   const invoiceId = String(intent.metadata.invoiceId || "");
   const companyId = String(intent.metadata.companyId || "");
   if (!invoiceId || !companyId) throw new Error("Failed payment metadata is incomplete.");
@@ -415,9 +476,15 @@ export async function POST(request: NextRequest) {
     if (!shouldProcess) return NextResponse.json({ received: true, duplicate: true });
 
     switch (event.type) {
-      case "payment_intent.succeeded":
-        await markInvoicePaid(db, event.data.object as Stripe.PaymentIntent);
+      case "payment_intent.succeeded": {
+        const intent = event.data.object as Stripe.PaymentIntent;
+        if (intent.metadata?.paymentKind === "customer_tip") {
+          await markCustomerTipPaid(db, intent);
+        } else {
+          await markInvoicePaid(db, intent);
+        }
         break;
+      }
       case "payment_intent.payment_failed":
         await markPaymentFailed(db, event.data.object as Stripe.PaymentIntent);
         break;
