@@ -47,22 +47,19 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
+
           path = Path('lib/simulator/advancedSimulationData.ts')
           text = path.read_text()
-          old = '''  let routesRemoved = 0;
-          if (visitsDeleted && crewIds.length) {
-            const cleanupRoutes = await service.rpc("cleanup_operational_simulation_routes", {
-              p_company_id: scope.companyId,
-              p_namespace: scope.namespace,
-              p_crew_ids: crewIds,
-            });
-            if (cleanupRoutes.error) {
-              throw new Error(`routes cleanup: ${cleanupRoutes.error.message || "protected QA Route cleanup failed"}`);
-            }
-            routesRemoved = Number(cleanupRoutes.data?.routeCount || 0);
-          }
-          '''
-          new = '''  let routesRemoved = 0;
+          pattern = re.compile(
+              r'  let routesRemoved = 0;\n'
+              r'  if \(visitsDeleted && crewIds\.length\) \{\n'
+              r'.*?'
+              r'  \}\n\n'
+              r'  const archivedAt',
+              re.S,
+          )
+          replacement = '''  let routesRemoved = 0;
           if (visitsDeleted && crewIds.length) {
             // Keep each protected Route cleanup below the database statement timeout.
             // One simulation Crew owns about 47 Routes in the 12-month scale gate.
@@ -78,10 +75,12 @@ jobs:
               routesRemoved += Number(cleanupRoutes.data?.routeCount || 0);
             }
           }
-          '''
-          if old not in text:
-              raise SystemExit('expected Route cleanup block not found')
-          path.write_text(text.replace(old, new, 1))
+
+          const archivedAt'''
+          updated, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'expected exactly one Route cleanup block, found {count}')
+          path.write_text(updated)
           PY
 
       - name: Install dependencies
