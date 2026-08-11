@@ -97,6 +97,15 @@ async function waitForVersion(page: Page, routeId: string, version: number) {
     const snapshot = await authRequest<any>(page, `/api/map/canonical-route?routeId=${encodeURIComponent(routeId)}`);
     return snapshot.routeVersion;
   }, { timeout: 30_000 }).toBe(version);
+
+  // A real user must bring a background surface back to the foreground
+  // before its focus/visibility-driven canonical snapshot refresh runs.
+  await page.bringToFront();
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated"));
+  });
+  await page.waitForTimeout(600);
 }
 
 async function assertCanonicalScreen(page: Page, version: number, stopCount: number, label: string) {
