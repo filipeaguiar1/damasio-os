@@ -1,14 +1,17 @@
 name: Operational Simulator E2E
-# Authenticated release gate for canonical Route, V1 operational flow and V2 scale flow.
-# All database-mutating simulator journeys run here so they cannot race one another.
+# Single authenticated writer gate for the shared QA database.
+# V1, canonical four-screen Route, V2 scale and Full Ecosystem run sequentially.
 
 on:
   pull_request:
     branches:
       - main
     paths:
-      - "app/api/admin/operational-simulator/**"
-      - "app/api/customer/portal-actions/**"
+      - "app/api/admin/**"
+      - "app/api/master/**"
+      - "app/api/customer/**"
+      - "app/api/mobile/**"
+      - "app/api/stripe/**"
       - "app/api/map/**"
       - "app/admin/performance/**"
       - "app/employee/route/page.tsx"
@@ -18,9 +21,7 @@ on:
       - "components/mobile/EmployeeRouteMap.tsx"
       - "lib/hooks/useCanonicalRouteSnapshot.ts"
       - "lib/repositories/customerPortalRepository.ts"
-      - "lib/routes/canonicalRouteSnapshot.ts"
-      - "lib/routes/projectCanonicalVisitOrderCompatibility.ts"
-      - "lib/routes/verifyCanonicalRoutePersistence.ts"
+      - "lib/routes/**"
       - "lib/services/routeMapService.ts"
       - "lib/simulator/**"
       - "scripts/purge-operational-simulation-v1.mjs"
@@ -42,30 +43,35 @@ on:
       - "tests/operational-simulator.spec.ts"
       - "tests/canonical-route-sync.spec.ts"
       - "tests/advanced-operational-simulator*.spec.ts"
+      - "tests/full-ecosystem*.spec.ts"
       - "public/demo/simulation-lawn-after.svg"
       - ".github/workflows/operational-simulator-e2e.yml"
+      - ".github/workflows/advanced-simulation-e2e.yml"
+      - ".github/workflows/full-ecosystem-e2e.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Full Ecosystem and all authenticated simulator journeys share the same QA company.
-# Keep these heavy writers serialized so canonical Route snapshots cannot race.
+# Only the newest commit needs to mutate the shared QA database. Static PR checks
+# run independently; stale heavy runs are cancelled when a newer commit arrives.
 concurrency:
-  group: damasio-heavy-e2e-qa
-  cancel-in-progress: false
+  group: damasio-release-heavy-e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   simulator:
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 90
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
       E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
 
     steps:
       - uses: actions/checkout@v4
@@ -124,20 +130,19 @@ jobs:
 
       - name: Start production server
         run: |
-          pnpm start > /tmp/damasio-simulator-server.log 2>&1 &
-          echo $! > /tmp/damasio-simulator-server.pid
+          pnpm start > /tmp/damasio-release-heavy-e2e.log 2>&1 &
+          echo $! > /tmp/damasio-release-heavy-e2e.pid
           for attempt in $(seq 1 60); do
             if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
             sleep 1
           done
-          cat /tmp/damasio-simulator-server.log
+          cat /tmp/damasio-release-heavy-e2e.log
           exit 1
 
-      - name: Run full two-month operational simulation
+      - name: Run V1 two-month operational simulation
         run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
 
       - name: Validate canonical route on four authenticated screens
-        if: ${{ !cancelled() }}
         run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
 
       - name: Purge exact V1 simulation run
@@ -156,7 +161,11 @@ jobs:
         if: ${{ success() }}
         run: pnpm exec playwright test tests/advanced-operational-simulator-large.spec.ts --reporter=line --workers=1
 
-      - name: Upload screenshots and server log
+      - name: Run Full Ecosystem journeys
+        if: ${{ success() }}
+        run: pnpm exec playwright test tests/full-ecosystem.spec.ts tests/full-ecosystem-smart-route.spec.ts tests/full-ecosystem-stripe.spec.ts tests/full-ecosystem-tenant-isolation.spec.ts --reporter=line --workers=1
+
+      - name: Upload release gate evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -171,6 +180,6 @@ jobs:
             canonical-admin-mobile.png
             canonical-employee-web.png
             canonical-employee-mobile.png
-            /tmp/damasio-simulator-server.log
+            /tmp/damasio-release-heavy-e2e.log
             test-results/**
           if-no-files-found: ignore
