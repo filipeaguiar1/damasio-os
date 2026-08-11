@@ -1,0 +1,65 @@
+name: Patch Canonical Route Focus QA
+
+on:
+  push:
+    branches:
+      - feature/advanced-simulation-foundation-20260808
+    paths:
+      - .github/workflows/patch-canonical-route-focus.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/advanced-simulation-foundation-20260808
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Patch background-tab convergence helper
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/canonical-route-sync.spec.ts')
+          text = path.read_text()
+          old = '''async function waitForVersion(page: Page, routeId: string, version: number) {
+            await expect.poll(async () => {
+              const snapshot = await authRequest<any>(page, `/api/map/canonical-route?routeId=${encodeURIComponent(routeId)}`);
+              return snapshot.routeVersion;
+            }, { timeout: 30_000 }).toBe(version);
+          }
+          '''
+          new = '''async function waitForVersion(page: Page, routeId: string, version: number) {
+            await expect.poll(async () => {
+              const snapshot = await authRequest<any>(page, `/api/map/canonical-route?routeId=${encodeURIComponent(routeId)}`);
+              return snapshot.routeVersion;
+            }, { timeout: 30_000 }).toBe(version);
+
+            // A real user must bring a background surface back to the foreground
+            // before its focus/visibility-driven canonical snapshot refresh runs.
+            await page.bringToFront();
+            await page.evaluate(() => {
+              window.dispatchEvent(new Event("focus"));
+              window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated"));
+            });
+            await page.waitForTimeout(600);
+          }
+          '''
+          if old not in text:
+              raise SystemExit('waitForVersion helper anchor not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Validate diff
+        run: git diff --check
+      - name: Commit patch
+        shell: bash
+        run: |
+          rm .github/workflows/patch-canonical-route-focus.yml
+          git config user.name "Damasio QA"
+          git config user.email "actions@users.noreply.github.com"
+          git add tests/canonical-route-sync.spec.ts .github/workflows/patch-canonical-route-focus.yml
+          git commit -m "Make canonical screen QA foreground-aware"
+          git push origin HEAD:feature/advanced-simulation-foundation-20260808
