@@ -17,8 +17,8 @@ data = replaceOnce(
 
 data = replaceOnce(
   data,
-  `  const profileIds: string[] = [...new Set<string>([\n    ...(workerProfiles.data || []).map((row: any) => String(row.id)),\n    ...(customerResult.data || []).map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),\n  ])];`,
-  `  const profileIds: string[] = [...new Set<string>([\n    ...(workerProfiles.data || []).map((row: any) => String(row.id)),\n    ...(customerResult.data || []).map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),\n    ...simulationEmployeeRows.map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),\n  ])];`,
+  '    ...(customerResult.data || []).map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),\n',
+  '    ...(customerResult.data || []).map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),\n    ...simulationEmployeeRows.map((row: any) => row.profile_id ? String(row.profile_id) : "").filter(Boolean),\n',
   "residual employee profile IDs",
 );
 
