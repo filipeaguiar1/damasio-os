@@ -8,7 +8,7 @@ const managerModules = [
   "customers", "properties", "quotes", "jobs", "schedule", "dispatch", "routes",
   "employees", "tasks", "feedback", "reports", "finance", "settings",
 ] as const;
-const accessLevelSchema = z.enum(["none", "view", "manage"]);
+const accessLevelSchema = z.enum(["none", "view", "read", "manage"]);
 const managerPermissionsSchema = z.object(Object.fromEntries(
   managerModules.map(module => [module, accessLevelSchema.optional()]),
 ) as Record<(typeof managerModules)[number], z.ZodOptional<typeof accessLevelSchema>>).partial();
@@ -34,7 +34,6 @@ const userPatchSchema = userCreateSchema.partial().extend({
 });
 
 type UserCreateInput = z.infer<typeof userCreateSchema>;
-type UserPatchInput = z.infer<typeof userPatchSchema>;
 
 function serverClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -62,6 +61,27 @@ function failure(error: unknown, status = 400) {
 
 function missingCapacity(message?: string) {
   return /daily_route_capacity/i.test(message || "") && /(column|schema cache|does not exist)/i.test(message || "");
+}
+
+function toStoredManagerPermissions(permissions: Record<string, unknown> = {}) {
+  return Object.fromEntries(managerModules.map(module => {
+    const value = permissions[module];
+    return [module, value === "view" ? "read" : value === "manage" || value === "read" ? value : "none"];
+  }));
+}
+
+function toPublicManagerPermissions(permissions: Record<string, unknown> = {}) {
+  return Object.fromEntries(managerModules.map(module => {
+    const value = permissions[module];
+    return [module, value === "read" ? "view" : value === "manage" || value === "view" ? value : "none"];
+  }));
+}
+
+function publicUser(user: any) {
+  return {
+    ...user,
+    manager_permissions: user.role === "manager" ? toPublicManagerPermissions(user.manager_permissions || {}) : {},
+  };
 }
 
 function employeePayload(body: Partial<UserCreateInput>) {
@@ -116,7 +136,7 @@ async function listEmployees(client: any, companyId: string) {
       .order("created_at", { ascending: false });
   }
   if (result.error) throw new Error(result.error.message);
-  return (result.data || []).map((item: any) => ({ ...item, daily_route_capacity: Math.max(1, Number(item.daily_route_capacity || 16)) }));
+  return (result.data || []).map((item: any) => publicUser({ ...item, daily_route_capacity: Math.max(1, Number(item.daily_route_capacity || 16)) }));
 }
 
 async function listWorkspaceUsers(client: any, companyId: string) {
@@ -126,7 +146,7 @@ async function listWorkspaceUsers(client: any, companyId: string) {
     .or(`company_id.eq.${companyId},organization_id.eq.${companyId}`)
     .order("created_at", { ascending: false });
   if (result.error) throw new Error(result.error.message);
-  return result.data || [];
+  return (result.data || []).map(publicUser);
 }
 
 async function listCrews(client: any, companyId: string) {
@@ -173,7 +193,7 @@ export async function POST(request: NextRequest) {
       company_id: companyId,
       role: body.role,
       ...profilePayload(body),
-      manager_permissions: body.role === "manager" ? body.managerPermissions : {},
+      manager_permissions: body.role === "manager" ? toStoredManagerPermissions(body.managerPermissions) : {},
       active: true,
       invite_status: "sent",
     };
@@ -203,7 +223,7 @@ export async function POST(request: NextRequest) {
       if (employeeResult.error) throw new Error(employeeResult.error.message);
     }
 
-    return NextResponse.json({ user: profile, message: `Invitation sent to ${body.email}.` }, { status: 201 });
+    return NextResponse.json({ user: publicUser(profile), message: `Invitation sent to ${body.email}.` }, { status: 201 });
   } catch (error) {
     if (createdCrewId) {
       try { await serverClient().from("crews").delete().eq("id", createdCrewId); } catch { /* best effort rollback */ }
@@ -227,7 +247,7 @@ export async function PATCH(request: NextRequest) {
 
     const updates = {
       ...profilePayload(body),
-      ...(current.role === "manager" && body.managerPermissions !== undefined ? { manager_permissions: body.managerPermissions } : {}),
+      ...(current.role === "manager" && body.managerPermissions !== undefined ? { manager_permissions: toStoredManagerPermissions(body.managerPermissions) } : {}),
     };
     if (Object.keys(updates).length) {
       const profileResult = await client.from("profiles")
@@ -264,7 +284,7 @@ export async function PATCH(request: NextRequest) {
       if (authError) throw new Error(authError.message);
     }
 
-    return NextResponse.json({ user: current, message: `Profile saved for ${current.full_name}.` });
+    return NextResponse.json({ user: publicUser(current), message: `Profile saved for ${current.full_name}.` });
   } catch (error) {
     return failure(error);
   }
