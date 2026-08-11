@@ -38,7 +38,10 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
   const burstRef = useRef(0);
   const snapshotRef = useRef<CanonicalRouteSnapshot | null>(null);
   const invalidateTimerRef = useRef(0);
+  const targetKeyRef = useRef("");
   const activeRouteId = requestedRouteId || resolvedRouteId;
+  const targetKey = `${requestedRouteId || ""}|${routeDate || ""}`;
+  targetKeyRef.current = targetKey;
 
   const refresh = useCallback(async () => {
     if (!requestedRouteId && !routeDate) {
@@ -51,12 +54,19 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
     }
 
     const request = ++requestRef.current;
+    const requestTargetKey = `${requestedRouteId || ""}|${routeDate || ""}`;
     try {
       const next = await loadCanonicalRouteSnapshot({
         routeId: requestedRouteId,
         routeDate: requestedRouteId ? null : routeDate,
       });
-      if (request !== requestRef.current) return null;
+
+      // Realtime can start several refreshes for the same Route transaction. A
+      // successful newer snapshot for the current target must not be discarded
+      // just because another same-target request started a few milliseconds later.
+      // Route-version monotonicity below prevents an older response from winning.
+      if (requestTargetKey !== targetKeyRef.current) return null;
+
       setResolvedRouteId(next.routeId);
       setSnapshot(current => {
         if (current?.routeId === next.routeId && current.routeVersion > next.routeVersion) {
@@ -66,15 +76,15 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
         snapshotRef.current = next;
         return next;
       });
-      setError("");
+      if (request === requestRef.current) setError("");
       return next;
     } catch (reason) {
-      if (request === requestRef.current) {
+      if (request === requestRef.current && requestTargetKey === targetKeyRef.current) {
         setError(reason instanceof Error ? reason.message : "Route synchronization failed.");
       }
       return null;
     } finally {
-      if (request === requestRef.current) setLoading(false);
+      if (request === requestRef.current && requestTargetKey === targetKeyRef.current) setLoading(false);
     }
   }, [requestedRouteId, routeDate]);
 
