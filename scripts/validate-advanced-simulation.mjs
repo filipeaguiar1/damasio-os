@@ -30,6 +30,8 @@ expect(contract.includes("${companyId}/operational-simulation/${namespace}"), "s
 
 expect(data.includes('service.rpc("apply_canonical_route_order_v2_service"'), "all generated route order must use the canonical route writer");
 expect(!/from\(["']route_stops["']\)\.insert/.test(data), "simulator must not insert route_stops directly");
+expect(data.includes('service.rpc("cleanup_operational_simulation_routes"'), "V2 reset must use the protected Route cleanup RPC");
+expect(!/from\(["']routes["']\)\.delete\(/.test(data), "V2 reset must not delete Routes directly");
 expect(data.includes('from("payments").select'), "reconciliation must inspect the protected payments ledger");
 expect(!/insertRows(?:WithFallback)?\(service,\s*["']payments["']/.test(data), "simulator must not forge provider-confirmed payment rows");
 expect(data.includes("ADVANCED_SIMULATION_KM_PER_COMPLETED_VISIT"), "km reconciliation assumption must be explicit");
