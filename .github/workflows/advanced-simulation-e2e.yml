@@ -23,8 +23,11 @@ on:
 permissions:
   contents: read
 
+# Advanced Simulation, Full Ecosystem and Operational Simulator mutate the same
+# QA company. Serialize them so one suite cannot replace the canonical Route
+# snapshot while another suite is validating it on authenticated screens.
 concurrency:
-  group: damasio-advanced-simulation-e2e-qa
+  group: damasio-heavy-e2e-qa
   cancel-in-progress: false
 
 jobs:
