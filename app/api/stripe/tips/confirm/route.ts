@@ -8,6 +8,33 @@ function failure(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
+async function requireCustomerProfile(db: any, user: any, customerId: string) {
+  const profileResult = await db.from("profiles")
+    .select("id,role,active,company_id,organization_id,email")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (profileResult.error) throw new Error(profileResult.error.message);
+  const profile = profileResult.data;
+  if (!profile?.active || profile.role !== "customer") {
+    return failure("Only an active Customer account can confirm this tip.", 403);
+  }
+
+  const ownership = await db.from("customers").select("id,profile_id,email,company_id,organization_id").eq("id", customerId).maybeSingle();
+  if (ownership.error || !ownership.data) return failure("Tip customer could not be verified.", 403);
+  const profileCompanyId = profile.company_id || profile.organization_id;
+  const customerCompanyId = ownership.data.company_id || ownership.data.organization_id;
+  if (profileCompanyId && customerCompanyId && String(profileCompanyId) !== String(customerCompanyId)) {
+    return failure("Tip customer is not linked to this company.", 403);
+  }
+  if (ownership.data.profile_id && String(ownership.data.profile_id) !== String(user.id)) {
+    return failure("Tip customer is linked to a different login.", 403);
+  }
+  if (!ownership.data.profile_id && String(ownership.data.email || "").toLowerCase() !== String(user.email || "").toLowerCase()) {
+    return failure("Tip customer could not be verified.", 403);
+  }
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -35,8 +62,8 @@ export async function POST(request: NextRequest) {
     const amountCents = Number(session.metadata.amountCents || session.amount_total || 0);
     if (!customerId || profileId !== auth.user.id || !Number.isSafeInteger(amountCents) || amountCents < 100 || session.amount_total !== amountCents) return failure("Tip payment does not match this customer.", 403);
 
-    const ownership = await db.from("customers").select("id,profile_id,email").eq("id", customerId).maybeSingle();
-    if (ownership.error || !ownership.data || (ownership.data.profile_id !== auth.user.id && String(ownership.data.email || "").toLowerCase() !== String(auth.user.email || "").toLowerCase())) return failure("Tip customer could not be verified.", 403);
+    const ownershipError = await requireCustomerProfile(db, auth.user, customerId);
+    if (ownershipError) return ownershipError;
 
     const intent = typeof session.payment_intent === "string" ? await stripe.paymentIntents.retrieve(session.payment_intent) : session.payment_intent;
     if (!intent || intent.status !== "succeeded" || intent.metadata.paymentKind !== "customer_tip" || intent.metadata.customerId !== customerId || intent.metadata.profileId !== auth.user.id || Number(intent.amount_received) !== amountCents) return failure("Stripe tip metadata is invalid.", 400);
