@@ -25,22 +25,40 @@ async function authenticatedCustomer(request: NextRequest, url: string, serviceK
   const { data: auth, error: authError } = await db.auth.getUser(token);
   if (authError || !auth.user) return { error: failure("Your session expired. Sign in again.", 401) };
 
+  const profileResult = await db.from("profiles")
+    .select("id,role,active,company_id,organization_id,email")
+    .eq("id", auth.user.id)
+    .maybeSingle();
+  if (profileResult.error) return { error: failure(profileResult.error.message, 400) };
+  const profile = profileResult.data;
+  if (!profile?.active || profile.role !== "customer") {
+    return { error: failure("Only an active Customer account can use account balance.", 403) };
+  }
+
   let customer = null;
-  const byProfile = await db.from("customers").select("id,company_id,organization_id,email,full_name,archived_at").eq("profile_id", auth.user.id).is("archived_at", null).maybeSingle();
+  const byProfile = await db.from("customers").select("id,profile_id,company_id,organization_id,email,full_name,archived_at").eq("profile_id", auth.user.id).is("archived_at", null).maybeSingle();
   if (!byProfile.error) customer = byProfile.data;
 
   if (!customer && auth.user.user_metadata?.customer_id) {
-    const byMetadata = await db.from("customers").select("id,company_id,organization_id,email,full_name,archived_at").eq("id", auth.user.user_metadata.customer_id).is("archived_at", null).maybeSingle();
+    const byMetadata = await db.from("customers").select("id,profile_id,company_id,organization_id,email,full_name,archived_at").eq("id", auth.user.user_metadata.customer_id).is("archived_at", null).maybeSingle();
     if (!byMetadata.error) customer = byMetadata.data;
   }
 
   if (!customer && auth.user.email) {
-    const byEmail = await db.from("customers").select("id,company_id,organization_id,email,full_name,archived_at").ilike("email", auth.user.email.trim()).is("archived_at", null).limit(1).maybeSingle();
+    const byEmail = await db.from("customers").select("id,profile_id,company_id,organization_id,email,full_name,archived_at").ilike("email", auth.user.email.trim()).is("archived_at", null).limit(1).maybeSingle();
     if (!byEmail.error) customer = byEmail.data;
   }
 
   if (!customer) return { error: failure("Customer account is not linked yet.", 403) };
-  return { db, auth: auth.user, customer, companyId: customer.company_id || customer.organization_id || null };
+  const profileCompanyId = profile.company_id || profile.organization_id;
+  const customerCompanyId = customer.company_id || customer.organization_id;
+  if (profileCompanyId && customerCompanyId && String(profileCompanyId) !== String(customerCompanyId)) {
+    return { error: failure("Customer account is not linked to this company.", 403) };
+  }
+  if (customer.profile_id && String(customer.profile_id) !== String(auth.user.id)) {
+    return { error: failure("Customer account is linked to a different login.", 403) };
+  }
+  return { db, auth: auth.user, customer, companyId: customerCompanyId || profileCompanyId || null };
 }
 
 export async function GET(request: NextRequest) {
