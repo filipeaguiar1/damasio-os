@@ -86,6 +86,11 @@ function platformFee(total: number) {
   return Math.round(total * percent) / 100;
 }
 
+function depositInvoiceNumber(paymentIntentId: string) {
+  const suffix = paymentIntentId.replace(/[^a-zA-Z0-9]/g, "").slice(-10).toUpperCase();
+  return `DEP-${suffix}`;
+}
+
 async function claimEvent(db: any, event: Stripe.Event) {
   const inserted = await db.from("stripe_webhook_events").insert({
     event_id: event.id,
@@ -343,8 +348,55 @@ async function markCustomerTipPaid(db: any, paymentIntent: Stripe.PaymentIntent)
   }
 }
 
+async function markWalletTopupPaid(db: any, paymentIntent: Stripe.PaymentIntent) {
+  const metadata = paymentIntent.metadata || {};
+  const companyId = String(metadata.companyId || "") || null;
+  const customerId = String(metadata.customerId || "");
+  const amountCents = Number(metadata.amountCents || paymentIntent.amount_received || paymentIntent.amount || 0);
+  if (!customerId || !Number.isSafeInteger(amountCents) || amountCents < 100) {
+    throw new Error("Stripe wallet top-up metadata is incomplete.");
+  }
+  if (Number(paymentIntent.amount_received || 0) !== amountCents) {
+    throw new Error("Stripe wallet top-up amount does not match metadata.");
+  }
+
+  const { data, error } = await db.rpc("credit_customer_wallet", {
+    p_company_id: companyId,
+    p_customer_id: customerId,
+    p_amount_cents: amountCents,
+    p_stripe_payment_intent_id: paymentIntent.id,
+    p_description: `${(amountCents / 100).toFixed(2)} CAD account deposit paid with Stripe`,
+  });
+  requireDatabaseSuccess(error, "Credit wallet top-up");
+
+  const result = Array.isArray(data) ? data[0] : data;
+  if (result && result.credited === false) return;
+
+  const transaction = await db
+    .from("customer_wallet_transactions")
+    .select("id")
+    .eq("customer_id", customerId)
+    .eq("stripe_payment_intent_id", paymentIntent.id)
+    .maybeSingle();
+  requireDatabaseSuccess(transaction.error, "Find wallet top-up transaction");
+  if (!transaction.data?.id) throw new Error("Wallet top-up transaction could not be found.");
+
+  const depositInvoice = await db
+    .from("customer_deposit_invoices")
+    .upsert({
+      customer_id: customerId,
+      company_id: companyId,
+      wallet_transaction_id: transaction.data.id,
+      invoice_number: depositInvoiceNumber(paymentIntent.id),
+      status: "paid",
+      amount_cents: amountCents,
+      stripe_payment_intent_id: paymentIntent.id,
+    }, { onConflict: "stripe_payment_intent_id" });
+  requireDatabaseSuccess(depositInvoice.error, "Create wallet top-up invoice");
+}
+
 async function markPaymentFailed(db: any, intent: Stripe.PaymentIntent) {
-  if (intent.metadata?.paymentKind === "customer_tip") return;
+  if (intent.metadata?.paymentKind === "customer_tip" || intent.metadata?.paymentKind === "wallet_topup") return;
   const invoiceId = String(intent.metadata.invoiceId || "");
   const companyId = String(intent.metadata.companyId || "");
   if (!invoiceId || !companyId) throw new Error("Failed payment metadata is incomplete.");
@@ -480,6 +532,8 @@ export async function POST(request: NextRequest) {
         const intent = event.data.object as Stripe.PaymentIntent;
         if (intent.metadata?.paymentKind === "customer_tip") {
           await markCustomerTipPaid(db, intent);
+        } else if (intent.metadata?.paymentKind === "wallet_topup") {
+          await markWalletTopupPaid(db, intent);
         } else {
           await markInvoicePaid(db, intent);
         }
