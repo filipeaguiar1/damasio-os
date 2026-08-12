@@ -22,13 +22,34 @@ async function requireCustomer(request: NextRequest) {
   const client = serverClient();
   const { data: auth, error: authError } = await client.auth.getUser(token);
   if (authError || !auth.user) throw new Error("Your session expired. Sign in again.");
+
+  const { data: profile, error: profileError } = await client
+    .from("profiles")
+    .select("id,role,active,company_id,organization_id,email")
+    .eq("id", auth.user.id)
+    .maybeSingle();
+  if (profileError) throw new Error(profileError.message);
+  if (!profile?.active || profile.role !== "customer") {
+    throw new Error("Only an active Customer account can edit this profile.");
+  }
+
+  const profileCompanyId = profile.company_id || profile.organization_id;
   const { data: customer, error } = await client
     .from("customers")
-    .select("id,profile_id,email,full_name,phone,company_id")
+    .select("id,profile_id,email,full_name,phone,company_id,organization_id")
     .or(`profile_id.eq.${auth.user.id},email.ilike.${String(auth.user.email || "").replace(/,/g, "")}`)
     .limit(1)
     .maybeSingle();
   if (error || !customer) throw new Error(error?.message || "Customer account could not be found.");
+
+  const customerCompanyId = customer.company_id || customer.organization_id;
+  if (profileCompanyId && customerCompanyId && String(profileCompanyId) !== String(customerCompanyId)) {
+    throw new Error("Customer profile is not linked to this company.");
+  }
+  if (customer.profile_id && String(customer.profile_id) !== String(auth.user.id)) {
+    throw new Error("Customer record is linked to a different account.");
+  }
+
   return { client, customer, user: auth.user };
 }
 
