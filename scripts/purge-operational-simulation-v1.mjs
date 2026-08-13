@@ -31,6 +31,15 @@ function chunks(rows, size) {
   return result;
 }
 
+function isStatementTimeout(error) {
+  const message = String(error?.message || error || "");
+  return /statement timeout|canceling statement/i.test(message);
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function cleanupVisitBatch(companyId, customerIds) {
   const cleanup = await service.rpc("cleanup_operational_simulation_visits", {
     p_company_id: companyId,
@@ -39,13 +48,30 @@ async function cleanupVisitBatch(companyId, customerIds) {
   if (!cleanup.error) return Number(cleanup.data?.visitCount || 0);
 
   const message = String(cleanup.error.message || "");
-  if (/statement timeout|canceling statement/i.test(message) && customerIds.length > 1) {
+  if (isStatementTimeout(cleanup.error) && customerIds.length > 1) {
     const midpoint = Math.ceil(customerIds.length / 2);
     const left = await cleanupVisitBatch(companyId, customerIds.slice(0, midpoint));
     const right = await cleanupVisitBatch(companyId, customerIds.slice(midpoint));
     return left + right;
   }
   throw new Error(`V1 simulator Visit cleanup: ${message || "cleanup failed"}`);
+}
+
+async function finalizeRunWithRetry(companyId, runId) {
+  let lastMessage = "";
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    const purge = await service.rpc("finalize_operational_simulation_v1_run", {
+      p_company_id: companyId,
+      p_run_id: runId,
+    });
+    if (!purge.error) return purge.data;
+
+    lastMessage = purge.error.message || "final purge failed";
+    if (!isStatementTimeout(purge.error) || attempt === 4) break;
+    console.warn(`V1 simulator final purge timed out on attempt ${attempt}; retrying.`);
+    await sleep(1500 * attempt);
+  }
+  throw new Error(`V1 simulator final purge RPC: ${lastMessage}`);
 }
 
 let companyId = "";
@@ -87,13 +113,9 @@ for (const batch of chunks(customerIds, 4)) {
   visitsRemoved += await cleanupVisitBatch(companyId, batch);
 }
 
-const purge = await service.rpc("finalize_operational_simulation_v1_run", {
-  p_company_id: companyId,
-  p_run_id: runId,
-});
-if (purge.error) throw new Error(`V1 simulator final purge RPC: ${purge.error.message}`);
+const purgeData = await finalizeRunWithRetry(companyId, runId);
 
-const profileIds = Array.isArray(purge.data?.profileIds) ? purge.data.profileIds.map(String) : [];
+const profileIds = Array.isArray(purgeData?.profileIds) ? purgeData.profileIds.map(String) : [];
 let authRemoved = 0;
 for (const profileId of profileIds) {
   const deleted = await service.auth.admin.deleteUser(profileId);
@@ -106,8 +128,8 @@ for (const profileId of profileIds) {
 console.log(JSON.stringify({
   purged: true,
   runId,
-  customerCount: Number(purge.data?.customerCount || customerIds.length),
-  visitCount: Number(purge.data?.visitCount || visitsRemoved),
+  customerCount: Number(purgeData?.customerCount || customerIds.length),
+  visitCount: Number(purgeData?.visitCount || visitsRemoved),
   visitsRemoved,
   authRemoved,
 }));

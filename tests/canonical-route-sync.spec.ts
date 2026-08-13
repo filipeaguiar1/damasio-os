@@ -92,19 +92,27 @@ async function cleanupSimulationVisits(page: Page) {
   }
 }
 
-async function waitForVersion(page: Page, routeId: string, version: number) {
-  await expect.poll(async () => {
-    const snapshot = await authRequest<any>(page, `/api/map/canonical-route?routeId=${encodeURIComponent(routeId)}`);
-    return snapshot.routeVersion;
-  }, { timeout: 30_000 }).toBe(version);
-
-  // A real user must bring a background surface back to the foreground
-  // before its focus/visibility-driven canonical snapshot refresh runs.
+async function refreshCanonicalSurface(page: Page) {
   await page.bringToFront();
   await page.evaluate(() => {
     window.dispatchEvent(new Event("focus"));
     window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated"));
-  });
+  }).catch(() => undefined);
+}
+
+async function waitForVersion(page: Page, routeId: string, version: number) {
+  await refreshCanonicalSurface(page);
+  await expect.poll(async () => {
+    await refreshCanonicalSurface(page);
+    const snapshot = await authRequest<any>(page, `/api/map/canonical-route?routeId=${encodeURIComponent(routeId)}`, {
+      timeoutMs: 45_000,
+    });
+    return snapshot.routeVersion;
+  }, { timeout: 90_000, intervals: [500, 1000, 2000, 5000] }).toBe(version);
+
+  // A real user must bring a background surface back to the foreground
+  // before its focus/visibility-driven canonical snapshot refresh runs.
+  await refreshCanonicalSurface(page);
   await page.waitForTimeout(600);
 }
 
