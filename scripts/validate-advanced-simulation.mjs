@@ -25,6 +25,16 @@ expect(/large_12_month:[\s\S]*completedWeeks:\s*46/.test(contract), "large scena
 expect(/large_12_month:[\s\S]*expectedCompletedVisits:\s*4600/.test(contract), "large scenario must reconcile 4,600 completed Visits");
 expect(/large_12_month:[\s\S]*expectedLiveVisits:\s*20/.test(contract), "large scenario must expose 20 live Visits");
 expect(/large_12_month:[\s\S]*expectedServiceRecords:\s*4620/.test(contract), "large scenario must total 4,620 service records");
+expect(/giant_20x50_12_month:[\s\S]*horizonWeeks:\s*52/.test(contract), "giant scenario must span a 52-week calendar horizon");
+expect(/giant_20x50_12_month:[\s\S]*customerCount:\s*1000/.test(contract), "giant scenario must contain 1,000 customers");
+expect(/giant_20x50_12_month:[\s\S]*employeeCount:\s*20/.test(contract), "giant scenario must contain 20 employees");
+expect(/giant_20x50_12_month:[\s\S]*completedWeeks:\s*52/.test(contract), "giant scenario must contain 52 active service weeks");
+expect(/giant_20x50_12_month:[\s\S]*liveVisitsPerEmployee:\s*50/.test(contract), "giant scenario must expose 50 live Visits per employee");
+expect(/giant_20x50_12_month:[\s\S]*dailyCompanyCapacity:\s*200/.test(contract), "giant scenario must model 200 houses per workday");
+expect(/giant_20x50_12_month:[\s\S]*maxHomesPerEmployee:\s*50/.test(contract), "giant scenario must model 50 weekly houses per employee");
+expect(/giant_20x50_12_month:[\s\S]*expectedCompletedVisits:\s*52000/.test(contract), "giant scenario must reconcile 52,000 completed Visits");
+expect(/giant_20x50_12_month:[\s\S]*expectedLiveVisits:\s*1000/.test(contract), "giant scenario must expose 1,000 live Visits");
+expect(/giant_20x50_12_month:[\s\S]*expectedServiceRecords:\s*53000/.test(contract), "giant scenario must total 53,000 service records");
 expect(contract.includes("ops-sim-v2-${companyToken}-${namespace}-"), "simulator accounts must be namespaced by company + namespace");
 expect(contract.includes("${companyId}/operational-simulation/${namespace}"), "simulation storage must be namespaced");
 
