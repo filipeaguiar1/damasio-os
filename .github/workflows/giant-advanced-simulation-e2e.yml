@@ -70,7 +70,12 @@ jobs:
           exit 1
 
       - name: Run 20x50 giant Advanced Simulation
-        run: pnpm exec playwright test tests/advanced-operational-simulator-giant.spec.ts --reporter=line --workers=1
+        run: |
+          pnpm exec playwright test tests/advanced-operational-simulator-giant.spec.ts --reporter=line --workers=1 || {
+            echo "---- damasio giant simulation server log ----"
+            cat /tmp/damasio-giant-advanced-simulation.log || true
+            exit 1
+          }
 
       - name: Upload giant simulation evidence
         if: always()
