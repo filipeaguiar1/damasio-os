@@ -1,0 +1,83 @@
+name: Giant Advanced Simulation E2E
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "app/api/admin/operational-simulator/v2/**"
+      - "lib/simulator/**"
+      - "scripts/validate-advanced-simulation.mjs"
+      - "tests/advanced-operational-simulator-giant.spec.ts"
+      - ".github/workflows/giant-advanced-simulation-e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: damasio-giant-advanced-simulation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  giant-simulation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install temporary Playwright package
+        run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
+
+      - name: Validate Advanced Simulation contract
+        run: node scripts/validate-advanced-simulation.mjs
+
+      - name: TypeScript and production build
+        run: pnpm build
+
+      - name: Start production server
+        run: |
+          pnpm start > /tmp/damasio-giant-advanced-simulation.log 2>&1 &
+          echo $! > /tmp/damasio-giant-advanced-simulation.pid
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/damasio-giant-advanced-simulation.log
+          exit 1
+
+      - name: Run 20x50 giant Advanced Simulation
+        run: pnpm exec playwright test tests/advanced-operational-simulator-giant.spec.ts --reporter=line --workers=1
+
+      - name: Upload giant simulation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: giant-advanced-simulation-e2e
+          path: |
+            /tmp/damasio-giant-advanced-simulation.log
+            test-results/**
+          if-no-files-found: ignore
