@@ -191,6 +191,7 @@ export async function reconcileAdvancedSimulationAtScale(
   const status = await advancedSimulationDataStatusAtScale(service, scope);
   const expected = expectedAdvancedSimulationCounts(scenarioKey);
   const invoiceExpected = expectedInvoiceTotals(input);
+  const paymentRule = "Paid Invoices model simulator settlement; protected payments remain zero unless a provider-confirmed event exists.";
 
   if (!status.exists) {
     return {
@@ -218,7 +219,7 @@ export async function reconcileAdvancedSimulationAtScale(
         protectedLedgerAmount: 0,
         modeledSettlementCount: 0,
         modeledSettlementAmount: 0,
-        rule: "Simulation settlement is modeled by paid canonical Invoices; provider-confirmed payments are never forged.",
+        rule: paymentRule,
         passed: false,
       },
       payroll: {
@@ -283,7 +284,7 @@ export async function reconcileAdvancedSimulationAtScale(
       protectedLedgerAmount: status.protectedPaymentAmount,
       modeledSettlementCount: status.paidInvoices,
       modeledSettlementAmount: status.collected,
-      rule: "Simulation settlement is modeled by paid canonical Invoices; provider-confirmed payments are never forged.",
+      rule: paymentRule,
       passed: paymentsPassed,
     },
     payroll: {
