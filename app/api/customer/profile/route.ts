@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { requireCustomerPortalIdentity, type CustomerPortalIdentity } from "@/lib/auth/customerPortalIdentity";
 
 export const dynamic = "force-dynamic";
 
@@ -9,52 +9,19 @@ const schema = z.object({
   phone: z.string().trim().max(40).optional().default(""),
 }).strict();
 
-function serverClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Customer profile updates are not configured.");
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
+function authorizedAvatarPath(user: any, identity: CustomerPortalIdentity) {
+  if (!identity.companyId || !identity.customerId) return "";
+  const candidate = typeof user.user_metadata?.customer_avatar_path === "string"
+    ? user.user_metadata.customer_avatar_path
+    : "";
+  const prefix = `${identity.companyId}/${identity.customerId}/customer-avatar.`;
+  if (!candidate.startsWith(prefix)) return "";
+  const suffix = candidate.slice(prefix.length).toLowerCase();
+  return /^(avif|heic|heif|jpe?g|png|webp)$/.test(suffix) ? candidate : "";
 }
 
-async function requireCustomer(request: NextRequest) {
-  const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) throw new Error("Sign in before editing your profile.");
-  const client = serverClient();
-  const { data: auth, error: authError } = await client.auth.getUser(token);
-  if (authError || !auth.user) throw new Error("Your session expired. Sign in again.");
-
-  const { data: profile, error: profileError } = await client
-    .from("profiles")
-    .select("id,role,active,company_id,organization_id,email")
-    .eq("id", auth.user.id)
-    .maybeSingle();
-  if (profileError) throw new Error(profileError.message);
-  if (!profile?.active || profile.role !== "customer") {
-    throw new Error("Only an active Customer account can edit this profile.");
-  }
-
-  const profileCompanyId = profile.company_id || profile.organization_id;
-  const { data: customer, error } = await client
-    .from("customers")
-    .select("id,profile_id,email,full_name,phone,company_id,organization_id")
-    .or(`profile_id.eq.${auth.user.id},email.ilike.${String(auth.user.email || "").replace(/,/g, "")}`)
-    .limit(1)
-    .maybeSingle();
-  if (error || !customer) throw new Error(error?.message || "Customer account could not be found.");
-
-  const customerCompanyId = customer.company_id || customer.organization_id;
-  if (profileCompanyId && customerCompanyId && String(profileCompanyId) !== String(customerCompanyId)) {
-    throw new Error("Customer profile is not linked to this company.");
-  }
-  if (customer.profile_id && String(customer.profile_id) !== String(auth.user.id)) {
-    throw new Error("Customer record is linked to a different account.");
-  }
-
-  return { client, customer, user: auth.user };
-}
-
-async function responseProfile(client: any, customer: any, user: any) {
-  const avatarPath = typeof user.user_metadata?.customer_avatar_path === "string" ? user.user_metadata.customer_avatar_path : "";
+async function responseProfile(client: any, customer: any, user: any, identity: CustomerPortalIdentity) {
+  const avatarPath = authorizedAvatarPath(user, identity);
   let avatarUrl: string | null = null;
   if (avatarPath) {
     const { data } = await client.storage.from("property-photos").createSignedUrl(avatarPath, 3600);
@@ -71,26 +38,35 @@ async function responseProfile(client: any, customer: any, user: any) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { client, customer, user } = await requireCustomer(request);
-    return NextResponse.json({ profile: await responseProfile(client, customer, user) });
+    const { service, customer, user, identity } = await requireCustomerPortalIdentity(request);
+    return NextResponse.json({ profile: await responseProfile(service, customer, user, identity) });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Customer profile could not be loaded." }, { status: 400 });
+    const message = error instanceof Error ? error.message : "Customer profile could not be loaded.";
+    const status = /session expired|sign in/i.test(message) ? 401 : /different|only an active/i.test(message) ? 403 : 400;
+    return NextResponse.json({ error: message }, { status });
   }
 }
 
 export async function PATCH(request: NextRequest) {
   try {
     const body = schema.parse(await request.json());
-    const { client, customer, user } = await requireCustomer(request);
-    const { data, error } = await client
+    const { service, identity, user } = await requireCustomerPortalIdentity(request);
+    let query = service
       .from("customers")
       .update({ full_name: body.fullName, phone: body.phone || null, updated_at: new Date().toISOString() })
-      .eq("id", customer.id)
-      .select("id,full_name,phone,email,company_id")
+      .eq("id", identity.customerId)
+      .eq("profile_id", identity.profileId);
+    if (identity.companyId) {
+      query = query.or(`company_id.eq.${identity.companyId},organization_id.eq.${identity.companyId}`);
+    }
+    const { data, error } = await query
+      .select("id,full_name,phone,email,company_id,organization_id")
       .single();
     if (error) throw new Error(error.message);
-    return NextResponse.json({ saved: true, profile: await responseProfile(client, data, user) });
+    return NextResponse.json({ saved: true, profile: await responseProfile(service, data, user, identity) });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Customer profile could not be saved." }, { status: 400 });
+    const message = error instanceof Error ? error.message : "Customer profile could not be saved.";
+    const status = /session expired|sign in/i.test(message) ? 401 : /different|only an active/i.test(message) ? 403 : 400;
+    return NextResponse.json({ error: message }, { status });
   }
 }
