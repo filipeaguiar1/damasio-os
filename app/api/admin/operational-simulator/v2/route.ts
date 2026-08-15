@@ -10,11 +10,13 @@ import {
 } from "@/lib/simulator/advancedSimulation";
 import {
   ADVANCED_SIMULATION_KM_PER_COMPLETED_VISIT,
-  advancedSimulationDataStatus,
   createAdvancedSimulationData,
   removeAdvancedSimulationData,
 } from "@/lib/simulator/advancedSimulationData";
-import { reconcileAdvancedSimulationAtScale } from "@/lib/simulator/advancedScaleReconciliation";
+import {
+  advancedSimulationDataStatusAtScale,
+  reconcileAdvancedSimulationAtScale,
+} from "@/lib/simulator/advancedScaleReconciliation";
 import {
   beginAdvancedSimulationReset,
   beginAdvancedSimulationRun,
@@ -102,7 +104,7 @@ export async function GET(request: NextRequest) {
     const namespace = normalizeAdvancedSimulationNamespace(request.nextUrl.searchParams.get("namespace") || undefined);
     const scope = createAdvancedSimulationScope(companyId, namespace);
     const [status, run, runs] = await Promise.all([
-      advancedSimulationDataStatus(service, scope),
+      advancedSimulationDataStatusAtScale(service, scope),
       loadAdvancedSimulationRun(service, scope),
       listAdvancedSimulationRuns(service, companyId),
     ]);
@@ -137,10 +139,10 @@ export async function POST(request: NextRequest) {
 
     if (action === "reset" || action === "remove") {
       const transition = await beginAdvancedSimulationReset(service, scope);
-      const before = await advancedSimulationDataStatus(service, scope);
+      const before = await advancedSimulationDataStatusAtScale(service, scope);
       if (transition.alreadyRemoved && !before.exists) {
         const residual = await removeAdvancedSimulationDataWithTimeoutRetry(service, scope);
-        const afterResidual = await advancedSimulationDataStatus(service, scope);
+        const afterResidual = await advancedSimulationDataStatusAtScale(service, scope);
         if (afterResidual.exists) throw new Error("Advanced simulator residual reset was incomplete.");
         await markAdvancedSimulationRemoved(service, scope, residual);
         return NextResponse.json({
@@ -164,7 +166,7 @@ export async function POST(request: NextRequest) {
 
       try {
         const removed = await removeAdvancedSimulationDataWithTimeoutRetry(service, scope);
-        const remaining = await advancedSimulationDataStatus(service, scope);
+        const remaining = await advancedSimulationDataStatusAtScale(service, scope);
         if (remaining.exists) {
           throw new Error(`Advanced simulation reset did not converge: ${remaining.customerCount} active simulation customers remain.`);
         }
@@ -198,7 +200,7 @@ export async function POST(request: NextRequest) {
 
     if (action !== "create") throw new Error(`Unknown advanced simulator action: ${String(action)}`);
 
-    const current = await advancedSimulationDataStatus(service, scope);
+    const current = await advancedSimulationDataStatusAtScale(service, scope);
     if (current.exists) {
       throw new Error(`Simulation namespace "${scope.namespace}" already contains active canonical data. Reset it before creating another run.`);
     }
@@ -216,6 +218,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    let stage = "canonical data creation";
     try {
       const created = await createAdvancedSimulationData(service, {
         scope,
@@ -224,11 +227,14 @@ export async function POST(request: NextRequest) {
         actorId,
         runId,
       });
+
+      stage = "scale reconciliation";
       const reconciliation = await reconcileAdvancedSimulationAtScale(service, scope, scenarioKey, input);
       if (!reconciliation.passed) {
         throw new Error(`Advanced simulation reconciliation failed for namespace "${scope.namespace}".`);
       }
 
+      stage = "run finalization";
       await markAdvancedSimulationReady(service, scope, {
         ...created.operational,
         reconciliation,
@@ -246,13 +252,14 @@ export async function POST(request: NextRequest) {
         message: `${scenario.customerCount} customers, ${scenario.employeeCount} employees and ${scenario.expectedServiceRecords} canonical service records created in namespace "${scope.namespace}".`,
       }, { status: 201 });
     } catch (error) {
+      const rootMessage = error instanceof Error ? error.message : String(error);
       let cleanupMessage = "Automatic cleanup completed.";
       try {
         await removeAdvancedSimulationDataWithTimeoutRetry(service, scope);
       } catch (cleanupError) {
         cleanupMessage = `Automatic cleanup also failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`;
       }
-      const failure = new Error(`${error instanceof Error ? error.message : String(error)} ${cleanupMessage}`);
+      const failure = new Error(`Advanced simulation failed during ${stage}: ${rootMessage} ${cleanupMessage}`);
       await markAdvancedSimulationFailed(service, scope, failure);
       throw failure;
     }

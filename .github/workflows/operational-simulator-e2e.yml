@@ -54,11 +54,11 @@ on:
 permissions:
   contents: read
 
-# Only the newest commit needs to mutate the shared QA database. Static PR checks
-# run independently; stale heavy runs are cancelled when a newer commit arrives.
+# All database-mutating release gates share one QA Supabase project. Never run
+# them concurrently, and never cancel an active run in the middle of cleanup.
 concurrency:
-  group: damasio-release-heavy-e2e-${{ github.ref }}
-  cancel-in-progress: true
+  group: damasio-shared-qa-database-heavy-e2e
+  cancel-in-progress: false
 
 jobs:
   simulator:

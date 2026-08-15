@@ -15,9 +15,12 @@ on:
 permissions:
   contents: read
 
+# Every heavy E2E workflow writes to the same QA Supabase project. Use one
+# global lock so giant and release gates serialize instead of corrupting each
+# other's namespaces or cancelling midway through cleanup.
 concurrency:
-  group: damasio-giant-advanced-simulation-${{ github.ref }}
-  cancel-in-progress: true
+  group: damasio-shared-qa-database-heavy-e2e
+  cancel-in-progress: false
 
 jobs:
   giant-simulation:
