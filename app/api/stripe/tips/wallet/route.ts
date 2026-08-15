@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { requireCustomerPortalIdentity } from "@/lib/auth/customerPortalIdentity";
 
 export const dynamic = "force-dynamic";
 
@@ -9,40 +9,14 @@ function failure(message: string, status: number) {
 
 export async function POST(request: NextRequest) {
   try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !serviceKey) return failure("Wallet tips are not configured yet.", 503);
-
-    const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-    if (!token) return failure("Sign in before paying a tip.", 401);
-
-    const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
-    const { data: auth, error: authError } = await db.auth.getUser(token);
-    if (authError || !auth.user) return failure("Your session expired. Sign in again.", 401);
-
-    let customer = null;
-    const byProfile = await db.from("customers").select("id,company_id,organization_id,email,archived_at").eq("profile_id", auth.user.id).is("archived_at", null).maybeSingle();
-    if (!byProfile.error) customer = byProfile.data;
-
-    if (!customer && auth.user.user_metadata?.customer_id) {
-      const byMetadata = await db.from("customers").select("id,company_id,organization_id,email,archived_at").eq("id", auth.user.user_metadata.customer_id).is("archived_at", null).maybeSingle();
-      if (!byMetadata.error) customer = byMetadata.data;
-    }
-
-    if (!customer && auth.user.email) {
-      const byEmail = await db.from("customers").select("id,company_id,organization_id,email,archived_at").ilike("email", auth.user.email.trim()).is("archived_at", null).limit(1).maybeSingle();
-      if (!byEmail.error) customer = byEmail.data;
-    }
-
-    if (!customer) return failure("Customer account is not linked yet.", 403);
-
+    const { service: db, identity } = await requireCustomerPortalIdentity(request);
     const body = (await request.json()) as { amount?: number; note?: string };
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount < 1 || amount > 500) return failure("Choose a tip between $1 and $500.", 400);
 
     const { data, error } = await db.rpc("pay_customer_tip_from_wallet", {
-      p_customer_id: customer.id,
-      p_company_id: customer.company_id || customer.organization_id || null,
+      p_customer_id: identity.customerId,
+      p_company_id: identity.companyId,
       p_amount_cents: Math.round(amount * 100),
       p_note: String(body.note || "").slice(0, 200) || null,
     });
@@ -63,6 +37,8 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Wallet tip payment failed", error);
-    return failure(error instanceof Error ? error.message : "Could not pay the tip from wallet credits.", 500);
+    const message = error instanceof Error ? error.message : "Could not pay the tip from wallet credits.";
+    const status = /session expired|sign in/i.test(message) ? 401 : /different|only an active|not linked/i.test(message) ? 403 : 500;
+    return failure(message, status);
   }
 }
