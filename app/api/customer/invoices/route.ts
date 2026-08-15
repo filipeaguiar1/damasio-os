@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { requireCustomerPortalIdentity } from "@/lib/auth/customerPortalIdentity";
 
 export const dynamic = "force-dynamic";
 
@@ -7,54 +7,25 @@ function failure(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
-function serverClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Customer billing is not configured.");
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-    if (!token) return failure("Sign in to view invoices.", 401);
-    const db = serverClient();
-    const { data: auth, error: authError } = await db.auth.getUser(token);
-    if (authError || !auth.user) return failure("Your session expired. Sign in again.", 401);
+    const { service: db, customer, identity } = await requireCustomerPortalIdentity(request, { allowUnlinked: true });
+    if (!customer || !identity.customerId) return NextResponse.json({ invoices: [], linked: false });
 
-    const { data: profile } = await db.from("profiles").select("id,role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle();
-    if (!profile?.active) return failure("Your customer account is not active.", 403);
-
-    let customer = null;
-    const byProfile = await db.from("customers").select("id,company_id,organization_id,profile_id,email").eq("profile_id", auth.user.id).is("archived_at", null).maybeSingle();
-    if (!byProfile.error) customer = byProfile.data;
-
-    if (!customer && auth.user.user_metadata?.customer_id) {
-      const byMetadata = await db.from("customers").select("id,company_id,organization_id,profile_id,email").eq("id", auth.user.user_metadata.customer_id).is("archived_at", null).maybeSingle();
-      if (!byMetadata.error) customer = byMetadata.data;
-    }
-
-    if (!customer && auth.user.email) {
-      const byEmail = await db.from("customers").select("id,company_id,organization_id,profile_id,email").ilike("email", auth.user.email.trim()).is("archived_at", null).limit(1).maybeSingle();
-      if (!byEmail.error) customer = byEmail.data;
-    }
-
-    if (!customer) return NextResponse.json({ invoices: [], linked: false });
-
-    if (!customer.profile_id) {
-      const linked = await db.from("customers").update({ profile_id: auth.user.id }).eq("id", customer.id).is("profile_id", null).select("id,company_id,organization_id,profile_id,email").maybeSingle();
-      if (!linked.error && linked.data) customer = linked.data;
+    let serviceInvoicesQuery = db
+      .from("invoices")
+      .select("id,invoice_number,status,total,subtotal,tax,created_at,quote_id,customer_id,property_id,quotes(quote_number,status,notes,request_id,service_requests(service_name))")
+      .eq("customer_id", identity.customerId);
+    if (identity.companyId) {
+      serviceInvoicesQuery = serviceInvoicesQuery.or(`company_id.eq.${identity.companyId},organization_id.eq.${identity.companyId}`);
     }
 
     const [serviceInvoicesResult, depositInvoicesResult] = await Promise.all([
-      db
-        .from("invoices")
-        .select("id,invoice_number,status,total,subtotal,tax,created_at,quote_id,customer_id,property_id,quotes(quote_number,status,notes,request_id,service_requests(service_name))")
-        .eq("customer_id", customer.id),
+      serviceInvoicesQuery,
       db
         .from("customer_deposit_invoices")
         .select("id,invoice_number,status,amount_cents,created_at")
-        .eq("customer_id", customer.id),
+        .eq("customer_id", identity.customerId),
     ]);
 
     if (serviceInvoicesResult.error) throw new Error(serviceInvoicesResult.error.message);
@@ -95,12 +66,11 @@ export async function GET(request: NextRequest) {
     const invoices = [...serviceInvoices, ...depositInvoices]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    return NextResponse.json({
-      linked: customer.profile_id === auth.user.id,
-      invoices,
-    });
+    return NextResponse.json({ linked: true, invoices });
   } catch (error) {
     console.error("Customer invoices failed", error);
-    return failure(error instanceof Error ? error.message : "Invoices could not be loaded.", 500);
+    const message = error instanceof Error ? error.message : "Invoices could not be loaded.";
+    const status = /session expired|sign in/i.test(message) ? 401 : /different|only an active/i.test(message) ? 403 : 500;
+    return failure(message, status);
   }
 }
