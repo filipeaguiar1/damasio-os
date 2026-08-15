@@ -85,13 +85,18 @@ function companyFilter(companyId: string) {
   return `company_id.eq.${companyId},organization_id.eq.${companyId}`;
 }
 
+function isPlatformCustomer(customer: OperationalCustomer) {
+  return customer.platform_managed === true || customer.acquisition_source === "platform";
+}
+
 function acceptedForCompany(customer: OperationalCustomer, companyId: string) {
-  if (customer.service_company_id !== companyId) return false;
+  if (!isPlatformCustomer(customer) || customer.service_company_id !== companyId) return false;
   return customer.offer_status === "accepted"
-    || ["accepted", "assigned", "active"].includes(customer.assignment_status || "");
+    && ["accepted", "assigned", "active"].includes(customer.assignment_status || "");
 }
 
 function directCompanyCustomer(customer: OperationalCustomer, companyId: string) {
+  if (isPlatformCustomer(customer)) return false;
   return customer.company_id === companyId || customer.organization_id === companyId;
 }
 
@@ -151,10 +156,12 @@ async function customerCandidates(service: any, companyId: string) {
   for (const result of results) if (result.error) throw new Error(result.error.message);
   const customers = mergeRows<OperationalCustomer>(results.map(result => result.data || []));
   return {
-    customers: customers.filter(customer => directCompanyCustomer(customer, companyId)
-      || acceptedForCompany(customer, companyId)
-      || Boolean(customer.profile_id && profileIds.has(customer.profile_id))
-      || childCustomerIds.has(customer.id)),
+    customers: customers.filter(customer => {
+      if (isPlatformCustomer(customer)) return acceptedForCompany(customer, companyId);
+      return directCompanyCustomer(customer, companyId)
+        || Boolean(customer.profile_id && profileIds.has(customer.profile_id))
+        || childCustomerIds.has(customer.id);
+    }),
     profileIds,
     childCustomerIds,
   };
