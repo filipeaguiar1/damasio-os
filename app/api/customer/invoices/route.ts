@@ -12,13 +12,10 @@ export async function GET(request: NextRequest) {
     const { service: db, customer, identity } = await requireCustomerPortalIdentity(request, { allowUnlinked: true });
     if (!customer || !identity.customerId) return NextResponse.json({ invoices: [], linked: false });
 
-    let serviceInvoicesQuery = db
+    const serviceInvoicesQuery = db
       .from("invoices")
       .select("id,invoice_number,status,total,subtotal,tax,created_at,quote_id,customer_id,property_id,quotes(quote_number,status,notes,request_id,service_requests(service_name))")
       .eq("customer_id", identity.customerId);
-    if (identity.companyId) {
-      serviceInvoicesQuery = serviceInvoicesQuery.or(`company_id.eq.${identity.companyId},organization_id.eq.${identity.companyId}`);
-    }
 
     const [serviceInvoicesResult, depositInvoicesResult] = await Promise.all([
       serviceInvoicesQuery,
