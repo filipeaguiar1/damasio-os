@@ -86,8 +86,9 @@ export async function POST(request: NextRequest) {
     ].filter(Boolean).join(" | ") || null;
 
     // Public traffic may create a lead, but it must never create or mutate the
-    // canonical Customer/Property graph. The authenticated Master approval flow
-    // is responsible for promoting an approved lead into canonical records.
+    // canonical Customer/Property graph. A valid company code only pre-selects
+    // the intended company for Master review; the company does not receive the
+    // referral until Master explicitly responds and moves the lead to offered.
     const { error } = await client.from("lead_center").insert({
       assigned_company_id: companyId,
       customer_id: null,
@@ -98,7 +99,7 @@ export async function POST(request: NextRequest) {
       address: body.address,
       service_requested: body.service,
       notes,
-      status: companyId ? "offered" : "new",
+      status: "new",
     });
 
     if (error) throw error;
