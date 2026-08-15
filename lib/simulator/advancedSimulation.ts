@@ -7,7 +7,7 @@ export const ADVANCED_SIMULATION_VERSION = 2 as const;
 export const DEFAULT_ADVANCED_SIMULATION_NAMESPACE = "default";
 export const MAX_ADVANCED_SIMULATION_NAMESPACE_LENGTH = 32;
 
-export type AdvancedSimulationScenarioKey = "baseline" | "large_12_month";
+export type AdvancedSimulationScenarioKey = "baseline" | "large_12_month" | "giant_20x50_12_month";
 
 export type AdvancedSimulationScenario = {
   key: AdvancedSimulationScenarioKey;
@@ -71,6 +71,22 @@ export const ADVANCED_SIMULATION_SCENARIOS: Record<AdvancedSimulationScenarioKey
     expectedCompletedVisits: 4600,
     expectedLiveVisits: 20,
     expectedServiceRecords: 4620,
+  },
+  giant_20x50_12_month: {
+    key: "giant_20x50_12_month",
+    label: "Giant · 1,000 customers / 20 employees / 50 houses weekly",
+    horizonMonths: 12,
+    horizonWeeks: 52,
+    customerCount: 1000,
+    employeeCount: 20,
+    completedWeeks: 52,
+    liveVisitsPerEmployee: 50,
+    workDaysPerWeek: 5,
+    dailyCompanyCapacity: 200,
+    maxHomesPerEmployee: 50,
+    expectedCompletedVisits: 52000,
+    expectedLiveVisits: 1000,
+    expectedServiceRecords: 53000,
   },
 };
 

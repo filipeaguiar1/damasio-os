@@ -6,11 +6,15 @@ import {
 } from "@/lib/simulator/advancedSimulation";
 import {
   ADVANCED_SIMULATION_KM_PER_COMPLETED_VISIT,
+  type AdvancedSimulationDataStatus,
   type AdvancedSimulationReconciliation,
 } from "@/lib/simulator/advancedSimulationData";
 
 const PAGE_SIZE = 1000;
+const FILTER_ID_BATCH_SIZE = 50;
 type ServiceClient = any;
+type QueryError = { message?: string } | null;
+type QueryResult<T> = { data: T[]; error: QueryError };
 
 function companyFilter(companyId: string) {
   return `company_id.eq.${companyId},organization_id.eq.${companyId}`;
@@ -21,8 +25,8 @@ function money(value: number) {
 }
 
 async function fetchAllRows<T = any>(
-  queryPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message?: string } | null }>,
-) {
+  queryPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: QueryError }>,
+): Promise<QueryResult<T>> {
   const rows: T[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
     const result = await queryPage(from, from + PAGE_SIZE - 1);
@@ -31,6 +35,24 @@ async function fetchAllRows<T = any>(
     rows.push(...page);
     if (page.length < PAGE_SIZE) return { data: rows, error: null };
   }
+}
+
+async function fetchAllRowsByIds<T = any>(
+  ids: string[],
+  queryBatchPage: (
+    batchIds: string[],
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: QueryError }>,
+): Promise<QueryResult<T>> {
+  const rows: T[] = [];
+  for (let offset = 0; offset < ids.length; offset += FILTER_ID_BATCH_SIZE) {
+    const batchIds = ids.slice(offset, offset + FILTER_ID_BATCH_SIZE);
+    const batch = await fetchAllRows<T>((from, to) => queryBatchPage(batchIds, from, to));
+    if (batch.error) return { data: rows, error: batch.error };
+    rows.push(...batch.data);
+  }
+  return { data: rows, error: null };
 }
 
 function expectedInvoiceTotals(input: OperationalSimulationInput) {
@@ -47,12 +69,10 @@ function expectedInvoiceTotals(input: OperationalSimulationInput) {
   };
 }
 
-export async function reconcileAdvancedSimulationAtScale(
+export async function advancedSimulationDataStatusAtScale(
   service: ServiceClient,
   scope: AdvancedSimulationScope,
-  scenarioKey: AdvancedSimulationScenarioKey,
-  input: OperationalSimulationInput,
-): Promise<AdvancedSimulationReconciliation> {
+): Promise<AdvancedSimulationDataStatus> {
   const customers = await fetchAllRows<any>((from, to) => service
     .from("customers")
     .select("id")
@@ -61,22 +81,119 @@ export async function reconcileAdvancedSimulationAtScale(
     .is("archived_at", null)
     .order("id", { ascending: true })
     .range(from, to));
-  if (customers.error) throw new Error(customers.error.message || "customers pagination failed");
+  if (customers.error) throw new Error(`Scale status customers: ${customers.error.message || "pagination failed"}`);
   const customerIds = customers.data.map(row => String(row.id));
 
   const workers = await fetchAllRows<any>((from, to) => service
     .from("profiles")
-    .select("id")
+    .select("id,full_name,email")
     .eq("role", "employee")
     .eq("active", true)
     .or(companyFilter(scope.companyId))
     .like("email", scope.emailLikePattern)
     .order("id", { ascending: true })
     .range(from, to));
-  if (workers.error) throw new Error(workers.error.message || "profiles pagination failed");
+  if (workers.error) throw new Error(`Scale status profiles: ${workers.error.message || "pagination failed"}`);
 
   if (!customerIds.length) {
-    const expected = expectedAdvancedSimulationCounts(scenarioKey);
+    return {
+      exists: false,
+      customerCount: 0,
+      workerCount: workers.data.length,
+      workers: workers.data,
+      completedVisits: 0,
+      scheduledVisits: 0,
+      photos: 0,
+      paidInvoices: 0,
+      collected: 0,
+      protectedPayments: 0,
+      protectedPaymentAmount: 0,
+      routeCount: 0,
+      completedDurationSeconds: 0,
+    };
+  }
+
+  const properties = await fetchAllRowsByIds<any>(customerIds, (batchIds, from, to) => service
+    .from("properties")
+    .select("id")
+    .in("customer_id", batchIds)
+    .order("id", { ascending: true })
+    .range(from, to));
+  if (properties.error) throw new Error(`Scale status properties: ${properties.error.message || "pagination failed"}`);
+  const propertyIds = properties.data.map(row => String(row.id));
+
+  const visits = await fetchAllRowsByIds<any>(customerIds, (batchIds, from, to) => service
+    .from("visits")
+    .select("id,status,duration_seconds,route_id")
+    .in("customer_id", batchIds)
+    .or(companyFilter(scope.companyId))
+    .order("id", { ascending: true })
+    .range(from, to));
+  if (visits.error) throw new Error(`Scale status visits: ${visits.error.message || "pagination failed"}`);
+
+  const photos = propertyIds.length
+    ? await fetchAllRowsByIds<any>(propertyIds, (batchIds, from, to) => service
+        .from("photos")
+        .select("id")
+        .in("property_id", batchIds)
+        .order("id", { ascending: true })
+        .range(from, to))
+    : { data: [] as any[], error: null };
+  if (photos.error) throw new Error(`Scale status photos: ${photos.error.message || "pagination failed"}`);
+
+  const invoices = await fetchAllRowsByIds<any>(customerIds, (batchIds, from, to) => service
+    .from("invoices")
+    .select("id,status,subtotal,total")
+    .in("customer_id", batchIds)
+    .order("id", { ascending: true })
+    .range(from, to));
+  if (invoices.error) throw new Error(`Scale status invoices: ${invoices.error.message || "pagination failed"}`);
+
+  const payments = await fetchAllRowsByIds<any>(customerIds, (batchIds, from, to) => service
+    .from("payments")
+    .select("id,status,amount")
+    .in("customer_id", batchIds)
+    .order("id", { ascending: true })
+    .range(from, to));
+  if (payments.error && !/permission denied|does not exist|schema cache/i.test(payments.error.message || "")) {
+    throw new Error(`Scale status payments: ${payments.error.message || "pagination failed"}`);
+  }
+
+  const visitRows = visits.data;
+  const invoiceRows = invoices.data;
+  const paymentRows = payments.error ? [] : payments.data;
+  const completedRows = visitRows.filter((row: any) => row.status === "completed");
+  const routeIds = new Set(visitRows.map((row: any) => row.route_id ? String(row.route_id) : "").filter(Boolean));
+
+  return {
+    exists: true,
+    customerCount: customerIds.length,
+    workerCount: workers.data.length,
+    workers: workers.data,
+    completedVisits: completedRows.length,
+    scheduledVisits: visitRows.filter((row: any) => row.status === "scheduled").length,
+    photos: photos.data.length,
+    paidInvoices: invoiceRows.filter((row: any) => row.status === "paid").length,
+    collected: money(invoiceRows.filter((row: any) => row.status === "paid").reduce((sum: number, row: any) => sum + Number(row.total || 0), 0)),
+    protectedPayments: paymentRows.length,
+    protectedPaymentAmount: money(paymentRows.reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0)),
+    routeCount: routeIds.size,
+    completedDurationSeconds: completedRows.reduce((sum: number, row: any) => sum + Number(row.duration_seconds || 0), 0),
+  };
+}
+
+export async function reconcileAdvancedSimulationAtScale(
+  service: ServiceClient,
+  scope: AdvancedSimulationScope,
+  scenarioKey: AdvancedSimulationScenarioKey,
+  input: OperationalSimulationInput,
+): Promise<AdvancedSimulationReconciliation> {
+  const status = await advancedSimulationDataStatusAtScale(service, scope);
+  const expected = expectedAdvancedSimulationCounts(scenarioKey);
+  const invoiceExpected = expectedInvoiceTotals(input);
+  const paymentRule = "Paid Invoices model simulator settlement; protected payments remain zero unless a provider-confirmed event exists.";
+
+  if (!status.exists) {
     return {
       passed: false,
       scenario: scenarioKey,
@@ -90,11 +207,11 @@ export async function reconcileAdvancedSimulationAtScale(
         passed: false,
       },
       invoices: {
-        expectedCount: expectedInvoiceTotals(input).invoiceCount,
+        expectedCount: invoiceExpected.invoiceCount,
         actualPaidCount: 0,
         expectedSubtotal: 0,
         actualCollected: 0,
-        expectedCollected: expectedInvoiceTotals(input).collected,
+        expectedCollected: invoiceExpected.collected,
         passed: false,
       },
       payments: {
@@ -102,7 +219,7 @@ export async function reconcileAdvancedSimulationAtScale(
         protectedLedgerAmount: 0,
         modeledSettlementCount: 0,
         modeledSettlementAmount: 0,
-        rule: "Simulation settlement is modeled by paid canonical Invoices; provider-confirmed payments are never forged.",
+        rule: paymentRule,
         passed: false,
       },
       payroll: {
@@ -127,78 +244,20 @@ export async function reconcileAdvancedSimulationAtScale(
     };
   }
 
-  const properties = await fetchAllRows<any>((from, to) => service
-    .from("properties")
-    .select("id")
-    .in("customer_id", customerIds)
-    .order("id", { ascending: true })
-    .range(from, to));
-  if (properties.error) throw new Error(properties.error.message || "properties pagination failed");
-  const propertyIds = properties.data.map(row => String(row.id));
-
-  const visits = await fetchAllRows<any>((from, to) => service
-    .from("visits")
-    .select("id,status,duration_seconds,route_id")
-    .in("customer_id", customerIds)
-    .or(companyFilter(scope.companyId))
-    .order("id", { ascending: true })
-    .range(from, to));
-  if (visits.error) throw new Error(visits.error.message || "visits pagination failed");
-
-  const photos = propertyIds.length
-    ? await fetchAllRows<any>((from, to) => service
-        .from("photos")
-        .select("id")
-        .in("property_id", propertyIds)
-        .order("id", { ascending: true })
-        .range(from, to))
-    : { data: [] as any[], error: null };
-  if (photos.error) throw new Error(photos.error.message || "photos pagination failed");
-
-  const invoices = await fetchAllRows<any>((from, to) => service
-    .from("invoices")
-    .select("id,status,subtotal,total")
-    .in("customer_id", customerIds)
-    .order("id", { ascending: true })
-    .range(from, to));
-  if (invoices.error) throw new Error(invoices.error.message || "invoices pagination failed");
-
-  const payments = await fetchAllRows<any>((from, to) => service
-    .from("payments")
-    .select("id,status,amount")
-    .in("customer_id", customerIds)
-    .order("id", { ascending: true })
-    .range(from, to));
-  if (payments.error && !/permission denied|does not exist|schema cache/i.test(payments.error.message || "")) {
-    throw new Error(payments.error.message || "payments pagination failed");
-  }
-  const paymentRows = payments.error ? [] : payments.data;
-
-  const expected = expectedAdvancedSimulationCounts(scenarioKey);
-  const invoiceExpected = expectedInvoiceTotals(input);
-  const completedRows = visits.data.filter(row => row.status === "completed");
-  const scheduledRows = visits.data.filter(row => row.status === "scheduled");
-  const paidInvoiceRows = invoices.data.filter(row => row.status === "paid");
-  const completedDurationSeconds = completedRows.reduce(
-    (sum, row) => sum + Number(row.duration_seconds || 0),
-    0,
-  );
-  const collected = money(paidInvoiceRows.reduce((sum, row) => sum + Number(row.total || 0), 0));
-  const protectedPaymentAmount = money(paymentRows.reduce((sum, row) => sum + Number(row.amount || 0), 0));
-  const productiveHours = completedDurationSeconds / 3600;
+  const productiveHours = status.completedDurationSeconds / 3600;
   const loadedPayroll = productiveHours * input.hourlyWage * (1 + input.payrollBurdenRate);
-  const modeledKm = completedRows.length * ADVANCED_SIMULATION_KM_PER_COMPLETED_VISIT;
+  const modeledKm = status.completedVisits * ADVANCED_SIMULATION_KM_PER_COMPLETED_VISIT;
 
-  const visitsPassed = completedRows.length === expected.completedVisits
-    && scheduledRows.length === expected.scheduledVisits
-    && customerIds.length === expected.customers
-    && workers.data.length === expected.employees;
-  const invoicePassed = paidInvoiceRows.length === invoiceExpected.invoiceCount
-    && Math.abs(collected - invoiceExpected.collected) < 0.02;
-  const paymentsPassed = paymentRows.length === 0 && protectedPaymentAmount === 0 && invoicePassed;
+  const visitsPassed = status.completedVisits === expected.completedVisits
+    && status.scheduledVisits === expected.scheduledVisits
+    && status.customerCount === expected.customers
+    && status.workerCount === expected.employees;
+  const invoicePassed = status.paidInvoices === invoiceExpected.invoiceCount
+    && Math.abs(status.collected - invoiceExpected.collected) < 0.02;
+  const paymentsPassed = status.protectedPayments === 0 && status.protectedPaymentAmount === 0 && invoicePassed;
   const payrollPassed = visitsPassed && productiveHours > 0 && loadedPayroll > 0;
   const kmPassed = visitsPassed && modeledKm > 0;
-  const evidencePassed = photos.data.length === expected.completedVisits;
+  const evidencePassed = status.photos === expected.completedVisits;
 
   return {
     passed: visitsPassed && invoicePassed && paymentsPassed && payrollPassed && kmPassed && evidencePassed,
@@ -207,25 +266,25 @@ export async function reconcileAdvancedSimulationAtScale(
     expected,
     visits: {
       expectedCompleted: expected.completedVisits,
-      actualCompleted: completedRows.length,
+      actualCompleted: status.completedVisits,
       expectedScheduled: expected.scheduledVisits,
-      actualScheduled: scheduledRows.length,
+      actualScheduled: status.scheduledVisits,
       passed: visitsPassed,
     },
     invoices: {
       expectedCount: invoiceExpected.invoiceCount,
-      actualPaidCount: paidInvoiceRows.length,
+      actualPaidCount: status.paidInvoices,
       expectedSubtotal: 0,
-      actualCollected: collected,
+      actualCollected: status.collected,
       expectedCollected: invoiceExpected.collected,
       passed: invoicePassed,
     },
     payments: {
-      protectedLedgerCount: paymentRows.length,
-      protectedLedgerAmount: protectedPaymentAmount,
-      modeledSettlementCount: paidInvoiceRows.length,
-      modeledSettlementAmount: collected,
-      rule: "Simulation settlement is modeled by paid canonical Invoices; provider-confirmed payments are never forged.",
+      protectedLedgerCount: status.protectedPayments,
+      protectedLedgerAmount: status.protectedPaymentAmount,
+      modeledSettlementCount: status.paidInvoices,
+      modeledSettlementAmount: status.collected,
+      rule: paymentRule,
       passed: paymentsPassed,
     },
     payroll: {
@@ -244,7 +303,7 @@ export async function reconcileAdvancedSimulationAtScale(
     },
     evidence: {
       expectedPhotos: expected.completedVisits,
-      actualPhotos: photos.data.length,
+      actualPhotos: status.photos,
       passed: evidencePassed,
     },
   };
