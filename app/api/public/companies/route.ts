@@ -15,9 +15,11 @@ export async function GET() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  // Public company discovery only needs stable display identifiers. Contact
+  // details and referral codes stay server-side and must not be enumerable.
   const { data, error } = await client
     .from("organizations")
-    .select("id,name,slug,contact_email,referral_code")
+    .select("id,name,slug")
     .eq("active", true)
     .is("deleted_at", null)
     .order("name", { ascending: true });
