@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import type { RouteLineString } from "@/lib/maps/types";
+import { hasManagerPermission } from "@/lib/auth/managerPermissions";
 
 export const dynamic = "force-dynamic";
 
@@ -99,12 +100,15 @@ async function requireProfile(request: NextRequest, service: any) {
 
   const result = await service
     .from("profiles")
-    .select("id,role,active,company_id,organization_id,full_name,address_line1,route_start_address")
+    .select("id,role,active,company_id,organization_id,full_name,address_line1,route_start_address,manager_permissions")
     .eq("id", auth.data.user.id)
     .maybeSingle();
   if (result.error) throw new Error(result.error.message);
   const profile = result.data;
   if (!profile?.active) throw new Error("This account is not active.");
+  if (String(profile.role) === "manager" && !hasManagerPermission(profile.manager_permissions, "routes", "view")) {
+    throw new Error("Manager Routes view permission is required.");
+  }
   const companyId = profile.company_id || profile.organization_id;
   if (!companyId) throw new Error("This account is not linked to a company.");
   return { profile, companyId: String(companyId) };

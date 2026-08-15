@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { resetCompanyRouteOwnership } from "@/lib/routes/resetCompanyRouteOwnership";
+import { hasManagerPermission } from "@/lib/auth/managerPermissions";
 
 export const dynamic = "force-dynamic";
 
@@ -35,11 +36,14 @@ async function requireAdmin(request: NextRequest) {
 
   const { data: profile, error } = await service
     .from("profiles")
-    .select("id,role,active,company_id,organization_id")
+    .select("id,role,active,company_id,organization_id,manager_permissions")
     .eq("id", auth.user.id)
     .single();
   if (error || !profile?.active || !["admin", "manager"].includes(profile.role)) {
     throw new Error("Only an active company Admin can reset route ownership.");
+  }
+  if (profile.role === "manager" && !hasManagerPermission(profile.manager_permissions, "routes", "manage")) {
+    throw new Error("Manager Routes management permission is required.");
   }
 
   const companyId = profile.company_id || profile.organization_id;

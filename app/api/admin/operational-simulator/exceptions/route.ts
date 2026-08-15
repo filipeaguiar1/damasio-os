@@ -51,7 +51,7 @@ async function requireAdmin(request: NextRequest) {
     .select("id,role,active,company_id,organization_id")
     .eq("id", auth.data.user.id)
     .single();
-  if (profile.error || !profile.data?.active || !["admin", "manager"].includes(profile.data.role)) {
+  if (profile.error || !profile.data?.active || profile.data.role !== "admin") {
     throw new Error("Only an active company Admin can run exception simulations.");
   }
   const companyId = String(profile.data.company_id || profile.data.organization_id || "");

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { hasManagerPermission } from "@/lib/auth/managerPermissions";
 
 export const dynamic = "force-dynamic";
 
@@ -30,13 +31,16 @@ export async function GET(request: NextRequest) {
 
     const adminResult = await service
       .from("profiles")
-      .select("id,role,active,company_id,organization_id")
+      .select("id,role,active,company_id,organization_id,manager_permissions")
       .eq("id", auth.data.user.id)
       .maybeSingle();
     if (adminResult.error) throw new Error(adminResult.error.message);
     const admin = adminResult.data;
     if (!admin?.active || !["admin", "manager", "master"].includes(String(admin.role))) {
       throw new Error("Only an active company Admin can resolve Employee routes.");
+    }
+    if (String(admin.role) === "manager" && !hasManagerPermission(admin.manager_permissions, "routes", "view")) {
+      throw new Error("Manager Routes permission is required.");
     }
     const companyId = String(admin.company_id || admin.organization_id || "");
     if (!companyId) throw new Error("This Admin is not linked to a company.");

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { hasManagerPermission } from "@/lib/auth/managerPermissions";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
     if (authError || !auth.user) return failure("Your session expired. Sign in again.", 401);
 
     const [{ data: profile }, { data: agreement, error: agreementError }] = await Promise.all([
-      db.from("profiles").select("id,role,active,organization_id,company_id").eq("id", auth.user.id).maybeSingle(),
+      db.from("profiles").select("id,role,active,organization_id,company_id,manager_permissions").eq("id", auth.user.id).maybeSingle(),
       db.from("billing_agreements").select("id,company_id,customer_id,job_id,contract_owner_role,billing_model,collection_timing,customer_amount_cents,provider_payout_cents,platform_fee_basis_points,prepaid_plan_type,stripe_product_id,stripe_price_id").eq("id", agreementId).maybeSingle(),
     ]);
 
@@ -43,9 +44,11 @@ export async function POST(request: NextRequest) {
     if (!profile?.active || !["master", "admin", "manager"].includes(String(profile.role))) return failure("You cannot sync this agreement.", 403);
 
     const profileCompanyId = profile.company_id || profile.organization_id;
+    const managerAllowed = profile.role === "manager"
+      && hasManagerPermission(profile.manager_permissions, "finance", "manage");
     const maySync = agreement.contract_owner_role === "master"
       ? profile.role === "master"
-      : ["admin", "manager"].includes(String(profile.role)) && profileCompanyId === agreement.company_id;
+      : (profile.role === "admin" || managerAllowed) && profileCompanyId === agreement.company_id;
     if (!maySync) return failure("You cannot sync this agreement.", 403);
 
     const [{ data: customer }, { data: job }] = await Promise.all([

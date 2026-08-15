@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { hasManagerPermission } from "@/lib/auth/managerPermissions";
 
 export const dynamic = "force-dynamic";
 
@@ -30,12 +31,15 @@ async function requireAdmin(request: NextRequest) {
 
   const { data: profile, error } = await service
     .from("profiles")
-    .select("id,role,active,company_id,organization_id")
+    .select("id,role,active,company_id,organization_id,manager_permissions")
     .eq("id", auth.user.id)
     .maybeSingle();
 
   if (error || !profile?.active || !["admin", "manager"].includes(profile.role)) {
     throw new Error("Only an active company Admin can view customer requests.");
+  }
+  if (profile.role === "manager" && !hasManagerPermission(profile.manager_permissions, "tasks", "view")) {
+    throw new Error("Manager Tasks permission is required.");
   }
 
   const companyId = profile.company_id || profile.organization_id;

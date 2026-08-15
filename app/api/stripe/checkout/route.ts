@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { stripeReturnOrigin } from "@/lib/stripe/checkoutOrigin";
+import { hasManagerPermission } from "@/lib/auth/managerPermissions";
 
 export const dynamic = "force-dynamic";
 
@@ -10,14 +11,18 @@ function failure(message: string, status: number) {
 }
 
 function invoiceAccessAllowed(
-  profile: { role?: string; active?: boolean; company_id?: string | null; organization_id?: string | null } | null,
+  profile: { role?: string; active?: boolean; company_id?: string | null; organization_id?: string | null; manager_permissions?: unknown } | null,
   customer: { profile_id?: string | null } | null,
   userId: string,
   companyId: string
 ) {
+  const role = String(profile?.role || "");
+  const sameCompany = (profile?.company_id || profile?.organization_id) === companyId;
   const isCompanyOperator = Boolean(
-    profile?.active && ["admin", "manager", "master"].includes(String(profile.role)) &&
-    (profile.company_id || profile.organization_id) === companyId
+    profile?.active && sameCompany && (
+      ["admin", "master"].includes(role)
+      || (role === "manager" && hasManagerPermission(profile?.manager_permissions, "finance", "manage"))
+    )
   );
   return isCompanyOperator || customer?.profile_id === userId;
 }
@@ -57,7 +62,7 @@ export async function POST(request: NextRequest) {
 
     const companyId = invoice.organization_id;
     const [{ data: profile }, { data: customer }] = await Promise.all([
-      db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
+      db.from("profiles").select("role,active,company_id,organization_id,manager_permissions").eq("id", auth.user.id).maybeSingle(),
       db.from("customers").select("id,profile_id,email,full_name").eq("id", invoice.customer_id).maybeSingle()
     ]);
     if (!companyId || !invoiceAccessAllowed(profile, customer, auth.user.id, companyId)) {
@@ -142,7 +147,7 @@ export async function DELETE(request: NextRequest) {
 
     const companyId = invoice.organization_id;
     const [{ data: profile }, { data: customer }] = await Promise.all([
-      db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
+      db.from("profiles").select("role,active,company_id,organization_id,manager_permissions").eq("id", auth.user.id).maybeSingle(),
       db.from("customers").select("profile_id").eq("id", invoice.customer_id).maybeSingle()
     ]);
     if (!companyId || !invoiceAccessAllowed(profile, customer, auth.user.id, companyId)) {
