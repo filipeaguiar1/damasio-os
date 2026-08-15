@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireCustomerPortalIdentity } from "@/lib/auth/customerPortalIdentity";
+import { requireCustomerPortalIdentity, type CustomerPortalIdentity } from "@/lib/auth/customerPortalIdentity";
 
 export const dynamic = "force-dynamic";
 
@@ -9,10 +9,19 @@ const schema = z.object({
   phone: z.string().trim().max(40).optional().default(""),
 }).strict();
 
-async function responseProfile(client: any, customer: any, user: any) {
-  const avatarPath = typeof user.user_metadata?.customer_avatar_path === "string"
+function authorizedAvatarPath(user: any, identity: CustomerPortalIdentity) {
+  if (!identity.companyId || !identity.customerId) return "";
+  const candidate = typeof user.user_metadata?.customer_avatar_path === "string"
     ? user.user_metadata.customer_avatar_path
     : "";
+  const prefix = `${identity.companyId}/${identity.customerId}/customer-avatar.`;
+  if (!candidate.startsWith(prefix)) return "";
+  const suffix = candidate.slice(prefix.length).toLowerCase();
+  return /^(avif|heic|heif|jpe?g|png|webp)$/.test(suffix) ? candidate : "";
+}
+
+async function responseProfile(client: any, customer: any, user: any, identity: CustomerPortalIdentity) {
+  const avatarPath = authorizedAvatarPath(user, identity);
   let avatarUrl: string | null = null;
   if (avatarPath) {
     const { data } = await client.storage.from("property-photos").createSignedUrl(avatarPath, 3600);
@@ -29,8 +38,8 @@ async function responseProfile(client: any, customer: any, user: any) {
 
 export async function GET(request: NextRequest) {
   try {
-    const { service, customer, user } = await requireCustomerPortalIdentity(request);
-    return NextResponse.json({ profile: await responseProfile(service, customer, user) });
+    const { service, customer, user, identity } = await requireCustomerPortalIdentity(request);
+    return NextResponse.json({ profile: await responseProfile(service, customer, user, identity) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Customer profile could not be loaded.";
     const status = /session expired|sign in/i.test(message) ? 401 : /different|only an active/i.test(message) ? 403 : 400;
@@ -54,7 +63,7 @@ export async function PATCH(request: NextRequest) {
       .select("id,full_name,phone,email,company_id,organization_id")
       .single();
     if (error) throw new Error(error.message);
-    return NextResponse.json({ saved: true, profile: await responseProfile(service, data, user) });
+    return NextResponse.json({ saved: true, profile: await responseProfile(service, data, user, identity) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Customer profile could not be saved.";
     const status = /session expired|sign in/i.test(message) ? 401 : /different|only an active/i.test(message) ? 403 : 400;
