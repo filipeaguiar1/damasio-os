@@ -37,8 +37,8 @@ const demoProperties = [
 const demoServices = [
   { name: "Weekly Lawn Care", frequency: "weekly", subtotal: 45 },
   { name: "Biweekly Lawn Care", frequency: "biweekly", subtotal: 55 },
-  { name: "Spring Cleanup", frequency: "one_time", subtotal: 229 },
-  { name: "Fall Cleanup", frequency: "one_time", subtotal: 249 },
+  { name: "Spring Cleanup", frequency: "weekly", subtotal: 229 },
+  { name: "Fall Cleanup", frequency: "biweekly", subtotal: 249 },
   { name: "Snow Removal", frequency: "weekly", subtotal: 65 },
 ] as const;
 
