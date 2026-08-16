@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   createPaymentRequestLink,
+  createManualPaymentRequestLink,
   emptyWorkspace,
   generateAgreementVisits,
   getPaymentsWorkspace,
@@ -28,7 +29,7 @@ function label(value?: string | null) {
 function tabLabel(tab: Tab) {
   if (tab === "overview") return "Overview";
   if (tab === "contracts") return "Contracts";
-  if (tab === "requests") return "Request Payment Link";
+  if (tab === "requests") return "Payment Actions";
   if (tab === "holds") return "Holds";
   return "Payouts";
 }
@@ -48,6 +49,9 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
   const [selectedJobId, setSelectedJobId] = useState("");
   const [collectionTiming, setCollectionTiming] = useState<CollectionTiming>("after_visit");
   const [requestingInvoiceId, setRequestingInvoiceId] = useState("");
+  const [requestAmount, setRequestAmount] = useState("");
+  const [requestDescription, setRequestDescription] = useState("Service payment");
+  const [creatingManualRequest, setCreatingManualRequest] = useState(false);
   const [paymentLinks, setPaymentLinks] = useState<Record<string, string>>({});
 
   async function load() {
@@ -147,6 +151,33 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
     }
   }
 
+  async function createManualRequestLink(openAfterCreate = false) {
+    if (!selectedCustomer || companyRestricted) return;
+    const amountCents = Math.round(Number(requestAmount || 0) * 100);
+    if (!Number.isSafeInteger(amountCents) || amountCents < 50) {
+      setMessage("Enter the payment amount before creating the link.");
+      return;
+    }
+    setCreatingManualRequest(true);
+    setMessage("");
+    try {
+      const result = await createManualPaymentRequestLink({
+        customerId: selectedCustomer.id,
+        amountCents,
+        description: requestDescription || "Service payment",
+      });
+      setPaymentLinks((current) => ({ ...current, [result.invoiceId]: result.url }));
+      setMessage(`Payment request ${result.invoiceNumber || ""} created.`);
+      setRequestAmount("");
+      await load();
+      if (openAfterCreate) window.open(result.url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Payment request link could not be created.");
+    } finally {
+      setCreatingManualRequest(false);
+    }
+  }
+
   function openRequestLink(invoiceId: string) {
     const url = paymentLinks[invoiceId];
     if (url) {
@@ -209,6 +240,11 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
     : "Manage company-owned customer contracts and operational payments. Platform-owned commercial terms stay private.";
   const tabs: Tab[] = companyRestricted ? ["overview", "requests"] : ["overview", "contracts", "requests", "holds", "payouts"];
 
+  const customerPicker = (mode: "compact" | "full" = "full") => <div className={mode === "compact" ? styles.inlineCustomerPicker : styles.customerFind}>
+    <label><span>Find customer</span><input value={customerQuery} onChange={(event) => setCustomerQuery(event.target.value)} placeholder="Search name, email or origin" /></label>
+    <label><span>Customer</span><select value={selectedCustomerId} onChange={(event) => { setSelectedCustomerId(event.target.value); setSelectedJobId(""); }}><option value="">Choose customer</option>{filteredCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name} · {label(customer.origin)}</option>)}</select></label>
+  </div>;
+
   return <div className={styles.shell}>
     <section className={styles.hero}>
       <div><small>{scope === "master" ? "Master financial control" : "Company financial operations"}</small><h1>{title}</h1><p>{subtitle}</p></div>
@@ -229,10 +265,7 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
 
     <section className={styles.customerSelector}>
       <div><span>Customer workspace</span><strong>{selectedCustomer?.name || "None"}</strong><small>Select a customer to view or configure only that account.</small></div>
-      <div className={styles.customerFind}>
-        <label><span>Find customer</span><input value={customerQuery} onChange={(event) => setCustomerQuery(event.target.value)} placeholder="Search name, email or origin" /></label>
-        <label><span>Customer</span><select value={selectedCustomerId} onChange={(event) => { setSelectedCustomerId(event.target.value); setSelectedJobId(""); setTab("overview"); }}><option value="">None</option>{filteredCustomers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name} · {label(customer.origin)}</option>)}</select></label>
-      </div>
+      {customerPicker()}
     </section>
 
     <section className={styles.layout}>
@@ -254,6 +287,10 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
         {tab === "contracts" && !companyRestricted && <section className={styles.panel}>
           <header className={styles.panelHeader}><div><span>Contract builder</span><h2>Define service and billing</h2><p>Select the customer above, then choose the active service job.</p></div></header>
           <form className={styles.form} onSubmit={submitContract} key={`${selectedCustomerId}-${selectedAgreement?.id || "new"}`}>
+            <div className={styles.embeddedPicker}>
+              <div><strong>{selectedCustomer?.name || "Choose a customer"}</strong><small>{selectedCustomer ? `${selectedCustomer.email || "No email"} · ${label(selectedCustomer.origin)}` : "Search by name or email to edit the contract faster."}</small></div>
+              {customerPicker("compact")}
+            </div>
             <div className={styles.formGrid}>
               <div className={`${styles.field} ${styles.wide}`}><label>Selected customer</label><input value={selectedCustomer?.name || "None"} readOnly /></div>
               <div className={`${styles.field} ${styles.wide}`}><label>Service job</label><select value={selectedJob?.id || ""} onChange={(event) => setSelectedJobId(event.target.value)} disabled={!selectedCustomer}><option value="">None</option>{customerJobs.map((job) => <option key={job.id} value={job.id}>{job.serviceName}</option>)}</select></div>
@@ -277,10 +314,22 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
         </section>}
 
         {tab === "requests" && <section className={styles.panel}>
-          <header className={styles.panelHeader}><div><span>Payment request history</span><h2>Request payment link</h2><p>{scope === "company" ? "Only company-owned customers can receive payment requests here. Master/platform customers are blocked." : "Create or reopen Stripe Checkout links for platform invoices."}</p></div><button type="button" className={`${styles.button} ${styles.secondary}`} onClick={() => void load()} disabled={loading}>{loading ? "Syncing..." : "Refresh"}</button></header>
+          <header className={styles.panelHeader}><div><span>Payment actions</span><h2>Request payment link</h2><p>{scope === "company" ? "Only company-owned customers can receive payment requests here. Master/platform customers are blocked." : "Create or reopen Stripe Checkout links, or create a manual payment request by customer and amount."}</p></div><button type="button" className={`${styles.button} ${styles.secondary}`} onClick={() => void load()} disabled={loading}>{loading ? "Syncing..." : "Refresh"}</button></header>
+          <form className={styles.manualRequest} onSubmit={(event) => { event.preventDefault(); void createManualRequestLink(true); }}>
+            <div className={styles.embeddedPicker}>
+              <div><strong>{selectedCustomer?.name || "Choose a customer"}</strong><small>{selectedCustomer ? `${selectedCustomer.email || "No email"} · ${label(selectedCustomer.origin)}` : "Find the account first, then enter the amount to charge."}</small></div>
+              {customerPicker("compact")}
+            </div>
+            <div className={styles.requestFormGrid}>
+              <div className={styles.field}><label>Amount to charge (CAD)</label><input type="number" min="0" step="0.01" value={requestAmount} onChange={(event) => setRequestAmount(event.target.value)} placeholder="0.00" /></div>
+              <div className={styles.field}><label>Description</label><input value={requestDescription} onChange={(event) => setRequestDescription(event.target.value)} placeholder="Service payment" /></div>
+              <button type="submit" className={styles.button} disabled={!selectedCustomer || companyRestricted || creatingManualRequest}>{creatingManualRequest ? "Creating..." : "Create & open link"}</button>
+            </div>
+            {!selectedCustomer ? <div className={styles.scopeLock}>Choose a customer to create a payment request.</div> : companyRestricted ? <div className={`${styles.scopeLock} ${styles.requestLock}`}>This is a Master/platform customer. The company cannot create payment requests for this account.</div> : <div className={styles.notice}>This creates an open invoice for the selected amount and opens Stripe Checkout.</div>}
+          </form>
           {scope === "company" && selectedCustomer?.origin === "platform" && <div className={`${styles.scopeLock} ${styles.requestLock}`}>This is a Master/platform customer. The company can see operational context, but payment requests are not available for this account.</div>}
           <div className={styles.cards}>
-            {visiblePaymentRequests.length === 0 ? <div className={styles.empty}>{selectedCustomer ? "No requestable invoices for this customer." : "No payment requests or open invoices in this scope yet."}</div> : visiblePaymentRequests.map((invoice) => {
+            {visiblePaymentRequests.length === 0 ? <div className={styles.empty}>{selectedCustomer ? "No open invoice history yet. Use the form above to create the first request." : "No payment requests or open invoices in this scope yet."}</div> : visiblePaymentRequests.map((invoice) => {
               const customer = workspace.customers.find((item) => item.id === invoice.customerId);
               const paid = invoice.status === "paid";
               const canRequest = !paid && (scope === "master" || customer?.origin !== "platform");
