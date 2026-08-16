@@ -20,23 +20,21 @@ function cleanGeometry(geometry: any) {
 
 export async function GET(request: NextRequest) {
   const response = await loadStrongSnapshot(request);
-  if (!response.ok) {
-    response.headers.set("Cache-Control", "no-store, max-age=0");
-    return response;
-  }
+  response.headers.set("Cache-Control", "no-store, max-age=0");
+  if (!response.ok) return response;
+
   try {
-    const snapshot = await response.json() as Record<string, any>;
-    const origin = snapshot.origin && validPoint(snapshot.origin.latitude, snapshot.origin.longitude) ? snapshot.origin : null;
+    const snapshot = await response.clone().json() as Record<string, any>;
+    const origin = snapshot.origin && validPoint(snapshot.origin.latitude, snapshot.origin.longitude)
+      ? snapshot.origin : null;
     const stops = Array.isArray(snapshot.stops) ? snapshot.stops.map((stop: any) =>
-      validPoint(stop.latitude, stop.longitude) ? stop : { ...stop, latitude: null, longitude: null }) : [];
+      validPoint(stop.latitude, stop.longitude) ? stop : Object.assign({}, stop, { latitude: null, longitude: null })) : [];
     const geometry = cleanGeometry(snapshot.geometry);
     const geometryStatus = geometry ? (snapshot.geometryStatus || "ready")
       : stops.every((stop: any) => stop.latitude !== null && stop.longitude !== null) ? "unavailable" : "incomplete";
-    return NextResponse.json({ ...snapshot, origin, stops, geometry, geometryStatus }, {
-      headers: { "Cache-Control": "no-store, max-age=0" },
-    });
+    const sanitized = Object.assign({}, snapshot, { origin, stops, geometry, geometryStatus });
+    return NextResponse.json(sanitized, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch {
-    response.headers.set("Cache-Control", "no-store, max-age=0");
     return response;
   }
 }
