@@ -1,37 +1,74 @@
 "use client";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import {useRouter} from "next/navigation";
 import { PortalShell } from "@/components/admin/PortalShell";
-import { Estimate, finalizeEstimate, getEstimates, getInvoiceForEstimate } from "@/lib/storage";
+import { loadCustomerPortal } from "@/lib/services/customerPortalService";
+import { decideCustomerQuote } from "@/lib/services/customerQuoteService";
+import type { CustomerPortalQuote } from "@/lib/repositories/customerPortalRepository";
 
-export default function CustomerEstimatesPage(){
-  const router=useRouter();
-  const [estimates,setEstimates]=useState<Estimate[]>([]);
-  const [message,setMessage]=useState("");
-  function refresh(){setEstimates(getEstimates().filter(item=>item.status!=="draft"))}
-  useEffect(()=>refresh(),[]);
-  function decide(e:Estimate,status:"approved"|"declined"){
-    if(e.status==="approved"||e.status==="declined"){
-      setMessage("This quote is already closed. Final decisions cannot be changed.");
+function money(value: number) {
+  return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(value);
+}
+
+export default function CustomerEstimatesPage() {
+  const [quotes, setQuotes] = useState<CustomerPortalQuote[]>([]);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [decidingId, setDecidingId] = useState("");
+
+  async function refresh() {
+    try {
+      const board = await loadCustomerPortal({ force: true });
+      setQuotes(board.quotes);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Quotes could not be loaded.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void refresh(); }, []);
+
+  async function decide(quote: CustomerPortalQuote, approve: boolean) {
+    if (["approved", "declined", "expired"].includes(quote.status)) {
+      setMessage("This quote already has a final status.");
       return;
     }
-    const text=status==="approved"
-      ? "Are you sure you want to approve this quote? An invoice will be created and you will proceed to payment. This cannot be declined after approval."
-      : "Are you sure you want to decline this quote? After decline it will be closed and cannot be approved.";
-    if(!window.confirm(text)) return;
-    const result=finalizeEstimate(e.id,status);
-    setMessage(result.message);
-    refresh();
-    if(result.ok&&status==="approved")router.push("/customer/payments");
+    const text = approve
+      ? "Approve this quote? The service company can then schedule the work. Billing will follow the agreed payment model; approval does not charge your card by itself."
+      : "Decline this quote? This decision closes the quote.";
+    if (!window.confirm(text)) return;
+
+    try {
+      setDecidingId(quote.id);
+      setMessage("");
+      const result = await decideCustomerQuote(quote.id, approve);
+      setMessage(result.status === "approved"
+        ? "Quote approved. Your service is ready for scheduling."
+        : "Quote declined.");
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Quote decision could not be saved.");
+    } finally {
+      setDecidingId("");
+    }
   }
+
   return <PortalShell type="Customer" active="Estimates">
-    <div className="app-top"><div><span className="eyebrow">Customer Portal</span><h1>My Estimates</h1><p className="section-intro">Approve or decline only when you are sure. Approved quotes create an invoice and move to payment.</p></div></div>
-    {message&&<div className="notice" style={{marginBottom:18}}>{message}</div>}
-    <div className="estimate-list compact-estimates">{estimates.length===0?<div className="card profile-card"><h3>No estimates yet</h3><p>Estimates created by the admin will appear here.</p></div>:estimates.map(e=>{
-      const closed=e.status==="approved"||e.status==="declined";
-      const inv=getInvoiceForEstimate(e.id);
-      return <div className="estimate-preview compact" key={e.id}><div className="estimate-compact-head"><div><span className={`estimate-status ${e.status}`}>{e.status}</span><h3>{e.title}</h3><p>{e.number} · ${e.total.toFixed(2)}</p></div></div><p className="estimate-description">{e.description}</p>{e.status==="approved"&&<div className="confirm-box"><h3>Approved</h3><p>Invoice: {inv?.number||"Creating..."} · {inv?.status.replace("_"," ")||"waiting payment"}</p>{inv?.status!=="paid"?<div className="row"><Link className="btn btn-primary" href="/customer/payments">Choose secure payment</Link><Link className="btn btn-outline" href="/customer/invoices">View Invoice</Link></div>:<Link className="btn btn-outline" href="/customer/invoices">View Paid Invoice</Link>}</div>}{e.status==="declined"&&<div className="confirm-box"><h3>Declined</h3><p>This quote is closed.</p></div>}{!closed&&<div className="row"><button className="btn btn-primary" onClick={()=>decide(e,"approved")}>Approve</button><button className="btn btn-outline" onClick={()=>decide(e,"declined")}>Decline</button></div>}</div>
-    })}</div>
-  </PortalShell>
+    <div className="app-top"><div><span className="eyebrow">Customer Portal</span><h1>My Estimates</h1><p className="section-intro">Review the live quote from your service company. Approval creates the service Job; payment happens only according to the agreed billing model.</p></div></div>
+    {message && <div className="notice" style={{ marginBottom: 18 }}>{message}</div>}
+    <div className="estimate-list compact-estimates">
+      {loading ? <div className="card profile-card"><h3>Loading estimates...</h3></div> : quotes.length === 0 ? <div className="card profile-card"><h3>No estimates yet</h3><p>Quotes connected to your account will appear here.</p></div> : quotes.map(quote => {
+        const closed = ["approved", "declined", "expired"].includes(quote.status);
+        return <div className="estimate-preview compact" key={quote.id}>
+          <div className="estimate-compact-head"><div><span className={`estimate-status ${quote.status}`}>{quote.status}</span><h3>{quote.serviceName || "Property service"}</h3><p>{quote.quoteNumber} · {money(quote.total)}</p></div></div>
+          <p className="estimate-description">{quote.notes || quote.address || "Service quote"}</p>
+          {quote.status === "approved" && <div className="confirm-box"><h3>Approved</h3><p>The service can now be scheduled. Billing will appear when it becomes due.</p><div className="row"><Link className="btn btn-outline" href="/customer/invoices">View Invoices</Link><Link className="btn btn-outline" href="/customer/services">View Services</Link></div></div>}
+          {quote.status === "declined" && <div className="confirm-box"><h3>Declined</h3><p>This quote is closed.</p></div>}
+          {!closed && <div className="row"><button className="btn btn-primary" disabled={decidingId === quote.id} onClick={() => void decide(quote, true)}>{decidingId === quote.id ? "Saving..." : "Approve"}</button><button className="btn btn-outline" disabled={decidingId === quote.id} onClick={() => void decide(quote, false)}>Decline</button></div>}
+        </div>;
+      })}
+    </div>
+  </PortalShell>;
 }
