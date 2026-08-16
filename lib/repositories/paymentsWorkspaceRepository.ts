@@ -90,8 +90,8 @@ function originOf(row: any): PaymentsCustomer["origin"] {
   return "company_created";
 }
 
-function normalizeWorkspace(value: Partial<PaymentsWorkspace> | Record<string, any>) {
-  const customers = Array.isArray(value.customers) ? value.customers.map((row: any) => ({
+function normalizeWorkspace(value: Partial<PaymentsWorkspace> | Record<string, any>): PaymentsWorkspace {
+  const customers: PaymentsCustomer[] = Array.isArray(value.customers) ? value.customers.map((row: any): PaymentsCustomer => ({
     id: asString(row.id || row.customerId || row.customer_id),
     name: asString(row.name || row.fullName || row.full_name || row.customerName || row.customer_name, "Unnamed customer"),
     email: asNullableString(row.email || row.customerEmail || row.customer_email),
@@ -101,7 +101,7 @@ function normalizeWorkspace(value: Partial<PaymentsWorkspace> | Record<string, a
     assignmentStatus: asString(row.assignmentStatus || row.assignment_status, "active"),
   })).filter((customer: PaymentsCustomer) => customer.id) : [];
 
-  const jobs = Array.isArray(value.jobs) ? value.jobs.map((row: any) => ({
+  const jobs: PaymentsJob[] = Array.isArray(value.jobs) ? value.jobs.map((row: any): PaymentsJob => ({
     id: asString(row.id || row.jobId || row.job_id),
     customerId: asString(row.customerId || row.customer_id),
     propertyId: asNullableString(row.propertyId || row.property_id),
@@ -110,7 +110,7 @@ function normalizeWorkspace(value: Partial<PaymentsWorkspace> | Record<string, a
     active: row.active !== false,
   })).filter((job: PaymentsJob) => job.id && job.customerId) : [];
 
-  const agreements = Array.isArray(value.agreements) ? value.agreements.map((row: any) => ({
+  const agreements: PaymentsAgreement[] = Array.isArray(value.agreements) ? value.agreements.map((row: any): PaymentsAgreement => ({
     id: asString(row.id || row.agreementId || row.agreement_id),
     jobId: asString(row.jobId || row.job_id),
     customerId: asString(row.customerId || row.customer_id),
@@ -129,7 +129,7 @@ function normalizeWorkspace(value: Partial<PaymentsWorkspace> | Record<string, a
     active: row.active !== false,
   })).filter((agreement: PaymentsAgreement) => agreement.id) : [];
 
-  const events = Array.isArray(value.events) ? value.events.map((row: any) => ({
+  const events: PaymentsEvent[] = Array.isArray(value.events) ? value.events.map((row: any): PaymentsEvent => ({
     id: asString(row.id || row.eventId || row.event_id),
     visitId: asString(row.visitId || row.visit_id),
     customerId: asString(row.customerId || row.customer_id),
@@ -139,7 +139,7 @@ function normalizeWorkspace(value: Partial<PaymentsWorkspace> | Record<string, a
     transferredAt: asNullableString(row.transferredAt || row.transferred_at),
   })).filter((event: PaymentsEvent) => event.id) : [];
 
-  const invoices = Array.isArray(value.invoices) ? value.invoices.map((row: any) => ({
+  const invoices: PaymentsInvoice[] = Array.isArray(value.invoices) ? value.invoices.map((row: any): PaymentsInvoice => ({
     id: asString(row.id || row.invoiceId || row.invoice_id),
     customerId: asString(row.customerId || row.customer_id),
     number: asString(row.number || row.invoiceNumber || row.invoice_number, "Invoice"),
