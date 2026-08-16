@@ -101,7 +101,7 @@ export default function MasterTestAccessPage(){
     if(!ids.length)return;
     if(!window.confirm(`Disable ${ids.length} selected test profile${ids.length===1?"":"s"}?`))return;
     setBusy(true);
-    try{const token=await accessToken();const response=await fetch("/api/master/test-accounts",{method:"DELETE",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},body:JSON.stringify({ids})});const result=await response.json();if(!response.ok)throw new Error(result.error||"Selected test profiles could not be disabled.");setSelectedIds([]);setMessage(`${result.ids?.length||ids.length} selected test profile${ids.length===1?"":"s"} disabled.`);await load()}
+    try{const token=await accessToken();let disabledCount=0;for(const id of ids){const response=await fetch("/api/master/test-accounts",{method:"DELETE",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},body:JSON.stringify({id})});const result=await response.json();if(!response.ok)throw new Error(result.error||"Selected test profiles could not be disabled.");disabledCount+=1}setSelectedIds([]);setMessage(`${disabledCount} selected test profile${disabledCount===1?"":"s"} disabled.`);await load()}
     catch(error){setMessage(error instanceof Error?error.message:"Selected test profiles could not be disabled.")}
     finally{setBusy(false)}
   }
