@@ -2,8 +2,23 @@
 
 import { createId } from "@/lib/id";
 import { useMemo, useState } from "react";
-import { calculateQuote, serviceLabels, ServiceKey, type DifficultyKey } from "@/lib/pricing";
-import { saveLead, saveEstimate, GrassHandling, LawnSize, GrassHeight } from "@/lib/storage";
+import {
+  calculateQuote,
+  serviceLabels,
+  ServiceKey,
+  type CleanupDebrisLevelKey,
+  type CleanupDisposalKey,
+  type CleanupLeafLevelKey,
+  type CleanupVisitCountKey,
+  type DifficultyKey,
+  type GrassHandlingKey,
+  type SnowAreaKey,
+  type SnowBillingKey,
+  type SnowDrivewaySizeKey,
+  type SnowSaltKey,
+  type SnowSidewalkKey,
+} from "@/lib/pricing";
+import { saveLead, saveEstimate, LawnSize, GrassHeight } from "@/lib/storage";
 import { AddressAutocomplete } from "@/components/home/AddressAutocomplete";
 
 const services: { key: ServiceKey; note?: string }[] = [
@@ -12,17 +27,77 @@ const services: { key: ServiceKey; note?: string }[] = [
   { key: "one_time_lawn" },
   { key: "spring_cleanup", note: "Seasonal estimate" },
   { key: "fall_cleanup", note: "Seasonal estimate" },
-  { key: "snow_removal" },
+  { key: "snow_removal", note: "Winter estimate" },
   { key: "extra_service", note: "Admin review" },
 ];
+
+const lawnServices: ServiceKey[] = ["weekly_lawn", "biweekly_lawn", "one_time_lawn"];
+
+const labels: Record<string, string> = {
+  xs: "XS",
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+  oversize: "Oversize",
+  "2in": "2 inches",
+  "3in": "3 inches",
+  "4in": "4 inches",
+  "5in": "5 inches",
+  mulched: "Mulched",
+  bag_green_bin: "Bag to green bin",
+  bag_leave_property: "Bag and leave on property",
+  removed: "Removed",
+  light: "Light",
+  moderate: "Moderate",
+  heavy: "Heavy",
+  not_sure: "Not sure",
+  typical: "Typical",
+  wooded: "Large / wooded",
+  haul_away: "Haul away debris",
+  mulch_wooded_area: "Mulch or blow into wooded area",
+  quote_both: "Quote both",
+  one: "One visit",
+  two: "Two visits",
+  unlimited: "Unlimited visits",
+  one_car: "1-car driveway",
+  two_car: "2-car driveway",
+  three_car: "3-car driveway",
+  four_plus: "4+ car driveway",
+  custom: "Custom / long driveway",
+  under_500: "Under 500 sq ft",
+  "500_1000": "500-1,000 sq ft",
+  "1000_1500": "1,000-1,500 sq ft",
+  "1500_plus": "1,500+ sq ft",
+  no: "No",
+  yes: "Yes",
+  front_walk: "Front walkway",
+  sidewalk_steps: "Sidewalk and steps",
+  all_paved: "All paved surfaces",
+  per_storm: "Per storm",
+  seasonal: "Seasonal",
+  both: "Quote both",
+};
+
+function pretty(value?: string) {
+  return value ? labels[value] || value.replaceAll("_", " ") : "";
+}
 
 export function QuoteWizard() {
   const [step, setStep] = useState(1);
   const [service, setService] = useState<ServiceKey>("weekly_lawn");
   const [size, setSize] = useState<LawnSize | "">("");
-  const [grassHandling, setGrassHandling] = useState<GrassHandling | "">("");
+  const [grassHandling, setGrassHandling] = useState<GrassHandlingKey | "">("");
   const [grassHeight, setGrassHeight] = useState<GrassHeight | "">("");
   const [difficulty, setDifficulty] = useState<DifficultyKey | "">("");
+  const [cleanupLeafLevel, setCleanupLeafLevel] = useState<CleanupLeafLevelKey | "">("");
+  const [cleanupDebrisLevel, setCleanupDebrisLevel] = useState<CleanupDebrisLevelKey | "">("");
+  const [cleanupDisposal, setCleanupDisposal] = useState<CleanupDisposalKey | "">("");
+  const [cleanupVisitCount, setCleanupVisitCount] = useState<CleanupVisitCountKey | "">("");
+  const [snowDrivewaySize, setSnowDrivewaySize] = useState<SnowDrivewaySizeKey | "">("");
+  const [snowArea, setSnowArea] = useState<SnowAreaKey | "">("");
+  const [snowSidewalk, setSnowSidewalk] = useState<SnowSidewalkKey | "">("");
+  const [snowSalt, setSnowSalt] = useState<SnowSaltKey | "">("");
+  const [snowBilling, setSnowBilling] = useState<SnowBillingKey | "">("");
   const [quoteNumber, setQuoteNumber] = useState("");
   const [referralCode, setReferralCode] = useState("");
   const [lead, setLead] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
@@ -30,28 +105,60 @@ export function QuoteWizard() {
   const [busy, setBusy] = useState(false);
 
   const isExtra = service === "extra_service";
-  const isSeasonal = service === "spring_cleanup" || service === "fall_cleanup";
-  const hasServiceDetails = Boolean(size && grassHeight && grassHandling && difficulty);
+  const isLawn = lawnServices.includes(service);
+  const isCleanup = service === "spring_cleanup" || service === "fall_cleanup";
+  const isSnow = service === "snow_removal";
+  const hasLawnDetails = Boolean(size && grassHeight && grassHandling && difficulty);
+  const hasCleanupDetails = Boolean(size && cleanupLeafLevel && cleanupDebrisLevel && cleanupDisposal && cleanupVisitCount && difficulty);
+  const hasSnowDetails = Boolean(size && snowDrivewaySize && snowArea && snowSidewalk && snowSalt && snowBilling && difficulty);
+  const hasServiceDetails = isExtra || (isLawn && hasLawnDetails) || (isCleanup && hasCleanupDetails) || (isSnow && hasSnowDetails);
+  const missingDetailsMessage = isLawn
+    ? "Choose lawn size, grass height, grass handling and terrain difficulty."
+    : isCleanup
+      ? "Choose property size, leaf amount, debris level, disposal, visit count and terrain difficulty."
+      : isSnow
+        ? "Choose property size, driveway size, snow area, sidewalk clearing, salting, billing and difficulty."
+        : "Describe the service you need.";
+
   const quote = useMemo(() => {
-    if (!hasServiceDetails) return { subtotal: 0, tax: 0, total: 0 };
+    if (!hasServiceDetails || isExtra) return { subtotal: 0, tax: 0, total: 0 };
     return calculateQuote({
       service,
       size: size as LawnSize,
-      grassHeight: grassHeight as GrassHeight,
-      grassHandling: grassHandling as GrassHandling,
-      difficulty: difficulty as DifficultyKey,
+      grassHeight: grassHeight || undefined,
+      grassHandling: grassHandling || undefined,
+      difficulty: difficulty || undefined,
+      cleanupLeafLevel: cleanupLeafLevel || undefined,
+      cleanupDebrisLevel: cleanupDebrisLevel || undefined,
+      cleanupDisposal: cleanupDisposal || undefined,
+      cleanupVisitCount: cleanupVisitCount || undefined,
+      snowDrivewaySize: snowDrivewaySize || undefined,
+      snowArea: snowArea || undefined,
+      snowSidewalk: snowSidewalk || undefined,
+      snowSalt: snowSalt || undefined,
+      snowBilling: snowBilling || undefined,
     });
-  }, [service, size, grassHeight, grassHandling, difficulty, hasServiceDetails]);
+  }, [service, size, grassHeight, grassHandling, difficulty, cleanupLeafLevel, cleanupDebrisLevel, cleanupDisposal, cleanupVisitCount, snowDrivewaySize, snowArea, snowSidewalk, snowSalt, snowBilling, hasServiceDetails, isExtra]);
+
   const detailsSummary = [
-    size ? `Lawn size: ${size}` : null,
-    grassHeight ? `Grass height: ${grassHeight}` : null,
-    grassHandling ? `Grass handling: ${grassHandling.replaceAll("_", " ")}` : null,
-    difficulty ? `Terrain difficulty: ${difficulty === "yes" ? "Yes" : "No"}` : null,
+    size ? `Property size: ${pretty(size)}` : null,
+    isLawn && grassHeight ? `Grass height: ${pretty(grassHeight)}` : null,
+    isLawn && grassHandling ? `Grass handling: ${pretty(grassHandling)}` : null,
+    isCleanup && cleanupLeafLevel ? `Leaf amount: ${pretty(cleanupLeafLevel)}` : null,
+    isCleanup && cleanupDebrisLevel ? `Stick/debris pickup: ${pretty(cleanupDebrisLevel)}` : null,
+    isCleanup && cleanupDisposal ? `Cleanup disposal: ${pretty(cleanupDisposal)}` : null,
+    isCleanup && cleanupVisitCount ? `Cleanup visits: ${pretty(cleanupVisitCount)}` : null,
+    isSnow && snowDrivewaySize ? `Driveway size: ${pretty(snowDrivewaySize)}` : null,
+    isSnow && snowArea ? `Snow clearing area: ${pretty(snowArea)}` : null,
+    isSnow && snowSidewalk ? `Sidewalk/walkway clearing: ${pretty(snowSidewalk)}` : null,
+    isSnow && snowSalt ? `Salt/de-icing: ${pretty(snowSalt)}` : null,
+    isSnow && snowBilling ? `Snow billing preference: ${pretty(snowBilling)}` : null,
+    difficulty ? `Terrain/access difficulty: ${pretty(difficulty)}` : null,
   ].filter(Boolean).join(" | ");
 
   function showQuote() {
     if (!lead.address.trim()) return setMsg("Add the property address first.");
-    if (!isExtra && !hasServiceDetails) return setMsg("Choose lawn size, grass height, grass handling and terrain difficulty.");
+    if (!hasServiceDetails) return setMsg(missingDetailsMessage);
     if (!lead.name.trim() || !lead.phone.trim() || !lead.email.trim()) return setMsg("Add name, phone and email before showing the quote.");
     setMsg("");
     setStep(4);
@@ -63,7 +170,22 @@ export function QuoteWizard() {
     setMsg("Sending your quote request to Admin...");
     try {
       const quoteNotes = [lead.notes, !isExtra ? detailsSummary : null, !isExtra ? `Average estimate shown: $${quote.total.toFixed(2)}` : null].filter(Boolean).join(" | ");
-      const propertyDetails = hasServiceDetails ? { lawnSize: size, grassHeight, grassHandling, difficulty } : undefined;
+      const propertyDetails = hasServiceDetails && !isExtra ? {
+        serviceCategory: isLawn ? "lawn" : isCleanup ? "cleanup" : "snow",
+        lawnSize: size,
+        grassHeight: isLawn ? grassHeight : undefined,
+        grassHandling: isLawn ? grassHandling : undefined,
+        difficulty,
+        cleanupLeafLevel: isCleanup ? cleanupLeafLevel : undefined,
+        cleanupDebrisLevel: isCleanup ? cleanupDebrisLevel : undefined,
+        cleanupDisposal: isCleanup ? cleanupDisposal : undefined,
+        cleanupVisitCount: isCleanup ? cleanupVisitCount : undefined,
+        snowDrivewaySize: isSnow ? snowDrivewaySize : undefined,
+        snowArea: isSnow ? snowArea : undefined,
+        snowSidewalk: isSnow ? snowSidewalk : undefined,
+        snowSalt: isSnow ? snowSalt : undefined,
+        snowBilling: isSnow ? snowBilling : undefined,
+      } : undefined;
       const response = await fetch("/api/public/quote-referral", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -87,7 +209,7 @@ export function QuoteWizard() {
         paymentStatus: "not_selected",
         notes: quoteNotes,
         photos: [],
-        propertyDetails: { lawnSize: (size || "small") as LawnSize, grassHeight: (grassHeight || "3in") as GrassHeight, grassHandling: (grassHandling || "mulched") as GrassHandling, backyard: false, gated: false, adminNotes: "", propertyAlerts: "", accessNotes: "" },
+        propertyDetails: { lawnSize: (size || "small") as LawnSize, grassHeight: (isLawn ? grassHeight || "3in" : "3in") as GrassHeight, grassHandling: isLawn ? (grassHandling || "mulched") as any : "no_preference", backyard: false, gated: false, adminNotes: detailsSummary, propertyAlerts: "", accessNotes: "" },
       });
       const estimate = saveEstimate({
         validUntil: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
@@ -114,21 +236,41 @@ export function QuoteWizard() {
 
       {step === 1 && <div className="stack">
         <strong>What service do you need?</strong>
-        <div className="option-grid">{services.map(item => <button key={item.key} className={service === item.key ? "option active" : "option"} onClick={() => setService(item.key)}><strong>{serviceLabels[item.key]}</strong>{item.note && <small>{item.note}</small>}</button>)}</div>
-        {isSeasonal && <div className="notice">Admin confirms the exact service date after review.</div>}
+        <div className="option-grid">{services.map(item => <button key={item.key} className={service === item.key ? "option active" : "option"} onClick={() => { setService(item.key); setMsg(""); }}><strong>{serviceLabels[item.key]}</strong>{item.note && <small>{item.note}</small>}</button>)}</div>
+        {isCleanup && <div className="notice">Spring and fall cleanup estimates use leaf volume, debris, disposal and visit count. Admin confirms the final scope after review.</div>}
+        {isSnow && <div className="notice">Snow estimates use driveway size, paved area, sidewalk/walkway scope, salting and seasonal/per-storm preference.</div>}
         <button className="btn btn-primary" onClick={() => setStep(2)}>Next</button>
       </div>}
 
       {step === 2 && <div className="stack">
         <div className="field"><label>Property address</label><AddressAutocomplete value={lead.address} onChange={address => setLead({ ...lead, address })} placeholder="Street, city, postal code" ariaLabel="Property address" /></div>
         {!isExtra ? <>
-          <div className="field"><label>Lawn size</label><select className="input" required value={size} onChange={event => setSize(event.target.value as LawnSize | "")}><option value="">Choose size</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option><option value="oversize">Oversize</option></select></div>
-          <div className="field"><label>Grass height</label><select className="input" required value={grassHeight} onChange={event => setGrassHeight(event.target.value as GrassHeight | "")}><option value="">Choose height</option><option value="2in">2&quot;</option><option value="3in">3&quot;</option><option value="4in">4&quot;</option><option value="5in">5&quot;</option></select></div>
-          <div className="field"><label>Grass handling</label><select className="input" required value={grassHandling} onChange={event => setGrassHandling(event.target.value as GrassHandling | "")}><option value="">Choose handling</option><option value="mulched">Mulched</option><option value="bag_green_bin">Bag to green bin</option><option value="bag_leave_property">Bag and leave on property</option><option value="removed">Removed</option></select></div>
-          <div className="field"><label>Terrain difficulty</label><select className="input" required value={difficulty} onChange={event => setDifficulty(event.target.value as DifficultyKey | "")}><option value="">Choose difficulty</option><option value="no">No</option><option value="yes">Yes</option></select></div>
+          <div className="field"><label>{isSnow ? "Property / lot size" : isCleanup ? "Property cleanup size" : "Lawn size"}</label><select className="input" required value={size} onChange={event => setSize(event.target.value as LawnSize | "")}><option value="">Choose size</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option><option value="oversize">Oversize</option></select></div>
+
+          {isLawn && <>
+            <div className="field"><label>Grass height</label><select className="input" required value={grassHeight} onChange={event => setGrassHeight(event.target.value as GrassHeight | "")}><option value="">Choose height</option><option value="2in">2&quot;</option><option value="3in">3&quot;</option><option value="4in">4&quot;</option><option value="5in">5&quot;</option></select></div>
+            <div className="field"><label>Grass handling</label><select className="input" required value={grassHandling} onChange={event => setGrassHandling(event.target.value as GrassHandlingKey | "")}><option value="">Choose handling</option><option value="mulched">Mulched</option><option value="bag_green_bin">Bag to green bin</option><option value="bag_leave_property">Bag and leave on property</option><option value="removed">Removed</option></select></div>
+          </>}
+
+          {isCleanup && <>
+            <div className="field"><label>Leaf amount</label><select className="input" required value={cleanupLeafLevel} onChange={event => setCleanupLeafLevel(event.target.value as CleanupLeafLevelKey | "")}><option value="">Choose leaf amount</option><option value="light">Light - up to 10 bags</option><option value="moderate">Moderate - 11 to 25 bags</option><option value="heavy">Heavy - 26+ bags / many trees</option><option value="not_sure">Not sure</option></select></div>
+            <div className="field"><label>Sticks and debris</label><select className="input" required value={cleanupDebrisLevel} onChange={event => setCleanupDebrisLevel(event.target.value as CleanupDebrisLevelKey | "")}><option value="">Choose debris level</option><option value="light">Light pickup</option><option value="typical">Typical branches/debris</option><option value="wooded">Large or wooded property</option></select></div>
+            <div className="field"><label>Yard debris disposal</label><select className="input" required value={cleanupDisposal} onChange={event => setCleanupDisposal(event.target.value as CleanupDisposalKey | "")}><option value="">Choose disposal</option><option value="haul_away">Haul away debris</option><option value="bag_leave_property">Bag and leave on property</option><option value="mulch_wooded_area">Mulch / blow into wooded area</option><option value="quote_both">Quote both options</option></select></div>
+            <div className="field"><label>Cleanup visits</label><select className="input" required value={cleanupVisitCount} onChange={event => setCleanupVisitCount(event.target.value as CleanupVisitCountKey | "")}><option value="">Choose visits</option><option value="one">One visit</option><option value="two">Two visits</option><option value="unlimited">Unlimited fall visits</option></select></div>
+          </>}
+
+          {isSnow && <>
+            <div className="field"><label>Driveway size</label><select className="input" required value={snowDrivewaySize} onChange={event => setSnowDrivewaySize(event.target.value as SnowDrivewaySizeKey | "")}><option value="">Choose driveway</option><option value="one_car">1-car driveway</option><option value="two_car">2-car driveway</option><option value="three_car">3-car driveway</option><option value="four_plus">4+ car driveway</option><option value="custom">Long/custom driveway</option></select></div>
+            <div className="field"><label>Snow clearing area</label><select className="input" required value={snowArea} onChange={event => setSnowArea(event.target.value as SnowAreaKey | "")}><option value="">Choose area</option><option value="under_500">Under 500 sq ft</option><option value="500_1000">500 - 1,000 sq ft</option><option value="1000_1500">1,000 - 1,500 sq ft</option><option value="1500_plus">1,500+ sq ft</option></select></div>
+            <div className="field"><label>Sidewalk / walkway clearing</label><select className="input" required value={snowSidewalk} onChange={event => setSnowSidewalk(event.target.value as SnowSidewalkKey | "")}><option value="">Choose sidewalk scope</option><option value="no">No</option><option value="front_walk">Front walkway</option><option value="sidewalk_steps">Sidewalk and steps</option><option value="all_paved">All paved surfaces</option></select></div>
+            <div className="field"><label>Salt / de-icing</label><select className="input" required value={snowSalt} onChange={event => setSnowSalt(event.target.value as SnowSaltKey | "")}><option value="">Choose salting</option><option value="no">No</option><option value="yes">Yes</option><option value="quote_both">Quote both</option></select></div>
+            <div className="field"><label>Snow billing preference</label><select className="input" required value={snowBilling} onChange={event => setSnowBilling(event.target.value as SnowBillingKey | "")}><option value="">Choose billing</option><option value="per_storm">Per storm</option><option value="seasonal">Seasonal</option><option value="both">Quote both</option></select></div>
+          </>}
+
+          <div className="field"><label>Terrain / access difficulty</label><select className="input" required value={difficulty} onChange={event => setDifficulty(event.target.value as DifficultyKey | "")}><option value="">Choose difficulty</option><option value="no">No</option><option value="yes">Yes</option></select></div>
         </> : <div className="field"><label>Tell us what you need</label><textarea className="input" style={{ minHeight: 120 }} value={lead.notes} onChange={event => setLead({ ...lead, notes: event.target.value })} /></div>}
         {msg && <div className="payment-message">{msg}</div>}
-        <div className="row"><button className="btn btn-outline" onClick={() => setStep(1)}>Back</button><button className="btn btn-primary" onClick={() => { if (!lead.address.trim()) return setMsg("Add the property address first."); if (!isExtra && !hasServiceDetails) return setMsg("Choose lawn size, grass height, grass handling and terrain difficulty."); setMsg(""); setStep(3); }}>Next</button></div>
+        <div className="row"><button className="btn btn-outline" onClick={() => setStep(1)}>Back</button><button className="btn btn-primary" onClick={() => { if (!lead.address.trim()) return setMsg("Add the property address first."); if (!hasServiceDetails) return setMsg(missingDetailsMessage); setMsg(""); setStep(3); }}>Next</button></div>
       </div>}
 
       {step === 3 && <div className="stack">

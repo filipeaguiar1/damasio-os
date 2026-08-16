@@ -5,10 +5,20 @@ import { z } from "zod";
 export const dynamic = "force-dynamic";
 
 const propertyDetails = z.object({
-  lawnSize: z.enum(["xs", "small", "medium", "large", "legacy", "oversize"]),
-  grassHeight: z.enum(["2in", "3in", "4in", "5in"]),
-  grassHandling: z.enum(["mulched", "bag_green_bin", "bag_leave_property", "removed", "no_preference"]),
+  serviceCategory: z.enum(["lawn", "cleanup", "snow"]).optional(),
+  lawnSize: z.enum(["xs", "small", "medium", "large", "legacy", "oversize"]).optional(),
+  grassHeight: z.enum(["2in", "3in", "4in", "5in"]).optional(),
+  grassHandling: z.enum(["mulched", "bag_green_bin", "bag_leave_property", "removed", "no_preference"]).optional(),
   difficulty: z.enum(["yes", "no"]).optional(),
+  cleanupLeafLevel: z.enum(["light", "moderate", "heavy", "not_sure"]).optional(),
+  cleanupDebrisLevel: z.enum(["light", "typical", "wooded"]).optional(),
+  cleanupDisposal: z.enum(["haul_away", "bag_leave_property", "mulch_wooded_area", "quote_both"]).optional(),
+  cleanupVisitCount: z.enum(["one", "two", "unlimited"]).optional(),
+  snowDrivewaySize: z.enum(["one_car", "two_car", "three_car", "four_plus", "custom"]).optional(),
+  snowArea: z.enum(["under_500", "500_1000", "1000_1500", "1500_plus"]).optional(),
+  snowSidewalk: z.enum(["no", "front_walk", "sidewalk_steps", "all_paved"]).optional(),
+  snowSalt: z.enum(["no", "yes", "quote_both"]).optional(),
+  snowBilling: z.enum(["per_storm", "seasonal", "both"]).optional(),
   backyard: z.boolean().optional(),
   gated: z.boolean().optional(),
   annual: z.boolean().optional(),
@@ -27,17 +37,84 @@ const quoteReferral = z.object({
   website: z.string().max(0).optional()
 }).strict();
 
+const detailLabels: Record<string, string> = {
+  lawn: "Lawn",
+  cleanup: "Seasonal cleanup",
+  snow: "Snow removal",
+  xs: "XS",
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+  legacy: "Large",
+  oversize: "Oversize",
+  "2in": "2 inches",
+  "3in": "3 inches",
+  "4in": "4 inches",
+  "5in": "5 inches",
+  mulched: "Mulched",
+  bag_green_bin: "Bag to green bin",
+  bag_leave_property: "Bag and leave on property",
+  removed: "Removed",
+  no_preference: "No preference",
+  yes: "Yes",
+  no: "No",
+  light: "Light",
+  moderate: "Moderate",
+  heavy: "Heavy",
+  not_sure: "Not sure",
+  typical: "Typical branches/debris",
+  wooded: "Large / wooded property",
+  haul_away: "Haul away debris",
+  mulch_wooded_area: "Mulch or blow into wooded area",
+  quote_both: "Quote both",
+  one: "One visit",
+  two: "Two visits",
+  unlimited: "Unlimited visits",
+  one_car: "1-car driveway",
+  two_car: "2-car driveway",
+  three_car: "3-car driveway",
+  four_plus: "4+ car driveway",
+  custom: "Custom / long driveway",
+  under_500: "Under 500 sq ft",
+  "500_1000": "500-1,000 sq ft",
+  "1000_1500": "1,000-1,500 sq ft",
+  "1500_plus": "1,500+ sq ft",
+  front_walk: "Front walkway",
+  sidewalk_steps: "Sidewalk and steps",
+  all_paved: "All paved surfaces",
+  per_storm: "Per storm",
+  seasonal: "Seasonal",
+  both: "Quote both",
+};
+
+function detailLabel(value?: string) {
+  return value ? detailLabels[value] || value.replaceAll("_", " ") : "";
+}
+
 function propertyValues(details?: z.infer<typeof propertyDetails>) {
   if (!details) return {};
+  const values: Record<string, string> = {};
+  if (details.lawnSize) values.lot_size = details.lawnSize;
+  if (details.grassHeight) values.grass_height = details.grassHeight;
+
   const propertyNotes = [
-    `Grass handling: ${details.grassHandling.replaceAll("_", " ")}`,
-    `Terrain difficulty: ${details.difficulty === "yes" ? "Yes" : "No"}`,
-  ].join(" | ");
-  return {
-    lot_size: details.lawnSize,
-    grass_height: details.grassHeight,
-    property_notes: propertyNotes,
-  };
+    details.serviceCategory ? `Service category: ${detailLabel(details.serviceCategory)}` : null,
+    details.lawnSize ? `Property size: ${detailLabel(details.lawnSize)}` : null,
+    details.grassHeight ? `Grass height: ${detailLabel(details.grassHeight)}` : null,
+    details.grassHandling ? `Grass handling: ${detailLabel(details.grassHandling)}` : null,
+    details.cleanupLeafLevel ? `Leaf amount: ${detailLabel(details.cleanupLeafLevel)}` : null,
+    details.cleanupDebrisLevel ? `Stick/debris pickup: ${detailLabel(details.cleanupDebrisLevel)}` : null,
+    details.cleanupDisposal ? `Cleanup disposal: ${detailLabel(details.cleanupDisposal)}` : null,
+    details.cleanupVisitCount ? `Cleanup visits: ${detailLabel(details.cleanupVisitCount)}` : null,
+    details.snowDrivewaySize ? `Driveway size: ${detailLabel(details.snowDrivewaySize)}` : null,
+    details.snowArea ? `Snow clearing area: ${detailLabel(details.snowArea)}` : null,
+    details.snowSidewalk ? `Sidewalk/walkway clearing: ${detailLabel(details.snowSidewalk)}` : null,
+    details.snowSalt ? `Salt/de-icing: ${detailLabel(details.snowSalt)}` : null,
+    details.snowBilling ? `Snow billing preference: ${detailLabel(details.snowBilling)}` : null,
+    details.difficulty ? `Terrain/access difficulty: ${detailLabel(details.difficulty)}` : null,
+  ].filter(Boolean).join(" | ");
+  if (propertyNotes) values.property_notes = propertyNotes;
+  return values;
 }
 
 export async function POST(request: NextRequest) {
