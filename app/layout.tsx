@@ -11,6 +11,7 @@ import "./mobile-employee-polish.css";
 import "./mobile-employee-polish-v2.css";
 import "./mobile-employee-polish-v3.css";
 import "./e2e-surface-fixes.css";
+import "./customer-task-detail-polish.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 import {AdminAccessFallback} from "@/components/master/AdminAccessFallback";
 import {CustomerLegacyDataGuard} from "@/components/customer/CustomerLegacyDataGuard";
