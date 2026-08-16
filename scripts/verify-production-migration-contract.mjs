@@ -14,6 +14,8 @@ const expected = new Map([
   ["supabase/migrations/20260816004422_schedule_visit_billing_processor.sql", ["process-visit-billing-events-hourly", "pg_cron"]],
   ["supabase/migrations/20260816010204_add_account_balance_payment_method.sql", ["account_balance"]],
   ["supabase/migrations/20260816010552_enable_account_balance_invoice_payments.sql", ["pay_customer_invoice_from_wallet", "customer_wallet_service_invoice_unique"]],
+  ["supabase/migrations/20260816020103_admin_workspace_payment_and_temporary_access.sql", ["temporary_test_accounts", "get_admin_task_properties", "get_admin_alert_center", "get_payments_contract_workspace"]],
+  ["supabase/migrations/20260816021540_temporary_test_account_fk_indexes.sql", ["temporary_test_accounts_created_by_master_idx", "temporary_test_accounts_customer_idx", "temporary_test_accounts_employee_idx"]],
 ]);
 
 for (const [path, fragments] of expected) {
