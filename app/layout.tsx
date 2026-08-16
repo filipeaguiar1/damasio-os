@@ -7,11 +7,13 @@ import "./role-mobile-system.css";
 import "./customer-mobile-overnight.css";
 import "./e2e-surface-fixes.css";
 import "./route-build-polish.css";
+import "./mobile-employee-polish.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 import {AdminAccessFallback} from "@/components/master/AdminAccessFallback";
 import {CustomerLegacyDataGuard} from "@/components/customer/CustomerLegacyDataGuard";
 import {RouteAdvisorFeedbackNavigator} from "@/components/admin/RouteAdvisorFeedbackNavigator";
 import {CustomerSelectSearchEnhancer} from "@/components/payments/CustomerSelectSearchEnhancer";
+import {EmployeeMobilePolish} from "@/components/mobile/EmployeeMobilePolish";
 
 export const metadata: Metadata = {
   title: "4Ever Seasons | Premium Property Care",
@@ -27,5 +29,5 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="en" data-season="summer"><body><SeasonThemeProvider><CustomerLegacyDataGuard/><RouteAdvisorFeedbackNavigator/><CustomerSelectSearchEnhancer/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
+  return <html lang="en" data-season="summer"><body><SeasonThemeProvider><CustomerLegacyDataGuard/><RouteAdvisorFeedbackNavigator/><EmployeeMobilePolish/><CustomerSelectSearchEnhancer/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
 }
