@@ -112,6 +112,7 @@ export function useCustomerWallet() {
     message,
     topUp,
     reload: load,
+    refresh: load,
     clearMessage: () => setMessage("")
   };
 }
