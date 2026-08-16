@@ -12,6 +12,8 @@ function failure(message: string, status: number) {
 export async function GET(request: NextRequest) {
   try {
     const { service: db, customer, identity } = await requireCustomerPortalIdentity(request);
+    if (!customer) return failure("Customer account is not linked yet.", 403);
+
     const { data: wallet, error: walletError } = await db
       .from("customer_wallets")
       .select("balance_cents,updated_at")
@@ -53,6 +55,8 @@ export async function POST(request: NextRequest) {
     if (!stripeKey) return failure("Account deposit checkout is not configured yet.", 503);
 
     const { user, customer, identity } = await requireCustomerPortalIdentity(request);
+    if (!customer) return failure("Customer account is not linked yet.", 403);
+
     const body = (await request.json()) as { credits?: number; returnPath?: string };
     const credits = Number(body.credits);
     if (!Number.isInteger(credits) || credits < 5 || credits > 1000) {
