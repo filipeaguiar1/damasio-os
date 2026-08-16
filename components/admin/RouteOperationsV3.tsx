@@ -1,0 +1,124 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { OfficialRoutePlanMap } from "@/components/admin/OfficialRoutePlanMap";
+import { RouteAdvisorWorkspace } from "@/components/admin/RouteAdvisorWorkspace";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { operationalDateKey } from "@/lib/dates/operationalDate";
+import { canonicalRouteLeadsForEmployee, canonicalRouteWarnings } from "@/lib/routes/canonicalRouteIdentity";
+import { haversineKm } from "@/lib/routes/routeAdvisor";
+import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulingService";
+import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
+
+type Employee={id:string;employeeId:string|null;crewId:string;employeeIds?:string[];crewIds?:string[];name:string;email:string;routeStartAddress:string|null;dailyCapacity:number};
+type Mode="view"|"build"|"advisor"|"move";
+type MoveMode="temporary"|"permanent";
+type Fit="Best fit"|"Good fit"|"Possible"|"Not ideal";
+type Recommendation={employee:Employee;fit:Fit;distance:number|null;owned:number;reason:string};
+type Point={latitude:number;longitude:number};
+
+function jobId(home:RouteLead){return home.canonicalJobId||home.id;}
+function frequencyLabel(value?:string){const v=String(value||"one_time").toLowerCase();return v==="weekly"?"Weekly":v==="biweekly"||v==="bi_weekly"?"Biweekly":v==="monthly"?"Monthly":"One-time";}
+function frequencyWeight(value?:string){const label=frequencyLabel(value);return label==="Weekly"?1:label==="Biweekly"?0.5:label==="Monthly"?0.25:0.08;}
+function validServicePoint(point:Point){return point.latitude>42.5&&point.latitude<44.2&&point.longitude>-81.2&&point.longitude<-78.7;}
+async function token(){const client=getSupabaseBrowserClient() as any;const {data}=await client.auth.getSession();const value=data.session?.access_token;if(!value)throw new Error("Your Admin session expired. Sign in again.");return value;}
+async function geocode(address:string){const response=await fetch(`/api/map/geocode?address=${encodeURIComponent(address)}`,{cache:"no-store"});const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||`Address could not be mapped: ${address}`);const point={latitude:Number(result.latitude),longitude:Number(result.longitude)};if(!validServicePoint(point))throw new Error(`Address resolved outside the operating area: ${address}`);return point;}
+
+export function RouteOperationsV3(){
+  const searchParams=useSearchParams();
+  const [mode,setMode]=useState<Mode>("view");
+  const [moveMode,setMoveMode]=useState<MoveMode>("temporary");
+  const [date,setDate]=useState(operationalDateKey());
+  const [employees,setEmployees]=useState<Employee[]>([]);
+  const [leads,setLeads]=useState<RouteLead[]>([]);
+  const [employeeId,setEmployeeId]=useState("");
+  const [targetEmployeeId,setTargetEmployeeId]=useState("");
+  const [selected,setSelected]=useState<string[]>([]);
+  const [query,setQuery]=useState("");
+  const [recommendations,setRecommendations]=useState<Recommendation[]>([]);
+  const [busy,setBusy]=useState(false);
+  const [message,setMessage]=useState("Loading routes...");
+
+  async function refresh(silent=false){
+    try{
+      const accessToken=await token();
+      const [routesResponse,usersResponse]=await Promise.all([
+        fetch(`/api/admin/routes?date=${encodeURIComponent(date)}`,{headers:{authorization:`Bearer ${accessToken}`},cache:"no-store"}),
+        fetch("/api/admin/users",{headers:{authorization:`Bearer ${accessToken}`},cache:"no-store"}),
+      ]);
+      const result=await routesResponse.json();const users=await usersResponse.json().catch(()=>({users:[]}));
+      if(!routesResponse.ok)throw new Error(result.error||"Routes could not be loaded.");
+      const capacities=new Map<string,number>((users.users||[]).map((row:any)=>[String(row.id),Math.max(1,Number(row.daily_route_capacity||16))]));
+      const real:Employee[]=(result.employees||[]).map((row:any)=>({...row,dailyCapacity:capacities.get(String(row.id))||16}));
+      const mapped=schedulingBoardToLeads((result.board||{}) as SchedulingDispatchBoard);
+      const warnings=canonicalRouteWarnings(mapped);
+      setEmployees(real);setLeads(mapped);
+      setEmployeeId(current=>real.some(worker=>worker.id===current)?current:real[0]?.id||"");
+      setTargetEmployeeId(current=>real.some(worker=>worker.id===current)?current:real.find(worker=>worker.id!==real[0]?.id)?.id||real[0]?.id||"");
+      if(!silent)setMessage(!real.length?"No active Employees found.":warnings.length?`${warnings.length} published route stop${warnings.length===1?"":"s"} need canonical ID repair.`:"");
+    }catch(error){if(!silent)setMessage(error instanceof Error?error.message:"Routes could not be loaded.");}
+  }
+
+  useEffect(()=>{const requested=searchParams.get("tab");if(["view","build","advisor","move"].includes(requested||""))setMode(requested as Mode);},[searchParams]);
+  useEffect(()=>{void refresh();const timer=window.setInterval(()=>void refresh(true),10000);return()=>window.clearInterval(timer);},[date]);
+
+  const jobs=useMemo(()=>leads.filter(item=>!item.canonicalVisitId),[leads]);
+  const visits=useMemo(()=>leads.filter(item=>Boolean(item.canonicalVisitId)),[leads]);
+  const unassigned=useMemo(()=>jobs.filter(item=>!item.canonicalCrewId),[jobs]);
+  const normalized=query.trim().toLowerCase();
+  const visibleUnassigned=useMemo(()=>unassigned.filter(item=>!normalized||`${item.name} ${item.address} ${item.service}`.toLowerCase().includes(normalized)),[unassigned,normalized]);
+  const employee=employees.find(worker=>worker.id===employeeId)||null;
+  const targetEmployee=employees.find(worker=>worker.id===targetEmployeeId)||null;
+  const selectedHomes=useMemo(()=>{const ids=new Set(selected);return unassigned.filter(home=>ids.has(jobId(home)));},[unassigned,selected]);
+  const identity=employee?{id:employee.employeeId||employee.id,crewId:employee.crewId,employeeIds:employee.employeeIds,crewIds:employee.crewIds}:null;
+  const route=useMemo(()=>identity?canonicalRouteLeadsForEmployee(visits.filter(item=>item.scheduledDate===date),identity).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999)):[],[visits,date,identity?.id,identity?.crewId]);
+  const movable=useMemo(()=>route.filter(item=>(item.canonicalVisitStatus||item.status)==="scheduled"),[route]);
+
+  function changeMode(next:Mode){setMode(next);setSelected([]);setQuery("");setRecommendations([]);setMessage("");window.history.replaceState(null,"",`/admin/routes?tab=${next}`);}
+  function toggle(id:string){setSelected(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);setRecommendations([]);}
+  function selectVisible(){const ids=visibleUnassigned.map(jobId);setSelected(current=>ids.every(id=>current.includes(id))?current.filter(id=>!ids.includes(id)):[...new Set([...current,...ids])]);setRecommendations([]);}
+  async function post(path:string,body:Record<string,unknown>){const accessToken=await token();const response=await fetch(path,{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${accessToken}`},body:JSON.stringify(body)});const result=await response.json();if(!response.ok)throw new Error(result.error||"The route change could not be saved.");return result;}
+
+  async function recommendOwner(){
+    if(!selectedHomes.length){setMessage("Select at least one unassigned house first.");return;}
+    setBusy(true);setMessage("Comparing proximity and workload...");
+    try{
+      const homePoints=await Promise.all(selectedHomes.map(home=>geocode(home.address)));
+      const ranked=await Promise.all(employees.map(async worker=>{
+        const start=worker.routeStartAddress?await geocode(worker.routeStartAddress).catch(()=>null):null;
+        const distance=start?homePoints.reduce((sum,point)=>sum+haversineKm(start,point),0)/homePoints.length:null;
+        const ownedJobs=jobs.filter(job=>job.canonicalCrewId===worker.crewId);
+        const weeklyLoad=ownedJobs.reduce((sum,job)=>sum+frequencyWeight(job.serviceFrequency),0);
+        const weeklyCapacity=Math.max(1,worker.dailyCapacity*5);
+        const loadRatio=weeklyLoad/weeklyCapacity;
+        const rank=(distance===null?35:distance)+loadRatio*18;
+        return {worker,distance,owned:ownedJobs.length,rank};
+      }));
+      ranked.sort((a,b)=>a.rank-b.rank);
+      setRecommendations(ranked.map((item,index)=>({employee:item.worker,fit:index===0?"Best fit":index===1?"Good fit":index<4?"Possible":"Not ideal",distance:item.distance===null?null:Number(item.distance.toFixed(1)),owned:item.owned,reason:item.distance===null?"Start address unavailable":item.distance<=5?"Strong regional proximity":item.distance<=15?"Reasonable regional proximity":"More driving"})));
+      setMessage("Ownership suggestions are ready. Only unassigned houses are shown in Build.");
+    }catch(error){setMessage(error instanceof Error?error.message:"Ownership recommendation failed.");}
+    finally{setBusy(false);}
+  }
+
+  async function assignSelected(){if(!employee||!selected.length)return;setBusy(true);try{const result=await post("/api/admin/routes",{action:"assign",jobIds:selected,crewId:employee.crewId});setMessage(`${result.count} Customer Job${result.count===1?"":"s"} assigned to ${employee.name}. They were removed from Build because they now have an owner.`);setSelected([]);setRecommendations([]);await refresh(true);}catch(error){setMessage(error instanceof Error?error.message:"Assignment failed.");}finally{setBusy(false);}}
+  async function moveSelected(){if(!employee||!targetEmployee||!selected.length)return;const chosen=new Set(selected);const stops=movable.filter(home=>chosen.has(jobId(home)));if(!stops.length){setMessage("Only Scheduled Visits can be moved.");return;}if(!window.confirm(moveMode==="permanent"?`Permanently assign ${stops.length} house${stops.length===1?"":"s"} to ${targetEmployee.name}?`:`Temporarily move ${stops.length} Visit${stops.length===1?"":"s"} to ${targetEmployee.name} for ${date}?`))return;setBusy(true);try{const result=await post("/api/admin/route-assignment",{mode:moveMode,visitIds:stops.map(home=>home.canonicalVisitId||home.id),employeeId:targetEmployee.employeeId||targetEmployee.id,crewId:targetEmployee.crewId});setMessage(moveMode==="permanent"?`${result.jobCount} permanent ownership change${result.jobCount===1?"":"s"} saved.`:`${result.selectedCount} dated Visit${result.selectedCount===1?"":"s"} moved temporarily.`);setSelected([]);await refresh(true);}catch(error){setMessage(error instanceof Error?error.message:"Move failed.");}finally{setBusy(false);}}
+
+  const title=mode==="build"?"Assign only customers who still need an operational owner.":mode==="advisor"?"Plan the week first, then generate and review Smart Routes.":mode==="move"?"Move a dated Visit or change permanent ownership.":`${employees.length} active Employee${employees.length===1?"":"s"} on the official Route Plan.`;
+
+  return <section className="route-ops-v3">
+    <header className="desktop-route-hero"><div><span>Dispatch & Routes</span><h1>{title}</h1><p>Build controls ownership. Route Advisor controls weekly planning, Smart Route order, publication and recurrence.</p></div><button className="btn btn-outline" disabled={busy} onClick={()=>void refresh()}>{busy?"Working...":"Refresh"}</button></header>
+    <nav className="desktop-route-modes"><button className={mode==="view"?"active":""} onClick={()=>changeMode("view")}>View</button><button className={mode==="build"?"active":""} onClick={()=>changeMode("build")}>Build</button><button className={mode==="advisor"?"active":""} onClick={()=>changeMode("advisor")}>Route Advisor</button><button className={mode==="move"?"active":""} onClick={()=>changeMode("move")}>Move</button></nav>
+    {message&&<div className="desktop-route-message">{message}</div>}
+    {mode==="view"&&<OfficialRoutePlanMap date={date} onDateChange={setDate}/>} {mode==="advisor"&&<RouteAdvisorWorkspace/>}
+
+    {mode==="build"&&<section className="build-v3"><header><div><span>BUILD · UNASSIGNED ONLY</span><h2>{unassigned.length} house{unassigned.length===1?"":"s"} still need an owner.</h2><p>Once a Job is assigned, it disappears from Build. Reassignment belongs in Move, not here.</p></div><button className="btn btn-primary" disabled={busy||!selectedHomes.length} onClick={()=>void recommendOwner()}>{busy?"Analyzing...":`Recommend owner (${selectedHomes.length})`}</button></header><div className="build-controls"><label><span>Employee</span><select value={employeeId} onChange={event=>setEmployeeId(event.target.value)}><option value="">Select Employee</option>{employees.map(worker=><option key={worker.id} value={worker.id}>{worker.name}</option>)}</select></label><label><span>Search unassigned houses</span><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="Customer, address or service"/></label></div><div className="build-grid"><aside><div className="build-list-head"><strong>{selected.length} selected</strong><button type="button" onClick={selectVisible}>Select visible</button></div><div className="build-list">{visibleUnassigned.map(home=>{const id=jobId(home);const active=selected.includes(id);return <button type="button" key={id} className={active?"active":""} onClick={()=>toggle(id)}><b>{active?"✓":"+"}</b><span><strong>{home.name}</strong><small>{home.address} · {frequencyLabel(home.serviceFrequency)}</small></span><em>{active?"Selected":"Unassigned"}</em></button>})}{!visibleUnassigned.length&&<div className="build-empty">No unassigned houses match this search.</div>}</div></aside><main>{recommendations.length?<section className="build-recs"><header><strong>Best operational owner</strong><span>No percentage scores</span></header>{recommendations.map((item,index)=><button type="button" key={item.employee.id} className={employee?.id===item.employee.id?"active":""} onClick={()=>setEmployeeId(item.employee.id)}><b>{index+1}</b><span><strong>{item.employee.name}</strong><small>{item.distance===null?"Distance unavailable":`${item.distance} km average`} · {item.owned} owned Jobs · {item.reason}</small></span><em>{item.fit}</em></button>)}</section>:<section className="build-choice"><span>OWNERSHIP</span><h3>{employee?.name||"Choose an Employee"}</h3><p>Select only the new/unassigned houses on the left. Build never creates a route or Visit.</p></section>}<div className="build-save"><div><strong>{employee?`Assign to ${employee.name}`:"Choose an Employee"}</strong><span>{selected.length} unassigned Job{selected.length===1?"":"s"} selected</span></div><button className="btn btn-primary" disabled={busy||!employee||!selected.length} onClick={()=>void assignSelected()}>Save ownership</button></div></main></div></section>}
+
+    {mode==="move"&&<section className="move-v3"><div className="move-controls-v3"><label><span>From Employee</span><select value={employeeId} onChange={event=>{setEmployeeId(event.target.value);setSelected([])}}>{employees.map(worker=><option key={worker.id} value={worker.id}>{worker.name}</option>)}</select></label><label><span>Date</span><input type="date" value={date} onChange={event=>{setDate(event.target.value);setSelected([])}}/></label><label><span>To Employee</span><select value={targetEmployeeId} onChange={event=>setTargetEmployeeId(event.target.value)}>{employees.filter(worker=>worker.id!==employeeId).map(worker=><option key={worker.id} value={worker.id}>{worker.name}</option>)}</select></label></div><div className="move-layout-v3"><div className="build-list">{movable.map((home,index)=>{const id=jobId(home);const active=selected.includes(id);return <button type="button" key={id} className={active?"active":""} onClick={()=>toggle(id)}><b>{home.routeOrder||index+1}</b><span><strong>{home.name}</strong><small>{home.address}</small></span><em>{active?"Selected":"Choose"}</em></button>})}</div><section className="build-choice"><span>MOVE MODE</span><h3>{targetEmployee?.name||"Choose destination"}</h3><div className="move-buttons"><button type="button" className={moveMode==="temporary"?"active":""} onClick={()=>setMoveMode("temporary")}>Temporary<small>Only this dated Visit</small></button><button type="button" className={moveMode==="permanent"?"active":""} onClick={()=>setMoveMode("permanent")}>Permanent<small>Ownership + future Scheduled Visits</small></button></div><button className="btn btn-primary" disabled={busy||!targetEmployee||!selected.length} onClick={()=>void moveSelected()}>{busy?"Moving...":"Confirm move"}</button></section></div></section>}
+
+    <style jsx global>{`
+      .build-v3,.move-v3{display:grid;gap:14px;margin-top:18px}.build-v3>header{display:flex;justify-content:space-between;align-items:end;gap:18px;padding:20px;border-radius:20px;background:linear-gradient(135deg,#0a3729,#0d6847);color:#fff}.build-v3>header span,.build-choice>span{font-size:10px;font-weight:950;letter-spacing:.13em;color:#9ce3b9}.build-v3>header h2{margin:5px 0;font-size:27px}.build-v3>header p{margin:0;color:rgba(255,255,255,.72)}.build-controls,.move-controls-v3{display:grid;grid-template-columns:280px 1fr;gap:10px;padding:14px;border:1px solid #dbe7e1;border-radius:17px;background:#fff}.move-controls-v3{grid-template-columns:repeat(3,1fr)}.build-controls label,.move-controls-v3 label{display:grid;gap:5px}.build-controls label>span,.move-controls-v3 label>span{font-size:10px;font-weight:900;color:#607168;text-transform:uppercase}.build-controls input,.build-controls select,.move-controls-v3 input,.move-controls-v3 select{min-height:45px;border:1px solid #cbdad2;border-radius:11px;background:#fff;padding:0 11px}.build-grid,.move-layout-v3{display:grid;grid-template-columns:minmax(360px,.8fr) minmax(0,1.2fr);gap:14px}.build-grid>aside,.build-grid>main,.move-layout-v3>div,.move-layout-v3>section{border:1px solid #dbe7e1;border-radius:20px;background:#fff;overflow:hidden}.build-grid>main{display:grid;gap:12px;align-content:start;padding:13px}.build-list-head{display:flex;justify-content:space-between;padding:12px;border-bottom:1px solid #e8efeb}.build-list-head button{border:0;background:transparent;color:#0b7655;font-weight:800}.build-list{display:grid;gap:6px;max-height:650px;overflow:auto;padding:8px}.build-list>button,.build-recs>button{display:grid;grid-template-columns:32px 1fr auto;gap:9px;align-items:center;width:100%;padding:10px;border:1px solid transparent;border-radius:12px;background:#fff;text-align:left;cursor:pointer}.build-list>button.active,.build-recs>button.active{border-color:#0b7655;background:#edf8f2}.build-list b,.build-recs>button>b{display:grid;place-items:center;width:29px;height:29px;border-radius:8px;background:#e9f2ed;color:#0b684c}.build-list strong,.build-list small,.build-recs strong,.build-recs small{display:block}.build-list small,.build-recs small{margin-top:3px;color:#6d7f75}.build-list em,.build-recs em{font-style:normal;color:#0b7655;font-size:10px;font-weight:900}.build-empty{padding:26px;text-align:center;color:#718078}.build-recs{display:grid;gap:5px}.build-recs header{display:flex;justify-content:space-between;padding:5px}.build-recs header span{color:#718078;font-size:12px}.build-recs em{padding:6px 8px;border-radius:999px;background:#edf7f1}.build-choice{display:grid;gap:10px;padding:22px;border-radius:16px;background:#103e30;color:#fff}.build-choice h3{margin:0;font-size:25px}.build-choice p{margin:0;color:rgba(255,255,255,.7)}.build-save{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px;border-radius:14px;background:#f4f9f6}.build-save strong,.build-save span{display:block}.build-save span{margin-top:3px;color:#718078;font-size:12px}.move-layout-v3>section{margin:0;border:0;border-radius:20px}.move-buttons{display:grid;grid-template-columns:1fr 1fr;gap:8px}.move-buttons button{display:grid;gap:3px;padding:12px;border:1px solid #cfe0d7;border-radius:11px;background:#fff;text-align:left;font-weight:850}.move-buttons button.active{box-shadow:0 0 0 2px #67c18d}.move-buttons small{color:#687b72;font-weight:500}@media(max-width:1000px){.build-v3>header{align-items:stretch;flex-direction:column}.build-controls,.move-controls-v3,.build-grid,.move-layout-v3{grid-template-columns:1fr}.build-save{align-items:stretch;flex-direction:column}}@media(max-width:620px){.build-list>button,.build-recs>button{grid-template-columns:32px 1fr}.build-list em,.build-recs em{grid-column:2;justify-self:start}}
+    `}</style>
+  </section>;
+}
