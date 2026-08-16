@@ -1,128 +1,82 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { requireCustomerPortalIdentity } from "@/lib/auth/customerPortalIdentity";
 
 export const dynamic = "force-dynamic";
 
-function serverClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Property photo upload is not configured.");
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
-}
-
-async function resolveCustomerProperty(client: any, userId: string, email: string) {
-  const { data: customers, error: customerError } = await client
-    .from("customers")
-    .select("id,company_id,organization_id,profile_id,email")
-    .ilike("email", email)
-    .order("created_at", { ascending: true });
-  if (customerError) throw new Error(customerError.message);
-
-  const rows = customers || [];
-  const authenticatedCustomer = rows.find((row: any) => row.profile_id === userId) || rows[0];
-  if (!authenticatedCustomer) throw new Error("Customer account could not be found.");
-  const companyId = authenticatedCustomer.company_id || authenticatedCustomer.organization_id;
-
-  const customerIds = rows
-    .filter((row: any) => (row.company_id || row.organization_id) === companyId)
-    .map((row: any) => row.id);
-
-  let property: any = null;
-  if (customerIds.length) {
-    const result = await client
-      .from("properties")
-      .select("id,company_id,customer_id")
-      .in("customer_id", customerIds)
-      .eq("company_id", companyId)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (result.error) throw new Error(result.error.message);
-    property = result.data;
-  }
-
-  if (!property) {
-    const lead = await client
-      .from("lead_center")
-      .select("property_id,customer_id,assigned_company_id")
-      .ilike("email", email)
-      .eq("assigned_company_id", companyId)
-      .not("property_id", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (lead.error) throw new Error(lead.error.message);
-    if (lead.data?.property_id) {
-      const result = await client
-        .from("properties")
-        .select("id,company_id,customer_id")
-        .eq("id", lead.data.property_id)
-        .eq("company_id", companyId)
-        .maybeSingle();
-      if (result.error) throw new Error(result.error.message);
-      property = result.data;
-    }
-  }
-
-  if (!property) throw new Error("Property could not be found. Submit the quote again with the same account email and company code.");
-
-  if (property.customer_id !== authenticatedCustomer.id) {
-    const { error: linkError } = await client
-      .from("properties")
-      .update({ customer_id: authenticatedCustomer.id })
-      .eq("id", property.id)
-      .eq("company_id", companyId);
-    if (linkError) throw new Error(linkError.message);
-  }
-
-  if (authenticatedCustomer.profile_id !== userId) {
-    const { error: profileError } = await client
-      .from("customers")
-      .update({ profile_id: userId })
-      .eq("id", authenticatedCustomer.id);
-    if (profileError) throw new Error(profileError.message);
-  }
-
-  return { ...property, customer_id: authenticatedCustomer.id, company_id: companyId };
-}
+const EXTENSION_BY_MIME: Record<string, string> = {
+  "image/avif": "avif",
+  "image/heic": "heic",
+  "image/heif": "heif",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
 
 async function requireCustomerProperty(request: NextRequest) {
-  const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) throw new Error("Sign in before updating the property photo.");
-  const client = serverClient();
-  const { data: auth, error: authError } = await client.auth.getUser(token);
-  if (authError || !auth.user) throw new Error("Your session expired. Sign in again.");
-  const email = String(auth.user.email || "").trim().toLowerCase();
-  if (!email) throw new Error("Customer email could not be verified.");
-  const property = await resolveCustomerProperty(client, auth.user.id, email);
-  return { client, property, userId: auth.user.id };
+  const session = await requireCustomerPortalIdentity(request);
+  const { service, identity } = session;
+  const result = await service
+    .from("properties")
+    .select("id,company_id,organization_id,customer_id")
+    .eq("customer_id", identity.customerId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (result.error || !result.data) {
+    throw new Error(result.error?.message || "Property could not be found for this Customer.");
+  }
+
+  const companyId = result.data.company_id || result.data.organization_id || identity.companyId;
+  if (!companyId) throw new Error("Property has no company identity.");
+  if (identity.companyId && String(identity.companyId) !== String(companyId)) {
+    throw new Error("Property belongs to a different company.");
+  }
+
+  return {
+    ...session,
+    property: result.data,
+    companyId: String(companyId),
+  };
 }
 
-function extension(name: string) {
-  const value = name.split(".").pop()?.toLowerCase();
-  return value && /^(avif|heic|heif|jpe?g|png|webp)$/.test(value) ? value : "jpg";
+function statusFor(message: string) {
+  return /session expired|sign in/i.test(message) ? 401 : /different|only an active|not linked/i.test(message) ? 403 : 400;
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { client, property, userId } = await requireCustomerProperty(request);
+    const { service, property, companyId, identity } = await requireCustomerProperty(request);
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File)) throw new Error("Choose a valid image.");
-    if (!file.type.startsWith("image/")) throw new Error("Choose a valid image file.");
-    if (file.size > 10 * 1024 * 1024) throw new Error("Image must be smaller than 10 MB.");
 
-    const path = `${property.company_id}/${property.id}/profile.${extension(file.name)}`;
+    const contentType = file.type.toLowerCase();
+    const ext = EXTENSION_BY_MIME[contentType];
+    if (!ext) throw new Error("Use an AVIF, HEIC, HEIF, JPEG, PNG or WebP image.");
+    if (file.size <= 0 || file.size > 8 * 1024 * 1024) {
+      throw new Error("Image must be between 1 byte and 8 MB.");
+    }
+
+    const path = `${companyId}/${property.id}/profile.${ext}`;
     const bytes = Buffer.from(await file.arrayBuffer());
-    const { error: uploadError } = await client.storage.from("property-photos").upload(path, bytes, { upsert: true, contentType: file.type || "image/jpeg" });
+    const { error: uploadError } = await service.storage.from("property-photos").upload(path, bytes, {
+      upsert: true,
+      contentType,
+    });
     if (uploadError) throw new Error(uploadError.message);
 
-    await client.from("photos").delete().eq("property_id", property.id).eq("is_profile", true);
-    const { error: photoError } = await client.from("photos").insert({
-      organization_id: property.company_id,
-      company_id: property.company_id,
+    const { error: deleteError } = await service
+      .from("photos")
+      .delete()
+      .eq("property_id", property.id)
+      .eq("is_profile", true);
+    if (deleteError) throw new Error(deleteError.message);
+
+    const { error: photoError } = await service.from("photos").insert({
+      organization_id: companyId,
+      company_id: companyId,
       property_id: property.id,
-      uploaded_by: userId,
+      uploaded_by: identity.profileId,
       storage_path: path,
       storage_bucket: "property-photos",
       public_url: null,
@@ -131,14 +85,25 @@ export async function POST(request: NextRequest) {
     });
     if (photoError) throw new Error(photoError.message);
 
-    const { error: propertyUpdateError } = await client.from("properties").update({ official_photo_url: path }).eq("id", property.id);
+    let update = service
+      .from("properties")
+      .update({ official_photo_url: path })
+      .eq("id", property.id)
+      .eq("customer_id", identity.customerId);
+    if (identity.companyId) {
+      update = update.or(`company_id.eq.${identity.companyId},organization_id.eq.${identity.companyId}`);
+    }
+    const { error: propertyUpdateError } = await update;
     if (propertyUpdateError) throw new Error(propertyUpdateError.message);
 
-    const { data: signed, error: signedError } = await client.storage.from("property-photos").createSignedUrl(path, 3600);
-    if (signedError || !signed?.signedUrl) throw new Error(signedError?.message || "Photo was saved but could not be displayed.");
+    const { data: signed, error: signedError } = await service.storage.from("property-photos").createSignedUrl(path, 3600);
+    if (signedError || !signed?.signedUrl) {
+      throw new Error(signedError?.message || "Photo was saved but could not be displayed.");
+    }
     return NextResponse.json({ saved: true, url: signed.signedUrl });
   } catch (error) {
     console.error("Customer property photo failed", error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Property photo could not be saved." }, { status: 400 });
+    const message = error instanceof Error ? error.message : "Property photo could not be saved.";
+    return NextResponse.json({ error: message }, { status: statusFor(message) });
   }
 }
