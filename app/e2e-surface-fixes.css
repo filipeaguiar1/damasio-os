@@ -1,0 +1,49 @@
+/* Narrow E2E surface hardening: keep visual design while meeting mobile tap targets. */
+.header-login,
+.auth-card > a,
+.auth-links a,
+.mobile-login-card > a {
+  min-height: 48px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-card > a,
+.auth-links a,
+.mobile-login-card > a {
+  padding: 10px 12px;
+}
+
+.auth-links a {
+  flex: 1 1 0;
+}
+
+@media (max-width: 900px) {
+  .header .header-login,
+  .header a.header-login.btn {
+    min-width: 48px;
+    min-height: 48px !important;
+    height: 48px !important;
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+  }
+
+  .auth-links a,
+  .mobile-login-card > a {
+    width: 100%;
+  }
+}
+
+/* Customer portal list, billing and profile polish. */
+.portal-pagination{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;padding:14px 18px;border-top:1px solid #edf2ef;background:#fbfdfb}.customer-completed-visit-list>.portal-pagination{border:1px solid #dfe8e3;border-radius:14px;background:#fff}.portal-pagination button{min-width:36px;height:36px;border:1px solid #d7e3dc;border-radius:10px;background:#fff;color:#315746;font-weight:900;cursor:pointer}.portal-pagination button.active{border-color:#0d7047;background:#0d7047;color:#fff}.portal-pagination button:disabled{opacity:.45;cursor:not-allowed}
+.customer-task-section,.customer-portal-shell .profile-card,.portal-pro-shell .profile-card{border-color:#dfe8e3!important;border-radius:18px!important;box-shadow:0 12px 30px rgba(15,47,33,.05)!important}.history-list{display:grid;gap:10px}.history-item{overflow:hidden;border:1px solid #e3ece7;border-radius:14px;background:#fff}.history-summary{width:100%;display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:12px;align-items:center;padding:14px 16px;border:0;background:#fff;text-align:left;cursor:pointer}.history-summary strong,.history-summary span{display:block}.history-summary strong{color:#17382c;font-size:14px}.history-summary span{margin-top:3px;color:#728078;font-size:12px;line-height:1.35}.history-summary em{width:32px;height:32px;display:grid;place-items:center;border-radius:10px;background:#edf7f1;color:#0b7046;font-style:normal;font-weight:950}.history-detail{display:grid;gap:12px;padding:14px 16px 16px;border-top:1px solid #edf2ef;background:#fbfdfc}.history-detail .compact-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.history-detail .compact-grid>div,.history-comment{padding:12px;border:1px solid #e2ece6;border-radius:12px;background:#fff}.history-comment span,.history-comment em{display:block}.history-comment span,.mini-label{color:#678177;font-size:10px;font-weight:950;letter-spacing:.06em;text-transform:uppercase}.history-comment em{margin-top:5px;color:#25483a;font-style:normal;font-size:13px;line-height:1.45}.history-comment.done{background:#f3faf6}.empty-state{border:1px dashed #d8e4de;border-radius:14px;background:#fbfdfc;padding:22px;text-align:left;color:#6d7d74}.empty-state strong{display:block;color:#203f32}.empty-state p{margin:6px 0 0;color:#76847d}
+.payment-preference-control{min-width:240px}.payment-preference-control select{width:100%;min-height:44px;border:1px solid #cfddd4;border-radius:12px;padding:0 12px;background:#fff;color:#173a2c;font-weight:850}.payment-preference-actions{display:flex;justify-content:flex-end;padding:16px 22px 20px;border-top:1px solid #edf2ef}.wallet-topup-row{align-items:start!important}.wallet-topup-control{display:grid!important;min-width:360px;gap:12px;align-items:stretch!important}.wallet-quick-amounts{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}.wallet-custom-amount{display:flex;align-items:center;justify-content:flex-end;gap:10px}.wallet-custom-amount input{width:150px;min-height:42px;border:1px solid #cfddd4;border-radius:12px;padding:0 12px;color:#173a2c;font-weight:850}.wallet-custom-amount small{color:#6f7f76;font-size:11px}
+.customer-edit-form{padding:24px!important}.customer-edit-form header{margin-bottom:16px}.customer-edit-form label{display:grid;gap:7px;margin-top:12px;color:#53675b;font-size:12px;font-weight:900}.customer-edit-form input{width:100%;min-height:46px;box-sizing:border-box;border:1px solid #ceddd4;border-radius:12px;padding:0 14px;background:#fff;color:#17392d;font-weight:850}.customer-edit-form input:disabled{background:#f4f8f5;color:#6b7a72}.customer-profile-save{width:max-content;margin-top:16px}.customer-account-photo-panel{align-content:center;justify-items:center;padding:24px!important;border-radius:18px!important}
+.service-detail-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}.service-detail-card{display:grid;grid-template-columns:minmax(220px,330px) minmax(0,1fr);gap:20px;padding:18px;border:1px solid #dfe8e3;border-radius:20px;background:#fff;box-shadow:0 14px 34px rgba(15,47,33,.06)}.service-detail-photo{min-height:300px;overflow:hidden;border-radius:16px;background:#e9f4ee;display:grid;place-items:center;color:#0b7046;font-weight:950;letter-spacing:.12em}.service-detail-photo img{width:100%;height:100%;object-fit:cover}.service-detail-main{display:grid;align-content:start;gap:12px;padding:6px}.service-detail-main h2{margin:0;color:#17382c;font-size:26px}.service-detail-main p{margin:0;color:#6e7f76;line-height:1.55}
+@media(max-width:760px){.portal-pagination{justify-content:center;padding:12px}.history-detail .compact-grid{grid-template-columns:1fr}.payment-preference-control,.wallet-topup-control{min-width:0;width:100%}.wallet-custom-amount,.wallet-quick-amounts{justify-content:stretch}.wallet-custom-amount{align-items:stretch;flex-direction:column}.wallet-custom-amount input{width:100%}.payment-preference-actions{padding:14px}.payment-preference-actions .btn,.wallet-topup-control>.btn{width:100%}.customer-profile-save{width:100%}.service-detail-hero{align-items:stretch;flex-direction:column}.service-detail-card{grid-template-columns:1fr;padding:14px}.service-detail-photo{min-height:210px}.customer-completed-visit-list>.portal-pagination{border-radius:12px}}
+
+.pv-list button.pv-history-button{width:100%;display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:13px;align-items:center;padding:15px 20px;border:0;border-bottom:1px solid #edf1ee;background:#fff;color:inherit;text-align:left;cursor:pointer}.pv-list button.pv-history-button:last-child{border-bottom:0}.pv-list button.pv-history-button:hover{background:#f6fbf8}.pv-history-button strong,.pv-history-button span,.pv-history-button small{display:block}.pv-history-button strong{color:#17382c;font-size:14px}.pv-history-button span{margin-top:4px;color:#78857e;font-size:11px}.pv-history-button small{margin-top:4px;color:#198352;font-size:10px;font-weight:800}.pv-history-button em{border-radius:999px;padding:7px 10px;background:#e7f5ec;color:#117247;font-size:10px;font-style:normal;font-weight:900;text-transform:capitalize}.pv-history-button em.hold{background:#fff3dc;color:#9b6416}
+.portal-pro-shell .portal-brand-card{position:relative;overflow:hidden;margin:0 0 16px;border:1px solid rgba(255,255,255,.14);border-radius:22px;background:linear-gradient(160deg,rgba(255,255,255,.13),rgba(255,255,255,.03)),linear-gradient(180deg,#0b5037,#073525)!important;box-shadow:0 18px 42px rgba(0,0,0,.22)}.portal-pro-shell .portal-brand-card:before{content:"";position:absolute;inset:10px;border:1px solid rgba(255,255,255,.12);border-radius:16px;pointer-events:none}.portal-pro-shell .season-title{z-index:2}.portal-pro-shell .season-title span{letter-spacing:.12em}.portal-pro-shell .season-title strong{letter-spacing:.06em}.portal-pro-shell .portal-word-nav{display:grid;gap:7px}.portal-pro-shell .portal-word-nav a{display:flex!important;align-items:center;min-height:40px;padding:0 14px!important;border:1px solid transparent;border-radius:12px;color:rgba(255,255,255,.76);font-size:13px;font-weight:850;letter-spacing:0;background:transparent}.portal-pro-shell .portal-word-nav a.active,.portal-pro-shell .portal-word-nav a:hover{border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.12);color:#fff;box-shadow:inset 3px 0 0 #f4c84f}.notification-dot-only{position:relative;font-size:0!important}.notification-dot-only .notification-dot{display:block;width:14px;height:14px;border-radius:50%;background:#f4c84f;box-shadow:0 0 0 5px rgba(244,200,79,.18),0 4px 10px rgba(0,0,0,.16)}.notification-dot-only b{position:absolute;right:-5px;top:-6px;min-width:17px;height:17px;display:grid;place-items:center;border-radius:999px;background:#0b7046;color:#fff;font-size:10px;line-height:1}
+@media(max-width:760px){.pv-list button.pv-history-button{grid-template-columns:44px minmax(0,1fr);padding:14px}.pv-history-button em{grid-column:2;justify-self:start}.portal-pro-shell .portal-word-nav a{min-height:46px}}
