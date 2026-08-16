@@ -8,11 +8,10 @@ import {
   getPaymentActionWorkspace,
   requestAdvancePayment,
   updatePaymentPreference,
-  type PaymentActionCustomer,
   type PaymentActionInvoice,
   type PaymentActionWorkspace,
 } from "@/lib/repositories/paymentActionsRepository";
-import styles from "./PaymentActions.module.css";
+import styles from "../PaymentActions.module.css";
 
 const empty:PaymentActionWorkspace={customers:[],invoices:[]};
 function money(cents:number){return new Intl.NumberFormat("en-CA",{style:"currency",currency:"CAD"}).format((cents||0)/100)}
