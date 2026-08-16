@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
-import { stripeReturnOrigin } from "@/lib/stripe/checkoutOrigin";
 
 export const dynamic = "force-dynamic";
 
@@ -9,17 +8,124 @@ function failure(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
+function checkoutOrigin(request: NextRequest) {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "");
+  return configured || request.nextUrl.origin;
+}
+
+function invoiceNumber(count: number) {
+  return `INV-${new Date().getFullYear()}-${String(count + 1).padStart(6, "0")}`;
+}
+
+function uuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(value);
+}
+
+function profileCompanyId(profile: { company_id?: string | null; organization_id?: string | null } | null) {
+  return profile?.company_id || profile?.organization_id || null;
+}
+
+function isPlatformCustomer(customer: { acquisition_source?: string | null; platform_managed?: boolean | null } | null) {
+  return customer?.acquisition_source === "platform" || customer?.platform_managed === true;
+}
+
 function invoiceAccessAllowed(
   profile: { role?: string; active?: boolean; company_id?: string | null; organization_id?: string | null } | null,
-  customer: { profile_id?: string | null } | null,
+  customer: {
+    profile_id?: string | null;
+    acquisition_source?: string | null;
+    platform_managed?: boolean | null;
+    origin_company_id?: string | null;
+    service_company_id?: string | null;
+    company_id?: string | null;
+    organization_id?: string | null;
+  } | null,
   userId: string,
   companyId: string
 ) {
-  const isCompanyOperator = Boolean(
-    profile?.active && ["admin", "manager", "master"].includes(String(profile.role)) &&
-    (profile.company_id || profile.organization_id) === companyId
+  if (customer?.profile_id === userId) return true;
+  if (!profile?.active) return false;
+
+  const role = String(profile.role);
+  const operatorCompanyId = profileCompanyId(profile);
+  if (role === "master") return true;
+  if (!["admin", "manager"].includes(role) || operatorCompanyId !== companyId) return false;
+
+  const customerOwnerCompanyId = customer?.origin_company_id || customer?.company_id || customer?.organization_id;
+  return !isPlatformCustomer(customer) && customerOwnerCompanyId === companyId;
+}
+
+function manualRequestAllowed(
+  profile: { role?: string; active?: boolean; company_id?: string | null; organization_id?: string | null } | null,
+  customer: {
+    acquisition_source?: string | null;
+    platform_managed?: boolean | null;
+    origin_company_id?: string | null;
+    company_id?: string | null;
+    organization_id?: string | null;
+  } | null,
+) {
+  if (!profile?.active || !customer) return false;
+  const role = String(profile.role);
+  if (role === "master") return true;
+  if (!["admin", "manager"].includes(role) || isPlatformCustomer(customer)) return false;
+  const companyId = profileCompanyId(profile);
+  const customerOwnerCompanyId = customer.origin_company_id || customer.company_id || customer.organization_id;
+  return Boolean(companyId && customerOwnerCompanyId === companyId);
+}
+
+async function createManualInvoice(
+  db: any,
+  auth: { user: { id: string; email?: string | null } },
+  body: { customerId?: string; amountCents?: number; description?: string },
+) {
+  const customerId = String(body.customerId || "").trim();
+  if (!uuid(customerId)) return { error: failure("Choose a valid customer.", 400) };
+
+  const amountCents = Math.round(Number(body.amountCents || 0));
+  if (!Number.isSafeInteger(amountCents) || amountCents < 50) {
+    return { error: failure("Enter an amount of at least $0.50.", 400) };
+  }
+
+  const [{ data: profile }, { data: customer, error: customerError }] = await Promise.all([
+    db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
+    db.from("customers").select("id,profile_id,email,full_name,acquisition_source,platform_managed,origin_company_id,service_company_id,company_id,organization_id").eq("id", customerId).maybeSingle(),
+  ]);
+  if (customerError || !customer) return { error: failure("Customer not found.", 404) };
+  if (!manualRequestAllowed(profile, customer)) {
+    return { error: failure("This customer cannot receive payment requests from this account.", 403) };
+  }
+
+  const companyId = String(
+    (String(profile?.role) === "master"
+      ? customer.service_company_id || customer.company_id || customer.organization_id || profileCompanyId(profile)
+      : profileCompanyId(profile)) || ""
   );
-  return isCompanyOperator || customer?.profile_id === userId;
+  if (!uuid(companyId)) return { error: failure("This customer is not connected to a billing company yet.", 409) };
+
+  const [{ count }, { data: property }] = await Promise.all([
+    db.from("invoices").select("id", { count: "exact", head: true }).eq("organization_id", companyId),
+    db.from("properties").select("id").eq("customer_id", customer.id).limit(1).maybeSingle(),
+  ]);
+  const total = amountCents / 100;
+  const insertPayload: Record<string, unknown> = {
+    organization_id: companyId,
+    company_id: companyId,
+    customer_id: customer.id,
+    property_id: property?.id || null,
+    invoice_number: invoiceNumber(count || 0),
+    status: "waiting_payment",
+    subtotal: total,
+    tax: 0,
+    total,
+  };
+  let created = await db.from("invoices").insert(insertPayload).select("id,invoice_number").single();
+  if (created.error && /company_id|schema cache|column/i.test(created.error.message || "")) {
+    const { company_id: _companyId, ...withoutCompanyId } = insertPayload;
+    created = await db.from("invoices").insert(withoutCompanyId).select("id,invoice_number").single();
+  }
+  if (created.error || !created.data) throw new Error(created.error?.message || "Invoice could not be created.");
+  return { invoiceId: String(created.data.id), invoiceNumber: String(created.data.invoice_number || "") };
 }
 
 export async function POST(request: NextRequest) {
@@ -44,23 +150,30 @@ export async function POST(request: NextRequest) {
     const { data: auth, error: authError } = await db.auth.getUser(token);
     if (authError || !auth.user) return failure("Your session expired. Sign in again.", 401);
 
-    const body = (await request.json()) as { invoiceId?: string };
-    const invoiceId = String(body.invoiceId || "").trim();
-    if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(invoiceId)) return failure("Choose a valid invoice.", 400);
+    const body = (await request.json()) as { invoiceId?: string; customerId?: string; amountCents?: number; description?: string };
+    let invoiceId = String(body.invoiceId || "").trim();
+    let createdManualInvoice: { invoiceId?: string; invoiceNumber?: string } = {};
+    if (!invoiceId) {
+      const manual = await createManualInvoice(db, auth as any, body);
+      if ("error" in manual) return manual.error;
+      invoiceId = manual.invoiceId;
+      createdManualInvoice = manual;
+    }
+    if (!uuid(invoiceId)) return failure("Choose a valid invoice.", 400);
 
     const { data: invoice, error: invoiceError } = await db
       .from("invoices")
-      .select("id,organization_id,customer_id,invoice_number,status,total,stripe_checkout_session_id")
+      .select("id,company_id,organization_id,customer_id,invoice_number,status,total,stripe_checkout_session_id")
       .eq("id", invoiceId)
       .single();
     if (invoiceError || !invoice) return failure("Invoice not found.", 404);
 
-    const companyId = invoice.organization_id;
+    const companyId = invoice.company_id || invoice.organization_id;
     const [{ data: profile }, { data: customer }] = await Promise.all([
       db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
-      db.from("customers").select("id,profile_id,email,full_name").eq("id", invoice.customer_id).maybeSingle()
+      db.from("customers").select("id,profile_id,email,full_name,acquisition_source,platform_managed,origin_company_id,service_company_id,company_id,organization_id").eq("id", invoice.customer_id).maybeSingle()
     ]);
-    if (!companyId || !invoiceAccessAllowed(profile, customer, auth.user.id, companyId)) {
+    if (!invoiceAccessAllowed(profile, customer, auth.user.id, companyId)) {
       return failure("You cannot pay this invoice.", 403);
     }
 
@@ -87,12 +200,12 @@ export async function POST(request: NextRequest) {
 
     const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
     const transferGroup = `invoice-${invoice.id}`;
-    const metadata = { invoiceId: invoice.id, companyId, customerId: invoice.customer_id || "" };
-    const origin = stripeReturnOrigin(request);
+    const metadata = { invoiceId: invoice.id, companyId, customerId: invoice.customer_id || "", requestDescription: String(body.description || "").slice(0, 400) };
+    const origin = checkoutOrigin(request);
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: customer?.email || auth.user.email || undefined,
-      line_items: [{ quantity: 1, price_data: { currency: "cad", unit_amount: cents, product_data: { name: `Invoice ${invoice.invoice_number}` } } }],
+      line_items: [{ quantity: 1, price_data: { currency: "cad", unit_amount: cents, product_data: { name: String(body.description || "").trim() || `Invoice ${invoice.invoice_number}` } } }],
       metadata,
       payment_intent_data: { metadata, transfer_group: transferGroup },
       success_url: `${origin}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
@@ -108,7 +221,7 @@ export async function POST(request: NextRequest) {
     }).eq("id", invoice.id);
     if (stripeUpdate.error) throw new Error(stripeUpdate.error.message);
 
-    return NextResponse.json({ url: session.url });
+    return NextResponse.json({ url: session.url, ...createdManualInvoice });
   } catch (error) {
     console.error("Stripe checkout failed", error);
     return failure("Could not start card checkout.", 500);
@@ -135,17 +248,17 @@ export async function DELETE(request: NextRequest) {
 
     const { data: invoice, error: invoiceError } = await db
       .from("invoices")
-      .select("id,organization_id,customer_id,status,stripe_checkout_session_id")
+      .select("id,company_id,organization_id,customer_id,status,stripe_checkout_session_id")
       .eq("id", invoiceId)
       .maybeSingle();
     if (invoiceError || !invoice) return failure("Invoice not found.", 404);
 
-    const companyId = invoice.organization_id;
+    const companyId = invoice.company_id || invoice.organization_id;
     const [{ data: profile }, { data: customer }] = await Promise.all([
       db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
-      db.from("customers").select("profile_id").eq("id", invoice.customer_id).maybeSingle()
+      db.from("customers").select("profile_id,acquisition_source,platform_managed,origin_company_id,service_company_id,company_id,organization_id").eq("id", invoice.customer_id).maybeSingle()
     ]);
-    if (!companyId || !invoiceAccessAllowed(profile, customer, auth.user.id, companyId)) {
+    if (!invoiceAccessAllowed(profile, customer, auth.user.id, companyId)) {
       return failure("You cannot cancel this checkout.", 403);
     }
 
