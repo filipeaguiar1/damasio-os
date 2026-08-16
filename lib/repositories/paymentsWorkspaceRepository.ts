@@ -48,14 +48,27 @@ export type PaymentsEvent = {
   transferredAt: string | null;
 };
 
+export type PaymentsInvoice = {
+  id: string;
+  customerId: string;
+  number: string;
+  status: string;
+  serviceName: string | null;
+  totalCents: number;
+  createdAt: string;
+  paidAt: string | null;
+  stripeCheckoutSessionId: string | null;
+};
+
 export type PaymentsWorkspace = {
   customers: PaymentsCustomer[];
   jobs: PaymentsJob[];
   agreements: PaymentsAgreement[];
   events: PaymentsEvent[];
+  invoices: PaymentsInvoice[];
 };
 
-const emptyWorkspace: PaymentsWorkspace = { customers: [], jobs: [], agreements: [], events: [] };
+const emptyWorkspace: PaymentsWorkspace = { customers: [], jobs: [], agreements: [], events: [], invoices: [] };
 
 export async function getPaymentsWorkspace(scope: "master" | "company") {
   const supabase = getSupabaseBrowserClient();
@@ -67,6 +80,7 @@ export async function getPaymentsWorkspace(scope: "master" | "company") {
     jobs: Array.isArray(value.jobs) ? value.jobs : [],
     agreements: Array.isArray(value.agreements) ? value.agreements : [],
     events: Array.isArray(value.events) ? value.events : [],
+    invoices: Array.isArray(value.invoices) ? value.invoices : [],
   } satisfies PaymentsWorkspace;
 }
 
@@ -142,6 +156,26 @@ export async function generateAgreementVisits(agreementId: string, horizon?: str
   } as never);
   if (error) throw new Error(error.message);
   return Number(data || 0);
+}
+
+export async function createPaymentRequestLink(invoiceId: string) {
+  const supabase = getSupabaseBrowserClient();
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Sign in before creating a payment request.");
+
+  const response = await fetch("/api/stripe/checkout", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ invoiceId }),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "Payment request link could not be created.");
+  if (!result.url) throw new Error("Stripe did not return a payment link.");
+  return result as { url: string; reused?: boolean };
 }
 
 export { emptyWorkspace };
