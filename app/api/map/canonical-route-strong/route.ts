@@ -26,6 +26,8 @@ type Snapshot = {
   updatedAt: string;
 };
 
+const noStoreHeaders = { "Cache-Control": "no-store, max-age=0" };
+
 const uncachedFetch: typeof fetch = (input, init) => fetch(input, {
   ...init,
   cache: "no-store",
@@ -59,6 +61,43 @@ function samePoint(left: Point | null, right: Point | null) {
   if (!left || !right) return left === right;
   return Math.abs(left.latitude - right.latitude) < 0.0000001
     && Math.abs(left.longitude - right.longitude) < 0.0000001;
+}
+
+function fallbackOrderedVisitIds(snapshot: Snapshot) {
+  const explicitIds = Array.isArray(snapshot.orderedVisitIds) ? snapshot.orderedVisitIds.map(String).filter(Boolean) : [];
+  if (explicitIds.length) return explicitIds;
+  return (snapshot.stops || [])
+    .slice()
+    .sort((left, right) => Number(left.routeOrder || 0) - Number(right.routeOrder || 0))
+    .map(stop => String(stop.visitId))
+    .filter(Boolean);
+}
+
+function fallbackSnapshot(snapshot: Snapshot, reason: string, details?: Record<string, unknown>) {
+  const orderedVisitIds = fallbackOrderedVisitIds(snapshot);
+  const routeVersion = Number(snapshot.routeVersion || 0);
+  console.warn("canonical-route-service-snapshot-fallback", {
+    routeId: snapshot.routeId,
+    reason,
+    routeVersion,
+    stopCount: snapshot.stops?.length || 0,
+    orderedVisitCount: orderedVisitIds.length,
+    ...details,
+  });
+
+  return NextResponse.json({
+    ...snapshot,
+    routeVersion: Number.isInteger(routeVersion) && routeVersion > 0 ? routeVersion : 1,
+    orderedVisitIds,
+    routeOrder: orderedVisitIds.map((visitId, index) => ({ visitId, routeOrder: index + 1 })),
+    stops: (snapshot.stops || []).map((stop, index) => ({
+      ...stop,
+      routeOrder: orderedVisitIds.indexOf(String(stop.visitId)) >= 0
+        ? orderedVisitIds.indexOf(String(stop.visitId)) + 1
+        : Number(stop.routeOrder || index + 1),
+    })),
+    geometryStatus: snapshot.geometryStatus || "incomplete",
+  }, { headers: noStoreHeaders });
 }
 
 async function geometryFor(request: NextRequest, origin: Snapshot["origin"], stops: SnapshotStop[]) {
@@ -100,7 +139,7 @@ export async function GET(request: NextRequest) {
     if (!replicaResponse.ok) {
       return NextResponse.json(replicaBody, {
         status: replicaResponse.status,
-        headers: { "Cache-Control": "no-store, max-age=0" },
+        headers: noStoreHeaders,
       });
     }
 
@@ -123,14 +162,31 @@ export async function GET(request: NextRequest) {
         .eq("route_id", snapshot.routeId)
         .maybeSingle(),
     ]);
-    if (stateResult.error) throw new Error(stateResult.error.message);
-    if (stopsResult.error) throw new Error(stopsResult.error.message);
-    if (smartResult.error) throw new Error(smartResult.error.message);
 
-    const routeVersion = Number(stateResult.data?.version || 0);
-    const orderedVisitIds: string[] = (stopsResult.data || []).map((row: any) => String(row.visit_id));
-    if (!Number.isInteger(routeVersion) || routeVersion < 1 || !orderedVisitIds.length) {
-      throw new Error("Canonical service read did not return a valid versioned order.");
+    const serviceError = stateResult.error || stopsResult.error || smartResult.error;
+    if (serviceError) {
+      return fallbackSnapshot(snapshot, "service-read-error", { error: serviceError.message });
+    }
+
+    const serviceRouteVersion = Number(stateResult.data?.version || 0);
+    const serviceOrderedVisitIds: string[] = (stopsResult.data || []).map((row: any) => String(row.visit_id)).filter(Boolean);
+    let routeVersion = serviceRouteVersion;
+    let orderedVisitIds = serviceOrderedVisitIds;
+    if (!Number.isInteger(serviceRouteVersion) || serviceRouteVersion < 1 || !serviceOrderedVisitIds.length) {
+      routeVersion = Number(snapshot.routeVersion || 0);
+      orderedVisitIds = fallbackOrderedVisitIds(snapshot);
+      if (!Number.isInteger(routeVersion) || routeVersion < 1 || !orderedVisitIds.length) {
+        return fallbackSnapshot(snapshot, "missing-versioned-order", {
+          serviceRouteVersion,
+          serviceOrderedVisitCount: serviceOrderedVisitIds.length,
+        });
+      }
+      console.warn("canonical-route-service-snapshot-using-replica-order", {
+        routeId: snapshot.routeId,
+        serviceRouteVersion,
+        routeVersion,
+        orderedVisitCount: orderedVisitIds.length,
+      });
     }
 
     const replicaIds = snapshot.stops.map(stop => String(stop.visitId));
@@ -141,7 +197,7 @@ export async function GET(request: NextRequest) {
     if (!hasEveryMember(replicaIds, orderedVisitIds)) {
       return NextResponse.json(
         { error: "Canonical Route membership is still converging. Retry this snapshot." },
-        { status: 409, headers: { "Cache-Control": "no-store, max-age=0", "Retry-After": "1" } },
+        { status: 409, headers: { ...noStoreHeaders, "Retry-After": "1" } },
       );
     }
 
@@ -152,26 +208,35 @@ export async function GET(request: NextRequest) {
       .from("visits")
       .select("id,status,scheduled_date,started_at,finished_at,duration_seconds")
       .in("id", orderedVisitIds);
-    if (executionResult.error) throw new Error(executionResult.error.message);
+    if (executionResult.error) {
+      console.warn("canonical-route-service-execution-fallback", {
+        routeId: snapshot.routeId,
+        error: executionResult.error.message,
+      });
+    }
     const executionById = new Map<string, any>(
-      (executionResult.data || []).map((row: any) => [String(row.id), row]),
+      (executionResult.error ? [] : executionResult.data || []).map((row: any) => [String(row.id), row]),
     );
     if (executionById.size !== orderedVisitIds.length) {
-      throw new Error("Canonical Visit execution state is incomplete for this Route.");
+      console.warn("canonical-route-service-execution-incomplete", {
+        routeId: snapshot.routeId,
+        expected: orderedVisitIds.length,
+        actual: executionById.size,
+      });
     }
 
     const stopById = new Map(snapshot.stops.map(stop => [String(stop.visitId), stop]));
     const stops = orderedVisitIds.map((visitId, index) => {
       const stop = stopById.get(visitId)!;
-      const execution = executionById.get(visitId)!;
+      const execution = executionById.get(visitId) || {};
       return {
         ...stop,
         routeOrder: index + 1,
         status: String(execution.status || stop.status || "scheduled"),
         scheduledDate: execution.scheduled_date || (stop as any).scheduledDate,
-        startedAt: execution.started_at,
-        finishedAt: execution.finished_at,
-        durationSeconds: execution.duration_seconds,
+        startedAt: execution.started_at || (stop as any).startedAt || null,
+        finishedAt: execution.finished_at || (stop as any).finishedAt || null,
+        durationSeconds: execution.duration_seconds ?? (stop as any).durationSeconds ?? null,
       };
     });
 
@@ -226,12 +291,12 @@ export async function GET(request: NextRequest) {
       geometry,
       geometryStatus,
       updatedAt: smartIsCurrent && smartRow?.applied_at ? String(smartRow.applied_at) : snapshot.updatedAt,
-    }, { headers: { "Cache-Control": "no-store, max-age=0" } });
+    }, { headers: noStoreHeaders });
   } catch (error) {
     console.error("canonical-route-service-snapshot", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Canonical Route could not be loaded consistently." },
-      { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } },
+      { status: 400, headers: noStoreHeaders },
     );
   }
 }
