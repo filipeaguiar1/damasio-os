@@ -24,6 +24,11 @@ const ecosystemSchema=z.object({
   expiresInMinutes:z.number().int().min(15).max(43200).nullable(),
 }).strict();
 
+const patchSchema=z.object({
+  id:z.string().uuid(),
+  displayName:z.string().trim().min(2).max(120),
+}).strict();
+
 const createSchema=z.union([singleSchema,ecosystemSchema]);
 
 type Credential={email:string;password:string;role:string;company:string;expiresAt:string|null;displayName:string};
@@ -58,10 +63,10 @@ function adminClient(){
 }
 
 function missingColumn(message:string){return /column .* does not exist|Could not find .* column|schema cache/i.test(message)}
-function companyFilter(companyId:string){return `company_id.eq.${companyId},organization_id.eq.${companyId}`}
 function slugify(value:string){const base=value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,44)||"test-universe";return `${base}-${Date.now().toString(36)}`}
 function today(){return new Date().toISOString().slice(0,10)}
 function expiresAt(minutes:number|null){return minutes==null?null:new Date(Date.now()+minutes*60000).toISOString()}
+function testEmail(runId:string,suffix:string){return `t${runId}${suffix}@4s.test`.toLowerCase()}
 
 async function requireMaster(request:NextRequest){
   const token=request.headers.get("authorization")?.replace(/^Bearer\s+/i,"");
@@ -126,7 +131,7 @@ async function createAuthLogin(service:any,input:{companyId:string;role:string;f
 
 async function createCompany(service:any,name:string){
   const slug=slugify(name);
-  return insertWithFallback(service,"organizations",{name,slug,active:true,plan_name:"Professional",contact_email:`admin.${slug}@4everseasons.test`},["plan_name","contact_email","active"],"id,name");
+  return insertWithFallback(service,"organizations",{name,slug,active:true,plan_name:"Professional",contact_email:"admin@4s.test"},["plan_name","contact_email","active"],"id,name");
 }
 
 async function createCrewEmployee(service:any,input:{companyId:string;authUserId:string;fullName:string;email:string;index:number}){
@@ -140,7 +145,7 @@ async function createCustomerChain(service:any,input:{companyId:string;runId:str
   const number=String(input.index+1).padStart(2,"0");
   const [addressLine1,city,postalCode]=demoProperties[input.index%demoProperties.length];
   const plan=demoServices[input.index%demoServices.length];
-  const email=(input.email||`universe-${input.runId}-customer-${number}@4everseasons.test`).toLowerCase();
+  const email=(input.email||testEmail(input.runId,`c${number}`)).toLowerCase();
   const tax=Math.round(plan.subtotal*.13*100)/100;
   const total=Math.round((plan.subtotal+tax)*100)/100;
   const customer=await insertWithFallback(service,"customers",{organization_id:input.companyId,company_id:input.companyId,service_company_id:input.companyId,origin_company_id:input.companyId,profile_id:input.profileId||null,full_name:`Test Customer ${number}`,email,phone:`905-555-${String(3000+input.index).slice(-4)}`,notes:"Master-created connected test universe",acquisition_source:"company_created",assignment_status:"active",offer_status:"accepted",platform_managed:false,archived_at:null},["service_company_id","origin_company_id","acquisition_source","assignment_status","offer_status","platform_managed","archived_at"],"id");
@@ -164,14 +169,14 @@ async function createEcosystem(service:any,masterId:string,body:z.infer<typeof e
   const createdAuthIds:string[]=[];
   let companyId="";
   try{
-    const runId=Date.now().toString(36).slice(-6);
+    const runId=Date.now().toString(36).slice(-5);
     const company=await createCompany(service,body.companyName);
     companyId=String(company.id);
     const companyName=String(company.name||body.companyName);
     const expiration=expiresAt(body.expiresInMinutes);
     const credentials:Credential[]=[];
 
-    const adminEmail=`test-${runId}-admin@4everseasons.test`;
+    const adminEmail=testEmail(runId,"a");
     const admin=await createAuthLogin(service,{companyId,role:"admin",fullName:"Test Company Admin",email:adminEmail,password:body.password,metadata:{test_universe:true,company_id:companyId}});
     createdAuthIds.push(admin.authUserId);
     await trackAccount(service,{authUserId:admin.authUserId,masterId,companyId,role:"admin",email:admin.email,displayName:"Test Company Admin",expiresAt:expiration});
@@ -180,7 +185,7 @@ async function createEcosystem(service:any,masterId:string,body:z.infer<typeof e
     const employees:CreatedEmployee[]=[];
     for(let index=0;index<body.employeeCount;index+=1){
       const displayName=`Test Worker ${String(index+1).padStart(2,"0")}`;
-      const email=`test-${runId}-worker-${String(index+1).padStart(2,"0")}@4everseasons.test`;
+      const email=testEmail(runId,`w${index+1}`);
       const login=await createAuthLogin(service,{companyId,role:"employee",fullName:displayName,email,password:body.password,metadata:{test_universe:true,company_id:companyId}});
       createdAuthIds.push(login.authUserId);
       const employee=await createCrewEmployee(service,{companyId,authUserId:login.authUserId,fullName:displayName,email:login.email,index});
@@ -189,7 +194,7 @@ async function createEcosystem(service:any,masterId:string,body:z.infer<typeof e
       credentials.push({email:login.email,password:body.password,role:"Employee / Worker",company:companyName,expiresAt:expiration,displayName});
     }
 
-    const customerEmail=`test-${runId}-customer@4everseasons.test`;
+    const customerEmail=testEmail(runId,"c");
     const customerLogin=await createAuthLogin(service,{companyId,role:"customer",fullName:"Test Customer 01",email:customerEmail,password:body.password,metadata:{test_universe:true,company_id:companyId}});
     createdAuthIds.push(customerLogin.authUserId);
 
@@ -283,6 +288,27 @@ export async function POST(request:NextRequest){
     if(employeeId)await service.from("employees").delete().eq("id",employeeId);
     if(authUserId){await service.from("profiles").delete().eq("id",authUserId);await service.auth.admin.deleteUser(authUserId).catch(()=>undefined)}
     const message=error instanceof Error?error.message:"Temporary account could not be created.";
+    return NextResponse.json({error:message},{status:/session expired|sign in/i.test(message)?401:/Only an active Master/i.test(message)?403:400});
+  }
+}
+
+export async function PATCH(request:NextRequest){
+  try{
+    const {service,masterId}=await requireMaster(request);
+    const body=patchSchema.parse(await request.json());
+    const {data:account,error}=await service.from("temporary_test_accounts").select("id,auth_user_id,company_id,role,email,display_name,customer_id,employee_id,expires_at,disabled_at,disabled_reason,created_at").eq("id",body.id).maybeSingle();
+    if(error||!account)return NextResponse.json({error:"Temporary test account not found."},{status:404});
+    const updated=await service.from("temporary_test_accounts").update({display_name:body.displayName}).eq("id",body.id).select("id,auth_user_id,company_id,role,email,display_name,customer_id,employee_id,expires_at,disabled_at,disabled_reason,created_at").single();
+    if(updated.error||!updated.data)throw new Error(updated.error?.message||"Temporary test profile could not be updated.");
+    const profileUpdate=await service.from("profiles").update({full_name:body.displayName}).eq("id",account.auth_user_id);
+    if(profileUpdate.error)throw new Error(profileUpdate.error.message);
+    if(account.customer_id){const customerUpdate=await service.from("customers").update({full_name:body.displayName}).eq("id",account.customer_id);if(customerUpdate.error)throw new Error(customerUpdate.error.message)}
+    if(account.employee_id){const employeeUpdate=await service.from("employees").update({full_name:body.displayName}).eq("id",account.employee_id);if(employeeUpdate.error)throw new Error(employeeUpdate.error.message)}
+    await service.auth.admin.updateUserById(account.auth_user_id,{user_metadata:{full_name:body.displayName,test_account:true}}).catch(()=>undefined);
+    await service.from("master_audit_log").insert({master_profile_id:masterId,company_id:account.company_id,action:"temporary_test_account.updated",entity_type:"profile",entity_id:account.auth_user_id,details:{email:account.email,display_name:body.displayName}});
+    return NextResponse.json({updated:true,account:updated.data,message:"Test profile name updated."});
+  }catch(error){
+    const message=error instanceof Error?error.message:"Temporary account could not be updated.";
     return NextResponse.json({error:message},{status:/session expired|sign in/i.test(message)?401:/Only an active Master/i.test(message)?403:400});
   }
 }
