@@ -3,3 +3,17 @@
 .heroActions{display:grid;justify-items:end;gap:12px}
 .heroButton{background:#fff;color:#0a5c3c;box-shadow:0 12px 28px rgba(0,0,0,.16)}
 @media(max-width:700px){.heroActions{justify-items:stretch}.heroButton{width:100%}}
+
+.inlineCustomerPicker{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.inlineCustomerPicker label{display:grid;gap:7px;margin:0}
+.inlineCustomerPicker span{color:#138052;font-size:10px;font-weight:950;letter-spacing:.1em;text-transform:uppercase}
+.inlineCustomerPicker input,.inlineCustomerPicker select{width:100%;min-height:46px;box-sizing:border-box;border:1px solid #c9dbd1;border-radius:13px;padding:0 13px;background:#fff;color:#173a2c;font-weight:800;outline:none}
+.inlineCustomerPicker input:focus,.inlineCustomerPicker select:focus{border-color:#178658;box-shadow:0 0 0 3px rgba(23,134,88,.1)}
+.embeddedPicker{display:grid;grid-template-columns:minmax(180px,.75fr) minmax(0,1.25fr);gap:14px;align-items:end;padding:14px;border:1px solid #dfe9e3;border-radius:16px;background:linear-gradient(135deg,#fbfdfc 0%,#f2faf5 100%)}
+.embeddedPicker strong,.embeddedPicker small{display:block}
+.embeddedPicker strong{color:#173a2c;font-size:15px}
+.embeddedPicker small{margin-top:4px;color:#718279;font-size:11px;line-height:1.35}
+.manualRequest{display:grid;gap:12px;padding:16px;border-bottom:1px solid #edf2ef;background:#fcfdfc}
+.requestFormGrid{display:grid;grid-template-columns:minmax(140px,.5fr) minmax(180px,1fr) auto;gap:10px;align-items:end}
+.requestFormGrid .button{min-height:46px}
+@media(max-width:800px){.embeddedPicker,.inlineCustomerPicker,.requestFormGrid{grid-template-columns:1fr}.manualRequest{padding:14px}.requestFormGrid .button{width:100%}}
