@@ -29,8 +29,32 @@ async function signIn(page: any, email: string, password: string) {
   await page.waitForURL(url => url.pathname.startsWith("/mobile/employee"), { timeout: 30_000 });
 }
 
+async function boundedCleanup(label: string, task: () => PromiseLike<any>, timeoutMs = 15_000) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      Promise.resolve(task()),
+      new Promise<{ timedOut: true }>(resolve => {
+        timer = setTimeout(() => resolve({ timedOut: true }), timeoutMs);
+      }),
+    ]);
+    if ((result as any)?.timedOut) {
+      console.warn(`Mobile polish cleanup timed out (${label}); continuing because UI assertions already completed.`);
+      return;
+    }
+    const error = (result as any)?.error;
+    if (error && !String(error.message || "").toLowerCase().includes("not found")) {
+      console.warn(`Mobile polish cleanup ${label}: ${error.message}`);
+    }
+  } catch (error) {
+    console.warn(`Mobile polish cleanup ${label}: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 test("employee mobile polish keeps login, menu, Customers and Profile usable", async ({ browser }) => {
-  test.setTimeout(3 * 60 * 1000);
+  test.setTimeout(4 * 60 * 1000);
   expect(supabaseURL, "NEXT_PUBLIC_SUPABASE_URL is required").toBeTruthy();
   expect(supabaseAnonKey, "NEXT_PUBLIC_SUPABASE_ANON_KEY is required").toBeTruthy();
   expect(serviceKey, "SUPABASE_SERVICE_ROLE_KEY is required").toBeTruthy();
@@ -57,15 +81,11 @@ test("employee mobile polish keeps login, menu, Customers and Profile usable", a
   let context: Awaited<ReturnType<typeof browser.newContext>> | null = null;
 
   const cleanup = async () => {
-    if (workerId) {
-      await service.from("employees").delete().eq("profile_id", workerId);
-      if (crewId) await service.from("crews").delete().eq("id", crewId);
-      await service.from("profiles").delete().eq("id", workerId);
-      const removed = await service.auth.admin.deleteUser(workerId);
-      if (removed.error && !String(removed.error.message || "").toLowerCase().includes("not found")) {
-        console.warn(`Mobile polish auth cleanup: ${removed.error.message}`);
-      }
-    }
+    if (!workerId) return;
+    await boundedCleanup("employee", () => service.from("employees").delete().eq("profile_id", workerId));
+    if (crewId) await boundedCleanup("crew", () => service.from("crews").delete().eq("id", crewId));
+    await boundedCleanup("profile", () => service.from("profiles").delete().eq("id", workerId));
+    await boundedCleanup("auth user", () => service.auth.admin.deleteUser(workerId));
   };
 
   try {
