@@ -224,7 +224,7 @@ export async function POST(request: NextRequest, context: { params: { id: string
       if (propertyError) throw new Error(propertyError.message);
     }
 
-    let requestRow: { id: string } | null = null;
+    let requestRow: any = null;
     if (lead.service_request_id) {
       const { data, error } = await client.from("service_requests").update({
         company_id: body.companyId,
@@ -252,7 +252,7 @@ export async function POST(request: NextRequest, context: { params: { id: string
       requestRow = data;
     }
 
-    let quote: { id: string; quote_number: string } | null = null;
+    let quote: any = null;
     if (lead.quote_id) {
       const { data, error } = await client.from("quotes").update({
         organization_id: body.companyId,
