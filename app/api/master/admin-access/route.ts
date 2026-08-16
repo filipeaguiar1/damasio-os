@@ -11,45 +11,40 @@ function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) throw new Error("Supabase Admin access is not configured.");
-  return createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  return createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
 }
 
 async function requireMaster(request: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!url || !anonKey || !token) throw new Error("Sign in as Master.");
-
-  const authClient = createClient(url, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  });
-  const { data: auth, error: authError } = await authClient.auth.getUser(token);
+  if (!token) throw new Error("Sign in as Master.");
+  const client = adminClient();
+  const { data: auth, error: authError } = await client.auth.getUser(token);
   if (authError || !auth.user) throw new Error("Your Master session expired.");
-  const { data: profile, error: profileError } = await authClient
-    .from("profiles")
+  const { data: profile, error: profileError } = await client.from("profiles")
     .select("id,role,active")
     .eq("id", auth.user.id)
     .maybeSingle();
-  if (profileError || !profile?.active || profile.role !== "master") throw new Error("Only an active Master can generate temporary passwords.");
-  return { client: adminClient(), masterId: auth.user.id };
+  if (profileError || !profile?.active || profile.role !== "master") {
+    throw new Error("Only an active Master can send Admin recovery access.");
+  }
+  return { client, masterId: auth.user.id };
 }
 
 async function findUserByEmail(client: ReturnType<typeof adminClient>, email: string) {
   for (let page = 1; page <= 10; page++) {
     const { data, error } = await client.auth.admin.listUsers({ page, perPage: 100 });
     if (error) throw new Error(error.message);
-    const user = data.users.find((item) => item.email?.toLowerCase() === email);
+    const user = data.users.find((item: any) => item.email?.toLowerCase() === email);
     if (user) return user;
     if (data.users.length < 100) break;
   }
   return null;
 }
 
-function temporaryPassword() {
-  const bytes = crypto.getRandomValues(new Uint8Array(12));
-  const token = Array.from(bytes, (value) => value.toString(36)).join("").slice(0, 14);
-  return `Ds!${token}9`;
+function recoveryOrigin(request: NextRequest) {
+  const configured = String(process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
+  if (configured && !/localhost|127\.0\.0\.1/i.test(configured)) return configured;
+  return request.nextUrl.origin;
 }
 
 export async function POST(request: NextRequest) {
@@ -59,10 +54,10 @@ export async function POST(request: NextRequest) {
     const email = String(body.email || "").trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("A valid company Admin email is required.");
 
-    const { data: company, error: companyError } = await client
-      .from("organizations")
-      .select("id,name,contact_email")
+    const { data: company, error: companyError } = await client.from("organizations")
+      .select("id,name,contact_email,active")
       .eq("contact_email", email)
+      .eq("active", true)
       .is("deleted_at", null)
       .maybeSingle();
     if (companyError || !company) throw new Error(companyError?.message || "No active company uses this Admin email.");
@@ -70,45 +65,38 @@ export async function POST(request: NextRequest) {
     const user = await findUserByEmail(client, email);
     if (!user) throw new Error("This Admin does not exist in Supabase Authentication.");
 
-    const password = temporaryPassword();
-    const { error: updateError } = await client.auth.admin.updateUserById(user.id, {
-      password,
-      email_confirm: true,
-      user_metadata: {
-        ...(user.user_metadata || {}),
-        role: "admin",
-        company_id: company.id,
-      },
-    });
-    if (updateError) throw new Error(updateError.message);
-
-    const { error: profileError } = await client.from("profiles").upsert({
-      id: user.id,
-      role: "admin",
-      email,
-      active: true,
-      company_id: company.id,
-      organization_id: company.id,
-      full_name: String(user.user_metadata?.full_name || company.name + " Admin"),
-    }, { onConflict: "id" });
+    const { data: profile, error: profileError } = await client.from("profiles")
+      .select("id,role,active,company_id,organization_id")
+      .eq("id", user.id)
+      .maybeSingle();
     if (profileError) throw new Error(profileError.message);
+    const profileCompanyId = profile?.company_id || profile?.organization_id;
+    if (!profile?.active || profile.role !== "admin" || String(profileCompanyId || "") !== String(company.id)) {
+      throw new Error("This login is not the active Admin account for the selected company.");
+    }
 
-    await client.from("master_audit_log").insert({
+    const { error: recoveryError } = await client.auth.resetPasswordForEmail(email, {
+      redirectTo: `${recoveryOrigin(request)}/reset-password?onboarding=company`,
+    });
+    if (recoveryError) throw new Error(`Admin recovery email could not be sent: ${recoveryError.message}`);
+
+    const { error: auditError } = await client.from("master_audit_log").insert({
       master_profile_id: masterId,
       company_id: company.id,
-      action: "company.admin_temporary_password_generated",
+      action: "company.admin_recovery_sent",
       entity_type: "profile",
       entity_id: user.id,
       details: { admin_email: email },
     });
+    if (auditError) throw new Error(auditError.message);
 
     return NextResponse.json({
       ok: true,
       email,
-      temporaryPassword: password,
-      message: "Temporary password generated. The Admin can sign in now and complete the company profile.",
+      delivery: "recovery",
+      message: "Recovery link sent to the company Admin. The existing password was not changed by Master.",
     });
   } catch (error) {
-    return fail(error instanceof Error ? error.message : "Temporary password could not be generated.", 401);
+    return fail(error instanceof Error ? error.message : "Admin recovery could not be sent.", 401);
   }
 }
