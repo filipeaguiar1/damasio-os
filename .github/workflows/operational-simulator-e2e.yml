@@ -1,7 +1,7 @@
 name: Operational Simulator E2E
 # Single authenticated writer gate for the shared QA database.
-# V1, canonical four-screen Route, V2 scale and Full Ecosystem run sequentially.
-# Revalidation marker: canonical UI assertions now foreground each surface before checking the rendered version.
+# V1, canonical four-screen Route, V2 scale, Full Ecosystem and business/financial
+# invariants run sequentially against one shared database writer.
 
 on:
   pull_request:
@@ -20,6 +20,8 @@ on:
       - "app/mobile/employee/page.tsx"
       - "components/admin/OfficialRoutePlanMap.tsx"
       - "components/mobile/EmployeeRouteMap.tsx"
+      - "components/payments/**"
+      - "lib/auth/**"
       - "lib/hooks/useCanonicalRouteSnapshot.ts"
       - "lib/repositories/customerPortalRepository.ts"
       - "lib/routes/**"
@@ -29,18 +31,7 @@ on:
       - "scripts/qa-final-two-blockers.py"
       - "scripts/qa-finalize-operational-blockers.py"
       - "scripts/validate-advanced-simulation.mjs"
-      - "supabase/migrations/202607290001_customer_portal_action_contract.sql"
-      - "supabase/migrations/202608020700_canonical_route_snapshot_cleanup.sql"
-      - "supabase/migrations/202608030930_remove_recursive_route_stop_sync.sql"
-      - "supabase/migrations/202608031030_canonical_route_one_way_projection.sql"
-      - "supabase/migrations/202608031100_lock_active_canonical_route_order.sql"
-      - "supabase/migrations/202608050100_repair_corrupted_canonical_route_order.sql"
-      - "supabase/migrations/202608070002_operational_simulator_visit_cleanup.sql"
-      - "supabase/migrations/202608071610_route_stops_visit_projection.sql"
-      - "supabase/migrations/202608071620_route_employee_lookup_indexes.sql"
-      - "supabase/migrations/202608080100_advanced_operational_simulation_namespace.sql"
-      - "supabase/migrations/202608100120_advanced_simulation_route_cleanup.sql"
-      - "supabase/migrations/202608100210_operational_simulation_exact_purge.sql"
+      - "supabase/migrations/**"
       - "tests/operational-simulator.spec.ts"
       - "tests/canonical-route-sync.spec.ts"
       - "tests/advanced-operational-simulator*.spec.ts"
@@ -54,16 +45,16 @@ on:
 permissions:
   contents: read
 
-# Only the newest commit needs to mutate the shared QA database. Static PR checks
-# run independently; stale heavy runs are cancelled when a newer commit arrives.
+# Every heavy PR uses the same Supabase QA database. The group must therefore be
+# global, not ref-scoped; otherwise two different PRs can deadlock each other.
 concurrency:
-  group: damasio-release-heavy-e2e-${{ github.ref }}
-  cancel-in-progress: true
+  group: damasio-shared-qa-database-heavy-e2e
+  cancel-in-progress: false
 
 jobs:
   simulator:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 100
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
@@ -105,6 +96,17 @@ jobs:
               "supabase/migrations/202608080100_advanced_operational_simulation_namespace.sql": ["operational_simulation_runs"],
               "supabase/migrations/202608100120_advanced_simulation_route_cleanup.sql": ["cleanup_operational_simulation_routes", "service_role"],
               "supabase/migrations/202608100210_operational_simulation_exact_purge.sql": ["purge_operational_simulation_v1_run", "purge_operational_simulation_v2_namespace", "service_role"],
+              "supabase/migrations/20260815173217_harden_customer_account_identity_link.sql": ["link_current_customer_account"],
+              "supabase/migrations/20260815173914_enforce_customer_profile_identity_invariants.sql": ["profile_id"],
+              "supabase/migrations/20260815174444_sync_customer_profile_on_master_transfer.sql": ["master_transfer_customer"],
+              "supabase/migrations/20260815174536_fix_master_transfer_schema_compat.sql": ["master_transfer_customer"],
+              "supabase/migrations/20260815235602_financial_reversal_ledger_hardening.sql": ["reverse_customer_wallet_topup", "chargeback_debt_cents"],
+              "supabase/migrations/20260816000030_settle_wallet_chargeback_debt_on_topup.sql": ["credit_customer_wallet", "chargeback_debt_cents"],
+              "supabase/migrations/20260816000701_canonical_customer_quote_decision_lifecycle.sql": ["customer_decide_quote", "respond_company_referral"],
+              "supabase/migrations/20260816003825_canonical_billing_contract_tax_and_fee_rules.sql": ["tax_rate_basis_points", "save_customer_billing_agreement"],
+              "supabase/migrations/20260816003910_activate_after_visit_billing_events.sql": ["materialize_visit_billing_invoice", "process_visit_billing_events"],
+              "supabase/migrations/20260816004753_reconcile_visit_payments_with_weekly_payouts.sql": ["reconcile_visit_payment_to_payout", "refresh_payout_release_status"],
+              "supabase/migrations/20260816005303_schedule_visit_billing_processor.sql": ["process-visit-billing-events-hourly", "pg_cron"],
           }
           for path, required_fragments in migrations.items():
               source = Path(path)
@@ -165,6 +167,14 @@ jobs:
       - name: Run Full Ecosystem journeys
         if: ${{ success() }}
         run: pnpm exec playwright test tests/full-ecosystem.spec.ts tests/full-ecosystem-smart-route.spec.ts tests/full-ecosystem-stripe.spec.ts tests/full-ecosystem-tenant-isolation.spec.ts --reporter=line --workers=1
+
+      - name: Run canonical business lifecycle and financial invariant gate
+        if: ${{ success() }}
+        run: pnpm exec playwright test tests/full-ecosystem-business-lifecycle.spec.ts --reporter=line --workers=1
+
+      - name: Run Customer wallet and tip identity security gate
+        if: ${{ success() }}
+        run: pnpm exec playwright test tests/full-ecosystem-customer-wallet-security.spec.ts --reporter=line --workers=1
 
       - name: Upload release gate evidence
         if: always()

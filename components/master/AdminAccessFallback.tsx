@@ -40,13 +40,13 @@ export function AdminAccessFallback() {
     return () => observer.disconnect();
   }, [pathname]);
 
-  async function generate() {
+  async function sendRecovery() {
     if (!email) {
       setResult("Admin email was not found in this company.");
       return;
     }
     setBusy(true);
-    setResult("Generating a temporary password…");
+    setResult("Sending secure recovery link…");
     try {
       const supabase = getSupabaseBrowserClient();
       const { data } = await supabase.auth.getSession();
@@ -61,10 +61,10 @@ export function AdminAccessFallback() {
         body: JSON.stringify({ email }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Temporary password could not be generated.");
-      setResult(`Temporary password: ${payload.temporaryPassword}`);
+      if (!response.ok) throw new Error(payload.error || "Recovery link could not be sent.");
+      setResult(payload.message || `Recovery link sent to ${email}.`);
     } catch (error) {
-      setResult(error instanceof Error ? error.message : "Temporary password could not be generated.");
+      setResult(error instanceof Error ? error.message : "Recovery link could not be sent.");
     } finally {
       setBusy(false);
     }
@@ -76,10 +76,10 @@ export function AdminAccessFallback() {
     <section style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #dbe5df" }}>
       <h4 style={{ margin: "0 0 8px" }}>Admin access</h4>
       <p className="master-muted" style={{ marginBottom: 10 }}>
-        Use this when Supabase email delivery is rate limited or the invitation expired.
+        Send a secure recovery link without changing or exposing the Admin&apos;s existing password.
       </p>
-      <button className="master-inline-button" type="button" disabled={busy || !email} onClick={() => void generate()}>
-        {busy ? "Generating…" : "Generate temporary password"}
+      <button className="master-inline-button" type="button" disabled={busy || !email} onClick={() => void sendRecovery()}>
+        {busy ? "Sending…" : "Send Admin recovery link"}
       </button>
       {result && <p style={{ marginTop: 10, fontWeight: 700, overflowWrap: "anywhere" }}>{result}</p>}
     </section>,

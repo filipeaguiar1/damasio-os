@@ -8,14 +8,6 @@ function failure(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
-function recurringFor(model: string, prepaidPlanType: string | null) {
-  if (prepaidPlanType === "annual") return { interval: "year" as const };
-  if (prepaidPlanType === "monthly" || model === "monthly_fixed_subscription") return { interval: "month" as const };
-  if (model === "weekly_subscription") return { interval: "week" as const };
-  if (model === "biweekly_subscription") return { interval: "week" as const, interval_count: 2 };
-  return undefined;
-}
-
 export async function POST(request: NextRequest) {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -48,6 +40,16 @@ export async function POST(request: NextRequest) {
       : ["admin", "manager"].includes(String(profile.role)) && profileCompanyId === agreement.company_id;
     if (!maySync) return failure("You cannot sync this agreement.", 403);
 
+    if (agreement.collection_timing === "manual" || agreement.billing_model === "manual") {
+      return failure("Manual agreements do not create automatic Stripe Products or Prices.", 409);
+    }
+    if (agreement.collection_timing !== "after_visit") {
+      return failure("Only validated after-visit billing can be synchronized automatically right now.", 409);
+    }
+    if (!["per_visit_fixed_payout", "per_visit_percentage_fee"].includes(String(agreement.billing_model))) {
+      return failure("This billing model is not supported by the active after-visit engine.", 409);
+    }
+
     const [{ data: customer }, { data: job }] = await Promise.all([
       db.from("customers").select("full_name,email").eq("id", agreement.customer_id).maybeSingle(),
       db.from("jobs").select("service_name").eq("id", agreement.job_id).maybeSingle(),
@@ -62,13 +64,13 @@ export async function POST(request: NextRequest) {
       ownerRole: agreement.contract_owner_role,
       providerPayoutCents: String(agreement.provider_payout_cents || 0),
       platformFeeBasisPoints: String(agreement.platform_fee_basis_points || 0),
+      collectionTiming: "after_visit",
     };
 
     const product = agreement.stripe_product_id
       ? await stripe.products.update(agreement.stripe_product_id, { name: productName, metadata })
       : await stripe.products.create({ name: productName, metadata }, { idempotencyKey: `agreement-product-${agreement.id}` });
 
-    const recurring = recurringFor(String(agreement.billing_model), agreement.prepaid_plan_type);
     const amount = Number(agreement.customer_amount_cents || 0);
     if (!Number.isSafeInteger(amount) || amount < 50) return failure("Agreement amount must be at least $0.50 CAD.", 409);
 
@@ -78,9 +80,8 @@ export async function POST(request: NextRequest) {
         currency: "cad",
         unit_amount: amount,
         product: product.id,
-        recurring,
         metadata,
-      }, { idempotencyKey: `agreement-price-${agreement.id}-${amount}-${recurring ? JSON.stringify(recurring) : "once"}` });
+      }, { idempotencyKey: `agreement-price-${agreement.id}-${amount}-after-visit` });
       priceId = price.id;
     }
 

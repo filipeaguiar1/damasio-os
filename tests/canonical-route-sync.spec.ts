@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { existsSync, readFileSync } from "node:fs";
+import { stableAuthRequest } from "./qa-request-helper";
 
 const baseURL = "http://127.0.0.1:3000";
 const torontoContext = { timezoneId: "America/Toronto" } as const;
@@ -33,49 +34,7 @@ async function signIn(page: Page, email: string, password: string) {
 }
 
 async function authRequest<T>(page: Page, path: string, init?: { method?: string; body?: unknown; timeoutMs?: number }): Promise<T> {
-  let lastError = "Request failed.";
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      return await page.evaluate(async ({ path, init }) => {
-        const authKey = Object.keys(window.localStorage).find(key => key.startsWith("sb-") && key.endsWith("-auth-token"));
-        if (!authKey) throw new Error("Supabase browser session was not found.");
-        const stored = JSON.parse(window.localStorage.getItem(authKey) || "null");
-        const accessToken = stored?.access_token || stored?.currentSession?.access_token;
-        if (!accessToken) throw new Error("Supabase access token was not found.");
-        const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), init?.timeoutMs ?? 30_000);
-        try {
-          const response = await fetch(path, {
-            method: init?.method || "GET",
-            headers: {
-              authorization: `Bearer ${accessToken}`,
-              "content-type": "application/json",
-            },
-            cache: "no-store",
-            signal: controller.signal,
-            body: init?.body === undefined ? undefined : JSON.stringify(init.body),
-          });
-          const result = await response.json().catch(() => ({}));
-          if (!response.ok) {
-            const message = result.error || `${response.status} ${path}`;
-            throw new Error(`HTTP_${response.status}:${message}`);
-          }
-          return result;
-        } finally {
-          window.clearTimeout(timeout);
-        }
-      }, { path, init }) as T;
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : lastError;
-      const retryable = /fetch failed|failed to fetch|network|abort/i.test(lastError)
-        || /HTTP_(400|401):Bad Request/i.test(lastError);
-      if (attempt === 2 || !retryable) {
-        throw new Error(lastError.replace(/^.*HTTP_\d+:/, ""));
-      }
-      await page.waitForTimeout(500 * (attempt + 1));
-    }
-  }
-  throw new Error(lastError.replace(/^.*HTTP_\d+:/, ""));
+  return stableAuthRequest<T>(page, baseURL, path, init);
 }
 
 async function cleanupSimulationVisits(page: Page) {

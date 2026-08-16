@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 type WalletTransaction = {
@@ -14,7 +13,6 @@ type WalletTransaction = {
 };
 
 export function useCustomerWallet() {
-  const searchParams = useSearchParams();
   const [balanceCredits, setBalanceCredits] = useState(0);
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,10 +69,12 @@ export function useCustomerWallet() {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
-    const sessionId = searchParams.get("session_id");
-    if (searchParams.get("wallet_topup") === "success" && sessionId) void confirm(sessionId);
-    if (searchParams.get("wallet_topup") === "cancelled") setMessage("Deposit was cancelled. No charge was made.");
-  }, [confirm, searchParams]);
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session_id");
+    if (params.get("wallet_topup") === "success" && sessionId) void confirm(sessionId);
+    if (params.get("wallet_topup") === "cancelled") setMessage("Deposit was cancelled. No charge was made.");
+  }, [confirm]);
 
   const topUp = useCallback(async (amount: number) => {
     if (!Number.isInteger(amount) || amount < 5 || amount > 1000) {
@@ -112,6 +112,7 @@ export function useCustomerWallet() {
     message,
     topUp,
     reload: load,
+    refresh: load,
     clearMessage: () => setMessage("")
   };
 }

@@ -9,6 +9,7 @@ import { CustomerServiceVisitModal } from "@/components/customer/CustomerService
 import { useCustomerBilling } from "@/lib/hooks/useCustomerBilling";
 import { useCustomerWallet } from "@/lib/hooks/useCustomerWallet";
 import { loadCustomerPortal } from "@/lib/services/customerPortalService";
+import { decideCustomerQuote } from "@/lib/services/customerQuoteService";
 import { getPropertyPhotoHistory, uploadPropertyProfilePhoto, type PropertyPhotoHistory } from "@/lib/services/propertyPhotoService";
 import type { CustomerPortalBoard } from "@/lib/repositories/customerPortalRepository";
 
@@ -59,6 +60,7 @@ export default function MobileCustomerSection() {
   const [open, setOpen] = useState("");
   const [selectedVisitId, setSelectedVisitId] = useState("");
   const [message, setMessage] = useState("");
+  const [decidingQuoteId, setDecidingQuoteId] = useState("");
   const [editingAmount, setEditingAmount] = useState(false);
   const [customAmount, setCustomAmount] = useState("");
   const [selectedDeposit, setSelectedDeposit] = useState<number | null>(null);
@@ -80,6 +82,7 @@ export default function MobileCustomerSection() {
   const history = useMemo(() => board.visits
     .filter(item => item.status === "completed")
     .sort((a, b) => String(b.scheduledDate).localeCompare(String(a.scheduledDate))), [board.visits]);
+  const visibleQuotes = useMemo(() => board.quotes.filter(item => item.status !== "draft"), [board.quotes]);
   const activeIssues = useMemo(() => board.tasks.filter(item => !["completed", "resolved"].includes(item.status)), [board.tasks]);
   const next = activeVisits[0] || null;
   const upcoming = activeVisits.slice(1, 7);
@@ -116,6 +119,27 @@ export default function MobileCustomerSection() {
   function addFunds() {
     if (!Number.isInteger(depositAmount) || depositAmount < 5 || depositAmount > 1000) return setMessage("Choose an amount between $5 and $1,000 CAD.");
     void wallet.topUp(depositAmount);
+  }
+
+  async function decideQuote(quoteId: string, approve: boolean) {
+    const prompt = approve
+      ? "Approve this quote? The service will become available to the company for scheduling."
+      : "Decline this quote? This closes the quote and it cannot be approved later.";
+    if (!window.confirm(prompt)) return;
+
+    try {
+      setDecidingQuoteId(quoteId);
+      const result = await decideCustomerQuote(quoteId, approve);
+      setMessage(result.status === "approved"
+        ? "Quote approved. The service is now ready for scheduling. Billing follows the service agreement."
+        : "Quote declined. No Job or Invoice was created.");
+      const fresh = await loadCustomerPortal({ force: true });
+      setBoard(fresh);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Quote decision could not be saved.");
+    } finally {
+      setDecidingQuoteId("");
+    }
   }
 
   async function upload(event: ChangeEvent<HTMLInputElement>) {
@@ -173,7 +197,16 @@ export default function MobileCustomerSection() {
         {!history.length && <Empty icon="↶" title="No completed services" text="Completed visits will appear here." />}
       </section>}
 
-      {section === "estimates" && <section className="customer-document-list">{board.quotes.map(quote => <article key={quote.id}><header><div><span>{quote.quoteNumber}</span><strong>{quote.serviceName || "Property service"}</strong><small>{new Date(quote.createdAt).toLocaleDateString("en-CA")} · {humanStatus(quote.status)}</small></div><b>{money(quote.total)}</b></header><p>{quote.notes || quote.address || address}</p></article>)}{!board.quotes.length && <Empty icon="▤" title="No estimates" text="Quotes connected to your account will appear here." />}</section>}
+      {section === "estimates" && <section className="customer-document-list">
+        {visibleQuotes.map(quote => <article key={quote.id}>
+          <header><div><span>{quote.quoteNumber}</span><strong>{quote.serviceName || "Property service"}</strong><small>{new Date(quote.createdAt).toLocaleDateString("en-CA")} · {humanStatus(quote.status)}</small></div><b>{money(quote.total)}</b></header>
+          <p>{quote.notes || quote.address || address}</p>
+          {quote.status === "sent" && <div className="row"><button className="customer-pay-button" disabled={decidingQuoteId === quote.id} onClick={() => void decideQuote(quote.id, true)}>{decidingQuoteId === quote.id ? "Saving..." : "Approve"}</button><button className="btn btn-outline" disabled={decidingQuoteId === quote.id} onClick={() => void decideQuote(quote.id, false)}>Decline</button></div>}
+          {quote.status === "approved" && <div className="customer-invoice-status"><span>Approved</span><small>Ready for company scheduling</small></div>}
+          {quote.status === "declined" && <div className="customer-invoice-status"><span>Declined</span><small>No Job or Invoice was created</small></div>}
+        </article>)}
+        {!visibleQuotes.length && <Empty icon="▤" title="No estimates" text="Quotes released by the service company will appear here." />}
+      </section>}
 
       {section === "invoices" && <section className="customer-document-list">{billing.invoices.map(item => <article key={item.id}><header><div><span>{item.number}</span><strong>{item.service}</strong><small>{new Date(item.createdAt).toLocaleDateString("en-CA")}</small></div><b>{money(item.total)}</b></header><div className="customer-invoice-status"><span>{humanStatus(item.status)}</span><small>{item.status === "paid" ? "Confirmed" : "Awaiting payment"}</small></div>{item.status !== "paid" && <button className="customer-pay-button" disabled={billing.payingId === item.id || billing.source !== "live"} onClick={() => void billing.checkout(item.id)}>{billing.payingId === item.id ? "Opening Stripe..." : "Pay by card"}</button>}</article>)}{billing.loading ? <Empty icon="…" title="Loading invoices" text="Checking connected billing records." /> : !billing.invoices.length && <Empty icon="≡" title="No invoices" text="Invoices connected to your account will appear here." />}</section>}
 

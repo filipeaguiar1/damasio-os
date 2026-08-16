@@ -1,6 +1,6 @@
 import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
-import {getLead,getSessionForLead,setPropertyPhoto} from "@/lib/storage";
-import {readDemoSession} from "@/lib/auth/demoAuth";
+import {getLead,getSessionForLead,setPropertyPhoto}from "@/lib/storage";
+import {readDemoSession}from "@/lib/auth/demoAuth";
 
 type StoredPhoto={bucket:string;storagePath:string};
 type HistoryPhoto=StoredPhoto&{id:string;url:string;type:string;caption:string|null;sortOrder:number;createdAt:string};
@@ -25,10 +25,30 @@ export async function uploadPropertyProfilePhoto(propertyId:string,file:File){
 
 export async function getPropertyPhotoHistory(propertyId:string):Promise<PropertyPhotoHistory>{
  if(readDemoSession()||!isSupabaseConfigured()){const lead=getLead(propertyId);const session=getSessionForLead(propertyId);const completed=lead&&(lead.status==="completed"||session?.status==="finished");return{profilePhotoUrl:lead?.propertyPhoto||null,visits:completed?[{id:session?.id||lead.id,scheduled_date:lead.scheduledDate||new Date().toISOString().slice(0,10),status:"completed",started_at:session?.startedAt||lead.visitStartedAt||null,finished_at:session?.finishedAt||lead.visitFinishedAt||null,duration_seconds:session?.durationSeconds||lead.visitDurationSeconds||0,employee_notes:session?.completionComment||null,customer_visible_summary:session?.completionComment||null,service_name:lead.service,crew_name:session?.crew||lead.assignedCrew||"Crew",rating:lead.feedback?.rating||null,feedback_comment:lead.feedback?.comment||null,photos:(lead.photos||[]).map((url,index)=>({id:`${lead.id}-photo-${index}`,bucket:"demo",storagePath:"",url,type:"completion",caption:`Service photo ${index+1}`,sortOrder:index,createdAt:session?.finishedAt||new Date().toISOString()}))}]:[]}}
- const supabase=getSupabaseBrowserClient() as any;const{data:session}=await supabase.auth.getSession();if(!session.session)throw new Error("Your Supabase session expired. Sign in again to view this property history.");const{data,error}=await supabase.rpc("get_property_photo_history",{p_property_id:propertyId});if(error)throw new Error(error.message);
+ const supabase=getSupabaseBrowserClient()as any;const{data:session}=await supabase.auth.getSession();if(!session.session)throw new Error("Your Supabase session expired. Sign in again to view this property history.");const{data,error}=await supabase.rpc("get_property_photo_history",{p_property_id:propertyId});if(error)throw new Error(error.message);
  const raw=data as{profilePhoto:StoredPhoto|null;visits:Array<Omit<PropertyPhotoHistory["visits"][number],"photos">&{photos:Array<Omit<HistoryPhoto,"url">>}>};let profilePhotoUrl=raw.profilePhoto?await signedUrl(raw.profilePhoto.bucket,raw.profilePhoto.storagePath):null;
  if(!profilePhotoUrl){const{data:property}=await supabase.from("properties").select("official_photo_url").eq("id",propertyId).maybeSingle();if(property?.official_photo_url)profilePhotoUrl=await signedUrl("property-photos",property.official_photo_url)}
  const visits=await Promise.all((raw.visits||[]).map(async visit=>({...visit,photos:await Promise.all((visit.photos||[]).map(async photo=>({...photo,url:await signedUrl(photo.bucket,photo.storagePath)})))})));return{profilePhotoUrl,visits}
 }
 
-export async function uploadVisitServicePhotos(visitId:string,files:File[]){const supabase=getSupabaseBrowserClient() as any;const{data:visit,error:visitError}=await supabase.from("visits").select("company_id,property_id").eq("id",visitId).single();if(visitError)throw new Error(visitError.message);const{data:user}=await supabase.auth.getUser();const urls:string[]=[];for(let index=0;index<Math.min(files.length,5);index++){const file=files[index];const path=`${visit.company_id}/${visit.property_id}/${visitId}/${crypto.randomUUID()}.${extension(file)}`;const{error:uploadError}=await supabase.storage.from("work-photos").upload(path,file,{contentType:file.type||"image/jpeg"});if(uploadError)throw new Error(uploadError.message);const{error:rowError}=await supabase.from("photos").insert({organization_id:visit.company_id,company_id:visit.company_id,property_id:visit.property_id,visit_id:visitId,uploaded_by:user.user?.id||null,storage_path:path,storage_bucket:"work-photos",public_url:null,photo_type:"completion",is_profile:false,sort_order:index});if(rowError)throw new Error(rowError.message);urls.push(await signedUrl("work-photos",path))}return urls}
+export async function uploadVisitServicePhotos(visitId:string,files:File[]){
+ const supabase=getSupabaseBrowserClient()as any;
+ const{data:visit,error:visitError}=await supabase.from("visits").select("company_id,property_id").eq("id",visitId).single();
+ if(visitError)throw new Error(visitError.message);
+ const{data:user}=await supabase.auth.getUser();
+ const urls:string[]=[];
+ for(let index=0;index<Math.min(files.length,5);index++){
+  const file=files[index];
+  const path=`${visit.company_id}/${visit.property_id}/${visitId}/${crypto.randomUUID()}.${extension(file)}`;
+  const{error:uploadError}=await supabase.storage.from("work-photos").upload(path,file,{contentType:file.type||"image/jpeg"});
+  if(uploadError)throw new Error(uploadError.message);
+  const{error:rowError}=await supabase.from("photos").insert({organization_id:visit.company_id,company_id:visit.company_id,property_id:visit.property_id,visit_id:visitId,uploaded_by:user.user?.id||null,storage_path:path,storage_bucket:"work-photos",public_url:null,photo_type:"completion",is_profile:false,sort_order:index});
+  if(rowError){
+   const cleanup=await supabase.storage.from("work-photos").remove([path]);
+   if(cleanup.error)console.error("Could not remove orphan work photo after metadata failure",{path,error:cleanup.error.message});
+   throw new Error(rowError.message);
+  }
+  urls.push(await signedUrl("work-photos",path));
+ }
+ return urls;
+}

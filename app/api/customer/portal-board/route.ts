@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { requireCustomerPortalIdentity } from "@/lib/auth/customerPortalIdentity";
 
 export const dynamic = "force-dynamic";
 
@@ -12,80 +12,10 @@ function failure(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
-function serverClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Customer portal board fallback is not configured.");
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
-}
-
 function missingColumn(message?: string, column?: string) {
   const value = String(message || "");
   return /schema cache|does not exist|could not find/i.test(value)
     && (!column || value.toLowerCase().includes(column.toLowerCase()));
-}
-
-async function resolveCustomer(db: any, token: string): Promise<CustomerIdentity> {
-  const auth = await db.auth.getUser(token);
-  if (auth.error || !auth.data.user) throw new Error("Your customer session expired. Sign in again.");
-
-  const profile = await db.from("profiles")
-    .select("id,role,active,company_id,organization_id,email")
-    .eq("id", auth.data.user.id)
-    .maybeSingle();
-  if (profile.error) throw new Error(profile.error.message);
-  if (!profile.data?.active || profile.data.role !== "customer") {
-    throw new Error("Only an active Customer account can use this portal.");
-  }
-
-  const metadataCustomerId = auth.data.user.user_metadata?.customer_id;
-  let customer: any = null;
-  if (metadataCustomerId) {
-    const byMetadata = await db.from("customers")
-      .select("id,profile_id,email,company_id,organization_id,archived_at")
-      .eq("id", metadataCustomerId)
-      .is("archived_at", null)
-      .maybeSingle();
-    if (!byMetadata.error) customer = byMetadata.data;
-  }
-  if (!customer) {
-    const byProfile = await db.from("customers")
-      .select("id,profile_id,email,company_id,organization_id,archived_at")
-      .eq("profile_id", auth.data.user.id)
-      .is("archived_at", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (!byProfile.error) customer = byProfile.data;
-  }
-  if (!customer && auth.data.user.email) {
-    const byEmail = await db.from("customers")
-      .select("id,profile_id,email,company_id,organization_id,archived_at")
-      .ilike("email", auth.data.user.email.trim())
-      .is("archived_at", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (!byEmail.error) customer = byEmail.data;
-  }
-  if (!customer) throw new Error("Customer record was not found for this account.");
-
-  const profileCompanyId = profile.data.company_id || profile.data.organization_id;
-  const customerCompanyId = customer.company_id || customer.organization_id;
-  const metadataCompanyId = auth.data.user.user_metadata?.company_id;
-  const companyId = String(profileCompanyId || customerCompanyId || metadataCompanyId || "");
-  if (!companyId) throw new Error("Customer account has no company identity.");
-  if (customerCompanyId && String(customerCompanyId) !== companyId) {
-    throw new Error("Customer company identity does not match the signed-in account.");
-  }
-
-  if (!customer.profile_id) {
-    await db.from("customers").update({ profile_id: auth.data.user.id }).eq("id", customer.id).is("profile_id", null);
-  } else if (String(customer.profile_id) !== String(auth.data.user.id)) {
-    throw new Error("Customer record is linked to a different account.");
-  }
-
-  return { customerId: String(customer.id), companyId };
 }
 
 async function companyRows(
@@ -109,12 +39,16 @@ function dateValue(value: unknown) {
 
 async function buildBoard(db: any, identity: CustomerIdentity) {
   const customerResult = await db.from("customers")
-    .select("id,full_name,email,phone")
+    .select("id,full_name,email,phone,profile_id,company_id,organization_id")
     .eq("id", identity.customerId)
     .maybeSingle();
   if (customerResult.error) throw new Error(customerResult.error.message);
   if (!customerResult.data) {
     return { property: null, visits: [], tasks: [], requests: [], quotes: [], feedback: [] };
+  }
+  const customerCompanyId = customerResult.data.company_id || customerResult.data.organization_id;
+  if (customerCompanyId && String(customerCompanyId) !== identity.companyId) {
+    throw new Error("Customer belongs to a different company.");
   }
 
   const properties = await companyRows(
@@ -136,9 +70,6 @@ async function buildBoard(db: any, identity: CustomerIdentity) {
   );
   const jobById = new Map<string, any>(jobs.map((row: any) => [String(row.id), row] as [string, any]));
 
-  // Visits already carry canonical customer_id. Reading the customer's own visits
-  // directly avoids fan-out queries through every Job and keeps Feedback responsive
-  // even while operational QA is creating hundreds of Visits in parallel.
   const visitRows = await companyRows(
     db,
     "visits",
@@ -257,11 +188,9 @@ async function buildBoard(db: any, identity: CustomerIdentity) {
 
 export async function GET(request: NextRequest) {
   try {
-    const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-    if (!token) return failure("Sign in as the Customer to continue.", 401);
-    const db = serverClient();
-    const identity = await resolveCustomer(db, token);
-    const board = await buildBoard(db, identity);
+    const { service: db, identity } = await requireCustomerPortalIdentity(request);
+    if (!identity.companyId) throw new Error("Customer account has no company identity.");
+    const board = await buildBoard(db, { customerId: identity.customerId, companyId: identity.companyId });
     return NextResponse.json({ board });
   } catch (error) {
     console.error("customer-portal-board", error);

@@ -13,8 +13,7 @@ import styles from "./ContractPaymentsWorkspace.module.css";
 
 type Scope = "master" | "company";
 type Tab = "overview" | "contracts" | "holds" | "payouts";
-
-type CollectionTiming = "after_visit" | "period_prepaid" | "manual";
+type CollectionTiming = "after_visit" | "manual";
 
 function money(cents?: number | null) {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format((cents || 0) / 100);
@@ -81,7 +80,7 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
   }, [companyRestricted, tab]);
 
   useEffect(() => {
-    setCollectionTiming((selectedAgreement?.collectionTiming || "after_visit") as CollectionTiming);
+    setCollectionTiming(selectedAgreement?.collectionTiming === "manual" ? "manual" : "after_visit");
   }, [selectedAgreement?.id]);
 
   const visibleCustomers = selectedCustomer ? [selectedCustomer] : workspace.customers;
@@ -110,18 +109,20 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
   async function submitContract(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedJob || !selectedCustomer || !canEditSelected) return;
+
     const form = new FormData(event.currentTarget);
     const customerAmount = Math.round(Number(form.get("customerAmount") || 0) * 100);
     const providerPayout = Math.round(Number(form.get("providerPayout") || 0) * 100);
     const frequency = String(form.get("frequency") || "one_time");
-    const billingModel = String(form.get("billingModel") || "manual");
+    const billingModel = collectionTiming === "manual"
+      ? "manual"
+      : String(form.get("billingModel") || (scope === "master" ? "per_visit_fixed_payout" : "per_visit_percentage_fee"));
     const startsOn = String(form.get("startsOn") || today());
     const endsOn = String(form.get("endsOn") || "") || null;
     const feedbackHours = Number(form.get("feedbackHours") || 24);
-    const prepaidPlanType = collectionTiming === "period_prepaid" ? String(form.get("prepaidPlanType") || "monthly") : null;
 
     if (!customerAmount || customerAmount < 0) return setMessage("Enter the customer contract amount.");
-    if (scope === "master" && providerPayout <= 0) return setMessage("Master contracts require the exact company payout.");
+    if (scope === "master" && collectionTiming === "after_visit" && providerPayout <= 0) return setMessage("Master contracts require the exact company payout.");
     if (scope === "master" && providerPayout > customerAmount) return setMessage("Company payout cannot exceed the customer amount.");
 
     setSaving(true);
@@ -133,18 +134,24 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
         collectionTiming,
         serviceFrequency: frequency,
         customerAmountCents: customerAmount,
-        providerPayoutCents: scope === "master" ? providerPayout : null,
+        providerPayoutCents: scope === "master" && collectionTiming === "after_visit" ? providerPayout : null,
         platformFeeBasisPoints: null,
         contractStartsOn: startsOn,
         contractEndsOn: endsOn,
         feedbackWindowHours: feedbackHours,
-        prepaidPlanType,
-        planBillingDay: collectionTiming === "period_prepaid" ? Number(form.get("billingDay") || 1) : 1,
-        serviceStartDay: collectionTiming === "period_prepaid" ? Number(form.get("serviceStartDay") || 0) || null : null,
+        prepaidPlanType: null,
+        planBillingDay: 1,
+        serviceStartDay: null,
       });
-      await syncAgreementToStripe(agreementId);
+
+      if (collectionTiming === "after_visit") {
+        await syncAgreementToStripe(agreementId);
+      }
+
       const created = await generateAgreementVisits(agreementId);
-      setMessage(`Contract saved, synced with Stripe, and ${created} future visit${created === 1 ? "" : "s"} created.`);
+      setMessage(collectionTiming === "after_visit"
+        ? `Contract saved, synced with Stripe, and ${created} future visit${created === 1 ? "" : "s"} created.`
+        : `Manual contract saved and ${created} future visit${created === 1 ? "" : "s"} created. No automatic Stripe charge was configured.`);
       await load();
       setTab("overview");
     } catch (error) {
@@ -163,7 +170,7 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
   return <div className={styles.shell}>
     <section className={styles.hero}>
       <div><small>{scope === "master" ? "Master financial control" : "Company financial operations"}</small><h1>{title}</h1><p>{subtitle}</p></div>
-      <div className={styles.heroBadge}><i>✓</i><div><strong>Canonical billing</strong><span>One contract source · Stripe synced</span></div></div>
+      <div className={styles.heroBadge}><i>✓</i><div><strong>Canonical billing</strong><span>One contract source · Stripe for automated billing</span></div></div>
     </section>
 
     {message && <div className={styles.message}>{message}</div>}
@@ -197,27 +204,22 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
         </section>}
 
         {tab === "contracts" && !companyRestricted && <section className={styles.panel}>
-          <header className={styles.panelHeader}><div><span>Contract builder</span><h2>Define service and billing</h2><p>Select the customer above, then choose the active service job.</p></div></header>
+          <header className={styles.panelHeader}><div><span>Contract builder</span><h2>Define service and billing</h2><p>Select the customer above, then choose the active service job. Prepaid automation remains disabled until its billing-cycle worker is fully validated.</p></div></header>
           <form className={styles.form} onSubmit={submitContract} key={`${selectedCustomerId}-${selectedAgreement?.id || "new"}`}>
             <div className={styles.formGrid}>
               <div className={`${styles.field} ${styles.wide}`}><label>Selected customer</label><input value={selectedCustomer?.name || "None"} readOnly /></div>
               <div className={`${styles.field} ${styles.wide}`}><label>Service job</label><select value={selectedJob?.id || ""} onChange={(event) => setSelectedJobId(event.target.value)} disabled={!selectedCustomer}><option value="">None</option>{customerJobs.map((job) => <option key={job.id} value={job.id}>{job.serviceName}</option>)}</select></div>
               <div className={styles.field}><label>Frequency</label><select name="frequency" defaultValue={selectedAgreement?.serviceFrequency || "weekly"}><option value="one_time">One time</option><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option></select></div>
-              <div className={styles.field}><label>Collection</label><select name="collectionTiming" value={collectionTiming} onChange={(event) => setCollectionTiming(event.target.value as CollectionTiming)}><option value="after_visit">After each visit</option><option value="period_prepaid">Prepaid plan</option><option value="manual">Manual</option></select></div>
-              <div className={styles.field}><label>Billing model</label><select name="billingModel" defaultValue={selectedAgreement?.billingModel || (scope === "master" ? "per_visit_fixed_payout" : "per_visit_percentage_fee")}><option value="per_visit_fixed_payout">Per visit · fixed company payout</option><option value="per_visit_percentage_fee">Per visit · percentage model</option><option value="monthly_fixed_subscription">Monthly fixed plan</option><option value="weekly_subscription">Weekly subscription</option><option value="biweekly_subscription">Biweekly subscription</option><option value="manual">Manual</option></select></div>
-              <div className={styles.field}><label>Customer amount (CAD)</label><input name="customerAmount" type="number" min="0" step="0.01" defaultValue={selectedAgreement ? (selectedAgreement.customerAmountCents || 0) / 100 : ""} required /></div>
-              {scope === "master" && <div className={styles.field}><label>Exact company payout (CAD)</label><input name="providerPayout" type="number" min="0" step="0.01" defaultValue={selectedAgreement ? (selectedAgreement.providerPayoutCents || 0) / 100 : ""} required /></div>}
+              <div className={styles.field}><label>Collection</label><select name="collectionTiming" value={collectionTiming} onChange={(event) => setCollectionTiming(event.target.value as CollectionTiming)}><option value="after_visit">After each visit</option><option value="manual">Manual</option></select></div>
+              <div className={styles.field}><label>Billing model</label><select name="billingModel" key={collectionTiming} defaultValue={collectionTiming === "manual" ? "manual" : selectedAgreement?.billingModel === "per_visit_fixed_payout" || selectedAgreement?.billingModel === "per_visit_percentage_fee" ? selectedAgreement.billingModel : scope === "master" ? "per_visit_fixed_payout" : "per_visit_percentage_fee"}>{collectionTiming === "manual" ? <option value="manual">Manual</option> : <><option value="per_visit_fixed_payout">Per visit · fixed company payout</option><option value="per_visit_percentage_fee">Per visit · percentage model</option></>}</select></div>
+              <div className={styles.field}><label>Customer amount (CAD)</label><input name="customerAmount" type="number" min="0.50" step="0.01" defaultValue={selectedAgreement ? (selectedAgreement.customerAmountCents || 0) / 100 : ""} required /></div>
+              {scope === "master" && collectionTiming === "after_visit" && <div className={styles.field}><label>Exact company payout (CAD)</label><input name="providerPayout" type="number" min="0" step="0.01" defaultValue={selectedAgreement ? (selectedAgreement.providerPayoutCents || 0) / 100 : ""} required /></div>}
               <div className={styles.field}><label>Starts on</label><input name="startsOn" type="date" defaultValue={selectedAgreement?.contractStartsOn || today()} required /></div>
               <div className={styles.field}><label>Ends on</label><input name="endsOn" type="date" defaultValue={selectedAgreement?.contractEndsOn || ""} /></div>
               <div className={styles.field}><label>Feedback window</label><select name="feedbackHours" defaultValue={selectedAgreement?.feedbackWindowHours || 24}><option value="24">24 hours</option><option value="48">48 hours</option><option value="72">72 hours</option></select></div>
-              {collectionTiming === "period_prepaid" && <>
-                <div className={styles.field}><label>Prepaid plan</label><select name="prepaidPlanType" defaultValue={selectedAgreement?.prepaidPlanType || "monthly"}><option value="monthly">Monthly</option><option value="seasonal">Seasonal</option><option value="annual">Annual</option></select></div>
-                <div className={styles.field}><label>Billing day</label><input name="billingDay" type="number" min="1" max="28" defaultValue="1" /></div>
-                <div className={styles.field}><label>Service starts day</label><input name="serviceStartDay" type="number" min="1" max="28" placeholder="5" /></div>
-              </>}
             </div>
-            {!selectedCustomer ? <div className={styles.scopeLock}>No customer selected. Choose one in Customer workspace.</div> : !canEditSelected ? <div className={`${styles.scopeLock} ${styles.notice}`}>This platform customer is managed by Master. Commercial terms are hidden from the company.</div> : <div className={styles.notice}>{scope === "master" ? "The company receives the exact payout configured. Stripe processing is absorbed by the platform share." : "Company-owned customer contract. Platform deductions happen automatically and are not configured here."}</div>}
-            <div className={styles.actions}><button type="submit" className={styles.button} disabled={saving || !selectedJob || !canEditSelected}>{saving ? "Saving and syncing…" : "Save contract, sync Stripe & generate visits"}</button></div>
+            {!selectedCustomer ? <div className={styles.scopeLock}>No customer selected. Choose one in Customer workspace.</div> : !canEditSelected ? <div className={`${styles.scopeLock} ${styles.notice}`}>This platform customer is managed by Master. Commercial terms are hidden from the company.</div> : <div className={styles.notice}>{collectionTiming === "manual" ? "Manual collection records the contract and schedule without creating an automatic Stripe charge." : scope === "master" ? "The company receives the exact payout configured. Stripe processing is absorbed by the platform share." : "Company-owned customer contract. Platform deductions happen automatically from the canonical agreement."}</div>}
+            <div className={styles.actions}><button type="submit" className={styles.button} disabled={saving || !selectedJob || !canEditSelected}>{saving ? "Saving…" : collectionTiming === "manual" ? "Save manual contract & generate visits" : "Save contract, sync Stripe & generate visits"}</button></div>
           </form>
         </section>}
 
@@ -227,7 +229,7 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
       </main>
 
       <aside className={styles.side}>
-        <section className={styles.sideCard}><span>How it works</span><h3>{scope === "master" ? "Master customer control" : "Company customer control"}</h3><p>{scope === "master" ? "Choose a platform customer, define what the customer pays, and set the exact company payout. Stripe processing is paid from the platform share." : "Choose a company-owned customer and define billing terms. Platform-owned contracts, holds, and payout details remain private."}</p><dl><div><dt>No selection</dt><dd>None</dd></div><div><dt>Contract editor</dt><dd>{scope === "master" ? "Platform customers" : "Company customers only"}</dd></div><div><dt>Stripe</dt><dd>Synced on save</dd></div></dl></section>
+        <section className={styles.sideCard}><span>How it works</span><h3>{scope === "master" ? "Master customer control" : "Company customer control"}</h3><p>{scope === "master" ? "Choose a platform customer, define what the customer pays, and set the exact company payout. Stripe processing is paid from the platform share." : "Choose a company-owned customer and define billing terms. Platform-owned contracts, holds, and payout details remain private."}</p><dl><div><dt>No selection</dt><dd>None</dd></div><div><dt>Contract editor</dt><dd>{scope === "master" ? "Platform customers" : "Company customers only"}</dd></div><div><dt>Automatic Stripe</dt><dd>After-visit only</dd></div></dl></section>
         <section className={styles.panel}><header className={styles.panelHeader}><div><span>Selected account</span><h2>{selectedCustomer?.name || "None"}</h2><p>{selectedJob?.serviceName || "No service selected"}</p></div></header><div className={styles.form}>{selectedAgreement && !companyRestricted ? <div className={styles.notice}><strong>{label(selectedAgreement.serviceFrequency)}</strong><br />{label(selectedAgreement.billingModel)}<br />{selectedAgreement.contractStartsOn || "No start date"} → {selectedAgreement.contractEndsOn || "Open ended"}</div> : <div className={styles.scopeLock}>{companyRestricted ? "Commercial details are managed privately by Master." : selectedCustomer ? "No active billing agreement for this job." : "Choose a customer to open the account."}</div>}</div></section>
       </aside>
     </section>

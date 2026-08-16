@@ -1,0 +1,25 @@
+name: Production Migration Contract
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/verify-production-migration-contract.mjs"
+      - ".github/workflows/production-migration-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify exact production migration sources
+        run: node scripts/verify-production-migration-contract.mjs

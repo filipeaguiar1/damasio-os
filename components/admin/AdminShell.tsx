@@ -29,10 +29,19 @@ const quickActions: NavLink[] = [
   ["Database Health", "/admin/database"],
 ];
 
+function navActive(active:string,label:string){
+  if(active===label)return true;
+  if(label==="Payments"&&active==="Finance")return true;
+  if(label==="Dispatch & Routes"&&["Routes","Map"].includes(active))return true;
+  if(label==="Work Orders"&&active==="Tasks")return true;
+  return false;
+}
+
 export function AdminShell({ children, active }: { children: React.ReactNode; active: string }) {
   const [unread, setUnread] = useState(0);
   const [pendingRequests, setPendingRequests] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const preserved=["Operations Studio","Dashboard","Dispatch & Routes","Routes","Map","Payments","Finance"].includes(active);
 
   function refreshNotifications() {
     setUnread(getNotifications().filter((notification) => !notification.read).length);
@@ -56,7 +65,7 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
   }, []);
 
   return (
-    <div className="studio-shell">
+    <div className={`studio-shell ${preserved?"admin-layout-preserved":"admin-layout-refresh"}`}>
       <header className="studio-topnav">
         <Link href="/admin" className="studio-brand" aria-label="4Ever Seasons admin">
           <Image src="/brand/4ever-seasons-logo-mark.jpg" alt="" width={40} height={40} priority />
@@ -64,10 +73,10 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
         </Link>
         <nav className="studio-nav" aria-label="Admin navigation">
           {topNav.map(([label, href]) => (
-            <Link key={href} href={href} className={active === label || (label === "Payments" && active === "Finance") || (label === "Dispatch & Routes" && active === "Routes") ? "active" : ""}>{label}</Link>
+            <Link key={href} href={href} className={navActive(active,label)?"active":""}>{label}</Link>
           ))}
         </nav>
-        <Link href="/admin/alerts" onClick={openNotifications} className="studio-icon" aria-label="Notifications">N{unread > 0 && <b>{unread}</b>}</Link>
+        <Link href="/admin/alerts" onClick={openNotifications} className="studio-icon" aria-label="Alerts"><span className="studio-alert-bulb" aria-hidden="true">💡</span>{unread > 0 && <b>{unread}</b>}</Link>
         <Link href="/admin/settings" className="studio-user"><span>AD</span><div><strong>Company Admin</strong><small>Administrator</small></div></Link>
         <button type="button" className="studio-signout" onClick={() => void signOutAccount()}>Sign out</button>
         <button type="button" className="studio-menu" onClick={() => setMobileMenuOpen(true)}>Menu</button>
@@ -78,7 +87,7 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
         <nav>{quickActions.map(([label, href], index) => <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} className={index === 0 ? "primary" : ""}><span className="quick-action-icon">{index === 0 ? "+" : String(index)}</span><strong className="quick-action-label">{label}</strong></Link>)}</nav>
         <section className="studio-rail-summary"><span>Today</span><div><small>Pending Requests</small><b>{pendingRequests}</b></div><div><small>Unread Alerts</small><b>{unread}</b></div></section>
         <Link href="/admin/production" className="studio-system-status"><i></i><span>System Status</span><small>Production checklist</small></Link>
-        <section className="studio-rail-filler" aria-label="Workspace status"><div><small>Workspace</small><strong>Company isolated</strong></div><p>Admin tools are being wired through company-scoped data so each company stays separated.</p><Link href="/admin/saas">Tenant readiness</Link></section>
+        <section className="studio-rail-filler" aria-label="Workspace status"><div><small>Workspace</small><strong>Company isolated</strong></div><p>Admin tools use company-scoped data so each company stays separated.</p><Link href="/admin/saas">Tenant readiness</Link></section>
       </aside>
       <main className="studio-main">{children}</main>
       <footer className="studio-bottom-status"><span><i></i> Live sync active</span><span>{pendingRequests} approvals waiting</span><span>{unread} unread alerts</span><Link href="/admin/finance">Payments queue</Link></footer>
@@ -89,6 +98,31 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
         <Link className={active === "Tasks" ? "active" : ""} href="/admin/tasks/open"><i>!</i><span>Tasks</span></Link>
         <button type="button" onClick={() => setMobileMenuOpen(true)}><i>...</i><span>More</span></button>
       </nav>
+      <style jsx global>{`
+        .studio-topnav{min-width:0!important}
+        .studio-brand,.studio-user,.studio-nav{min-width:0!important}
+        .studio-nav{max-width:100%!important;overflow-x:auto!important;overflow-y:hidden!important;overscroll-behavior-x:contain;scrollbar-width:thin;white-space:nowrap}
+        .studio-nav>a{flex:0 0 auto!important;white-space:nowrap!important;max-width:none!important}
+        .studio-alert-bulb{display:block;font-size:19px;line-height:1;filter:saturate(1.12)}
+        .studio-icon{color:#e2ae21!important;background:#fffaf0!important;border-color:#e1c46b!important}
+        .studio-icon:hover{background:#fff4c9!important}
+        .desktop-route-modes{min-width:0!important;max-width:100%!important;overflow-x:auto!important;overflow-y:hidden!important;flex-wrap:nowrap!important;scrollbar-width:thin}
+        .desktop-route-modes>button{flex:0 0 auto!important;white-space:nowrap!important}
+        .route-simple-summary>.btn.btn-primary{background:#fbfffc!important;color:#075239!important;border:2px solid #d8f0df!important;box-shadow:0 10px 24px rgba(0,0,0,.14)!important;text-shadow:none!important;opacity:1!important}
+        .route-simple-summary>.btn.btn-primary:hover{background:#fff!important;color:#053f2d!important}
+        .route-simple-summary>.btn.btn-primary:disabled{background:#dcebe3!important;color:#355d4c!important;border-color:#c7dbd0!important;box-shadow:none!important;opacity:1!important}
+        .admin-layout-refresh .studio-main{background:linear-gradient(180deg,#f6f9f7 0%,#f1f5f2 100%)}
+        .admin-layout-refresh .studio-main>.app-top,.admin-layout-refresh .studio-main>.calendar-heading{padding:20px 22px!important;border:1px solid #bdcec4!important;border-radius:18px!important;background:#fff!important;box-shadow:0 8px 24px rgba(10,52,37,.045)!important}
+        .admin-layout-refresh .studio-main :where(.card,.table-card,.profile-card,.estimate-preview,.stat-card,.metric-card,.employee-card,.customer-card,.report-card){border-color:#b8c9bf!important;box-shadow:0 8px 24px rgba(10,52,37,.05)!important}
+        .admin-layout-refresh .studio-main :where(input,select,textarea){border-color:#aebfb6!important}
+        .admin-layout-refresh .studio-main :where(input,select,textarea):focus{border-color:#0f8051!important;box-shadow:0 0 0 3px rgba(15,128,81,.09)!important;outline:none!important}
+        .admin-layout-refresh .studio-main :where(.tab-row,.tabs,.filter-tabs,.sub-tabs){max-width:100%;overflow-x:auto;overflow-y:hidden;flex-wrap:nowrap!important;scrollbar-width:thin}
+        .admin-layout-refresh .studio-main :where(.tab-row,.tabs,.filter-tabs,.sub-tabs)>*{flex:0 0 auto;white-space:nowrap}
+        .admin-layout-refresh .studio-main table th{color:#5f7167!important;background:#f8fbf9!important}
+        .admin-layout-refresh .studio-main table td,.admin-layout-refresh .studio-main table th{border-color:#d6e0da!important}
+        @media(min-width:901px){.studio-topnav{grid-template-columns:minmax(190px,250px) minmax(0,1fr) 46px minmax(48px,190px) auto!important;column-gap:8px!important}}
+        @media(min-width:901px) and (max-width:1260px){.studio-topnav{grid-template-columns:minmax(165px,215px) minmax(0,1fr) 44px 48px!important}.studio-user{width:44px!important;min-width:44px!important;padding:0!important;justify-content:center!important}.studio-user>div,.studio-signout{display:none!important}.studio-brand>div small{display:none!important}}
+      `}</style>
     </div>
   );
 }

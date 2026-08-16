@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { requireCustomerPortalIdentity } from "@/lib/auth/customerPortalIdentity";
 
 export const dynamic = "force-dynamic";
 
@@ -8,70 +8,27 @@ function failure(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
-async function authenticatedCustomer(request: NextRequest, db: any) {
-  const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) return { error: failure("Sign in before sending a tip.", 401) };
-
-  const { data: auth, error: authError } = await db.auth.getUser(token);
-  if (authError || !auth.user) return { error: failure("Your session expired. Sign in again.", 401) };
-
-  const profileResult = await db.from("profiles")
-    .select("id,role,active,company_id,organization_id,email")
-    .eq("id", auth.user.id)
-    .maybeSingle();
-  if (profileResult.error) return { error: failure(profileResult.error.message, 400) };
-  const profile = profileResult.data;
-  if (!profile?.active || profile.role !== "customer") {
-    return { error: failure("Only an active Customer account can send a tip.", 403) };
-  }
-
-  let customer = null;
-  const byProfile = await db.from("customers").select("id,profile_id,company_id,organization_id,email,full_name,archived_at").eq("profile_id", auth.user.id).is("archived_at", null).maybeSingle();
-  if (!byProfile.error) customer = byProfile.data;
-  if (!customer && auth.user.user_metadata?.customer_id) {
-    const byMetadata = await db.from("customers").select("id,profile_id,company_id,organization_id,email,full_name,archived_at").eq("id", auth.user.user_metadata.customer_id).is("archived_at", null).maybeSingle();
-    if (!byMetadata.error) customer = byMetadata.data;
-  }
-  if (!customer && auth.user.email) {
-    const byEmail = await db.from("customers").select("id,profile_id,company_id,organization_id,email,full_name,archived_at").ilike("email", auth.user.email.trim()).is("archived_at", null).limit(1).maybeSingle();
-    if (!byEmail.error) customer = byEmail.data;
-  }
-  if (!customer) return { error: failure("Customer account is not linked yet.", 403) };
-
-  const profileCompanyId = profile.company_id || profile.organization_id;
-  const customerCompanyId = customer.company_id || customer.organization_id;
-  if (profileCompanyId && customerCompanyId && String(profileCompanyId) !== String(customerCompanyId)) {
-    return { error: failure("Customer account is not linked to this company.", 403) };
-  }
-  if (customer.profile_id && String(customer.profile_id) !== String(auth.user.id)) {
-    return { error: failure("Customer account is linked to a different login.", 403) };
-  }
-  return { auth: auth.user, customer, companyId: customerCompanyId || profileCompanyId || "" };
-}
-
 export async function POST(request: NextRequest) {
   try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-    if (!url || !serviceKey || !stripeKey || !siteUrl) return failure("Tip checkout is not configured yet.", 503);
+    if (!stripeKey || !siteUrl) return failure("Tip checkout is not configured yet.", 503);
 
-    const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
-    const context = await authenticatedCustomer(request, db);
-    if ("error" in context) return context.error;
+    const { user, customer, identity } = await requireCustomerPortalIdentity(request);
+    if (!customer) return failure("Customer account is not linked yet.", 403);
 
     const body = (await request.json()) as { amount?: number; returnPath?: string; note?: string };
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount < 1 || amount > 500) return failure("Choose a tip between $1 and $500.", 400);
+
     const amountCents = Math.round(amount * 100);
     const allowedPaths = new Set(["/customer/feedback", "/mobile/customer/feedback"]);
     const returnPath = allowedPaths.has(String(body.returnPath || "")) ? String(body.returnPath) : "/customer/feedback";
     const metadata = {
       paymentKind: "customer_tip",
-      customerId: context.customer.id,
-      companyId: context.companyId,
-      profileId: context.auth.id,
+      customerId: identity.customerId,
+      companyId: identity.companyId || "",
+      profileId: identity.profileId,
       amountCents: String(amountCents),
       note: String(body.note || "").slice(0, 200),
     };
@@ -79,8 +36,18 @@ export async function POST(request: NextRequest) {
     const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      customer_email: context.customer.email || context.auth.email || undefined,
-      line_items: [{ quantity: 1, price_data: { currency: "cad", unit_amount: amountCents, product_data: { name: "Service tip", description: "Optional tip submitted after customer feedback." } } }],
+      customer_email: customer.email || user.email || undefined,
+      line_items: [{
+        quantity: 1,
+        price_data: {
+          currency: "cad",
+          unit_amount: amountCents,
+          product_data: {
+            name: "Service tip",
+            description: "Optional tip submitted after customer feedback.",
+          },
+        },
+      }],
       metadata,
       payment_intent_data: { metadata },
       success_url: `${siteUrl}${returnPath}?tip=success&tip_session_id={CHECKOUT_SESSION_ID}`,
@@ -90,6 +57,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ url: session.url });
   } catch (error) {
     console.error("Stripe tip checkout failed", error);
-    return failure(error instanceof Error ? error.message : "Could not start tip checkout.", 500);
+    const message = error instanceof Error ? error.message : "Could not start tip checkout.";
+    const status = /session expired|sign in/i.test(message) ? 401 : /different|only an active|not linked/i.test(message) ? 403 : 500;
+    return failure(message, status);
   }
 }

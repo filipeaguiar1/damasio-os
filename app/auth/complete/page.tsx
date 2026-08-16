@@ -1,11 +1,88 @@
 "use client";
-import {useEffect,useState} from "react";
-import {useRouter} from "next/navigation";
-import {getSupabaseBrowserClient} from "@/lib/supabase/client";
 
-export default function CompleteInvitation(){
-  const router=useRouter();const[password,setPassword]=useState("");const[confirm,setConfirm]=useState("");const[message,setMessage]=useState("Checking your invitation…");const[ready,setReady]=useState(false);const[busy,setBusy]=useState(false);
-  useEffect(()=>{void(async()=>{const client=getSupabaseBrowserClient() as any;const code=new URLSearchParams(window.location.search).get("code");if(code){const{error}=await client.auth.exchangeCodeForSession(code);if(error){setMessage(error.message);return}}const{data}=await client.auth.getUser();if(!data?.user){setMessage("This invitation is invalid or expired. Ask the company Admin to send a new one.");return}setReady(true);setMessage("Create your password to activate the account.")})()},[]);
-  async function activate(){if(password.length<8){setMessage("Use at least 8 characters.");return}if(password!==confirm){setMessage("The passwords do not match.");return}setBusy(true);const client=getSupabaseBrowserClient() as any;const{error}=await client.auth.updateUser({password});if(error){setMessage(error.message);setBusy(false);return}const{data:auth}=await client.auth.getUser();if(!auth.user){setMessage("Your invitation is no longer valid. Ask for a new one.");setBusy(false);return}let role="customer";const{data:profile,error:profileError}=await client.from("profiles").select("role").eq("id",auth.user.id).maybeSingle();if(profileError&&profileError.code!=="PGRST116"){}else if(profile?.role){role=profile.role;}else{const fallbackRole=auth.user.email?.toLowerCase().includes("master")?"master":auth.user.email?.toLowerCase().includes("admin")?"admin":"customer";await client.from("profiles").insert({id:auth.user.id,role:fallbackRole,full_name:auth.user.email?.split("@")[0]??"User",email:auth.user.email,active:true,organization_id:null,company_id:null});role=fallbackRole;}router.replace(role==="master"?"/master":role==="admin"||role==="manager"?"/company/setup":role==="employee"?"/employee":"/customer")}
-  return <main className="auth-page"><section className="auth-card"><div className="mobile-logo-pulse"><span>D</span></div><span className="eyebrow">Account invitation</span><h1>Activate your account</h1><p>{message}</p>{ready&&<><label>New password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="new-password"/></label><label>Confirm password<input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} autoComplete="new-password"/></label><button className="btn btn-primary" disabled={busy} onClick={()=>void activate()}>{busy?"Activating…":"Activate account"}</button></>}</section></main>
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+
+export default function CompleteInvitation() {
+  const router = useRouter();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [message, setMessage] = useState("Checking your invitation…");
+  const [ready, setReady] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      const client = getSupabaseBrowserClient() as any;
+      const code = new URLSearchParams(window.location.search).get("code");
+      if (code) {
+        const { error } = await client.auth.exchangeCodeForSession(code);
+        if (error) {
+          setMessage(error.message);
+          return;
+        }
+      }
+      const { data } = await client.auth.getUser();
+      if (!data?.user) {
+        setMessage("This invitation is invalid or expired. Ask the account administrator to send a new one.");
+        return;
+      }
+      setReady(true);
+      setMessage("Create your password to activate the account.");
+    })();
+  }, []);
+
+  async function activate() {
+    if (password.length < 8) {
+      setMessage("Use at least 8 characters.");
+      return;
+    }
+    if (password !== confirm) {
+      setMessage("The passwords do not match.");
+      return;
+    }
+
+    setBusy(true);
+    const client = getSupabaseBrowserClient() as any;
+    const { error } = await client.auth.updateUser({ password });
+    if (error) {
+      setMessage(error.message);
+      setBusy(false);
+      return;
+    }
+
+    const { data: auth } = await client.auth.getUser();
+    if (!auth.user) {
+      setMessage("Your invitation is no longer valid. Ask for a new one.");
+      setBusy(false);
+      return;
+    }
+
+    const { data: profile, error: profileError } = await client.from("profiles")
+      .select("role,active")
+      .eq("id", auth.user.id)
+      .maybeSingle();
+
+    if (profileError || !profile?.active || !profile.role) {
+      await client.auth.signOut();
+      setReady(false);
+      setBusy(false);
+      setMessage("This invitation does not have a valid server-created account profile. Ask the account administrator to resend the invitation.");
+      return;
+    }
+
+    const role = String(profile.role);
+    router.replace(
+      role === "master"
+        ? "/master"
+        : role === "admin" || role === "manager"
+          ? "/company/setup"
+          : role === "employee"
+            ? "/employee"
+            : "/customer",
+    );
+  }
+
+  return <main className="auth-page"><section className="auth-card"><div className="mobile-logo-pulse"><span>D</span></div><span className="eyebrow">Account invitation</span><h1>Activate your account</h1><p>{message}</p>{ready && <><label>New password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></label><label>Confirm password<input type="password" value={confirm} onChange={(event) => setConfirm(event.target.value)} autoComplete="new-password" /></label><button className="btn btn-primary" disabled={busy} onClick={() => void activate()}>{busy ? "Activating…" : "Activate account"}</button></>}</section></main>;
 }
