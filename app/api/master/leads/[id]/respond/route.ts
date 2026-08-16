@@ -8,6 +8,8 @@ const schema = z.object({
   companyId: z.string().uuid(),
   finalTotal: z.number().positive().max(100000),
   message: z.string().trim().min(2).max(1500),
+  // Kept for API compatibility. Customer access is intentionally released only
+  // after the company accepts the referral.
   sendInvite: z.boolean().optional().default(true),
 }).strict();
 
@@ -33,7 +35,7 @@ async function requireMaster(request: NextRequest) {
     .eq("id", auth.user.id)
     .maybeSingle();
   if (profileError || !profile?.active || profile.role !== "master") {
-    throw new Error("Only Master can send quote responses.");
+    throw new Error("Only Master can prepare a platform quote response.");
   }
   return { client, masterId: auth.user.id };
 }
@@ -75,7 +77,7 @@ function propertyValues(details: QuotePropertyDetails | null) {
   const propertyNotes = [
     details.grassHandling ? `Grass handling: ${details.grassHandling.replaceAll("_", " ")}` : null,
     typeof details.backyard === "boolean" ? `Backyard: ${details.backyard ? "Yes" : "No"}` : null,
-    typeof details.annual === "boolean" ? `Annual plan: ${details.annual ? "Yes" : "No"}` : null,
+    typeof details.annual === "boolean" ? `Annual plan requested: ${details.annual ? "Yes" : "No"}` : null,
   ].filter(Boolean).join(" | ") || null;
   return {
     lot_size: details.lawnSize || null,
@@ -85,84 +87,46 @@ function propertyValues(details: QuotePropertyDetails | null) {
   };
 }
 
-async function findAuthUserByEmail(client: any, email: string) {
-  for (let page = 1; page <= 10; page++) {
-    const { data, error } = await client.auth.admin.listUsers({ page, perPage: 1000 });
-    if (error) throw new Error(error.message);
-    const user = data?.users?.find((item: { email?: string }) => item.email?.toLowerCase() === email);
-    if (user) return user;
-    if (!data?.users?.length || data.users.length < 1000) return null;
-  }
-  return null;
-}
-
-async function ensureCustomerProfile(
-  client: any,
-  profileId: string,
-  companyId: string,
-  customerId: string,
-  lead: any,
-  email: string,
-) {
-  const existing = await client.from("profiles")
-    .select("id,role,active,company_id,organization_id,email")
-    .eq("id", profileId)
-    .maybeSingle();
-  if (existing.error) throw new Error(existing.error.message);
-  if (existing.data && existing.data.role !== "customer") {
-    throw new Error("This email already belongs to a staff account and cannot be linked as a Customer.");
-  }
-  const profileCompanyId = existing.data?.company_id || existing.data?.organization_id;
-  if (profileCompanyId && String(profileCompanyId) !== companyId) {
-    throw new Error("This Customer login already belongs to a different company.");
-  }
-
-  const { error: profileError } = await client.from("profiles").upsert({
-    id: profileId,
-    organization_id: companyId,
-    company_id: companyId,
-    role: "customer",
-    full_name: lead.full_name,
-    email,
-    phone: lead.phone || null,
-    active: true,
-  }, { onConflict: "id" });
-  if (profileError) throw new Error(profileError.message);
-
-  const { error: customerLinkError } = await client.from("customers")
-    .update({ profile_id: profileId })
-    .eq("id", customerId)
-    .is("archived_at", null);
-  if (customerLinkError) throw new Error(customerLinkError.message);
-}
-
 export async function POST(request: NextRequest, context: { params: { id: string } }) {
-  let newlyInvitedUserId = "";
   try {
-    const leadId = context.params.id;
+    const leadId = String(context.params.id || "");
     if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(leadId)) throw new Error("Choose a valid lead.");
+
     const body = schema.parse(await request.json());
     const { client, masterId } = await requireMaster(request);
 
-    const { data: lead, error: leadError } = await client.from("lead_center").select("*").eq("id", leadId).maybeSingle();
+    const { data: lead, error: leadError } = await client.from("lead_center")
+      .select("*")
+      .eq("id", leadId)
+      .maybeSingle();
     if (leadError || !lead) throw new Error(leadError?.message || "Lead not found.");
+    if (!["new", "offered"].includes(String(lead.status))) {
+      throw new Error("This lead already has a final company decision.");
+    }
+
     const email = String(lead.email || "").trim().toLowerCase();
-    if (!email) throw new Error("This lead needs an email before it can receive a response.");
+    if (!email) throw new Error("This lead needs an email before a quote can be prepared.");
 
     const { data: company, error: companyError } = await client.from("organizations")
       .select("id,name,active")
       .eq("id", body.companyId)
+      .eq("active", true)
+      .is("deleted_at", null)
       .maybeSingle();
-    if (companyError || !company?.active) throw new Error(companyError?.message || "Choose an active company.");
+    if (companyError || !company) throw new Error(companyError?.message || "Choose an active company.");
 
+    // Public quote flow currently operates in Ontario. The canonical recurring
+    // billing engine later stores tax explicitly on each Billing Agreement.
     const subtotal = Math.round((body.finalTotal / 1.13) * 100) / 100;
     const tax = Math.round((body.finalTotal - subtotal) * 100) / 100;
     const total = Math.round(body.finalTotal * 100) / 100;
     const quoteDetails = extractPropertyDetails(lead.notes);
     const publicNotes = cleanLeadNotes(lead.notes);
-    const notes = [publicNotes, `Master response: ${body.message}`, `Final quoted amount: $${total.toFixed(2)}`]
-      .filter(Boolean)
-      .join(" | ");
+    const notes = [
+      publicNotes,
+      `Master response: ${body.message}`,
+      `Final quoted amount: $${total.toFixed(2)}`,
+    ].filter(Boolean).join(" | ");
 
     const { data: existingCustomer, error: existingCustomerError } = await client.from("customers")
       .select("id,profile_id")
@@ -172,8 +136,7 @@ export async function POST(request: NextRequest, context: { params: { id: string
       .maybeSingle();
     if (existingCustomerError) throw new Error(existingCustomerError.message);
 
-    let customerId = existingCustomer?.id || "";
-    let profileId = existingCustomer?.profile_id || "";
+    let customerId = String(existingCustomer?.id || "");
     if (!customerId) {
       const { data: createdCustomer, error: customerError } = await client.from("customers").insert({
         organization_id: body.companyId,
@@ -182,51 +145,59 @@ export async function POST(request: NextRequest, context: { params: { id: string
         email,
         phone: lead.phone || null,
         notes,
-      }).select("id,profile_id").single();
-      if (customerError) throw new Error(customerError.message);
-      customerId = createdCustomer.id;
-      profileId = createdCustomer.profile_id || "";
+      }).select("id").single();
+      if (customerError || !createdCustomer) throw new Error(customerError?.message || "Customer could not be prepared.");
+      customerId = String(createdCustomer.id);
     } else {
-      const { error } = await client.from("customers")
-        .update({ full_name: lead.full_name, phone: lead.phone || null, notes })
-        .eq("id", customerId);
-      if (error) throw new Error(error.message);
+      const { error: customerUpdateError } = await client.from("customers").update({
+        full_name: lead.full_name,
+        phone: lead.phone || null,
+        notes,
+      }).eq("id", customerId);
+      if (customerUpdateError) throw new Error(customerUpdateError.message);
     }
 
-    const { data: existingProperty, error: existingPropertyError } = await client.from("properties")
-      .select("id")
-      .eq("company_id", body.companyId)
-      .eq("customer_id", customerId)
-      .eq("address_line1", lead.address || "")
-      .maybeSingle();
-    if (existingPropertyError) throw new Error(existingPropertyError.message);
-
-    let propertyId = existingProperty?.id || "";
-    const canonicalProperty = {
-      organization_id: body.companyId,
-      company_id: body.companyId,
-      customer_id: customerId,
-      address_line1: lead.address,
-      city: "Hamilton",
-      province: "ON",
-      country: "Canada",
-      ...propertyValues(quoteDetails),
-    };
-    if (!propertyId && String(lead.address || "").trim()) {
-      const { data: property, error: propertyError } = await client.from("properties")
-        .insert(canonicalProperty)
+    const address = String(lead.address || "").trim();
+    let propertyId = "";
+    if (address) {
+      const { data: existingProperty, error: existingPropertyError } = await client.from("properties")
         .select("id")
-        .single();
-      if (propertyError) throw new Error(propertyError.message);
-      propertyId = property.id;
-    } else if (propertyId) {
-      const { error: propertyError } = await client.from("properties").update(canonicalProperty).eq("id", propertyId);
-      if (propertyError) throw new Error(propertyError.message);
+        .eq("company_id", body.companyId)
+        .eq("customer_id", customerId)
+        .eq("address_line1", address)
+        .maybeSingle();
+      if (existingPropertyError) throw new Error(existingPropertyError.message);
+
+      propertyId = String(existingProperty?.id || "");
+      const canonicalProperty = {
+        organization_id: body.companyId,
+        company_id: body.companyId,
+        customer_id: customerId,
+        address_line1: address,
+        city: "Hamilton",
+        province: "ON",
+        country: "Canada",
+        ...propertyValues(quoteDetails),
+      };
+
+      if (!propertyId) {
+        const { data: createdProperty, error: propertyError } = await client.from("properties")
+          .insert(canonicalProperty)
+          .select("id")
+          .single();
+        if (propertyError || !createdProperty) throw new Error(propertyError?.message || "Property could not be prepared.");
+        propertyId = String(createdProperty.id);
+      } else {
+        const { error: propertyUpdateError } = await client.from("properties")
+          .update(canonicalProperty)
+          .eq("id", propertyId);
+        if (propertyUpdateError) throw new Error(propertyUpdateError.message);
+      }
     }
 
-    let requestRow: any = null;
-    if (lead.service_request_id) {
-      const { data, error } = await client.from("service_requests").update({
+    let requestId = String(lead.service_request_id || "");
+    if (requestId) {
+      const { data: updatedRequest, error: requestError } = await client.from("service_requests").update({
         company_id: body.companyId,
         organization_id: body.companyId,
         customer_id: customerId,
@@ -234,12 +205,13 @@ export async function POST(request: NextRequest, context: { params: { id: string
         service_name: lead.service_requested || "Property service",
         message: body.message,
         status: "quoted",
-      }).eq("id", lead.service_request_id).select("id").maybeSingle();
-      if (error) throw new Error(error.message);
-      requestRow = data;
+      }).eq("id", requestId).select("id").maybeSingle();
+      if (requestError) throw new Error(requestError.message);
+      requestId = String(updatedRequest?.id || "");
     }
-    if (!requestRow) {
-      const { data, error } = await client.from("service_requests").insert({
+
+    if (!requestId) {
+      const { data: createdRequest, error: requestError } = await client.from("service_requests").insert({
         organization_id: body.companyId,
         company_id: body.companyId,
         customer_id: customerId,
@@ -248,19 +220,21 @@ export async function POST(request: NextRequest, context: { params: { id: string
         message: body.message,
         status: "quoted",
       }).select("id").single();
-      if (error) throw new Error(error.message);
-      requestRow = data;
+      if (requestError || !createdRequest) throw new Error(requestError?.message || "Service Request could not be prepared.");
+      requestId = String(createdRequest.id);
     }
 
-    let quote: any = null;
-    if (lead.quote_id) {
-      const { data, error } = await client.from("quotes").update({
+    let quoteId = String(lead.quote_id || "");
+    let quoteNumberValue = "";
+    if (quoteId) {
+      const { data: updatedQuote, error: quoteError } = await client.from("quotes").update({
         organization_id: body.companyId,
         company_id: body.companyId,
-        request_id: requestRow.id,
+        request_id: requestId,
         customer_id: customerId,
         property_id: propertyId || null,
-        status: "sent",
+        // Draft is deliberate: company acceptance promotes it to sent.
+        status: "draft",
         subtotal,
         tax,
         total,
@@ -268,20 +242,25 @@ export async function POST(request: NextRequest, context: { params: { id: string
         customer_email: email,
         revision_note: body.message,
         master_reviewed_at: new Date().toISOString(),
-      }).eq("id", lead.quote_id).select("id,quote_number").maybeSingle();
-      if (error) throw new Error(error.message);
-      quote = data;
+        customer_decided_at: null,
+      }).eq("id", quoteId).select("id,quote_number").maybeSingle();
+      if (quoteError) throw new Error(quoteError.message);
+      quoteId = String(updatedQuote?.id || "");
+      quoteNumberValue = String(updatedQuote?.quote_number || "");
     }
-    if (!quote) {
-      const { count } = await client.from("quotes").select("id", { count: "exact", head: true }).eq("company_id", body.companyId);
-      const { data, error } = await client.from("quotes").insert({
+
+    if (!quoteId) {
+      const { count } = await client.from("quotes")
+        .select("id", { count: "exact", head: true })
+        .eq("company_id", body.companyId);
+      const { data: createdQuote, error: quoteError } = await client.from("quotes").insert({
         organization_id: body.companyId,
         company_id: body.companyId,
-        request_id: requestRow.id,
+        request_id: requestId,
         customer_id: customerId,
         property_id: propertyId || null,
         quote_number: quoteNumber(count || 0),
-        status: "sent",
+        status: "draft",
         subtotal,
         tax,
         total,
@@ -290,113 +269,64 @@ export async function POST(request: NextRequest, context: { params: { id: string
         revision_note: body.message,
         master_reviewed_at: new Date().toISOString(),
       }).select("id,quote_number").single();
-      if (error) throw new Error(error.message);
-      quote = data;
+      if (quoteError || !createdQuote) throw new Error(quoteError?.message || "Quote could not be prepared.");
+      quoteId = String(createdQuote.id);
+      quoteNumberValue = String(createdQuote.quote_number);
     }
 
-    let inviteSent = false;
-    let accessMethod: "invite" | "recovery" | "existing" | "none" = profileId ? "existing" : "none";
-    if (body.sendInvite) {
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || request.nextUrl.origin;
-      const redirectTo = `${siteUrl}/auth/complete?quote=${encodeURIComponent(quote.quote_number)}`;
-
-      if (!profileId) {
-        const { data: invite, error: inviteError } = await client.auth.admin.inviteUserByEmail(email, {
-          redirectTo,
-          data: { full_name: lead.full_name },
-        });
-        if (!inviteError && invite.user) {
-          newlyInvitedUserId = invite.user.id;
-          profileId = invite.user.id;
-          inviteSent = true;
-          accessMethod = "invite";
-        } else {
-          const existingUser = await findAuthUserByEmail(client, email);
-          if (!existingUser) throw new Error(inviteError?.message || "Customer invitation could not be sent.");
-          profileId = existingUser.id;
-          await ensureCustomerProfile(client, profileId, body.companyId, customerId, lead, email);
-          const { error: recoveryError } = await client.auth.resetPasswordForEmail(email, {
-            redirectTo: `${siteUrl}/reset-password?quote=${encodeURIComponent(quote.quote_number)}`,
-          });
-          if (recoveryError) throw new Error(`Customer access exists, but recovery email failed: ${recoveryError.message}`);
-          inviteSent = true;
-          accessMethod = "recovery";
-        }
-      }
-
-      if (profileId) {
-        await ensureCustomerProfile(client, profileId, body.companyId, customerId, lead, email);
-      }
-
-      const { error: invitationError } = await client.from("quote_invitations").upsert({
-        company_id: body.companyId,
-        quote_id: quote.id,
-        email,
-        status: inviteSent || accessMethod === "existing" ? "sent" : "pending",
-        sent_at: inviteSent ? new Date().toISOString() : null,
-        expires_at: new Date(Date.now() + 14 * 86400000).toISOString(),
-      }, { onConflict: "quote_id,email" });
-      if (invitationError) throw new Error(invitationError.message);
-    }
-
+    // Deliberately no Auth invite/recovery here. The company acceptance endpoint
+    // releases Customer access after respond_company_referral reaches converted.
     const leadPatch = {
       assigned_company_id: body.companyId,
       customer_id: customerId,
       property_id: propertyId || null,
-      service_request_id: requestRow.id,
-      quote_id: quote.id,
+      service_request_id: requestId,
+      quote_id: quoteId,
+      invoice_id: null,
       final_total: total,
       response_message: body.message,
       status: "offered",
       notes,
       responded_at: new Date().toISOString(),
-      invite_sent_at: inviteSent ? new Date().toISOString() : null,
+      invite_sent_at: null,
       updated_at: new Date().toISOString(),
     };
-    const leadUpdate = await client.from("lead_center").update(leadPatch).eq("id", leadId);
-    if (leadUpdate.error) throw new Error(leadUpdate.error.message);
+    const { error: leadUpdateError } = await client.from("lead_center")
+      .update(leadPatch)
+      .eq("id", leadId);
+    if (leadUpdateError) throw new Error(leadUpdateError.message);
 
     const { error: auditError } = await client.from("master_audit_log").insert({
       master_profile_id: masterId,
       company_id: body.companyId,
-      action: "lead.response_sent",
+      action: "lead.quote_prepared_for_company",
       entity_type: "lead_center",
       entity_id: leadId,
       details: {
         customer_id: customerId,
         property_id: propertyId || null,
-        quote_id: quote.id,
+        quote_id: quoteId,
+        quote_status: "draft",
         invoice_created: false,
-        invite_sent: inviteSent,
-        access_method: accessMethod,
+        job_created: false,
+        customer_access_released: false,
         property_details_saved: Boolean(quoteDetails),
-        next_step: "company_acceptance_then_customer_quote_decision",
+        next_step: "company_acceptance",
       },
     });
     if (auditError) throw new Error(auditError.message);
 
-    const message = accessMethod === "invite"
-      ? `Quote prepared and Customer invitation sent to ${email}. The company must accept before the Customer can approve the quote.`
-      : accessMethod === "recovery"
-        ? `Quote prepared and Customer recovery link sent to ${email}. The company must accept before quote approval.`
-        : accessMethod === "existing"
-          ? "Quote prepared for company acceptance. The existing Customer account remains linked."
-          : "Quote prepared for company acceptance. No Invoice or Job has been created yet.";
-
     return NextResponse.json({
       customerId,
       propertyId: propertyId || null,
-      quoteId: quote.id,
-      quoteNumber: quote.quote_number,
+      quoteId,
+      quoteNumber: quoteNumberValue,
       invoiceId: null,
-      inviteSent,
-      accessMethod,
-      message,
+      inviteSent: false,
+      accessMethod: "pending_company_acceptance",
+      message: `Quote prepared for ${company.name}. The company must accept the referral before Customer access is released. No Job or Invoice has been created.`,
     });
   } catch (error) {
-    if (newlyInvitedUserId) {
-      try { await serverClient().auth.admin.deleteUser(newlyInvitedUserId); } catch {}
-    }
     return fail(error);
   }
 }
