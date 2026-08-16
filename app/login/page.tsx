@@ -1,5 +1,5 @@
 "use client";
-import {useState} from "react";
+import {useEffect,useState} from "react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
@@ -8,8 +8,19 @@ export default function LoginPage(){
   const router=useRouter();
   const[email,setEmail]=useState("");
   const[password,setPassword]=useState("");
+  const[rememberEmail,setRememberEmail]=useState(false);
+  const[keepConnected,setKeepConnected]=useState(true);
   const[message,setMessage]=useState("");
   const[loading,setLoading]=useState(false);
+
+  useEffect(()=>{
+    const savedEmail=window.localStorage.getItem("damasio_login_email")||"";
+    const savedRemember=Boolean(savedEmail);
+    const savedKeep=window.localStorage.getItem("damasio_keep_connected");
+    if(savedEmail)setEmail(savedEmail);
+    setRememberEmail(savedRemember);
+    if(savedKeep)setKeepConnected(savedKeep==="true");
+  },[]);
 
   async function login(){
     if(!isSupabaseConfigured()){
@@ -37,6 +48,10 @@ export default function LoginPage(){
         return;
       }
 
+      if(rememberEmail)window.localStorage.setItem("damasio_login_email",email.trim());
+      else window.localStorage.removeItem("damasio_login_email");
+      window.localStorage.setItem("damasio_keep_connected",String(keepConnected));
+
       if(profile.role==="customer"){
         const pendingQuote=window.localStorage.getItem("damasio_pending_quote");
         if(pendingQuote){
@@ -59,8 +74,12 @@ export default function LoginPage(){
       <span className="eyebrow">4Ever Seasons</span>
       <h1>Sign in</h1>
       <p>Use the email and password connected to your live account.</p>
-      <label>Email<input value={email} onChange={e=>setEmail(e.target.value)} placeholder="admin@company.com" /></label>
-      <label>Password<input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="••••••••" /></label>
+      <label>Email<input value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email" placeholder="admin@company.com" /></label>
+      <label>Password<input value={password} onChange={e=>setPassword(e.target.value)} type="password" autoComplete="current-password" placeholder="••••••••" /></label>
+      <div className="auth-login-options">
+        <label><input type="checkbox" checked={rememberEmail} onChange={e=>setRememberEmail(e.target.checked)} /><span>Remember email</span></label>
+        <label><input type="checkbox" checked={keepConnected} onChange={e=>setKeepConnected(e.target.checked)} /><span>Keep me signed in</span></label>
+      </div>
       <button className="btn btn-primary" onClick={login} disabled={loading}>{loading?"Signing in...":"Sign In"}</button>
       <Link href="/forgot-password">Forgot your password?</Link>
       {message&&<p className="auth-message">{message}</p>}
