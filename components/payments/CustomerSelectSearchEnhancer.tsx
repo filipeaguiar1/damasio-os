@@ -31,22 +31,14 @@ export function CustomerSelectSearchEnhancer() {
         searchLabel.innerHTML = `<span>Find customer</span><input type="search" placeholder="Search by name or email" autocomplete="off" />`;
 
         const input = searchLabel.querySelector("input");
-        const options = Array.from(select.options);
         input?.addEventListener("input", () => {
           const query = input.value.trim().toLowerCase();
-          let selectedStillVisible = false;
-          options.forEach((option) => {
+          // Filtering is intentionally non-mutating: searching must never change
+          // a financial action's selected Customer without an explicit user choice.
+          Array.from(select.options).forEach((option) => {
             const visible = !option.value || optionMatches(option, query);
             option.hidden = !visible;
-            if (visible && option.selected) selectedStillVisible = true;
           });
-          if (!selectedStillVisible && query) {
-            const firstMatch = options.find((option) => !option.hidden && option.value);
-            if (firstMatch) {
-              select.value = firstMatch.value;
-              select.dispatchEvent(new Event("change", { bubbles: true }));
-            }
-          }
         });
 
         container.insertBefore(searchLabel, label);
