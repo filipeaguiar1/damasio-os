@@ -23,7 +23,7 @@ async function adminSession() {
 
 async function signIn(page: any, email: string, password: string) {
   await page.goto(`${baseURL}/mobile/login`, { waitUntil: "domcontentloaded", timeout: 30_000 });
-  await page.getByLabel("Email").fill(email);
+  await page.getByRole("textbox", { name: "Email" }).fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in securely" }).click();
   await page.waitForURL(url => url.pathname.startsWith("/mobile/employee"), { timeout: 30_000 });
