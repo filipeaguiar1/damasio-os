@@ -1,0 +1,51 @@
+.desktop-route-modes {
+  border: 1px solid #bdcec5;
+  background: #eef5f1;
+}
+
+.desktop-route-modes button {
+  border: 1px solid #c7d8cf;
+  background: #fff;
+}
+
+.desktop-route-modes button:hover {
+  border-color: #98bca9;
+  color: #174633;
+}
+
+.desktop-route-modes button.active {
+  border-color: #0a633d;
+}
+
+.route-choice-list {
+  gap: 9px;
+}
+
+.route-choice-list button {
+  border: 1px solid #c7d8cf;
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(15, 39, 28, 0.04);
+}
+
+.route-choice-list button:hover {
+  border-color: #91bca4;
+  background: #f5faf7;
+}
+
+.route-choice-list button.selected {
+  border-color: #0b7655;
+  background: #edf8f2;
+  box-shadow: 0 10px 22px rgba(11, 118, 85, 0.11);
+}
+
+.official-house-list .route-client-row,
+.studio-route-stop-list .route-client-row {
+  border-color: #c4d6cc;
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(15, 39, 28, 0.04);
+}
+
+.official-house-list .route-client-row:hover,
+.studio-route-stop-list .route-client-row:hover {
+  border-color: #91bca4;
+}

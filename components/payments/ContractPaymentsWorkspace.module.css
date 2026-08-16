@@ -13,7 +13,15 @@
 .embeddedPicker strong,.embeddedPicker small{display:block}
 .embeddedPicker strong{color:#173a2c;font-size:15px}
 .embeddedPicker small{margin-top:4px;color:#718279;font-size:11px;line-height:1.35}
+.manualRequest .embeddedPicker{border-color:#b9d3c6;background:linear-gradient(135deg,#fff 0%,#edf8f1 100%);box-shadow:inset 0 0 0 1px rgba(13,104,68,.04)}
+.manualRequest .embeddedPicker>div:before{content:"FIND CUSTOMER";display:block;margin-bottom:5px;color:#0b7046;font-size:10px;font-weight:950;letter-spacing:.12em;text-transform:uppercase}
+.manualRequest .embeddedPicker strong{font-size:17px}
+.paymentActionPicker{display:grid;grid-template-columns:minmax(190px,.72fr) minmax(0,1.28fr);gap:14px;align-items:end;padding:16px;border:1px solid #b9d3c6;border-radius:16px;background:linear-gradient(135deg,#fff 0%,#edf8f1 100%);box-shadow:inset 0 0 0 1px rgba(13,104,68,.04)}
+.paymentActionPicker>div span,.paymentActionPicker>div strong,.paymentActionPicker>div small{display:block}
+.paymentActionPicker>div span{color:#0b7046;font-size:10px;font-weight:950;letter-spacing:.12em;text-transform:uppercase}
+.paymentActionPicker>div strong{margin-top:5px;color:#173a2c;font-size:17px}
+.paymentActionPicker>div small{margin-top:5px;color:#60746a;font-size:11px;line-height:1.45}
 .manualRequest{display:grid;gap:12px;padding:16px;border-bottom:1px solid #edf2ef;background:#fcfdfc}
 .requestFormGrid{display:grid;grid-template-columns:minmax(140px,.5fr) minmax(180px,1fr) auto;gap:10px;align-items:end}
 .requestFormGrid .button{min-height:46px}
-@media(max-width:800px){.embeddedPicker,.inlineCustomerPicker,.requestFormGrid{grid-template-columns:1fr}.manualRequest{padding:14px}.requestFormGrid .button{width:100%}}
+@media(max-width:800px){.embeddedPicker,.paymentActionPicker,.inlineCustomerPicker,.requestFormGrid{grid-template-columns:1fr}.manualRequest{padding:14px}.requestFormGrid .button{width:100%}}

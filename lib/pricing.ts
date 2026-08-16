@@ -6,6 +6,9 @@ export type ServiceKey = "weekly_lawn"|"biweekly_lawn"|"one_time_lawn"|"spring_c
 // can still build without changing the current layout.
 export type QuoteSizeKey = "xs" | "small" | "medium" | "large" | "xlarge" | "legacy" | "oversize";
 export type SizeKey = QuoteSizeKey;
+export type GrassHeightKey = "2in" | "3in" | "4in" | "5in";
+export type GrassHandlingKey = "mulched" | "bag_green_bin" | "bag_leave_property" | "removed" | "no_preference";
+export type DifficultyKey = "yes" | "no";
 
 export const HST_RATE = 0.13;
 export const serviceLabels: Record<ServiceKey,string>={weekly_lawn:"Weekly Lawn Care",biweekly_lawn:"Biweekly Lawn Care",one_time_lawn:"One-Time Lawn Cut",spring_cleanup:"Spring Cleanup",fall_cleanup:"Fall Cleanup",snow_removal:"Snow Removal",extra_service:"Extra Service Request"};
@@ -22,11 +25,14 @@ export const sizeMultiplier: Record<QuoteSizeKey,number>={
   oversize:2.1
 };
 
-export function calculateQuote(input:{service:ServiceKey;size:QuoteSizeKey;backyard:boolean;gated:boolean;annual:boolean}){
+const grassHeightFees: Record<GrassHeightKey, number> = { "2in": 0, "3in": 0, "4in": 10, "5in": 20 };
+const grassHandlingFees: Record<GrassHandlingKey, number> = { mulched: 0, bag_green_bin: 8, bag_leave_property: 12, removed: 25, no_preference: 0 };
+
+export function calculateQuote(input:{service:ServiceKey;size:QuoteSizeKey;difficulty?:DifficultyKey;grassHeight?:GrassHeightKey;grassHandling?:GrassHandlingKey;backyard?:boolean;gated?:boolean;annual?:boolean}){
   let subtotal=basePrices[input.service]*sizeMultiplier[input.size];
-  subtotal+=input.backyard?10:0;
-  subtotal+=input.gated?5:0;
-  if(input.annual&&(input.service==="weekly_lawn"||input.service==="biweekly_lawn"))subtotal*=.95;
+  subtotal+=input.difficulty==="yes"?15:0;
+  subtotal+=input.grassHeight?grassHeightFees[input.grassHeight]:0;
+  subtotal+=input.grassHandling?grassHandlingFees[input.grassHandling]:0;
   const tax=subtotal*HST_RATE;
   return{subtotal:money(subtotal),tax:money(tax),total:money(subtotal+tax)}
 }

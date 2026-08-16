@@ -69,7 +69,7 @@ async function resolveCustomerProperty(client: any, userId: string, email: strin
   if (property.customer_id !== authenticatedCustomer.id) {
     const { error: linkError } = await client
       .from("properties")
-      .update({ customer_id: authenticatedCustomer.id, updated_at: new Date().toISOString() })
+      .update({ customer_id: authenticatedCustomer.id })
       .eq("id", property.id)
       .eq("company_id", companyId);
     if (linkError) throw new Error(linkError.message);
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
     });
     if (photoError) throw new Error(photoError.message);
 
-    const { error: propertyUpdateError } = await client.from("properties").update({ official_photo_url: path, updated_at: new Date().toISOString() }).eq("id", property.id);
+    const { error: propertyUpdateError } = await client.from("properties").update({ official_photo_url: path }).eq("id", property.id);
     if (propertyUpdateError) throw new Error(propertyUpdateError.message);
 
     const { data: signed, error: signedError } = await client.storage.from("property-photos").createSignedUrl(path, 3600);
