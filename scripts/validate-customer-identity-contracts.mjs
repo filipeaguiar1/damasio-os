@@ -1,13 +1,28 @@
 import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const routes = [
-  "app/api/customer/property/route.ts",
-  "app/api/customer/property/photo/route.ts",
-  "app/api/customer/payment-preferences/route.ts",
-];
+const repoRoot = fileURLToPath(new URL("../", import.meta.url));
+const customerApiRoot = path.join(repoRoot, "app/api/customer");
 
-for (const route of routes) {
-  const source = fs.readFileSync(new URL(`../${route}`, import.meta.url), "utf8");
+function collectCustomerRoutes(directory) {
+  const routes = [];
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) routes.push(...collectCustomerRoutes(fullPath));
+    else if (entry.isFile() && entry.name === "route.ts") routes.push(fullPath);
+  }
+  return routes;
+}
+
+const customerRoutes = collectCustomerRoutes(customerApiRoot);
+if (customerRoutes.length === 0) {
+  throw new Error("Customer identity contract could not find any API routes.");
+}
+
+for (const absoluteRoute of customerRoutes) {
+  const route = path.relative(repoRoot, absoluteRoute).replaceAll("\\", "/");
+  const source = fs.readFileSync(absoluteRoute, "utf8");
   if (!source.includes("requireCustomerPortalIdentity")) {
     throw new Error(`${route}: canonical Customer identity guard is missing.`);
   }
@@ -20,7 +35,7 @@ for (const route of routes) {
 }
 
 const propertyPhoto = fs.readFileSync(
-  new URL("../app/api/customer/property/photo/route.ts", import.meta.url),
+  path.join(customerApiRoot, "property/photo/route.ts"),
   "utf8",
 );
 if (/\.update\(\s*\{\s*(customer_id|profile_id)\s*:/.test(propertyPhoto)) {
@@ -31,11 +46,11 @@ if (!propertyPhoto.includes("EXTENSION_BY_MIME") || !propertyPhoto.includes("8 *
 }
 
 const paymentSearch = fs.readFileSync(
-  new URL("../components/payments/CustomerSelectSearchEnhancer.tsx", import.meta.url),
+  path.join(repoRoot, "components/payments/CustomerSelectSearchEnhancer.tsx"),
   "utf8",
 );
 if (paymentSearch.includes('dispatchEvent(new Event("change"') || paymentSearch.includes("dispatchEvent(new Event('change'")) {
   throw new Error("Customer search must not auto-dispatch a financial Customer selection change.");
 }
 
-console.log("Customer identity and financial selection contracts: PASS");
+console.log(`Customer identity and financial selection contracts: PASS (${customerRoutes.length} Customer API routes)`);
