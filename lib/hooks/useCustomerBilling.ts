@@ -12,6 +12,8 @@ export type CustomerBillingInvoice = {
   tax?: number;
   service: string;
   createdAt: string;
+  kind?: "service" | "deposit";
+  walletEligible?: boolean;
 };
 
 type BillingSource = "live" | "none";
@@ -22,6 +24,7 @@ export function useCustomerBilling() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [payingId, setPayingId] = useState("");
+  const [payingWalletId, setPayingWalletId] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -98,6 +101,37 @@ export function useCustomerBilling() {
     }
   }, [source]);
 
+  const payWithWallet = useCallback(async (invoiceId: string) => {
+    if (source !== "live") throw new Error("Live billing is required to pay from account balance.");
+    setPayingWalletId(invoiceId);
+    setMessage("Paying from account balance...");
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+      if (!token) throw new Error("Sign in before paying.");
+      const response = await fetch("/api/stripe/wallet/pay-invoice", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ invoiceId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Account balance payment failed.");
+      await load();
+      setMessage(result.message || "Invoice paid from account balance.");
+      return result;
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Account balance payment failed.";
+      setMessage(text);
+      throw error;
+    } finally {
+      setPayingWalletId("");
+    }
+  }, [load, source]);
+
   const summary = useMemo(() => {
     const open = invoices.filter((invoice) => invoice.status !== "paid");
     return {
@@ -113,8 +147,10 @@ export function useCustomerBilling() {
     loading,
     message,
     payingId,
+    payingWalletId,
     summary,
     checkout,
+    payWithWallet,
     reload: load,
     clearMessage: () => setMessage(""),
   };
