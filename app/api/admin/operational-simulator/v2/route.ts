@@ -71,29 +71,42 @@ function scenarioPreviews() {
   });
 }
 
+function isTransientCleanupError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /statement timeout|canceling statement due to statement timeout|deadlock detected|could not serialize access|serialization failure/i.test(message);
+}
+
 async function removeAdvancedSimulationDataWithTimeoutRetry(
   service: any,
   scope: ReturnType<typeof createAdvancedSimulationScope>,
 ) {
   let lastError: unknown = null;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  const maxAttempts = 5;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       return await removeAdvancedSimulationData(service, scope);
     } catch (error) {
       lastError = error;
       const message = error instanceof Error ? error.message : String(error);
-      if (!/statement timeout|canceling statement due to statement timeout/i.test(message) || attempt === 3) {
+      if (!isTransientCleanupError(error) || attempt === maxAttempts) {
         throw error;
       }
       console.warn("advanced-operational-simulator-reset-retry", {
         namespace: scope.namespace,
         attempt,
+        reason: /deadlock/i.test(message) ? "deadlock" : "database-contention",
         message,
       });
-      await new Promise(resolve => setTimeout(resolve, attempt * 350));
+      // Cleanup is idempotent and every retry re-reads namespace-scoped state.
+      // Back off so a competing QA transaction can release its locks first.
+      await new Promise(resolve => setTimeout(resolve, attempt * 600));
     }
   }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError || "Advanced simulation reset failed."));
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(String(lastError || "Advanced simulation reset failed."));
 }
 
 export async function GET(request: NextRequest) {
