@@ -15,6 +15,8 @@ export async function POST(request: NextRequest) {
     if (!stripeKey || !siteUrl) return failure("Tip checkout is not configured yet.", 503);
 
     const { user, customer, identity } = await requireCustomerPortalIdentity(request);
+    if (!customer) return failure("Customer account is not linked yet.", 403);
+
     const body = (await request.json()) as { amount?: number; returnPath?: string; note?: string };
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount < 1 || amount > 500) return failure("Choose a tip between $1 and $500.", 400);
