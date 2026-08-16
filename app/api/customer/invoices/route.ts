@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
 
     const serviceInvoicesQuery = db
       .from("invoices")
-      .select("id,invoice_number,status,total,subtotal,tax,created_at,quote_id,customer_id,property_id,quotes(quote_number,status,notes,request_id,service_requests(service_name))")
+      .select("id,invoice_number,status,total,subtotal,tax,created_at,quote_id,customer_id,property_id,billing_event_id,visit_id,quotes(quote_number,status,notes,request_id,service_requests(service_name))")
       .eq("customer_id", identity.customerId);
 
     const [serviceInvoicesResult, depositInvoicesResult] = await Promise.all([
@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
     const serviceInvoices = (serviceInvoicesResult.data || []).map((invoice: any) => {
       const quote = Array.isArray(invoice.quotes) ? invoice.quotes[0] : invoice.quotes;
       const serviceRequest = Array.isArray(quote?.service_requests) ? quote.service_requests[0] : quote?.service_requests;
+      const walletEligible = Boolean(invoice.billing_event_id && invoice.visit_id && ["waiting_payment", "overdue", "sent"].includes(String(invoice.status)));
       return {
         id: invoice.id,
         number: invoice.invoice_number,
@@ -43,6 +44,7 @@ export async function GET(request: NextRequest) {
         quoteStatus: quote?.status || null,
         service: serviceRequest?.service_name || quote?.notes || "Approved service",
         kind: "service",
+        walletEligible,
       };
     });
 
@@ -58,6 +60,7 @@ export async function GET(request: NextRequest) {
       quoteStatus: null,
       service: "Account deposit",
       kind: "deposit",
+      walletEligible: false,
     }));
 
     const invoices = [...serviceInvoices, ...depositInvoices]
