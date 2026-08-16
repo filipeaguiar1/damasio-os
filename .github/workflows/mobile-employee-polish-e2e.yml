@@ -7,6 +7,7 @@ on:
     paths:
       - "app/layout.tsx"
       - "app/mobile-employee-polish.css"
+      - "app/mobile-employee-audit-fixes.css"
       - "app/mobile/login/**"
       - "app/mobile/employee/profile/**"
       - "app/mobile/employee/customers/**"
@@ -18,9 +19,12 @@ on:
 permissions:
   contents: read
 
+# This test creates/deletes an Employee, Profile and Crew in the same shared QA
+# company used by the heavy operational simulator. Serialize every database
+# writer under one global lock so cleanup cannot deadlock behind another E2E.
 concurrency:
-  group: damasio-mobile-employee-polish-e2e
-  cancel-in-progress: true
+  group: damasio-shared-qa-database-heavy-e2e
+  cancel-in-progress: false
 
 jobs:
   visual-mobile:
