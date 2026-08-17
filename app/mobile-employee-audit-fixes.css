@@ -1,0 +1,10 @@
+/* Audit regression fixes for the previously approved Employee mobile polish.
+   Presentation only: no Route, Visit, Start/Finish, Task or Smart Route behavior changes. */
+
+.employee-mobile-topbar .employee-mobile-brand > span {
+  display: none !important;
+}
+
+.employee-polish-menu-button {
+  position: absolute !important;
+}

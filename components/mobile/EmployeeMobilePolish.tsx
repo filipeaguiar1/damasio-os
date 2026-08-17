@@ -19,9 +19,13 @@ export function EmployeeMobilePolish(){
   useEffect(()=>{
     if(!menuEnabled){setGuardLoading(true);return}
     const syncGuard=()=>{
-      const loading=Boolean(document.querySelector(".mobile-splash"));
-      setGuardLoading(loading);
-      if(loading)setOpen(false);
+      // The Employee header is rendered only after MobileRoleGuard has verified the
+      // authenticated Employee session. Key menu readiness off that positive shell
+      // signal instead of the transient splash element, so an Employee with no Route
+      // still retains access to Customers/Profile navigation.
+      const employeeShellReady=Boolean(document.querySelector(".employee-mobile-topbar"));
+      setGuardLoading(!employeeShellReady);
+      if(!employeeShellReady)setOpen(false);
     };
     syncGuard();
     const observer=new MutationObserver(syncGuard);

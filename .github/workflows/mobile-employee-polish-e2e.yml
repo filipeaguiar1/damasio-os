@@ -7,6 +7,7 @@ on:
     paths:
       - "app/layout.tsx"
       - "app/mobile-employee-polish.css"
+      - "app/mobile-employee-audit-fixes.css"
       - "app/mobile/login/**"
       - "app/mobile/employee/profile/**"
       - "app/mobile/employee/customers/**"
@@ -18,8 +19,10 @@ on:
 permissions:
   contents: read
 
+# The test data is uniquely marked and its cleanup is bounded so this visual
+# workflow cannot be cancelled by, or hang behind, the heavy simulator queue.
 concurrency:
-  group: damasio-mobile-employee-polish-e2e
+  group: damasio-mobile-employee-polish-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

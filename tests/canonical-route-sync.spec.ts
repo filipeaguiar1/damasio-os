@@ -19,7 +19,7 @@ async function signIn(page: Page, email: string, password: string) {
   let lastMessage = "";
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await page.goto(`${baseURL}/login`);
-    await page.getByLabel("Email").fill(email);
+    await page.getByRole("textbox", { name: "Email" }).fill(email);
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Sign In" }).click();
     try {
@@ -142,7 +142,7 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await adminDesktop.goto(`${baseURL}/login`);
   await adminDesktop.evaluate(() => { window.localStorage.clear(); window.sessionStorage.clear(); });
   await adminDesktop.reload();
-  await adminDesktop.getByLabel("Email").fill(process.env.E2E_ADMIN_EMAIL!);
+  await adminDesktop.getByRole("textbox", { name: "Email" }).fill(process.env.E2E_ADMIN_EMAIL!);
   await adminDesktop.getByLabel("Password").fill(process.env.E2E_ADMIN_PASSWORD!);
   await adminDesktop.getByRole("button", { name: "Sign In" }).click();
   await adminDesktop.waitForURL("**/admin", { timeout: 30_000 });

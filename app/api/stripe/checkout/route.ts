@@ -108,9 +108,8 @@ async function createManualInvoice(
     db.from("properties").select("id").eq("customer_id", customer.id).limit(1).maybeSingle(),
   ]);
   const total = amountCents / 100;
-  const insertPayload: Record<string, unknown> = {
+  const insertPayload = {
     organization_id: companyId,
-    company_id: companyId,
     customer_id: customer.id,
     property_id: property?.id || null,
     invoice_number: invoiceNumber(count || 0),
@@ -119,11 +118,7 @@ async function createManualInvoice(
     tax: 0,
     total,
   };
-  let created = await db.from("invoices").insert(insertPayload).select("id,invoice_number").single();
-  if (created.error && /company_id|schema cache|column/i.test(created.error.message || "")) {
-    const { company_id: _companyId, ...withoutCompanyId } = insertPayload;
-    created = await db.from("invoices").insert(withoutCompanyId).select("id,invoice_number").single();
-  }
+  const created = await db.from("invoices").insert(insertPayload).select("id,invoice_number").single();
   if (created.error || !created.data) throw new Error(created.error?.message || "Invoice could not be created.");
   return { invoiceId: String(created.data.id), invoiceNumber: String(created.data.invoice_number || "") };
 }
@@ -163,12 +158,15 @@ export async function POST(request: NextRequest) {
 
     const { data: invoice, error: invoiceError } = await db
       .from("invoices")
-      .select("id,company_id,organization_id,customer_id,invoice_number,status,total,stripe_checkout_session_id")
+      .select("id,organization_id,customer_id,invoice_number,status,total,stripe_checkout_session_id")
       .eq("id", invoiceId)
       .single();
-    if (invoiceError || !invoice) return failure("Invoice not found.", 404);
+    if (invoiceError || !invoice) {
+      if (invoiceError) console.error("Stripe checkout invoice lookup failed", invoiceError.message);
+      return failure("Invoice not found.", 404);
+    }
 
-    const companyId = invoice.company_id || invoice.organization_id;
+    const companyId = invoice.organization_id;
     const [{ data: profile }, { data: customer }] = await Promise.all([
       db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
       db.from("customers").select("id,profile_id,email,full_name,acquisition_source,platform_managed,origin_company_id,service_company_id,company_id,organization_id").eq("id", invoice.customer_id).maybeSingle()
@@ -248,12 +246,15 @@ export async function DELETE(request: NextRequest) {
 
     const { data: invoice, error: invoiceError } = await db
       .from("invoices")
-      .select("id,company_id,organization_id,customer_id,status,stripe_checkout_session_id")
+      .select("id,organization_id,customer_id,status,stripe_checkout_session_id")
       .eq("id", invoiceId)
       .maybeSingle();
-    if (invoiceError || !invoice) return failure("Invoice not found.", 404);
+    if (invoiceError || !invoice) {
+      if (invoiceError) console.error("Stripe checkout cancellation invoice lookup failed", invoiceError.message);
+      return failure("Invoice not found.", 404);
+    }
 
-    const companyId = invoice.company_id || invoice.organization_id;
+    const companyId = invoice.organization_id;
     const [{ data: profile }, { data: customer }] = await Promise.all([
       db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
       db.from("customers").select("profile_id,acquisition_source,platform_managed,origin_company_id,service_company_id,company_id,organization_id").eq("id", invoice.customer_id).maybeSingle()
