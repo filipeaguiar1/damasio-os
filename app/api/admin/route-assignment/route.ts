@@ -25,7 +25,11 @@ async function requireAdmin(request: NextRequest) {
   if (error || !profile?.active || !["admin", "manager"].includes(profile.role)) throw new Error("Only an active company Admin can change assignments.");
   return { user: userClient(token), service };
 }
-function assignmentError(message?: string) { const value = message || "Canonical assignment failed."; if (/move_canonical_visits|schema cache|could not find the function/i.test(value)) return new Error("Supabase migration 202607280001_route_assignment_modes.sql is pending."); return new Error(value); }
+function assignmentError(message?: string) {
+  const value = message || "Canonical assignment failed.";
+  if (/move_canonical_visits|transfer_customer_jobs_without_date|schema cache|could not find the function/i.test(value)) return new Error("A required canonical route assignment migration is pending.");
+  return new Error(value);
+}
 async function capacityWarnings(service:any, crewId:string, employeeId:string){
   const { data: profile } = await service.from("profiles").select("daily_route_capacity").eq("id", employeeId).maybeSingle();
   const capacity = Math.max(1, Number(profile?.daily_route_capacity || 16));
@@ -41,11 +45,20 @@ export async function POST(request: NextRequest) {
     const mode = body.mode === "client_transfer" ? "client_transfer" : body.mode === "permanent" ? "permanent" : "temporary";
     const employeeId = String(body.employeeId || ""); const crewId = String(body.crewId || "");
     if (!employeeId || !crewId) throw new Error("Choose the destination Employee.");
+
     if (mode === "client_transfer") {
-      const jobIds = [...new Set((body.jobIds || []).map(String).filter(Boolean))]; if (!jobIds.length) throw new Error("Select at least one Customer Job.");
-      let moved = 0; for (const jobId of jobIds) { const result = await user.rpc("assign_job_to_crew", { p_job_id: jobId, p_crew_id: crewId }); if (result.error) throw assignmentError(result.error.message); moved += 1; }
-      return NextResponse.json({ mode, jobCount: moved, capacityWarnings: [], needsRoutePlacement: true });
+      const jobIds = [...new Set((body.jobIds || []).map(String).filter(Boolean))];
+      if (!jobIds.length) throw new Error("Select at least one Customer Job.");
+      const result = await user.rpc("transfer_customer_jobs_without_date", {
+        p_job_ids: jobIds,
+        p_employee_id: employeeId,
+        p_crew_id: crewId,
+      });
+      if (result.error) throw assignmentError(result.error.message);
+      const warnings = await capacityWarnings(service, crewId, employeeId);
+      return NextResponse.json({ ...(result.data || {}), capacityWarnings: warnings });
     }
+
     const visitIds = [...new Set((body.visitIds || []).map(String).filter(Boolean))]; if (!visitIds.length) throw new Error("Select at least one scheduled Visit.");
     const result = await user.rpc("move_canonical_visits", { p_visit_ids: visitIds, p_employee_id: employeeId, p_crew_id: crewId, p_mode: mode }); if (result.error) throw assignmentError(result.error.message);
     const warnings = mode === "permanent" ? await capacityWarnings(service, crewId, employeeId) : [];
