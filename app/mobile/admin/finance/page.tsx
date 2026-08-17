@@ -1,82 +1,10 @@
 "use client";
 
 import { ContractPaymentsWorkspace } from "@/components/payments/ContractPaymentsWorkspace";
+import { PaymentDisputeWorkspace } from "@/components/payments/PaymentDisputeWorkspace";
 import { MobileBackButton } from "@/components/mobile/MobileBackButton";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 
 export default function MobileAdminPaymentsPage() {
-  return (
-    <MobileRoleGuard allowed={["admin", "manager"]}>
-      <main className="mobile-app-shell role-mobile-shell mobile-admin-payments-page">
-        <header className="role-mobile-topbar">
-          <MobileBackButton fallback="/mobile/admin/more" />
-          <div>
-            <strong>Payments</strong>
-            <span>Contracts, collections and payouts</span>
-          </div>
-          <span className="role-mobile-avatar">$</span>
-        </header>
-
-        <section className="mobile-admin-payments-intro">
-          <span>COMPANY FINANCIAL OPERATIONS</span>
-          <h1>Payments synced with desktop.</h1>
-          <p>The same customers, contracts, holds and payout rules are shown on every device.</p>
-        </section>
-
-        <section className="mobile-admin-payments-content">
-          <ContractPaymentsWorkspace scope="company" />
-        </section>
-
-        <style jsx global>{`
-          .mobile-admin-payments-page {
-            min-height: 100dvh;
-            overflow-x: hidden;
-            padding-bottom: max(24px, env(safe-area-inset-bottom));
-            background: #f3f7f4;
-          }
-          .mobile-admin-payments-intro {
-            margin: 14px 14px 0;
-            padding: 20px;
-            border-radius: 22px;
-            background: linear-gradient(135deg, #0a3427, #11764b);
-            color: #fff;
-            box-shadow: 0 18px 42px rgba(10, 52, 39, 0.2);
-          }
-          .mobile-admin-payments-intro span {
-            display: block;
-            color: #9ee2bc;
-            font-size: 10px;
-            font-weight: 950;
-            letter-spacing: 0.12em;
-          }
-          .mobile-admin-payments-intro h1 {
-            margin: 8px 0 7px;
-            font-size: clamp(30px, 9vw, 42px);
-            line-height: 0.98;
-            letter-spacing: -0.055em;
-          }
-          .mobile-admin-payments-intro p {
-            margin: 0;
-            color: rgba(255, 255, 255, 0.72);
-            font-size: 13px;
-            line-height: 1.55;
-          }
-          .mobile-admin-payments-content {
-            padding: 14px;
-          }
-          .mobile-admin-payments-content > div > section:first-child {
-            display: none;
-          }
-          @media (min-width: 760px) {
-            .mobile-admin-payments-intro,
-            .mobile-admin-payments-content {
-              width: min(900px, calc(100% - 32px));
-              margin-left: auto;
-              margin-right: auto;
-            }
-          }
-        `}</style>
-      </main>
-    </MobileRoleGuard>
-  );
+  return <MobileRoleGuard allowed={["admin","manager"]}><main className="mobile-app-shell role-mobile-shell mobile-admin-payments-page"><header className="role-mobile-topbar"><MobileBackButton fallback="/mobile/admin/more"/><div><strong>Payments</strong><span>Contracts, disputes and payouts</span></div><span className="role-mobile-avatar">$</span></header><section className="mobile-admin-payments-intro"><span>COMPANY FINANCIAL OPERATIONS</span><h1>Payments synced with desktop.</h1><p>Customer disputes use the same 3-day response deadline and payout holds on every device.</p></section><section className="mobile-admin-payments-content"><ContractPaymentsWorkspace scope="company"/><PaymentDisputeWorkspace scope="company"/></section><style jsx global>{`.mobile-admin-payments-page{min-height:100dvh;overflow-x:hidden;padding-bottom:max(24px,env(safe-area-inset-bottom));background:#f3f7f4}.mobile-admin-payments-intro{margin:14px 14px 0;padding:20px;border-radius:22px;background:linear-gradient(135deg,#0a3427,#11764b);color:#fff;box-shadow:0 18px 42px rgba(10,52,39,.2)}.mobile-admin-payments-intro span{display:block;color:#9ee2bc;font-size:10px;font-weight:950;letter-spacing:.12em}.mobile-admin-payments-intro h1{margin:8px 0 7px;font-size:clamp(30px,9vw,42px);line-height:.98;letter-spacing:-.055em}.mobile-admin-payments-intro p{margin:0;color:rgba(255,255,255,.72);font-size:13px;line-height:1.55}.mobile-admin-payments-content{padding:14px}.mobile-admin-payments-content>div>section:first-child{display:none}@media(min-width:760px){.mobile-admin-payments-intro,.mobile-admin-payments-content{width:min(900px,calc(100% - 32px));margin-left:auto;margin-right:auto}}`}</style></main></MobileRoleGuard>;
 }
