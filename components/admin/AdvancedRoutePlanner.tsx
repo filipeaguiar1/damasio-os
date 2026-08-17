@@ -64,6 +64,7 @@ export function AdvancedRoutePlanner(){
   }
 
   useEffect(()=>{void refresh();},[weekStart]);
+  useEffect(()=>{const sync=()=>void refresh();const onVisible=()=>{if(document.visibilityState==="visible")void refresh();};window.addEventListener("damasio:canonical-route-updated",sync);window.addEventListener("focus",sync);document.addEventListener("visibilitychange",onVisible);return()=>{window.removeEventListener("damasio:canonical-route-updated",sync);window.removeEventListener("focus",sync);document.removeEventListener("visibilitychange",onVisible);};},[weekStart]);
   const employee=employees.find(worker=>worker.id===employeeId)||null;
   const ownedJobs=useMemo(()=>employee?jobs.filter(job=>job.canonicalCrewId===employee.crewId):[],[jobs,employee?.crewId]);
   const jobById=useMemo(()=>new Map(jobs.map(home=>[jobId(home),home])),[jobs]);
