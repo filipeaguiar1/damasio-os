@@ -5,7 +5,15 @@ const read = path => readFileSync(path, "utf8");
 const planner = read("components/admin/AdvancedRoutePlannerV7.tsx");
 const layout = read("app/layout.tsx");
 
-// Regression lock: Smart Week must remain deterministic and capacity-first.
+function functionBody(source, name, nextName) {
+  const start = source.indexOf(`async function ${name}()`);
+  assert.notEqual(start, -1, `${name} must exist.`);
+  const end = nextName ? source.indexOf(`function ${nextName}`, start) : source.length;
+  assert.notEqual(end, -1, `Could not isolate ${name}.`);
+  return source.slice(start, end);
+}
+
+// Regression lock: full Smart Week rebuild must remain deterministic and capacity-first.
 assert.match(
   planner,
   /for\(const day of days\)\{while\(day\.capacity>day\.homes\.length&&remaining\.length\)/,
@@ -16,15 +24,44 @@ assert.doesNotMatch(
   /rebalanceGeographicDays|clusterCost/,
   "Cross-day mathematical rebalancing is forbidden: it previously split obvious geographic clusters and destabilized the week.",
 );
+
+// Fit & save is intentionally incremental: place only new houses into open days,
+// score by geography, optimize affected daily routes, then persist canonically.
+const fitAndSave = functionBody(planner, "fitAndSaveNew", "moveHouse");
 assert.match(
-  planner,
-  /const all=uniqueHomes\(\[\.\.\.plan\.flatMap\(day=>day\.homes\),\.\.\.unplannedSelected\]\);const days=await denseGeographicPlan\(all,start\)/,
-  "Fit & save must rebuild the selected canonical week with the deterministic planner.",
+  fitAndSave,
+  /mapHomes\(unplannedSelected\)/,
+  "Fit & save must operate on the selected new houses.",
 );
 assert.match(
-  planner,
+  fitAndSave,
+  /day\.capacity>day\.homes\.length/,
+  "Fit & save must never place a house into a full day.",
+);
+assert.match(
+  fitAndSave,
+  /haversineKm\(/,
+  "Fit & save must use geographic distance when choosing a day.",
+);
+assert.match(
+  fitAndSave,
+  /centroid\(/,
+  "Fit & save must consider the geographic cluster of the candidate day.",
+);
+assert.match(
+  fitAndSave,
+  /optimize\(start,day\.homes\)/,
+  "Fit & save must recalculate stop order after adding houses.",
+);
+assert.match(
+  fitAndSave,
   /await savePlan\(days,false,false\)/,
   "Fit & save must persist canonical house/day membership immediately.",
+);
+assert.doesNotMatch(
+  fitAndSave,
+  /denseGeographicPlan\(/,
+  "Fit & save must not rebuild the entire published week when only new houses are being added.",
 );
 assert.doesNotMatch(
   layout,
