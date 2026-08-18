@@ -1,3 +1,27 @@
 .advanced-planner-v7 .planner-actions>div:first-child{display:grid;gap:6px}
 .advanced-planner-v7 .planner-actions>div:first-child>strong{display:block}
 .advanced-planner-v7 .planner-actions>div:first-child>span{display:block;margin-top:2px}
+
+/* Advisor V7 owns the selected-day treatment. Keep selection light instead of
+   inheriting the older dark-green Advanced Planner state. */
+.advanced-planner-v7 .planner-days button.active{
+  transform:translateY(-2px)!important;
+  border-color:#55a77f!important;
+  background:linear-gradient(145deg,#e8f7ee,#f8fcfa)!important;
+  color:#164331!important;
+  box-shadow:0 9px 20px rgba(8,93,64,.11)!important;
+}
+.advanced-planner-v7 .planner-days button.active strong{color:#0b684c!important}
+.advanced-planner-v7 .planner-days button.active span,
+.advanced-planner-v7 .planner-days button.active small{color:#577266!important}
+
+/* Pending-review yellow wins even when that day is the currently selected day. */
+.advanced-planner-v7 .planner-days button.active.pending-review{
+  border-color:#d59a16!important;
+  background:linear-gradient(145deg,#ffe79a,#fff4c4)!important;
+  color:#5f4305!important;
+  box-shadow:0 9px 22px rgba(185,137,26,.18)!important;
+}
+.advanced-planner-v7 .planner-days button.active.pending-review strong,
+.advanced-planner-v7 .planner-days button.active.pending-review span{color:#5f4305!important}
+.advanced-planner-v7 .planner-days button.active.pending-review small{color:#79550a!important;font-weight:950}
