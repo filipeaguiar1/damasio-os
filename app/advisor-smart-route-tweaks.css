@@ -1,0 +1,3 @@
+.advanced-planner-v7 .planner-actions>div:first-child{display:grid;gap:6px}
+.advanced-planner-v7 .planner-actions>div:first-child>strong{display:block}
+.advanced-planner-v7 .planner-actions>div:first-child>span{display:block;margin-top:2px}
