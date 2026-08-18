@@ -1,0 +1,118 @@
+name: QA Hourly Heavy E2E
+
+on:
+  push:
+    branches:
+      - qa/hourly-ecosystem-20260817-2230
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: damasio-shared-qa-database-heavy-e2e
+  cancel-in-progress: false
+
+jobs:
+  simulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install temporary Playwright package
+        run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
+
+      - name: TypeScript and production build
+        run: pnpm build
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start production server
+        run: |
+          pnpm start > /tmp/damasio-release-heavy-e2e.log 2>&1 &
+          echo $! > /tmp/damasio-release-heavy-e2e.pid
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/damasio-release-heavy-e2e.log
+          exit 1
+
+      - name: Run V1 two-month operational simulation
+        run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
+
+      - name: Validate canonical route on four authenticated screens
+        run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
+
+      - name: Purge exact V1 simulation run
+        if: always()
+        run: node scripts/purge-operational-simulation-v1.mjs
+
+      - name: Run V2 namespace isolation and idempotent reset gate
+        if: ${{ success() }}
+        run: pnpm exec playwright test tests/advanced-operational-simulator.spec.ts --reporter=line --workers=1
+
+      - name: Run V2 Customer-to-History journey gate
+        if: ${{ success() }}
+        run: pnpm exec playwright test tests/advanced-operational-simulator-journey.spec.ts --reporter=line --workers=1
+
+      - name: Run V2 4,620-service zero-residue release gate
+        if: ${{ success() }}
+        run: pnpm exec playwright test tests/advanced-operational-simulator-large.spec.ts --reporter=line --workers=1
+
+      - name: Run Full Ecosystem journeys
+        if: ${{ success() }}
+        run: pnpm exec playwright test tests/full-ecosystem.spec.ts tests/full-ecosystem-smart-route.spec.ts tests/full-ecosystem-stripe.spec.ts tests/full-ecosystem-tenant-isolation.spec.ts --reporter=line --workers=1
+
+      - name: Run canonical business lifecycle and financial invariant gate
+        if: ${{ success() }}
+        run: pnpm exec playwright test tests/full-ecosystem-business-lifecycle.spec.ts --reporter=line --workers=1
+
+      - name: Run Customer wallet and tip identity security gate
+        if: ${{ success() }}
+        run: pnpm exec playwright test tests/full-ecosystem-customer-wallet-security.spec.ts --reporter=line --workers=1
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-hourly-heavy-e2e
+          path: |
+            operational-simulator.png
+            employee-live-route.png
+            customer-feedback-result.png
+            customer-feedback.png
+            customer-desktop-qa.png
+            canonical-admin-web.png
+            canonical-admin-mobile.png
+            canonical-employee-web.png
+            canonical-employee-mobile.png
+            /tmp/damasio-release-heavy-e2e.log
+            test-results/**
+          if-no-files-found: ignore
