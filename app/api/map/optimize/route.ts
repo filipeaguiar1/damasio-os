@@ -32,12 +32,13 @@ function nearestNeighbour(matrix: number[][]) {
   return order;
 }
 
-function improve(order: number[], matrix: number[][]) {
+function improve(order: number[], matrix: number[][], keepFirstStop = false) {
   const result = [...order];
   let changed = true;
   while (changed) {
     changed = false;
-    for (let i = 1; i < result.length - 2; i++) for (let k = i + 1; k < result.length - 1; k++) {
+    const firstMutable = keepFirstStop ? 2 : 1;
+    for (let i = firstMutable; i < result.length - 2; i++) for (let k = i + 1; k < result.length - 1; k++) {
       const before = matrix[result[i - 1]][result[i]] + matrix[result[k]][result[k + 1]];
       const after = matrix[result[i - 1]][result[k]] + matrix[result[i]][result[k + 1]];
       if (after + 1 < before) {
@@ -49,13 +50,30 @@ function improve(order: number[], matrix: number[][]) {
   return result;
 }
 
-// Finds the globally shortest open route while keeping point 0 fixed as departure.
-function exactOpenRoute(matrix: number[][]) {
+function nearestFirstStop(matrix: number[][]) {
+  let first = 1;
+  for (let index = 2; index < matrix.length; index++) {
+    if (matrix[0][index] < matrix[0][first]) first = index;
+  }
+  return first;
+}
+
+// Finds the shortest open route while keeping point 0 as departure and, when requested,
+// forcing the first property to be the closest driving-time stop to that departure.
+function exactOpenRoute(matrix: number[][], fixedFirst: number | null = null) {
   const size = matrix.length;
   const states = 1 << size;
   const costs = Array.from({ length: states }, () => new Float64Array(size).fill(Number.POSITIVE_INFINITY));
   const previous = Array.from({ length: states }, () => new Int16Array(size).fill(-1));
-  costs[1][0] = 0;
+
+  if (fixedFirst !== null) {
+    const initialMask = 1 | (1 << fixedFirst);
+    costs[initialMask][fixedFirst] = matrix[0][fixedFirst];
+    previous[initialMask][fixedFirst] = 0;
+  } else {
+    costs[1][0] = 0;
+  }
+
   for (let mask = 1; mask < states; mask += 2) {
     for (let last = 0; last < size; last++) {
       const current = costs[mask][last];
@@ -65,10 +83,14 @@ function exactOpenRoute(matrix: number[][]) {
         if (mask & bit) continue;
         const nextMask = mask | bit;
         const candidate = current + matrix[last][next];
-        if (candidate < costs[nextMask][next]) { costs[nextMask][next] = candidate; previous[nextMask][next] = last; }
+        if (candidate < costs[nextMask][next]) {
+          costs[nextMask][next] = candidate;
+          previous[nextMask][next] = last;
+        }
       }
     }
   }
+
   const full = states - 1;
   let last = 1;
   for (let index = 2; index < size; index++) if (costs[full][index] < costs[full][last]) last = index;
@@ -107,9 +129,24 @@ export async function POST(request: NextRequest) {
       }
     } catch { /* deterministic distance fallback */ }
 
-    const order = routePoints.length <= 15 ? exactOpenRoute(matrix) : improve(nearestNeighbour(matrix), matrix);
+    let order: number[];
+    if (start) {
+      const firstStop = nearestFirstStop(matrix);
+      order = routePoints.length <= 15
+        ? exactOpenRoute(matrix, firstStop)
+        : improve(nearestNeighbour(matrix), matrix, true);
+    } else {
+      order = routePoints.length <= 15 ? exactOpenRoute(matrix) : improve(nearestNeighbour(matrix), matrix);
+    }
+
     const totalSeconds = order.slice(1).reduce((sum, value, index) => sum + matrix[order[index]][value], 0);
-    return NextResponse.json({ order: start ? order.slice(1).map(index => index - 1) : order, totalSeconds, provider });
+    return NextResponse.json({
+      order: start ? order.slice(1).map(index => index - 1) : order,
+      totalSeconds,
+      provider,
+      startAnchored: Boolean(start),
+      firstStopPolicy: start ? "nearest-driving-time" : "optimizer-selected",
+    });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Optimization failed." }, { status: 500 });
   }
