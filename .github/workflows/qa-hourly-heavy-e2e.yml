@@ -1,4 +1,5 @@
 name: QA Hourly Heavy E2E
+# QA-only push trigger refreshed at 06:00 ET to retrigger the isolated heavy gate.
 
 on:
   push:
