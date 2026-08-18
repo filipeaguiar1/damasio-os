@@ -77,7 +77,7 @@ export default function LoginPage(){
       <label>Email<input value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email" placeholder="admin@company.com" /></label>
       <label>Password<input value={password} onChange={e=>setPassword(e.target.value)} type="password" autoComplete="current-password" placeholder="••••••••" /></label>
       <div className="auth-login-options">
-        <label><input type="checkbox" checked={rememberEmail} onChange={e=>setRememberEmail(e.target.checked)} /><span>Remember email</span></label>
+        <label><input aria-label="Remember this login" type="checkbox" checked={rememberEmail} onChange={e=>setRememberEmail(e.target.checked)} /><span>Remember email</span></label>
         <label><input type="checkbox" checked={keepConnected} onChange={e=>setKeepConnected(e.target.checked)} /><span>Keep me signed in</span></label>
       </div>
       <button className="btn btn-primary" onClick={login} disabled={loading}>{loading?"Signing in...":"Sign In"}</button>
