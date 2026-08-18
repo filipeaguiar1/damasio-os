@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { AdvancedRoutePlanner } from "@/components/admin/AdvancedRoutePlanner";
+import { AdvancedRoutePlannerV7 } from "@/components/admin/AdvancedRoutePlannerV7";
 import { RouteAdvisorPanel } from "@/components/admin/RouteAdvisorPanel";
 
 export function RouteAdvisorWorkspace(){
   const [manualOpen,setManualOpen]=useState(false);
 
   return <section className="route-advisor-workspace-v4">
-    <AdvancedRoutePlanner/>
+    <AdvancedRoutePlannerV7/>
 
     <section className={`single-day-advisor ${manualOpen?"open":""}`}>
       <button type="button" className="single-day-toggle" aria-expanded={manualOpen} onClick={()=>setManualOpen(current=>!current)}>
