@@ -2,7 +2,7 @@ name: Operational Simulator E2E
 # Single authenticated writer gate for the shared QA database.
 # V1, canonical four-screen Route, V2 scale, Full Ecosystem and business/financial
 # invariants run sequentially against one shared database writer.
-# QA trigger refresh: 2026-08-18 02:05 America/Toronto
+# QA trigger refresh: 2026-08-18 07:09 America/Toronto
 
 on:
   pull_request:
