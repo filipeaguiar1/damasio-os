@@ -13,11 +13,15 @@ function distance(a: Coordinate, b: Coordinate) {
   return 6371000 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
-function nearestNeighbour(matrix: number[][]) {
-  if (!matrix.length) return [];
-  const remaining = new Set(matrix.map((_, index) => index));
-  const order = [0];
-  remaining.delete(0);
+function routeCost(order: number[], matrix: number[][]) {
+  let total = 0;
+  for (let index = 1; index < order.length; index++) total += matrix[order[index - 1]][order[index]];
+  return total;
+}
+
+function greedyFromFirst(matrix: number[][], first: number) {
+  const remaining = new Set(matrix.map((_, index) => index).filter(index => index > 0 && index !== first));
+  const order = [0, first];
   while (remaining.size) {
     const current = order[order.length - 1];
     let next = -1;
@@ -32,47 +36,69 @@ function nearestNeighbour(matrix: number[][]) {
   return order;
 }
 
-function improve(order: number[], matrix: number[][], keepFirstStop = false) {
+function improveOpen(order: number[], matrix: number[][]) {
   const result = [...order];
   let changed = true;
-  while (changed) {
+  let guard = 0;
+  while (changed && guard < 12) {
     changed = false;
-    const firstMutable = keepFirstStop ? 2 : 1;
-    for (let i = firstMutable; i < result.length - 2; i++) for (let k = i + 1; k < result.length - 1; k++) {
-      const before = matrix[result[i - 1]][result[i]] + matrix[result[k]][result[k + 1]];
-      const after = matrix[result[i - 1]][result[k]] + matrix[result[i]][result[k + 1]];
-      if (after + 1 < before) {
-        result.splice(i, k - i + 1, ...result.slice(i, k + 1).reverse());
-        changed = true;
+    guard += 1;
+    for (let i = 1; i < result.length - 1; i++) {
+      for (let k = i + 1; k < result.length; k++) {
+        const beforeLeft = matrix[result[i - 1]][result[i]];
+        const afterLeft = matrix[result[i - 1]][result[k]];
+        const beforeRight = k < result.length - 1 ? matrix[result[k]][result[k + 1]] : 0;
+        const afterRight = k < result.length - 1 ? matrix[result[i]][result[k + 1]] : 0;
+        if (afterLeft + afterRight + 1 < beforeLeft + beforeRight) {
+          result.splice(i, k - i + 1, ...result.slice(i, k + 1).reverse());
+          changed = true;
+        }
       }
     }
   }
   return result;
 }
 
-function nearestFirstStop(matrix: number[][]) {
-  let first = 1;
-  for (let index = 2; index < matrix.length; index++) {
-    if (matrix[0][index] < matrix[0][first]) first = index;
+function multiStartOpenRoute(matrix: number[][]) {
+  const candidates = matrix[0]
+    .map((cost, index) => ({ index, cost }))
+    .filter(item => item.index > 0)
+    .sort((a, b) => a.cost - b.cost);
+
+  const seedCount = Math.min(10, candidates.length);
+  const seeds = candidates.slice(0, seedCount).map(item => item.index);
+  if (candidates.length > seedCount) {
+    const quartile = [0.25, 0.5, 0.75, 1];
+    for (const ratio of quartile) {
+      const item = candidates[Math.min(candidates.length - 1, Math.floor((candidates.length - 1) * ratio))];
+      if (item && !seeds.includes(item.index)) seeds.push(item.index);
+    }
   }
-  return first;
+
+  let bestOrder: number[] = [];
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (const seed of seeds) {
+    const candidate = improveOpen(greedyFromFirst(matrix, seed), matrix);
+    const firstLeg = matrix[0][candidate[1]];
+    const total = routeCost(candidate, matrix);
+    // Total driving cost dominates. A small first-leg preference breaks near-ties so
+    // routes naturally start close to the employee without forcing a bad overall path.
+    const score = total + firstLeg * 0.08;
+    if (score < bestScore) {
+      bestScore = score;
+      bestOrder = candidate;
+    }
+  }
+  return bestOrder;
 }
 
-// Finds the shortest open route while keeping point 0 as departure and, when requested,
-// forcing the first property to be the closest driving-time stop to that departure.
-function exactOpenRoute(matrix: number[][], fixedFirst: number | null = null) {
+// Exact open-path dynamic programming for smaller route sets.
+function exactOpenRoute(matrix: number[][]) {
   const size = matrix.length;
   const states = 1 << size;
   const costs = Array.from({ length: states }, () => new Float64Array(size).fill(Number.POSITIVE_INFINITY));
   const previous = Array.from({ length: states }, () => new Int16Array(size).fill(-1));
-
-  if (fixedFirst !== null) {
-    const initialMask = 1 | (1 << fixedFirst);
-    costs[initialMask][fixedFirst] = matrix[0][fixedFirst];
-    previous[initialMask][fixedFirst] = 0;
-  } else {
-    costs[1][0] = 0;
-  }
+  costs[1][0] = 0;
 
   for (let mask = 1; mask < states; mask += 2) {
     for (let last = 0; last < size; last++) {
@@ -117,6 +143,7 @@ export async function POST(request: NextRequest) {
     const routePoints = start ? [start, ...coordinates] : coordinates;
     let matrix = routePoints.map(a => routePoints.map(b => distance(a, b)));
     let provider = "distance";
+
     try {
       const encoded = routePoints.map(([longitude, latitude]) => `${longitude},${latitude}`).join(";");
       const response = await fetch(`https://router.project-osrm.org/table/v1/driving/${encoded}?annotations=duration`, { cache: "no-store", signal: AbortSignal.timeout(12000) });
@@ -129,23 +156,18 @@ export async function POST(request: NextRequest) {
       }
     } catch { /* deterministic distance fallback */ }
 
-    let order: number[];
-    if (start) {
-      const firstStop = nearestFirstStop(matrix);
-      order = routePoints.length <= 15
-        ? exactOpenRoute(matrix, firstStop)
-        : improve(nearestNeighbour(matrix), matrix, true);
-    } else {
-      order = routePoints.length <= 15 ? exactOpenRoute(matrix) : improve(nearestNeighbour(matrix), matrix);
-    }
+    const order = routePoints.length <= 15 ? exactOpenRoute(matrix) : multiStartOpenRoute(matrix);
+    const totalSeconds = routeCost(order, matrix);
+    const firstLegSeconds = start && order.length > 1 ? matrix[0][order[1]] : null;
 
-    const totalSeconds = order.slice(1).reduce((sum, value, index) => sum + matrix[order[index]][value], 0);
     return NextResponse.json({
       order: start ? order.slice(1).map(index => index - 1) : order,
       totalSeconds,
+      firstLegSeconds,
       provider,
       startAnchored: Boolean(start),
-      firstStopPolicy: start ? "nearest-driving-time" : "optimizer-selected",
+      firstStopPolicy: start ? "best-open-route-with-near-start-tiebreak" : "best-open-route",
+      optimization: routePoints.length <= 15 ? "exact-open-path" : "multi-start-open-path",
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Optimization failed." }, { status: 500 });
