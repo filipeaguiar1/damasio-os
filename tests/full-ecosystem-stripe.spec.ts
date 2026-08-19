@@ -34,7 +34,9 @@ test("Stripe test mode creates/cancels invoice checkout and creates tip checkout
   const invoiceId = randomUUID();
   const email = `damasio.stripe.qa.${suffix}@example.com`;
   const password = `QaStripe!${suffix}Aa1`;
+  const managerEmail = `damasio.stripe.manager.${suffix}@example.com`;
   let profileId = "";
+  let managerProfileId = "";
   let invoiceSessionId = "";
   let tipSessionId = "";
 
@@ -69,6 +71,27 @@ test("Stripe test mode creates/cancels invoice checkout and creates tip checkout
       active: true,
     });
     expect(profile.error, profile.error?.message).toBeNull();
+
+    const managerCreated = await service.auth.admin.createUser({
+      email: managerEmail,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: "QA Stripe No Finance Manager", role: "manager", company_id: companyId },
+    });
+    expect(managerCreated.error, managerCreated.error?.message).toBeNull();
+    managerProfileId = managerCreated.data.user?.id || "";
+    expect(managerProfileId).not.toBe("");
+    const managerProfile = await service.from("profiles").upsert({
+      id: managerProfileId,
+      organization_id: companyId,
+      company_id: companyId,
+      role: "manager",
+      full_name: "QA Stripe No Finance Manager",
+      email: managerEmail,
+      active: true,
+      manager_permissions: { finance: "none" },
+    });
+    expect(managerProfile.error, managerProfile.error?.message).toBeNull();
 
     const customer = await service.from("customers").insert({
       id: customerId,
@@ -131,6 +154,17 @@ test("Stripe test mode creates/cancels invoice checkout and creates tip checkout
     const token = signed.data.session?.access_token;
     expect(token).toBeTruthy();
 
+    const managerAuth = createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
+    const managerSigned = await managerAuth.auth.signInWithPassword({ email: managerEmail, password });
+    expect(managerSigned.error, managerSigned.error?.message).toBeNull();
+    const managerToken = managerSigned.data.session?.access_token;
+    expect(managerToken).toBeTruthy();
+    const managerDenied = await request.post(`${appUrl}/api/stripe/checkout`, {
+      headers: { authorization: `Bearer ${managerToken}` },
+      data: { invoiceId },
+    });
+    expect(managerDenied.status()).toBe(403);
+
     const checkout = await json(await request.post(`${appUrl}/api/stripe/checkout`, {
       headers: { authorization: `Bearer ${token}` },
       data: { invoiceId },
@@ -166,6 +200,16 @@ test("Stripe test mode creates/cancels invoice checkout and creates tip checkout
     expect(expiredSession.status).toBe("expired");
     expect(expiredSession.livemode).toBe(false);
 
+    const disabled = await service.from("profiles").update({ active: false }).eq("id", profileId);
+    expect(disabled.error, disabled.error?.message).toBeNull();
+    const inactiveDenied = await request.post(`${appUrl}/api/stripe/checkout`, {
+      headers: { authorization: `Bearer ${token}` },
+      data: { invoiceId },
+    });
+    expect(inactiveDenied.status()).toBe(403);
+    const reactivated = await service.from("profiles").update({ active: true }).eq("id", profileId);
+    expect(reactivated.error, reactivated.error?.message).toBeNull();
+
     const tip = await json(await request.post(`${appUrl}/api/stripe/tips`, {
       headers: { authorization: `Bearer ${token}` },
       data: { amount: 7.25, returnPath: "/customer/feedback", note: "QA test-mode tip" },
@@ -188,6 +232,8 @@ test("Stripe test mode creates/cancels invoice checkout and creates tip checkout
       checkpoint: "stripe-test-mode-checkout-and-tip",
       invoiceSessionId,
       tipSessionId,
+      managerWithoutFinanceDenied: true,
+      inactiveCustomerDenied: true,
       livemode: false,
     }));
   } finally {
@@ -204,6 +250,10 @@ test("Stripe test mode creates/cancels invoice checkout and creates tip checkout
     await service.from("quotes").delete().eq("id", quoteId);
     await service.from("properties").delete().eq("id", propertyId);
     await service.from("customers").delete().eq("id", customerId);
+    if (managerProfileId) {
+      await service.from("profiles").delete().eq("id", managerProfileId);
+      await service.auth.admin.deleteUser(managerProfileId).catch(() => undefined);
+    }
     if (profileId) {
       await service.from("profiles").delete().eq("id", profileId);
       await service.auth.admin.deleteUser(profileId).catch(() => undefined);
