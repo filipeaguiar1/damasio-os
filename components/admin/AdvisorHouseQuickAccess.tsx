@@ -26,13 +26,13 @@ export function AdvisorHouseQuickAccess() {
 
         const planned = readNumber(summary.querySelector("b")?.textContent);
         const summaryText = summary.textContent || "";
-        const newMatch = summaryText.match(/(\d+)\s+new\/unplaced/i);
-        const newCount = newMatch ? Number(newMatch[1]) : 0;
+        const dueMatch = summaryText.match(/(\d+)\s+(?:due|new)\/unplaced/i);
+        const dueCount = dueMatch ? Number(dueMatch[1]) : 0;
         const totalMatch = heroAction.textContent?.match(/\((\d+)\)/);
-        const total = totalMatch ? Number(totalMatch[1]) : Math.max(planned + newCount, planned);
+        const total = totalMatch ? Number(totalMatch[1]) : Math.max(planned + dueCount, planned);
         const isOpen = Boolean(planner.querySelector(".planner-customer-groups"));
         const selected = planner.querySelectorAll(".planner-new-customers > button.active").length;
-        const signature = `${planned}:${newCount}:${total}:${selected}:${isOpen}`;
+        const signature = `${planned}:${dueCount}:${total}:${selected}:${isOpen}`;
 
         let quick = planner.querySelector<HTMLElement>(`.${QUICK_ACCESS_CLASS}`);
         if (!quick) {
@@ -50,13 +50,13 @@ export function AdvisorHouseQuickAccess() {
             <span class="aqa-icon">⌂</span>
             <span class="aqa-copy">
               <strong>Houses</strong>
-              <small>${planned} canonical in week${selected ? ` · ${selected} new selected` : ""}</small>
+              <small>${planned} canonical in week${selected ? ` · ${selected} due selected` : ""}</small>
             </span>
             <span class="aqa-chevron">${isOpen ? "−" : "+"}</span>
           </button>
           <div class="aqa-stats">
-            <button type="button" class="aqa-stat aqa-all"><span>All houses</span><strong>${total}</strong><small>View current + new</small></button>
-            <button type="button" class="aqa-stat aqa-new ${newCount ? "has-new" : ""}"><span>New houses</span><strong>${newCount}</strong><small>${newCount ? "Select houses to place" : "Nothing waiting"}</small></button>
+            <button type="button" class="aqa-stat aqa-all"><span>All houses</span><strong>${total}</strong><small>All assigned houses</small></button>
+            <button type="button" class="aqa-stat aqa-new ${dueCount ? "has-new" : ""}"><span>Due this week</span><strong>${dueCount}</strong><small>${dueCount ? "Review services to place" : "Nothing waiting"}</small></button>
           </div>
         `;
 
