@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AdvancedRoutePlannerV7 } from "@/components/admin/AdvancedRoutePlannerV7";
+import { AdvisorWeekPickerEnhancer } from "@/components/admin/AdvisorWeekPickerEnhancer";
 import { RouteAdvisorPanel } from "@/components/admin/RouteAdvisorPanel";
 
 export function RouteAdvisorWorkspace(){
@@ -9,6 +10,7 @@ export function RouteAdvisorWorkspace(){
 
   return <section className="route-advisor-workspace-v4">
     <AdvancedRoutePlannerV7/>
+    <AdvisorWeekPickerEnhancer/>
 
     <section className={`single-day-advisor ${manualOpen?"open":""}`}>
       <button type="button" className="single-day-toggle" aria-expanded={manualOpen} onClick={()=>setManualOpen(current=>!current)}>
