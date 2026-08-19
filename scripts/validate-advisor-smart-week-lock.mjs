@@ -13,6 +13,7 @@ function functionBody(source, name, nextName) {
   return source.slice(start, end);
 }
 
+// Regression lock: full Smart Week rebuild must remain deterministic and capacity-first.
 assert.match(
   planner,
   /for\(const day of days\)\{while\(day\.capacity>day\.homes\.length&&remaining\.length\)/,
@@ -24,15 +25,49 @@ assert.doesNotMatch(
   "Cross-day mathematical rebalancing is forbidden: it previously split obvious geographic clusters and destabilized the week.",
 );
 
+// Fit & save is intentionally incremental: place only new houses into open days,
+// score by geography, optimize affected daily routes, then persist canonically.
 const fitAndSave = functionBody(planner, "fitAndSaveNew", "moveHouse");
-assert.match(fitAndSave, /mapHomes\(unplannedSelected\)/, "Fit & save must operate on selected new houses.");
-assert.match(fitAndSave, /day\.capacity>day\.homes\.length/, "Fit & save must respect daily capacity.");
-assert.match(fitAndSave, /haversineKm\(/, "Fit & save must use geographic distance.");
-assert.match(fitAndSave, /centroid\(/, "Fit & save must consider candidate-day geographic clustering.");
-assert.match(fitAndSave, /optimize\(start,day\.homes\)/, "Fit & save must recalculate daily stop order.");
-assert.match(fitAndSave, /await savePlan\(days,false,false\)/, "Fit & save must persist canonical membership immediately.");
-assert.doesNotMatch(fitAndSave, /denseGeographicPlan\(/, "Fit & save must not rebuild the entire published week for incremental additions.");
-assert.doesNotMatch(layout, /AdvisorCanonicalPersistenceEnhancer/, "The legacy Advisor persistence enhancer must never be mounted over V7.");
+assert.match(
+  fitAndSave,
+  /mapHomes\(unplannedSelected\)/,
+  "Fit & save must operate on the selected new houses.",
+);
+assert.match(
+  fitAndSave,
+  /day\.capacity>day\.homes\.length/,
+  "Fit & save must never place a house into a full day.",
+);
+assert.match(
+  fitAndSave,
+  /haversineKm\(/,
+  "Fit & save must use geographic distance when choosing a day.",
+);
+assert.match(
+  fitAndSave,
+  /centroid\(/,
+  "Fit & save must consider the geographic cluster of the candidate day.",
+);
+assert.match(
+  fitAndSave,
+  /optimize\(start,day\.homes\)/,
+  "Fit & save must recalculate stop order after adding houses.",
+);
+assert.match(
+  fitAndSave,
+  /await savePlan\(days,false,false\)/,
+  "Fit & save must persist canonical house/day membership immediately.",
+);
+assert.doesNotMatch(
+  fitAndSave,
+  /denseGeographicPlan\(/,
+  "Fit & save must not rebuild the entire published week when only new houses are being added.",
+);
+assert.doesNotMatch(
+  layout,
+  /AdvisorCanonicalPersistenceEnhancer/,
+  "The legacy Advisor persistence enhancer must never be mounted over AdvancedRoutePlannerV7.",
+);
 
 function expectedPackedCounts(total, capacities) {
   let remaining = total;
@@ -43,8 +78,20 @@ function expectedPackedCounts(total, capacities) {
   });
 }
 
-assert.deepEqual(expectedPackedCounts(27, [16, 16, 16, 16, 16, 0, 0]), [16, 11, 0, 0, 0, 0, 0]);
-assert.deepEqual(expectedPackedCounts(32, [16, 16, 16, 16, 16, 0, 0]), [16, 16, 0, 0, 0, 0, 0]);
-assert.deepEqual(expectedPackedCounts(20, [16, 16, 16, 16, 16, 0, 0]), [16, 4, 0, 0, 0, 0, 0]);
+assert.deepEqual(
+  expectedPackedCounts(27, [16, 16, 16, 16, 16, 0, 0]),
+  [16, 11, 0, 0, 0, 0, 0],
+  "27 houses with capacity 16 must occupy Monday 16 + Tuesday 11 only.",
+);
+assert.deepEqual(
+  expectedPackedCounts(32, [16, 16, 16, 16, 16, 0, 0]),
+  [16, 16, 0, 0, 0, 0, 0],
+  "32 houses must not spill into Wednesday.",
+);
+assert.deepEqual(
+  expectedPackedCounts(20, [16, 16, 16, 16, 16, 0, 0]),
+  [16, 4, 0, 0, 0, 0, 0],
+  "A partially filled second day is allowed only after the first day is full.",
+);
 
 console.log("PASS Advisor deterministic Smart Week regression lock");
