@@ -166,7 +166,17 @@ export async function POST(request:NextRequest){
       if(update.error) throw new Error(update.error.message);
     }
 
-    return NextResponse.json({saved:true,routeId,referenceDate:routeDate,horizonWeeks,recurringJobs,createdVisits,preservedVisits,routeDates});
+    const cleanup=await service.rpc("cleanup_stale_recurring_route_visits",{
+      p_company_id:companyId,
+      p_crew_id:crewId,
+      p_from_date:addDays(routeDate,1),
+      p_to_date:horizon,
+    });
+    if(cleanup.error) throw new Error(`Recurring cleanup failed: ${cleanup.error.message}`);
+    const staleVisitsRemoved=Number(cleanup.data?.removedVisits||0);
+    const emptyRoutesRemoved=Number(cleanup.data?.deletedEmptyRoutes||0);
+
+    return NextResponse.json({saved:true,routeId,referenceDate:routeDate,horizonWeeks,recurringJobs,createdVisits,preservedVisits,staleVisitsRemoved,emptyRoutesRemoved,routeDates});
   }catch(error){
     console.error("route-recurring-reference",error);
     return NextResponse.json({error:error instanceof Error?error.message:"Recurring route reference failed."},{status:400});
