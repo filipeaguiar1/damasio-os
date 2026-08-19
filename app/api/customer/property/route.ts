@@ -1,42 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { requireCustomerPortalIdentity } from "@/lib/auth/customerPortalIdentity";
 
 export const dynamic = "force-dynamic";
 
 const schema = z.object({ customerComment: z.string().trim().max(1500).nullable().optional() }).strict();
 
-function serverClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Property updates are not configured.");
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
-}
-
 async function requireCustomerProperty(request: NextRequest) {
-  const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) throw new Error("Sign in before viewing your property.");
-  const client = serverClient();
-  const { data: auth, error: authError } = await client.auth.getUser(token);
-  if (authError || !auth.user) throw new Error("Your session expired. Sign in again.");
-  const email = String(auth.user.email || "").toLowerCase();
-  const { data: customer, error: customerError } = await client
-    .from("customers")
-    .select("id,full_name,phone,email")
-    .or(`profile_id.eq.${auth.user.id},email.ilike.${email.replace(/,/g, "")}`)
-    .limit(1)
-    .maybeSingle();
-  if (customerError || !customer) throw new Error(customerError?.message || "Customer account could not be found.");
+  const { service, customer, identity } = await requireCustomerPortalIdentity(request);
+  if (!customer) throw new Error("Customer account could not be found.");
 
-  const { data: property, error } = await client
+  let query = service
     .from("properties")
-    .select("id,address_line1,city,province,postal_code,lot_size,grass_height,gate,dog,irrigation,access_notes,property_notes,customer_comment,official_photo_url")
-    .eq("customer_id", customer.id)
+    .select("id,address_line1,city,province,postal_code,lot_size,grass_height,gate,dog,irrigation,access_notes,property_notes,customer_comment,official_photo_url,company_id,organization_id")
+    .eq("customer_id", identity.customerId);
+
+  if (identity.companyId) {
+    query = query.or(`company_id.eq.${identity.companyId},organization_id.eq.${identity.companyId}`);
+  }
+
+  const { data: property, error } = await query
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
   if (error || !property) throw new Error(error?.message || "Property could not be found.");
-  return { client, customer, property };
+  return { client: service, customer, property, identity };
 }
 
 async function signedPropertyPhoto(client: any, path?: string | null) {
@@ -78,11 +66,16 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = schema.parse(await request.json());
-    const { client, property } = await requireCustomerProperty(request);
-    const { error } = await client
+    const { client, property, identity } = await requireCustomerProperty(request);
+    let update = client
       .from("properties")
       .update({ customer_comment: body.customerComment || null })
-      .eq("id", property.id);
+      .eq("id", property.id)
+      .eq("customer_id", identity.customerId);
+    if (identity.companyId) {
+      update = update.or(`company_id.eq.${identity.companyId},organization_id.eq.${identity.companyId}`);
+    }
+    const { error } = await update;
     if (error) throw new Error(error.message);
     return NextResponse.json({ saved: true });
   } catch (error) {
