@@ -34,12 +34,16 @@ export function AdvisorWeekPickerEnhancer(){
       if(!native||!label)return false;
       const sync=()=>{if(!native.value)return;const monday=mondayOf(native.value);setSelectedWeek(monday);setViewMonth(current=>current||monthKey(monday));};
       native.classList.add("advisor-week-native-input");
+      native.hidden=true;
+      native.setAttribute("aria-hidden","true");
+      native.tabIndex=-1;
+      native.style.setProperty("display","none","important");
       sync();
       native.addEventListener("change",sync);
       native.addEventListener("input",sync);
       setInput(native);
       setHost(label);
-      detach=()=>{native.classList.remove("advisor-week-native-input");native.removeEventListener("change",sync);native.removeEventListener("input",sync);};
+      detach=()=>{native.classList.remove("advisor-week-native-input");native.hidden=false;native.removeAttribute("aria-hidden");native.tabIndex=0;native.style.removeProperty("display");native.removeEventListener("change",sync);native.removeEventListener("input",sync);};
       return true;
     };
 
