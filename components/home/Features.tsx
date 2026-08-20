@@ -11,7 +11,7 @@ export function Features() {
   return <section className="section section-white public-features">
     <div className="container">
       <div className="section-top">
-        <div><span className="section-kicker">Property care, organized</span><h2>4 Ever Seasons</h2><p className="section-intro">A cleaner way to request, manage and follow your property services throughout the year.</p></div>
+        <div><span className="section-kicker">Property care, organized</span><h2>4Ever Seasons</h2><p className="section-intro">A cleaner way to request, manage and follow your property services throughout the year.</p></div>
       </div>
       <div className="grid-3">{features.map(([icon, title, copy], index) => <div className="card feature-card polished-feature" key={title}><span className="feature-index">0{index + 1}</span><div className="icon">{icon}</div><h3>{title}</h3><p>{copy}</p></div>)}</div>
     </div>
