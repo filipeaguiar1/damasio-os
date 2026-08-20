@@ -6,6 +6,8 @@ import "./customer-profile-media.css";
 import "./role-profile-media.css";
 import "./role-mobile-system.css";
 import "./customer-mobile-overnight.css";
+import "./mobile-employee-polish-v2.css";
+import "./mobile-employee-polish-v3.css";
 import "./e2e-surface-fixes.css";
 import "./route-build-polish.css";
 import "./route-experience-polish.css";
