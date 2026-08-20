@@ -3,6 +3,12 @@ import { QuoteWizard } from "./QuoteWizard";
 export function Hero() {
   return <section className="hero public-hero">
     <style>{`
+      .public-home .hero-grid{
+        align-items:start!important;
+      }
+      .public-home .hero-copy{
+        padding-top:4px;
+      }
       .public-home .hero-brand-title{
         display:block;
         font-size:clamp(64px,8vw,104px);
@@ -13,20 +19,20 @@ export function Hero() {
       }
       .public-home .hero-brand-subtitle{
         display:block;
-        margin-top:18px;
+        margin-top:16px;
         max-width:620px;
-        font-size:clamp(22px,2.5vw,34px);
-        line-height:1.12;
-        letter-spacing:-.04em;
-        font-weight:760;
-        color:#355c4c;
+        font-size:clamp(19px,2vw,28px);
+        line-height:1.16;
+        letter-spacing:-.035em;
+        font-weight:720;
+        color:#48695b;
       }
       .public-home .hero-copy h1{
         max-width:760px;
         margin-bottom:0;
       }
       .public-home .hero-actions{
-        margin-top:32px;
+        margin-top:30px;
         gap:14px;
       }
       .public-home .hero-customer-link{
@@ -47,20 +53,21 @@ export function Hero() {
         margin-top:36px;
       }
       .public-home .hero-proof{
-        background:rgba(255,255,255,.78);
-        border-color:rgba(13,61,44,.09);
-        box-shadow:0 12px 34px rgba(13,61,44,.055);
+        background:rgba(255,255,255,.88);
+        border:1.35px solid rgba(13,61,44,.18)!important;
+        box-shadow:0 12px 34px rgba(13,61,44,.06);
       }
       .public-home .public-hero{
-        padding-top:104px;
+        padding-top:92px;
         padding-bottom:108px;
       }
       @media(max-width:1000px){
-        .public-home .public-hero{padding-top:64px;padding-bottom:76px}
+        .public-home .public-hero{padding-top:58px;padding-bottom:76px}
+        .public-home .hero-copy{padding-top:0}
       }
       @media(max-width:620px){
         .public-home .hero-brand-title{font-size:58px}
-        .public-home .hero-brand-subtitle{font-size:23px;margin-top:14px}
+        .public-home .hero-brand-subtitle{font-size:20px;margin-top:13px}
         .public-home .hero-actions .btn{width:100%}
       }
       @media(prefers-reduced-motion:reduce){
@@ -71,7 +78,7 @@ export function Hero() {
       <div className="hero-copy">
         <span className="eyebrow">Hamilton • Burlington • Oakville</span>
         <h1>
-          <span className="hero-brand-title">4 Seasons</span>
+          <span className="hero-brand-title">4Ever Seasons</span>
           <span className="hero-brand-subtitle">One simple way to care for your property.</span>
         </h1>
         <div className="hero-actions">

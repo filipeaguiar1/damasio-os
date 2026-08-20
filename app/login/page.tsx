@@ -2,7 +2,7 @@
 import {useEffect,useState} from "react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
-import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
+import {getSupabaseBrowserClient,isSupabaseConfigured,setSessionPersistencePreference} from "@/lib/supabase/client";
 
 export default function LoginPage(){
   const router=useRouter();
@@ -29,6 +29,7 @@ export default function LoginPage(){
     }
     setLoading(true);setMessage("Signing in...");
     try{
+      setSessionPersistencePreference(keepConnected);
       const supabase=getSupabaseBrowserClient() as any;
       const {data,error}=await supabase.auth.signInWithPassword({email,password});
       if(error){setMessage(error.message);return;}
@@ -50,7 +51,6 @@ export default function LoginPage(){
 
       if(rememberEmail)window.localStorage.setItem("damasio_login_email",email.trim());
       else window.localStorage.removeItem("damasio_login_email");
-      window.localStorage.setItem("damasio_keep_connected",String(keepConnected));
 
       if(profile.role==="customer"){
         const pendingQuote=window.localStorage.getItem("damasio_pending_quote");
