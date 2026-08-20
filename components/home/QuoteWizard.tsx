@@ -82,6 +82,15 @@ function pretty(value?: string) {
   return value ? labels[value] || value.replaceAll("_", " ") : "";
 }
 
+type ManualAddress = { street: string; city: string; province: string; postalCode: string };
+type PrequoteReference = { id: string; token: string };
+
+function manualAddressValue(value: ManualAddress) {
+  return [value.street.trim(), value.city.trim(), value.province.trim(), value.postalCode.trim().toUpperCase(), "Canada"]
+    .filter(Boolean)
+    .join(", ");
+}
+
 export function QuoteWizard() {
   const [step, setStep] = useState(1);
   const [service, setService] = useState<ServiceKey>("weekly_lawn");
@@ -101,6 +110,10 @@ export function QuoteWizard() {
   const [quoteNumber, setQuoteNumber] = useState("");
   const [referralCode, setReferralCode] = useState("");
   const [lead, setLead] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
+  const [manualAddressOpen, setManualAddressOpen] = useState(false);
+  const [manualAddress, setManualAddress] = useState<ManualAddress>({ street: "", city: "", province: "ON", postalCode: "" });
+  const [prequote, setPrequote] = useState<PrequoteReference | null>(null);
+  const [capturingLead, setCapturingLead] = useState(false);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -113,7 +126,7 @@ export function QuoteWizard() {
   const hasSnowDetails = Boolean(size && snowDrivewaySize && snowArea && snowSidewalk && snowSalt && snowBilling && difficulty);
   const hasServiceDetails = isExtra || (isLawn && hasLawnDetails) || (isCleanup && hasCleanupDetails) || (isSnow && hasSnowDetails);
   const missingDetailsMessage = isLawn
-    ? "Choose lawn size, grass height, grass handling and terrain difficulty."
+    ? "Choose property size, grass height, grass handling and terrain difficulty."
     : isCleanup
       ? "Choose property size, leaf amount, debris level, disposal, visit count and terrain difficulty."
       : isSnow
@@ -156,16 +169,92 @@ export function QuoteWizard() {
     difficulty ? `Terrain/access difficulty: ${pretty(difficulty)}` : null,
   ].filter(Boolean).join(" | ");
 
+  const detailCards = [
+    { label: "Service", value: serviceLabels[service] },
+    size ? { label: "Property size", value: pretty(size) } : null,
+    { label: "Address", value: lead.address, wide: true },
+    isLawn && grassHeight ? { label: "Grass height", value: pretty(grassHeight) } : null,
+    isLawn && grassHandling ? { label: "Grass handling", value: pretty(grassHandling) } : null,
+    isCleanup && cleanupLeafLevel ? { label: "Leaf amount", value: pretty(cleanupLeafLevel) } : null,
+    isCleanup && cleanupDebrisLevel ? { label: "Debris", value: pretty(cleanupDebrisLevel) } : null,
+    isCleanup && cleanupDisposal ? { label: "Disposal", value: pretty(cleanupDisposal) } : null,
+    isCleanup && cleanupVisitCount ? { label: "Visits", value: pretty(cleanupVisitCount) } : null,
+    isSnow && snowDrivewaySize ? { label: "Driveway", value: pretty(snowDrivewaySize) } : null,
+    isSnow && snowArea ? { label: "Clearing area", value: pretty(snowArea) } : null,
+    isSnow && snowSidewalk ? { label: "Walkways", value: pretty(snowSidewalk) } : null,
+    isSnow && snowSalt ? { label: "De-icing", value: pretty(snowSalt) } : null,
+    isSnow && snowBilling ? { label: "Billing", value: pretty(snowBilling) } : null,
+    difficulty ? { label: "Access", value: pretty(difficulty) } : null,
+  ].filter(Boolean) as Array<{ label: string; value: string; wide?: boolean }>;
+
+  function updateManualAddress(key: keyof ManualAddress, value: string) {
+    const next = { ...manualAddress, [key]: key === "postalCode" ? value.toUpperCase() : value };
+    setManualAddress(next);
+    setLead(current => ({ ...current, address: manualAddressValue(next) }));
+  }
+
+  function toggleManualAddress() {
+    if (!manualAddressOpen && !manualAddress.street && lead.address.trim()) {
+      setManualAddress(current => ({ ...current, street: lead.address.trim() }));
+    }
+    setManualAddressOpen(current => !current);
+    setMsg("");
+  }
+
+  async function capturePrequote() {
+    if (prequote || isExtra) return;
+    setCapturingLead(true);
+    try {
+      const propertyDetails = {
+        serviceCategory: isLawn ? "lawn" : isCleanup ? "cleanup" : "snow",
+        lawnSize: size,
+        grassHeight: isLawn ? grassHeight : undefined,
+        grassHandling: isLawn ? grassHandling : undefined,
+        difficulty,
+        cleanupLeafLevel: isCleanup ? cleanupLeafLevel : undefined,
+        cleanupDebrisLevel: isCleanup ? cleanupDebrisLevel : undefined,
+        cleanupDisposal: isCleanup ? cleanupDisposal : undefined,
+        cleanupVisitCount: isCleanup ? cleanupVisitCount : undefined,
+        snowDrivewaySize: isSnow ? snowDrivewaySize : undefined,
+        snowArea: isSnow ? snowArea : undefined,
+        snowSidewalk: isSnow ? snowSidewalk : undefined,
+        snowSalt: isSnow ? snowSalt : undefined,
+        snowBilling: isSnow ? snowBilling : undefined,
+      };
+      const response = await fetch("/api/public/prequote-lead", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...lead,
+          service: serviceLabels[service],
+          referralCode,
+          estimatedTotal: quote.total,
+          propertyDetails,
+          consentToSave: true,
+        }),
+      });
+      const result = await response.json();
+      if (response.ok && result.leadId && result.resumeToken) {
+        setPrequote({ id: String(result.leadId), token: String(result.resumeToken) });
+      }
+    } catch {
+      // The estimate remains usable if lead capture is temporarily unavailable.
+    } finally {
+      setCapturingLead(false);
+    }
+  }
+
   function showQuote() {
     if (!lead.address.trim()) return setMsg("Add the property address first.");
     if (!hasServiceDetails) return setMsg(missingDetailsMessage);
     if (!lead.name.trim() || !lead.phone.trim() || !lead.email.trim()) return setMsg("Add name, phone and email before showing the quote.");
     setMsg("");
     setStep(4);
+    void capturePrequote();
   }
 
   async function submit() {
-    if (busy || quoteNumber) return;
+    if (busy || quoteNumber || capturingLead) return;
     setBusy(true);
     setMsg("Sending your quote request to Admin...");
     try {
@@ -189,7 +278,16 @@ export function QuoteWizard() {
       const response = await fetch("/api/public/quote-referral", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...lead, notes: quoteNotes, service: serviceLabels[service], referralCode, estimatedTotal: isExtra ? null : quote.total, propertyDetails }),
+        body: JSON.stringify({
+          ...lead,
+          notes: quoteNotes,
+          service: serviceLabels[service],
+          referralCode,
+          estimatedTotal: isExtra ? null : quote.total,
+          propertyDetails,
+          prequoteLeadId: prequote?.id,
+          prequoteToken: prequote?.token,
+        }),
       });
       const result = await response.json();
       if (!response.ok) {
@@ -230,22 +328,31 @@ export function QuoteWizard() {
   }
 
   return (
-    <div className="card quote-card">
-      <div className="quote-head"><h2>Instant Quote</h2><span className="pill">Step {step}/4</span></div>
+    <div className="card quote-card premium-quote-card">
+      <div className="quote-head"><div><span className="quote-kicker">Fast online estimate</span><h2>Instant Quote</h2></div><span className="pill">Step {step}/4</span></div>
       <div className="progress"><div className="progress-bar" style={{ width: `${step * 25}%` }} /></div>
 
       {step === 1 && <div className="stack">
         <strong>What service do you need?</strong>
-        <div className="option-grid">{services.map(item => <button key={item.key} className={service === item.key ? "option active" : "option"} onClick={() => { setService(item.key); setMsg(""); }}><strong>{serviceLabels[item.key]}</strong>{item.note && <small>{item.note}</small>}</button>)}</div>
+        <div className="option-grid">{services.map(item => <button type="button" key={item.key} className={service === item.key ? "option active" : "option"} onClick={() => { setService(item.key); setMsg(""); }}><strong>{serviceLabels[item.key]}</strong>{item.note && <small>{item.note}</small>}</button>)}</div>
         {isCleanup && <div className="notice">Spring and fall cleanup estimates use leaf volume, debris, disposal and visit count. Admin confirms the final scope after review.</div>}
         {isSnow && <div className="notice">Snow estimates use driveway size, paved area, sidewalk/walkway scope, salting and seasonal/per-storm preference.</div>}
-        <button className="btn btn-primary" onClick={() => setStep(2)}>Next</button>
+        <button type="button" className="btn btn-primary" onClick={() => setStep(2)}>Next</button>
       </div>}
 
       {step === 2 && <div className="stack">
-        <div className="field"><label>Property address</label><AddressAutocomplete value={lead.address} onChange={address => setLead({ ...lead, address })} placeholder="Street, city, postal code" ariaLabel="Property address" /></div>
+        <div className="field address-field">
+          <label>Property address</label>
+          {!manualAddressOpen ? <AddressAutocomplete value={lead.address} onChange={address => setLead(current => ({ ...current, address }))} placeholder="Street, city, postal code" ariaLabel="Property address" /> : <div className="manual-address-grid">
+            <input className="input manual-address-wide" placeholder="Street address" autoComplete="street-address" value={manualAddress.street} onChange={event => updateManualAddress("street", event.target.value)} />
+            <input className="input" placeholder="City" autoComplete="address-level2" value={manualAddress.city} onChange={event => updateManualAddress("city", event.target.value)} />
+            <select className="input" aria-label="Province" autoComplete="address-level1" value={manualAddress.province} onChange={event => updateManualAddress("province", event.target.value)}><option value="ON">Ontario</option></select>
+            <input className="input" placeholder="Postal code" autoComplete="postal-code" value={manualAddress.postalCode} onChange={event => updateManualAddress("postalCode", event.target.value)} />
+          </div>}
+          <button type="button" className="manual-address-toggle" onClick={toggleManualAddress}>{manualAddressOpen ? "Use address search" : "Enter address manually"}</button>
+        </div>
         {!isExtra ? <>
-          <div className="field"><label>{isSnow ? "Property / lot size" : isCleanup ? "Property cleanup size" : "Lawn size"}</label><select className="input" required value={size} onChange={event => setSize(event.target.value as LawnSize | "")}><option value="">Choose size</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option><option value="oversize">Oversize</option></select></div>
+          <div className="field"><label>Property size</label><select className="input" required value={size} onChange={event => setSize(event.target.value as LawnSize | "")}><option value="">Choose size</option><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option><option value="oversize">Oversize</option></select></div>
 
           {isLawn && <>
             <div className="field"><label>Grass height</label><select className="input" required value={grassHeight} onChange={event => setGrassHeight(event.target.value as GrassHeight | "")}><option value="">Choose height</option><option value="2in">2&quot;</option><option value="3in">3&quot;</option><option value="4in">4&quot;</option><option value="5in">5&quot;</option></select></div>
@@ -268,26 +375,28 @@ export function QuoteWizard() {
           </>}
 
           <div className="field"><label>Terrain / access difficulty</label><select className="input" required value={difficulty} onChange={event => setDifficulty(event.target.value as DifficultyKey | "")}><option value="">Choose difficulty</option><option value="no">No</option><option value="yes">Yes</option></select></div>
-        </> : <div className="field"><label>Tell us what you need</label><textarea className="input" style={{ minHeight: 120 }} value={lead.notes} onChange={event => setLead({ ...lead, notes: event.target.value })} /></div>}
+        </> : <div className="field"><label>Tell us what you need</label><textarea className="input" style={{ minHeight: 120 }} value={lead.notes} onChange={event => setLead(current => ({ ...current, notes: event.target.value }))} /></div>}
         {msg && <div className="payment-message">{msg}</div>}
-        <div className="row"><button className="btn btn-outline" onClick={() => setStep(1)}>Back</button><button className="btn btn-primary" onClick={() => { if (!lead.address.trim()) return setMsg("Add the property address first."); if (!hasServiceDetails) return setMsg(missingDetailsMessage); setMsg(""); setStep(3); }}>Next</button></div>
+        <div className="row"><button type="button" className="btn btn-outline" onClick={() => setStep(1)}>Back</button><button type="button" className="btn btn-primary" onClick={() => { if (!lead.address.trim()) return setMsg("Add the property address first."); if (!hasServiceDetails) return setMsg(missingDetailsMessage); setMsg(""); setStep(3); }}>Next</button></div>
       </div>}
 
       {step === 3 && <div className="stack">
         <strong>Where should we send your final quote?</strong>
-        <div className="notice">Your average estimate appears after these details are complete. Nothing is saved or sent yet.</div>
-        <input className="input" placeholder="Full name" value={lead.name} onChange={event => setLead({ ...lead, name: event.target.value })} />
-        <input className="input" placeholder="Phone" value={lead.phone} onChange={event => setLead({ ...lead, phone: event.target.value })} />
-        <input className="input" placeholder="Email" value={lead.email} onChange={event => setLead({ ...lead, email: event.target.value })} />
+        <div className="prequote-consent"><strong>Your estimate stays obligation-free.</strong><span>When you choose Show Quote, 4 Ever Seasons will save these contact details and your quote progress so we can help you continue if you leave before submitting. No service is scheduled and no payment is charged.</span></div>
+        <input className="input" placeholder="Full name" autoComplete="name" value={lead.name} onChange={event => setLead(current => ({ ...current, name: event.target.value }))} />
+        <input className="input" placeholder="Phone" autoComplete="tel" value={lead.phone} onChange={event => setLead(current => ({ ...current, phone: event.target.value }))} />
+        <input className="input" placeholder="Email" type="email" autoComplete="email" value={lead.email} onChange={event => setLead(current => ({ ...current, email: event.target.value }))} />
         <input className="input" placeholder="Company code (optional)" value={referralCode} maxLength={12} onChange={event => setReferralCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} />
         {msg && <div className="payment-message">{msg}</div>}
-        <div className="row"><button className="btn btn-outline" onClick={() => setStep(2)}>Back</button><button className="btn btn-primary" onClick={showQuote}>Show Quote</button></div>
+        <div className="row"><button type="button" className="btn btn-outline" onClick={() => setStep(2)}>Back</button><button type="button" className="btn btn-primary" onClick={showQuote}>Show Quote</button></div>
       </div>}
 
       {step === 4 && <div className="stack">
-        <div className="quote-result"><small>{quoteNumber ? "Request received" : "Review before sending"}</small><div className="quote-price">{quoteNumber || (isExtra ? "Admin Review" : `$${quote.total.toFixed(2)}`)}</div><p>{quoteNumber ? `Admin will review and send the final quote to ${lead.email}.` : "Confirm below to send this request to Admin for approval."}</p></div>
-        {!isExtra && <div className="notice">{detailsSummary}. This is an average estimate, not the final approved price.</div>}
-        {quoteNumber ? <div className="notice">Keep this quote number: {quoteNumber}</div> : <div className="row"><button className="btn btn-outline" disabled={busy} onClick={() => setStep(2)}>Edit Service</button><button className="btn btn-outline" disabled={busy} onClick={() => setStep(3)}>Edit Contact</button><button className="btn btn-primary" disabled={busy} onClick={() => void submit()}>{busy ? "Sending..." : "Send to Admin for Approval"}</button></div>}
+        <div className="quote-result premium-quote-result"><small>{quoteNumber ? "Request received" : isExtra ? "Service request" : "Your average estimate"}</small><div className="quote-price">{quoteNumber || (isExtra ? "Admin Review" : `$${quote.total.toFixed(2)}`)}</div><p>{quoteNumber ? `Admin will review and send the final quote to ${lead.email}.` : isExtra ? "Tell our team what you need and we’ll review the scope." : "Based on the property and service details you selected. Final pricing is confirmed after review."}</p></div>
+        {!isExtra && <div className="quote-detail-grid">{detailCards.map(item => <div key={`${item.label}-${item.value}`} className={item.wide ? "quote-detail-card wide" : "quote-detail-card"}><span>{item.label}</span><strong>{item.value}</strong></div>)}</div>}
+        {capturingLead && <div className="prequote-saved-note">Saving your estimate details securely…</div>}
+        {!capturingLead && prequote && !quoteNumber && <div className="prequote-saved-note">Estimate details saved. You can still edit everything before submitting.</div>}
+        {quoteNumber ? <div className="notice">Keep this quote number: {quoteNumber}</div> : <div className="row quote-actions"><button type="button" className="btn btn-outline" disabled={busy} onClick={() => setStep(2)}>Edit Service</button><button type="button" className="btn btn-outline" disabled={busy} onClick={() => setStep(3)}>Edit Contact</button><button type="button" className="btn btn-primary" disabled={busy || capturingLead} onClick={() => void submit()}>{busy ? "Sending..." : capturingLead ? "Saving details..." : "Send to Admin for Approval"}</button></div>}
         {msg && <div className="payment-message">{msg}</div>}
       </div>}
     </div>

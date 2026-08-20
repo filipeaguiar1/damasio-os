@@ -1,1 +1,19 @@
-const f=[["⚡","Fast quotes","Capture leads before the final price appears."],["👤","Customer portal","Customers can view services, invoices and requests."],["📱","Employee portal","Workers can see today’s jobs, route, photos and hours."],["📋","CRM pipeline","Move leads from new to quoted to booked."],["🧾","Finance ready","HST, totals and manual payment methods tracked."],["🧠","AI ready later","Structure prepared for sales and management agents."]];export function Features(){return <section className="section section-white"><div className="container"><div className="section-top"><div><h2>4Ever Seasons V8</h2><p className="section-intro">A bigger step from website to operating system.</p></div></div><div className="grid-3">{f.map(([i,t,x])=><div className="card feature-card" key={t}><div className="icon">{i}</div><h3>{t}</h3><p>{x}</p></div>)}</div></div></section>}
+const features = [
+  ["⚡", "Fast estimates", "Build a clear service estimate in just a few guided steps."],
+  ["👤", "Customer portal", "Keep services, invoices, requests and account details together."],
+  ["📍", "Clear service updates", "Know what is scheduled and keep your property information organized."],
+  ["📷", "Photo-ready service", "Field proof and service history stay connected to the job."],
+  ["🧾", "Simple billing", "Straightforward invoices and secure online payment options."],
+  ["🌿", "Year-round care", "Lawn, cleanup, snow and extra property services in one experience."],
+];
+
+export function Features() {
+  return <section className="section section-white public-features">
+    <div className="container">
+      <div className="section-top">
+        <div><span className="section-kicker">Property care, organized</span><h2>4 Ever Seasons</h2><p className="section-intro">A cleaner way to request, manage and follow your property services throughout the year.</p></div>
+      </div>
+      <div className="grid-3">{features.map(([icon, title, copy], index) => <div className="card feature-card polished-feature" key={title}><span className="feature-index">0{index + 1}</span><div className="icon">{icon}</div><h3>{title}</h3><p>{copy}</p></div>)}</div>
+    </div>
+  </section>;
+}

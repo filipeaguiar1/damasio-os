@@ -34,8 +34,12 @@ const quoteReferral = z.object({
   referralCode: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{4,12}$/).optional().or(z.literal("")),
   estimatedTotal: z.number().nonnegative().nullable().optional(),
   propertyDetails: propertyDetails.optional(),
+  prequoteLeadId: z.string().uuid().optional(),
+  prequoteToken: z.string().uuid().optional(),
   website: z.string().max(0).optional()
-}).strict();
+}).strict().refine(value => Boolean(value.prequoteLeadId) === Boolean(value.prequoteToken), {
+  message: "Prequote reference is incomplete.",
+});
 
 const detailLabels: Record<string, string> = {
   lawn: "Lawn",
@@ -196,7 +200,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { data, error } = await client.from("lead_center").insert({
+    const leadPayload = {
       assigned_company_id: companyId,
       customer_id: customerId,
       property_id: propertyId,
@@ -206,11 +210,29 @@ export async function POST(request: NextRequest) {
       address: body.address,
       service_requested: body.service,
       notes,
-      status: companyId ? "offered" : "new"
-    }).select("id").single();
-    if (error) throw error;
+      status: companyId ? "offered" : "new",
+      updated_at: new Date().toISOString(),
+    };
 
-    return NextResponse.json({ saved: true, leadId: data.id, customerId, propertyId, companyName }, { status: 201 });
+    let leadId: string | null = null;
+    if (body.prequoteLeadId && body.prequoteToken) {
+      const prequote = await client.from("lead_center").select("id,notes").eq("id", body.prequoteLeadId).maybeSingle();
+      if (prequote.error) throw prequote.error;
+      const validToken = typeof prequote.data?.notes === "string" && prequote.data.notes.includes(`PREQUOTE_TOKEN:${body.prequoteToken}`);
+      if (validToken) {
+        const updated = await client.from("lead_center").update(leadPayload).eq("id", body.prequoteLeadId).select("id").single();
+        if (updated.error) throw updated.error;
+        leadId = updated.data.id;
+      }
+    }
+
+    if (!leadId) {
+      const inserted = await client.from("lead_center").insert(leadPayload).select("id").single();
+      if (inserted.error) throw inserted.error;
+      leadId = inserted.data.id;
+    }
+
+    return NextResponse.json({ saved: true, leadId, customerId, propertyId, companyName }, { status: 201 });
   } catch (error) {
     console.error("Quote referral failed", error);
     return NextResponse.json({ error: "Quote referral could not be saved." }, { status: 500 });
