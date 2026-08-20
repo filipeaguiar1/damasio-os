@@ -30,10 +30,10 @@ function sleep(ms: number) {
   return new Promise(resolve => window.setTimeout(resolve, ms));
 }
 
-function withTimeout<T>(work: Promise<T>, label: string, timeoutMs = AUTH_STEP_TIMEOUT_MS): Promise<T> {
+function withTimeout<T>(work: PromiseLike<T>, label: string, timeoutMs = AUTH_STEP_TIMEOUT_MS): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = window.setTimeout(() => reject(new Error(`${label} timed out.`)), timeoutMs);
-    work.then(
+    Promise.resolve(work).then(
       value => { window.clearTimeout(timer); resolve(value); },
       error => { window.clearTimeout(timer); reject(error); },
     );
@@ -45,10 +45,9 @@ async function resolveAccount(client: any) {
 
   for (let attempt = 0; attempt < AUTH_ATTEMPTS; attempt += 1) {
     try {
-      const { data: sessionData, error: sessionError } = await withTimeout(
-        client.auth.getSession(),
-        "Session recovery",
-      );
+      const sessionResult: any = await withTimeout<any>(client.auth.getSession(), "Session recovery");
+      const sessionData = sessionResult?.data;
+      const sessionError = sessionResult?.error;
       if (sessionError) throw sessionError;
 
       let session = sessionData?.session || null;
@@ -58,20 +57,21 @@ async function resolveAccount(client: any) {
       // no longer useful. Force one refresh before falling back to getUser so the guard
       // recovers instead of sitting forever on "Checking your account".
       if (session?.refresh_token && attempt > 0) {
-        const { data: refreshed, error: refreshError } = await withTimeout(
+        const refreshResult: any = await withTimeout<any>(
           client.auth.refreshSession({ refresh_token: session.refresh_token }),
           "Session refresh",
         );
+        const refreshed = refreshResult?.data;
+        const refreshError = refreshResult?.error;
         if (refreshError && !transientAuthError(refreshError)) throw refreshError;
         session = refreshed?.session || session;
         user = session?.user || user;
       }
 
       if (!user) {
-        const { data: authData, error: authError } = await withTimeout(
-          client.auth.getUser(),
-          "Account verification",
-        );
+        const authResult: any = await withTimeout<any>(client.auth.getUser(), "Account verification");
+        const authData = authResult?.data;
+        const authError = authResult?.error;
         if (authError && !transientAuthError(authError)) throw authError;
         user = authData?.user || null;
       }
@@ -89,10 +89,9 @@ async function resolveAccount(client: any) {
         .select("role,active")
         .eq("id", user.id)
         .maybeSingle();
-      const { data: profile, error: profileError } = await withTimeout(
-        Promise.resolve(profileRequest),
-        "Profile verification",
-      );
+      const profileResult: any = await withTimeout<any>(profileRequest, "Profile verification");
+      const profile = profileResult?.data;
+      const profileError = profileResult?.error;
       if (profileError) throw profileError;
       if (!profile) throw new Error("Account profile was not found.");
       return { user, profile };
@@ -140,7 +139,7 @@ export function RoleGuard({ allowed, children }: { allowed: Role[]; children: Re
           return;
         }
         if (!profile?.active) {
-          await withTimeout(client.auth.signOut(), "Sign out", 5000).catch(() => undefined);
+          await withTimeout<any>(client.auth.signOut(), "Sign out", 5000).catch(() => undefined);
           if (active) router.replace("/login?inactive=1");
           return;
         }
