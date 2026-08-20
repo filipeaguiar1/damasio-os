@@ -23,7 +23,7 @@ function messageOf(error: unknown) {
 }
 
 function transientAuthError(error: unknown) {
-  return /abort|signal is aborted|fetch|network|load failed|timed out|timeout|econnreset/i.test(messageOf(error));
+  return /abort|signal is aborted|fetch|network|load failed|timed out|timeout|econnreset|jwt.*expired|token.*expired|unauthorized|status(?:\s+code)?\s*401|\b401\b/i.test(messageOf(error));
 }
 
 function sleep(ms: number) {
@@ -52,11 +52,13 @@ async function resolveAccount(client: any) {
 
       let session = sessionData?.session || null;
       let user = session?.user || null;
+      const expiresAt = Number(session?.expires_at || 0);
+      const expiredOrNearExpiry = expiresAt > 0 && expiresAt <= Math.floor(Date.now() / 1000) + 30;
 
-      // A long-idle tab can resume with a locally cached session whose access token is
-      // no longer useful. Force one refresh before falling back to getUser so the guard
-      // recovers instead of sitting forever on "Checking your account".
-      if (session?.refresh_token && attempt > 0) {
+      // Long-idle tabs may resume with a cached user and an expired access token.
+      // Refresh immediately when the token is expired/near expiry, and also on retry
+      // after a transient 401/JWT-expired profile read. This avoids requiring a reload.
+      if (session?.refresh_token && (attempt > 0 || expiredOrNearExpiry)) {
         const refreshResult: any = await withTimeout<any>(
           client.auth.refreshSession({ refresh_token: session.refresh_token }),
           "Session refresh",
