@@ -5,6 +5,7 @@ import { MasterPaymentsShortcut } from "@/components/master/MasterPaymentsShortc
 import { MasterTestAccessShortcut } from "@/components/master/MasterTestAccessShortcut";
 import { MasterExperiencePolish } from "@/components/master/MasterExperiencePolish";
 import { MasterRequestedPolish } from "@/components/master/MasterRequestedPolish";
+import { MasterPayoutsExperience } from "@/components/master/MasterPayoutsExperience";
 
 export default function MasterLayout({ children }: { children: ReactNode }) {
   return (
@@ -15,6 +16,7 @@ export default function MasterLayout({ children }: { children: ReactNode }) {
       <MasterTestAccessShortcut />
       <MasterExperiencePolish />
       <MasterRequestedPolish />
+      <MasterPayoutsExperience />
       {children}
     </>
   );
