@@ -403,11 +403,13 @@ export async function GET(request: NextRequest) {
   try {
     const { service, user, companyId } = await requireAdmin(request);
     const routeDate = request.nextUrl.searchParams.get("date")?.trim() || null;
-    const [employees, jobs, visits] = await Promise.all([
-      readEmployees(service, companyId),
-      canonicalJobs(service, user, companyId),
-      canonicalVisits(service, companyId, routeDate),
-    ]);
+
+    // Each read below already fans out into several Supabase requests. Running all three
+    // simultaneously caused upstream statement timeouts under route/simulator load, so keep
+    // the read model serialized without changing any canonical Route/Visit semantics.
+    const employees = await readEmployees(service, companyId);
+    const jobs = await canonicalJobs(service, user, companyId);
+    const visits = await canonicalVisits(service, companyId, routeDate);
     const health = canonicalHealth(employees, visits);
 
     console.info("admin-routes-get-ok", {
