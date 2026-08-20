@@ -38,30 +38,50 @@ async function requireCompanyAdmin(request: NextRequest) {
   return { client, companyId, adminId: auth.user.id };
 }
 
+function isPlatformCustomer(customer: any) {
+  return customer.platform_managed === true || customer.acquisition_source === "platform";
+}
+
+function acceptedPlatformCustomer(customer: any, companyId: string) {
+  return isPlatformCustomer(customer)
+    && String(customer.service_company_id || "") === companyId
+    && customer.offer_status === "accepted"
+    && ["accepted", "assigned", "active"].includes(String(customer.assignment_status || ""));
+}
+
+function offeredPlatformCustomer(customer: any, companyId: string) {
+  return isPlatformCustomer(customer)
+    && String(customer.service_company_id || "") === companyId
+    && customer.offer_status === "offered";
+}
+
+function directCompanyCustomer(customer: any, companyId: string) {
+  return !isPlatformCustomer(customer)
+    && (String(customer.company_id || "") === companyId || String(customer.organization_id || "") === companyId);
+}
+
 async function resolveRecord(client: any, companyId: string, id: string) {
   const propertyResult = await client.from("properties").select("*").eq("id", id).maybeSingle();
   if (propertyResult.error) throw new Error(propertyResult.error.message);
   const customerId = propertyResult.data?.customer_id || id;
-  const customerResult = await client
-    .from("customers")
-    .select("*")
-    .eq("id", customerId)
-    .or(`service_company_id.eq.${companyId},company_id.eq.${companyId},organization_id.eq.${companyId}`)
-    .maybeSingle();
+  const customerResult = await client.from("customers").select("*").eq("id", customerId).is("archived_at", null).maybeSingle();
   if (customerResult.error || !customerResult.data) throw new Error(customerResult.error?.message || "Customer could not be found in this company.");
 
+  const customer = customerResult.data;
+  const allowed = directCompanyCustomer(customer, companyId)
+    || acceptedPlatformCustomer(customer, companyId)
+    || offeredPlatformCustomer(customer, companyId);
+  if (!allowed) throw new Error("Customer could not be found in this company.");
+
   let property = propertyResult.data;
+  if (property && String(property.customer_id || "") !== String(customer.id)) property = null;
   if (!property) {
     const firstProperty = await client.from("properties").select("*").eq("customer_id", customerId).order("created_at", { ascending: true }).limit(1).maybeSingle();
     if (firstProperty.error) throw new Error(firstProperty.error.message);
     property = firstProperty.data;
   }
   if (!property) throw new Error("Property could not be found for this customer.");
-  return { customer: customerResult.data, property };
-}
-
-function isPlatformCustomer(customer: any) {
-  return customer.platform_managed === true || customer.acquisition_source === "platform";
+  return { customer, property };
 }
 
 function publicCustomer(customer: any) {
@@ -111,7 +131,7 @@ export async function PATCH(request: NextRequest, context: { params: { id: strin
       notes: body.customer.notes || null,
     })
       .eq("id", record.customer.id)
-      .or(`service_company_id.eq.${companyId},company_id.eq.${companyId},organization_id.eq.${companyId}`)
+      .or(`company_id.eq.${companyId},organization_id.eq.${companyId}`)
       .select("id")
       .maybeSingle();
     if (customerUpdate.error) throw new Error(customerUpdate.error.message);
@@ -127,7 +147,7 @@ export async function POST(request: NextRequest, context: { params: { id: string
     const body = responseSchema.parse(await request.json());
     const { client, companyId, adminId } = await requireCompanyAdmin(request);
     const record = await resolveRecord(client, companyId, context.params.id);
-    if (record.customer.offer_status !== "offered") throw new Error("This customer offer is no longer pending.");
+    if (!offeredPlatformCustomer(record.customer, companyId)) throw new Error("This customer offer is no longer pending.");
 
     const now = new Date().toISOString();
     if (body.action === "decline") {
@@ -138,7 +158,7 @@ export async function POST(request: NextRequest, context: { params: { id: string
         offer_status: "declined",
         offer_responded_at: now,
         offer_response_note: body.note || null,
-      }).eq("id", record.customer.id).eq("service_company_id", companyId);
+      }).eq("id", record.customer.id).eq("service_company_id", companyId).eq("offer_status", "offered");
       if (declined.error) throw new Error(declined.error.message);
       await client.from("activity_log").insert({ organization_id: companyId, company_id: companyId, action: "Declined platform customer offer", entity_type: "customer", entity_id: record.customer.id, details: body.note || "Offer declined by company Admin." });
       return NextResponse.json({ accepted: false, message: "Customer offer declined and returned to Master." });
@@ -151,14 +171,27 @@ export async function POST(request: NextRequest, context: { params: { id: string
       offer_status: "accepted",
       offer_responded_at: now,
       offer_response_note: body.note || null,
-    }).eq("id", record.customer.id).eq("service_company_id", companyId);
+    }).eq("id", record.customer.id).eq("service_company_id", companyId).eq("offer_status", "offered");
     if (accepted.error) throw new Error(accepted.error.message);
 
     const linkedPatch = { company_id: companyId, organization_id: companyId };
+    if (record.customer.profile_id) {
+      const profileUpdate = await client.from("profiles").update(linkedPatch)
+        .eq("id", record.customer.profile_id).eq("role", "customer").eq("active", true)
+        .select("id").maybeSingle();
+      if (profileUpdate.error || !profileUpdate.data?.id) {
+        throw new Error(profileUpdate.error?.message || "Linked Customer profile could not be moved to the accepted company.");
+      }
+    }
+
     const propertyUpdate = await client.from("properties").update(linkedPatch).eq("customer_id", record.customer.id);
     if (propertyUpdate.error) throw new Error(propertyUpdate.error.message);
-    await client.from("service_requests").update(linkedPatch).eq("customer_id", record.customer.id).not("status", "in", "(completed,cancelled,rejected)");
-    await client.from("jobs").update(linkedPatch).eq("customer_id", record.customer.id).eq("active", true);
+    const requestUpdate = await client.from("service_requests").update(linkedPatch).eq("customer_id", record.customer.id).not("status", "in", "(completed,cancelled,rejected)");
+    if (requestUpdate.error) throw new Error(requestUpdate.error.message);
+    const jobUpdate = await client.from("jobs").update(linkedPatch).eq("customer_id", record.customer.id).eq("active", true);
+    if (jobUpdate.error) throw new Error(jobUpdate.error.message);
+    const quoteUpdate = await client.from("quotes").update(linkedPatch).eq("customer_id", record.customer.id);
+    if (quoteUpdate.error) throw new Error(quoteUpdate.error.message);
 
     const existingJob = await client.from("jobs").select("id").eq("customer_id", record.customer.id).eq("property_id", record.property.id).eq("active", true).limit(1).maybeSingle();
     if (!existingJob.error && !existingJob.data) {
