@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { signInBrowser } from "./fixture-env";
 import { assertBrowserOperatorSafety } from "./safety";
 
 const adminEmail = process.env.QA_ADMIN_EMAIL || process.env.E2E_ADMIN_EMAIL || "";
@@ -7,14 +8,7 @@ const adminPassword = process.env.QA_ADMIN_PASSWORD || process.env.E2E_ADMIN_PAS
 async function signInAdmin(page: any) {
   expect(adminEmail, "QA_ADMIN_EMAIL/E2E_ADMIN_EMAIL is required").toBeTruthy();
   expect(adminPassword, "QA_ADMIN_PASSWORD/E2E_ADMIN_PASSWORD is required").toBeTruthy();
-
-  await page.goto("/login", { waitUntil: "domcontentloaded" });
-  await page.getByLabel("Email", { exact: true }).fill(adminEmail);
-  await page.getByLabel("Password", { exact: true }).fill(adminPassword);
-  await page.getByRole("button", { name: /sign in/i }).click();
-  await page.waitForLoadState("domcontentloaded");
-  await expect(page.getByText(/checking your account/i)).toHaveCount(0, { timeout: 30_000 });
-  expect(page.url()).not.toMatch(/\/login(?:\?|$)/);
+  await signInBrowser(page, adminEmail, adminPassword);
 }
 
 const coreScreens = [
@@ -44,10 +38,7 @@ test("real admin operator can traverse core company screens without dead loading
       await expect(page.getByText(/checking your account/i)).toHaveCount(0, { timeout: 30_000 });
       await expect(page.locator("body")).not.toContainText(/application error|internal server error/i);
       expect(new URL(page.url()).pathname).toBe(screen.path);
-      await testInfo.attach(`operator-${screen.name}`, {
-        body: await page.screenshot({ fullPage: true }),
-        contentType: "image/png",
-      });
+      await testInfo.attach(`operator-${screen.name}`, { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
     });
   }
 
@@ -67,8 +58,5 @@ test("routes and calendar remain recoverable after reloads like a returning oper
     expect(new URL(page.url()).pathname).toBe(path);
   }
 
-  await testInfo.attach("operator-routes-calendar-reload", {
-    body: await page.screenshot({ fullPage: true }),
-    contentType: "image/png",
-  });
+  await testInfo.attach("operator-routes-calendar-reload", { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
 });
