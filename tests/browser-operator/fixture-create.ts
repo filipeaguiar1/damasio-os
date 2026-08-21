@@ -49,14 +49,14 @@ export async function createMutableOperatorFixture(db: SupabaseAny, baseNamespac
   }], ["active", "plan_name", "contact_email"]);
 
   await upsertRowsWithFallback(db, "profiles", [
-    roleProfile(adminProfileId, companyId, "admin", "QA Browser Admin", adminEmail),
+    roleProfile(adminProfileId, companyId, "admin", "QA Browser Admin", adminEmail, { phone: "+19055550100" }),
     roleProfile(employeeProfileId, companyId, "employee", "QA Browser Employee", employeeEmail, {
       address_line1: "1 King Street West, Hamilton, ON",
       route_start_address: "1 King Street West, Hamilton, ON",
       daily_route_capacity: 18,
     }),
     roleProfile(customerProfileId, companyId, "customer", "QA Browser Customer", customerEmail),
-  ], ["company_id", "address_line1", "route_start_address", "daily_route_capacity", "manager_permissions"]);
+  ], ["company_id", "address_line1", "route_start_address", "daily_route_capacity", "manager_permissions", "phone"]);
 
   await insertRowsWithFallback(db, "crews", [{
     id: crewId,
@@ -221,81 +221,14 @@ async function createJobStack(
     geocode_status: "mapped",
   }], ["company_id", "latitude", "longitude", "geocode_status"]);
 
-  await insertRowsWithFallback(db, "service_requests", [{
-    id: input.requestId,
-    organization_id: input.companyId,
-    company_id: input.companyId,
-    customer_id: input.customerId,
-    property_id: input.propertyId,
-    service_name: "QA Browser Operator Lawn Care",
-    message: namespace,
-    status: "quoted",
-  }], ["company_id"]);
-
-  await insertRowsWithFallback(db, "quotes", [{
-    id: input.quoteId,
-    organization_id: input.companyId,
-    company_id: input.companyId,
-    request_id: input.requestId,
-    customer_id: input.customerId,
-    property_id: input.propertyId,
-    quote_number: `QA-BO-${item.city.slice(0, 3).toUpperCase()}-${String(item.index).padStart(2, "0")}-${input.suffix}`,
-    status: "approved",
-    subtotal: 88.5,
-    tax: 11.5,
-    total: 100,
-    notes: namespace,
-    customer_email: email,
-    acquisition_source: "browser_operator",
-    master_reviewed_at: new Date().toISOString(),
-  }], ["company_id", "customer_email", "acquisition_source", "master_reviewed_at"]);
-
-  await insertRowsWithFallback(db, "lead_center", [{
-    id: input.leadId,
-    assigned_company_id: input.companyId,
-    customer_id: input.customerId,
-    property_id: input.propertyId,
-    service_request_id: input.requestId,
-    quote_id: input.quoteId,
-    full_name: `QA ${item.city} Customer ${item.index}`,
-    email,
-    address,
-    service_requested: "QA Browser Operator Lawn Care",
-    status: "offered",
-    final_total: 100,
-  }], ["assigned_company_id", "service_request_id", "quote_id", "final_total"]);
-
-  await insertRowsWithFallback(db, "jobs", [{
-    id: input.jobId,
-    organization_id: input.companyId,
-    company_id: input.companyId,
-    customer_id: input.customerId,
-    property_id: input.propertyId,
-    quote_id: input.quoteId,
-    service_name: "QA Browser Operator Lawn Care",
-    frequency: item.city === "Hamilton" ? "weekly" : "biweekly",
-    service_frequency: item.city === "Hamilton" ? "weekly" : "biweekly",
-    active: true,
-    next_visit_date: input.routeDate,
-    recurrence_anchor_date: input.routeDate,
-    contract_starts_on: input.routeDate,
-    contract_ends_on: torontoDate(60),
-  }], ["company_id", "service_frequency", "recurrence_anchor_date", "contract_starts_on", "contract_ends_on"]);
+  await insertRowsWithFallback(db, "service_requests", [{ id: input.requestId, organization_id: input.companyId, company_id: input.companyId, customer_id: input.customerId, property_id: input.propertyId, service_name: "QA Browser Operator Lawn Care", message: namespace, status: "quoted" }], ["company_id"]);
+  await insertRowsWithFallback(db, "quotes", [{ id: input.quoteId, organization_id: input.companyId, company_id: input.companyId, request_id: input.requestId, customer_id: input.customerId, property_id: input.propertyId, quote_number: `QA-BO-${item.city.slice(0, 3).toUpperCase()}-${String(item.index).padStart(2, "0")}-${input.suffix}`, status: "approved", subtotal: 88.5, tax: 11.5, total: 100, notes: namespace, customer_email: email, acquisition_source: "browser_operator", master_reviewed_at: new Date().toISOString() }], ["company_id", "customer_email", "acquisition_source", "master_reviewed_at"]);
+  await insertRowsWithFallback(db, "lead_center", [{ id: input.leadId, assigned_company_id: input.companyId, customer_id: input.customerId, property_id: input.propertyId, service_request_id: input.requestId, quote_id: input.quoteId, full_name: `QA ${item.city} Customer ${item.index}`, email, address, service_requested: "QA Browser Operator Lawn Care", status: "offered", final_total: 100 }], ["assigned_company_id", "service_request_id", "quote_id", "final_total"]);
+  await insertRowsWithFallback(db, "jobs", [{ id: input.jobId, organization_id: input.companyId, company_id: input.companyId, customer_id: input.customerId, property_id: input.propertyId, quote_id: input.quoteId, service_name: "QA Browser Operator Lawn Care", frequency: item.city === "Hamilton" ? "weekly" : "biweekly", service_frequency: item.city === "Hamilton" ? "weekly" : "biweekly", active: true, next_visit_date: input.routeDate, recurrence_anchor_date: input.routeDate, contract_starts_on: input.routeDate, contract_ends_on: torontoDate(60) }], ["company_id", "service_frequency", "recurrence_anchor_date", "contract_starts_on", "contract_ends_on"]);
 }
 
-async function createAuthUser(
-  db: SupabaseAny,
-  email: string,
-  password: string,
-  fullName: string,
-  created: OperatorFixture["created"],
-) {
-  const user = await db.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { full_name: fullName },
-  });
+async function createAuthUser(db: SupabaseAny, email: string, password: string, fullName: string, created: OperatorFixture["created"]) {
+  const user = await db.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: fullName } });
   expect(user.error, user.error?.message).toBeNull();
   const id = user.data.user?.id || "";
   expect(id).toBeTruthy();
@@ -304,80 +237,19 @@ async function createAuthUser(
   return id;
 }
 
-function roleProfile(
-  id: string,
-  companyId: string,
-  role: string,
-  fullName: string,
-  email: string,
-  extra: Record<string, unknown> = {},
-) {
-  return {
-    id,
-    organization_id: companyId,
-    company_id: companyId,
-    role,
-    full_name: fullName,
-    email,
-    active: true,
-    ...extra,
-  };
+function roleProfile(id: string, companyId: string, role: string, fullName: string, email: string, extra: Record<string, unknown> = {}) {
+  return { id, organization_id: companyId, company_id: companyId, role, full_name: fullName, email, active: true, daily_route_capacity: 18, ...extra };
 }
 
-async function seedStalePublishedVisit(
-  db: SupabaseAny,
-  input: {
-    companyId: string;
-    crewId: string;
-    employeeId: string;
-    customerId: string;
-    propertyId: string;
-    jobId: string;
-    routeDate: string;
-    status: string;
-    namespace: string;
-    created: OperatorFixture["created"];
-  },
-) {
+async function seedStalePublishedVisit(db: SupabaseAny, input: { companyId: string; crewId: string; employeeId: string; customerId: string; propertyId: string; jobId: string; routeDate: string; status: string; namespace: string; created: OperatorFixture["created"]; }) {
   const routeId = randomUUID();
   const visitId = randomUUID();
   input.created.routeIds.push(routeId);
   input.created.visitIds.push(visitId);
-  await insertRowsWithFallback(db, "routes", [{
-    id: routeId,
-    organization_id: input.companyId,
-    company_id: input.companyId,
-    crew_id: input.crewId,
-    route_date: input.routeDate,
-    status: "published",
-  }], ["company_id"]);
-  await insertRowsWithFallback(db, "visits", [{
-    id: visitId,
-    organization_id: input.companyId,
-    company_id: input.companyId,
-    job_id: input.jobId,
-    route_id: routeId,
-    customer_id: input.customerId,
-    property_id: input.propertyId,
-    crew_id: input.crewId,
-    assigned_employee_id: input.employeeId,
-    scheduled_date: input.routeDate,
-    status: input.status,
-    route_order: 1,
-    customer_visible_summary: input.namespace,
-  }], ["company_id", "route_order"]);
-  await insertRowsWithFallback(db, "route_stops", [{
-    company_id: input.companyId,
-    route_id: routeId,
-    visit_id: visitId,
-    position: 1,
-  }], []);
-  await insertRowsWithFallback(db, "route_order_state", [{
-    route_id: routeId,
-    company_id: input.companyId,
-    version: 1,
-    last_source: "qa_browser_operator_stale_seed",
-  }], ["last_source"]);
+  await insertRowsWithFallback(db, "routes", [{ id: routeId, organization_id: input.companyId, company_id: input.companyId, crew_id: input.crewId, route_date: input.routeDate, status: "published" }], ["company_id"]);
+  await insertRowsWithFallback(db, "visits", [{ id: visitId, organization_id: input.companyId, company_id: input.companyId, job_id: input.jobId, route_id: routeId, customer_id: input.customerId, property_id: input.propertyId, crew_id: input.crewId, assigned_employee_id: input.employeeId, scheduled_date: input.routeDate, status: input.status, route_order: 1, customer_visible_summary: input.namespace }], ["company_id", "route_order"]);
+  await insertRowsWithFallback(db, "route_stops", [{ company_id: input.companyId, route_id: routeId, visit_id: visitId, position: 1 }], []);
+  await insertRowsWithFallback(db, "route_order_state", [{ route_id: routeId, company_id: input.companyId, version: 1, last_source: "qa_browser_operator_stale_seed" }], ["last_source"]);
 }
 
 function daysBetween(dateKey: string, plusDays: number) {
