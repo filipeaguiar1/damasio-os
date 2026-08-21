@@ -13,7 +13,7 @@ concurrency:
 jobs:
   operator-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
       QA_NAMESPACE: ${{ secrets.QA_NAMESPACE }}
@@ -39,8 +39,13 @@ jobs:
         run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
-      - name: Run browser operator smoke
-        run: pnpm exec playwright test --config=playwright.operator.config.mjs tests/browser-operator/operator-smoke.spec.ts --project=operator-desktop
+      - name: Run real browser operator journeys
+        run: |
+          pnpm exec playwright test \
+            --config=playwright.operator.config.mjs \
+            tests/browser-operator/operator-smoke.spec.ts \
+            tests/browser-operator/admin-core-navigation.spec.ts \
+            --project=operator-desktop
       - name: Upload visual evidence
         if: always()
         uses: actions/upload-artifact@v4
