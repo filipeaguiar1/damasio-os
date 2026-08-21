@@ -55,13 +55,17 @@ export async function cleanupMutableOperatorFixture(db: SupabaseAny, fixture: Op
   });
   if (routesCleanup.error) throw new Error(`routes cleanup RPC: ${routesCleanup.error.message}`);
 
-  await safeDelete(db, "billing_agreements", "job_id", jobIds);
-  await safeDelete(db, "jobs", "id", jobIds);
   await safeDelete(db, "lead_center", "id", fixture.created.leadIds);
-  await safeDelete(db, "quotes", "id", fixture.created.quoteIds);
-  await safeDelete(db, "service_requests", "id", fixture.created.requestIds);
-  await safeDelete(db, "properties", "id", propertyIds);
-  await safeDelete(db, "customers", "id", customerIds);
+
+  // Browser Operator customer emails are deliberately scoped as
+  // ops-sim-<company>-browser-...@4everseasons.test. Reuse the existing
+  // security-definer purge instead of weakening DELETE protection on core tables.
+  const corePurge = await db.rpc("purge_operational_simulation_v1_run", {
+    p_company_id: fixture.companyId,
+    p_run_id: "browser",
+  });
+  if (corePurge.error) throw new Error(`browser core purge RPC: ${corePurge.error.message}`);
+
   await safeDelete(db, "employees", "id", [fixture.employee.employeeId]);
   await safeDelete(db, "crews", "id", [fixture.employee.crewId]);
   await safeDelete(db, "profiles", "id", profileIds);
