@@ -6,8 +6,6 @@ on:
 permissions:
   contents: read
 
-# Mutating browser journeys are manual until they have their own isolated QA
-# environment. This prevents concurrent writers from touching the shared QA DB.
 concurrency:
   group: damasio-browser-operator-qa
   cancel-in-progress: false
@@ -42,7 +40,7 @@ jobs:
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
       - name: Run browser operator smoke
-        run: pnpm exec playwright test --config=playwright.operator.config.ts tests/browser-operator/operator-smoke.spec.ts --project=operator-desktop
+        run: pnpm exec playwright test --config=playwright.operator.config.mjs tests/browser-operator/operator-smoke.spec.ts --project=operator-desktop
       - name: Upload visual evidence
         if: always()
         uses: actions/upload-artifact@v4
