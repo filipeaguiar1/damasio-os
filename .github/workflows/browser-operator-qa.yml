@@ -1,0 +1,52 @@
+name: Browser Operator QA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Mutating browser journeys are manual until they have their own isolated QA
+# environment. This prevents concurrent writers from touching the shared QA DB.
+concurrency:
+  group: damasio-browser-operator-qa
+  cancel-in-progress: false
+
+jobs:
+  operator-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
+      QA_NAMESPACE: ${{ secrets.QA_NAMESPACE }}
+      QA_ALLOW_MUTATIONS: "1"
+      QA_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      QA_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: qa/hourly-ecosystem-20260817-2230
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run browser operator smoke
+        run: pnpm exec playwright test --config=playwright.operator.config.ts tests/browser-operator/operator-smoke.spec.ts --project=operator-desktop
+      - name: Upload visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-operator-evidence
+          if-no-files-found: ignore
+          path: |
+            playwright-report/operator
+            test-results/browser-operator
