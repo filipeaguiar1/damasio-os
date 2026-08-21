@@ -40,7 +40,18 @@ test("admin Browser Operator creates namespaced data and mutates canonical route
       });
     }
 
-    const hamiltonPublish = await publishRoute(page, fixture, fixture.routeDate, fixture.hamiltonJobIds);
+    // Smart Week replacement moves the same canonical scheduled occurrences from
+    // their stale dates into the reviewed day. Passing the existing Visit IDs is
+    // the production move contract; daily publish by itself intentionally does
+    // not rewrite unrelated recurrence dates.
+    const staleSourceVisitIds = await Promise.all([
+      canonicalVisitIdForJobDate(db, fixture.hamiltonJobIds[0], fixture.staleSundayDate),
+      canonicalVisitIdForJobDate(db, fixture.hamiltonJobIds[1], fixture.oldPublishedDate),
+    ]);
+
+    const hamiltonPublish = await publishRoute(page, fixture, fixture.routeDate, fixture.hamiltonJobIds, {
+      sourceVisitIds: staleSourceVisitIds,
+    });
     fixture.created.routeIds.push(hamiltonPublish.routeId);
     fixture.created.visitIds.push(...hamiltonPublish.orderedVisitIds);
     await assertCanonicalRouteOrder(db, hamiltonPublish.routeId, 16);
@@ -150,6 +161,19 @@ async function publishRoute(
     orderedVisitIds: result.orderedVisitIds.map(String),
     routeVersion: Number(result.routeVersion),
   };
+}
+
+async function canonicalVisitIdForJobDate(db: any, jobId: string, date: string) {
+  const result = await db.from("visits")
+    .select("id,status,route_id")
+    .eq("job_id", jobId)
+    .eq("scheduled_date", date)
+    .neq("status", "cancelled");
+  expect(result.error, result.error?.message).toBeNull();
+  expect(result.data || [], `expected one canonical source Visit for ${jobId} on ${date}`).toHaveLength(1);
+  const visitId = String(result.data?.[0]?.id || "");
+  expect(visitId).toBeTruthy();
+  return visitId;
 }
 
 async function assertNoDatedMembership(db: any, jobId: string, date: string, label: string) {
