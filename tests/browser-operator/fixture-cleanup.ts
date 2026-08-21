@@ -39,7 +39,22 @@ export async function cleanupMutableOperatorFixture(db: SupabaseAny, fixture: Op
   await safeDelete(db, "feedback", "customer_id", customerIds);
   await safeDelete(db, "tasks", "customer_id", customerIds);
   await safeDelete(db, "photos", "property_id", propertyIds);
-  await safeDelete(db, "visits", "id", visitIds);
+
+  if (customerIds.length) {
+    const visitsCleanup = await db.rpc("cleanup_operational_simulation_visits", {
+      p_company_id: fixture.companyId,
+      p_customer_ids: customerIds,
+    });
+    if (visitsCleanup.error) throw new Error(`visits cleanup RPC: ${visitsCleanup.error.message}`);
+  }
+
+  const routesCleanup = await db.rpc("cleanup_operational_simulation_routes", {
+    p_company_id: fixture.companyId,
+    p_namespace: fixture.cleanupNamespace,
+    p_crew_ids: [fixture.employee.crewId],
+  });
+  if (routesCleanup.error) throw new Error(`routes cleanup RPC: ${routesCleanup.error.message}`);
+
   await safeDelete(db, "billing_agreements", "job_id", jobIds);
   await safeDelete(db, "jobs", "id", jobIds);
   await safeDelete(db, "lead_center", "id", fixture.created.leadIds);
