@@ -24,7 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
 final class NativeOpeningController {
-    private static final String MANIFEST_URL = "https://damasio-os-h1mc.vercel.app/api/mobile/opening";
+    private static final String MANIFEST_URL = "https://www.4everseasons.com/api/mobile/opening";
     private static final String REMOTE_OPENING_FILE = "opening-remote-v5223.mp4";
     private static final String DEFAULT_OPENING_FILE = "opening-default-v5223.mp4";
     private static final String DEFAULT_OPENING_ASSET = "opening_default.mp4";
