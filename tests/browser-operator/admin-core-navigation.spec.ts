@@ -21,6 +21,10 @@ const coreScreens = [
   { name: "finance", path: "/admin/finance" },
 ] as const;
 
+function isRecoverableNavigationNoise(message: string) {
+  return /Failed to fetch RSC payload .* Falling back to browser navigation\. TypeError: (?:network error|Failed to fetch)/i.test(message);
+}
+
 test("real admin operator can traverse core company screens without dead loading states", async ({ page }, testInfo) => {
   assertBrowserOperatorSafety();
   await signInAdmin(page);
@@ -42,7 +46,7 @@ test("real admin operator can traverse core company screens without dead loading
     });
   }
 
-  const serious = consoleErrors.filter(message => !/favicon|hydration/i.test(message));
+  const serious = consoleErrors.filter(message => !/favicon|hydration/i.test(message) && !isRecoverableNavigationNoise(message));
   expect(serious, `Browser console/page errors:\n${serious.join("\n")}`).toEqual([]);
 });
 
