@@ -17,15 +17,11 @@ export function requireOperatorEnvironment() {
 }
 
 export function serviceClient() {
-  return createClient(SUPABASE_URL, SERVICE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  }) as SupabaseAny;
+  return createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false, autoRefreshToken: false } }) as SupabaseAny;
 }
 
 export function anonClient() {
-  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  }) as SupabaseAny;
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } }) as SupabaseAny;
 }
 
 export async function signInAccount(email: string, password: string) {
@@ -34,31 +30,33 @@ export async function signInAccount(email: string, password: string) {
   expect(signed.error, signed.error?.message).toBeNull();
   const token = signed.data.session?.access_token || "";
   expect(token).toBeTruthy();
-  return { client, token };
+  return { client, token, session: signed.data.session };
 }
 
 export async function signInBrowser(page: Page, email: string, password: string) {
+  const signed = await signInAccount(email, password);
+  const session = signed.session;
+  expect(session, "Supabase session is required for browser auth").toBeTruthy();
+
   await page.goto("/login", { waitUntil: "domcontentloaded" });
-  await page.getByLabel("Email", { exact: true }).fill(email);
-  await page.getByLabel("Password", { exact: true }).fill(password);
-  await page.getByRole("button", { name: /sign in/i }).click();
-  await page.waitForLoadState("domcontentloaded");
+  const projectRef = new URL(SUPABASE_URL).hostname.split(".")[0];
+  const storageKey = `sb-${projectRef}-auth-token`;
+  await page.evaluate(({ key, value }) => {
+    window.localStorage.setItem("damasio_keep_connected", "true");
+    window.localStorage.setItem(key, JSON.stringify(value));
+    window.sessionStorage.removeItem(key);
+  }, { key: storageKey, value: session });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.getByText(/checking your account/i)).toHaveCount(0, { timeout: 30_000 });
   expect(page.url()).not.toMatch(/\/login(?:\?|$)/);
 }
 
-export async function browserAuthRequest<T>(
-  page: Page,
-  path: string,
-  init?: { method?: string; body?: unknown; timeoutMs?: number },
-): Promise<T> {
+export async function browserAuthRequest<T>(page: Page, path: string, init?: { method?: string; body?: unknown; timeoutMs?: number }): Promise<T> {
   const token = await accessTokenFor(page);
   const response = await page.request.fetch(path, {
     method: init?.method || "GET",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-    },
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     data: init?.body,
     timeout: init?.timeoutMs || 120_000,
     failOnStatusCode: false,
@@ -71,10 +69,8 @@ export async function browserAuthRequest<T>(
 
 async function accessTokenFor(page: Page) {
   const storage = await page.context().storageState();
-  const origin = storage.origins.find(item =>
-    item.localStorage.some(entry => entry.name.startsWith("sb-") && entry.name.endsWith("-auth-token")));
-  const authEntry = origin?.localStorage.find(entry =>
-    entry.name.startsWith("sb-") && entry.name.endsWith("-auth-token"));
+  const origin = storage.origins.find(item => item.localStorage.some(entry => entry.name.startsWith("sb-") && entry.name.endsWith("-auth-token")));
+  const authEntry = origin?.localStorage.find(entry => entry.name.startsWith("sb-") && entry.name.endsWith("-auth-token"));
   expect(authEntry?.value, "Supabase auth token must exist in the browser session").toBeTruthy();
   const stored = JSON.parse(authEntry?.value || "{}");
   const token = stored?.access_token || stored?.currentSession?.access_token;
@@ -85,12 +81,7 @@ async function accessTokenFor(page: Page) {
 export function torontoDate(offsetDays = 0) {
   const date = new Date();
   date.setUTCDate(date.getUTCDate() + offsetDays);
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Toronto",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
   const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
 }
