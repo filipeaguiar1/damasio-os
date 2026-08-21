@@ -9,6 +9,9 @@ export async function createMutableOperatorFixture(db: SupabaseAny, baseNamespac
   const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`.toLowerCase();
   const namespace = `${baseNamespace}_browser_operator_${suffix}`.replace(/[^a-z0-9_-]/gi, "_");
   const companyId = randomUUID();
+  const companyToken = companyId.slice(0, 8).toLowerCase();
+  const cleanupNamespace = `browser-${suffix}`.replace(/[^a-z0-9-]/g, "-").slice(0, 32).replace(/-+$/g, "");
+  expect(cleanupNamespace).toMatch(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/);
   const crewId = randomUUID();
   const employeeId = randomUUID();
   const primaryCustomerId = randomUUID();
@@ -19,8 +22,8 @@ export async function createMutableOperatorFixture(db: SupabaseAny, baseNamespac
   const oldPublishedDate = torontoDate(daysBetween(routeDate, 2));
   const password = `QaBrowser!${Date.now()}Aa1`;
   const adminEmail = `${namespace}.admin@4everseasons.test`;
-  const employeeEmail = `${namespace}.employee@4everseasons.test`;
-  const customerEmail = `${namespace}.customer@4everseasons.test`;
+  const employeeEmail = `ops-sim-v2-${companyToken}-${cleanupNamespace}-employee@4everseasons.test`;
+  const customerEmail = `ops-sim-${companyToken}-browser-${suffix}.customer@4everseasons.test`;
   const created = {
     userIds: [] as string[],
     profileIds: [] as string[],
@@ -105,6 +108,7 @@ export async function createMutableOperatorFixture(db: SupabaseAny, baseNamespac
 
     await createJobStack(db, {
       companyId,
+      companyToken,
       customerProfileId,
       customerEmail,
       namespace,
@@ -147,6 +151,7 @@ export async function createMutableOperatorFixture(db: SupabaseAny, baseNamespac
 
   return {
     namespace,
+    cleanupNamespace,
     companyId,
     admin: { email: adminEmail, password, profileId: adminProfileId },
     employee: { email: employeeEmail, password, profileId: employeeProfileId, employeeId, crewId },
@@ -166,6 +171,7 @@ async function createJobStack(
   db: SupabaseAny,
   input: {
     companyId: string;
+    companyToken: string;
     customerProfileId: string;
     customerEmail: string;
     namespace: string;
@@ -184,7 +190,7 @@ async function createJobStack(
   const address = `QA Simulation Route ${namespace} ${item.city} ${String(item.index).padStart(2, "0")}`;
   const email = item.index === 1 && item.city === "Hamilton"
     ? input.customerEmail
-    : `${namespace}.${item.city.toLowerCase()}.${item.index}@4everseasons.test`;
+    : `ops-sim-${input.companyToken}-browser-${input.suffix}.${item.city.toLowerCase()}.${item.index}@4everseasons.test`;
 
   await insertRowsWithFallback(db, "customers", [{
     id: input.customerId,
