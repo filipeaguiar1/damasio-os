@@ -1,8 +1,8 @@
 name: Operational Simulator E2E
 # Single authenticated writer gate for the shared QA database.
-# V1, canonical four-screen Route, V2 scale, Full Ecosystem and business/financial
+# V1, canonical four-screen Route, V2 scale, Full Ecosystem, Browser Operator and business/financial
 # invariants run sequentially against one shared database writer.
-# QA trigger refresh: 2026-08-19 03:59 America/Toronto
+# QA trigger refresh: 2026-08-21 00:05 America/Toronto
 
 on:
   pull_request:
@@ -28,16 +28,19 @@ on:
       - "lib/routes/**"
       - "lib/services/routeMapService.ts"
       - "lib/simulator/**"
+      - "playwright.operator.config.mjs"
       - "scripts/purge-operational-simulation-v1.mjs"
       - "scripts/qa-final-two-blockers.py"
       - "scripts/qa-finalize-operational-blockers.py"
       - "scripts/validate-advanced-simulation.mjs"
       - "supabase/migrations/**"
+      - "tests/browser-operator/**"
       - "tests/operational-simulator.spec.ts"
       - "tests/canonical-route-sync.spec.ts"
       - "tests/advanced-operational-simulator*.spec.ts"
       - "tests/full-ecosystem*.spec.ts"
       - "public/demo/simulation-lawn-after.svg"
+      - ".github/workflows/browser-operator-qa.yml"
       - ".github/workflows/operational-simulator-e2e.yml"
       - ".github/workflows/advanced-simulation-e2e.yml"
       - ".github/workflows/full-ecosystem-e2e.yml"
@@ -55,16 +58,21 @@ concurrency:
 jobs:
   simulator:
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 120
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
       E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      E2E_MASTER_EMAIL: ${{ secrets.E2E_MASTER_EMAIL }}
+      E2E_MASTER_PASSWORD: ${{ secrets.E2E_MASTER_PASSWORD }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
       NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      QA_BASE_URL: http://127.0.0.1:3000
+      QA_NAMESPACE: qa_browser_${{ github.run_id }}_${{ github.run_attempt }}
+      QA_ALLOW_MUTATIONS: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -177,6 +185,10 @@ jobs:
         if: ${{ success() }}
         run: pnpm exec playwright test tests/full-ecosystem-customer-wallet-security.spec.ts --reporter=line --workers=1
 
+      - name: Run Browser Operator real-user journeys
+        if: ${{ success() }}
+        run: pnpm exec playwright test --config=playwright.operator.config.mjs
+
       - name: Upload release gate evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -192,6 +204,7 @@ jobs:
             canonical-admin-mobile.png
             canonical-employee-web.png
             canonical-employee-mobile.png
+            playwright-report/operator/**
             /tmp/damasio-release-heavy-e2e.log
             test-results/**
           if-no-files-found: ignore
