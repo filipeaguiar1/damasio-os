@@ -15,7 +15,7 @@ concurrency:
 jobs:
   operator-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       QA_BASE_URL: ${{ secrets.QA_BASE_URL }}
       QA_NAMESPACE: ${{ secrets.QA_NAMESPACE }}
@@ -37,6 +37,8 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Install temporary Playwright package
+        run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
       - name: Run browser operator smoke
