@@ -16,7 +16,6 @@ export async function cleanupMutableOperatorFixture(db: SupabaseAny, fixture: Op
   const visitIds = unique([...fixture.created.visitIds, ...ids.visitIds]);
   const customerIds = unique([...fixture.created.customerIds, ...ids.customerIds]);
   const propertyIds = unique([...fixture.created.propertyIds, ...ids.propertyIds]);
-  const jobIds = unique([...fixture.created.jobIds, ...ids.jobIds]);
   const profileIds = unique([...fixture.created.profileIds, ...ids.profileIds]);
 
   const photos = propertyIds.length
@@ -60,11 +59,10 @@ export async function cleanupMutableOperatorFixture(db: SupabaseAny, fixture: Op
   // Browser Operator customer emails are deliberately scoped as
   // ops-sim-<company>-browser-...@4everseasons.test. Reuse the existing
   // security-definer purge instead of weakening DELETE protection on core tables.
-  const corePurge = await db.rpc("purge_operational_simulation_v1_run", {
-    p_company_id: fixture.companyId,
-    p_run_id: "browser",
-  });
-  if (corePurge.error) throw new Error(`browser core purge RPC: ${corePurge.error.message}`);
+  // Shared-QA load can transiently hit the database statement timeout. Retry the
+  // same exact, idempotent scoped purge once; persistent cleanup failure still
+  // fails the run and zero-residue verification remains mandatory.
+  await purgeBrowserCoreWithRetry(db, fixture.companyId);
 
   await safeDelete(db, "employees", "id", [fixture.employee.employeeId]);
   await safeDelete(db, "crews", "id", [fixture.employee.crewId]);
@@ -91,6 +89,22 @@ export async function assertNoMutableResidue(db: SupabaseAny, fixture: OperatorF
   expect(counts, `QA Browser Operator cleanup left residue for ${fixture.namespace}`).toEqual(
     Object.fromEntries(Object.keys(counts).map(key => [key, 0])),
   );
+}
+
+async function purgeBrowserCoreWithRetry(db: SupabaseAny, companyId: string) {
+  let lastError = "";
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const corePurge = await db.rpc("purge_operational_simulation_v1_run", {
+      p_company_id: companyId,
+      p_run_id: "browser",
+    });
+    if (!corePurge.error) return;
+    lastError = String(corePurge.error.message || "browser core purge failed");
+    const transientTimeout = /statement timeout|canceling statement/i.test(lastError);
+    if (!transientTimeout || attempt === 2) break;
+    await new Promise(resolve => setTimeout(resolve, 750));
+  }
+  throw new Error(`browser core purge RPC: ${lastError}`);
 }
 
 async function discoverMutableIds(db: SupabaseAny, companyId: string) {
