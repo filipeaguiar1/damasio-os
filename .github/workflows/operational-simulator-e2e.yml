@@ -2,7 +2,7 @@ name: Operational Simulator E2E
 # Single authenticated writer gate for the shared QA database.
 # V1, canonical four-screen Route, V2 scale, Full Ecosystem, Browser Operator and business/financial
 # invariants run sequentially against one shared database writer.
-# QA trigger refresh: 2026-08-21 00:05 America/Toronto
+# QA trigger refresh: 2026-08-21 01:00 America/Toronto
 
 on:
   pull_request:
@@ -49,8 +49,6 @@ on:
 permissions:
   contents: read
 
-# Every heavy PR uses the same Supabase QA database. The group must therefore be
-# global, not ref-scoped; otherwise two different PRs can deadlock each other.
 concurrency:
   group: damasio-shared-qa-database-heavy-e2e
   cancel-in-progress: false
@@ -73,21 +71,17 @@ jobs:
       QA_BASE_URL: http://127.0.0.1:3000
       QA_NAMESPACE: qa_browser_${{ github.run_id }}_${{ github.run_attempt }}
       QA_ALLOW_MUTATIONS: "1"
-
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - uses: pnpm/action-setup@v4
         with:
           version: 9.15.4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
-
       - name: Verify canonical database contract sources
         run: |
           python - <<'PY'
@@ -119,27 +113,20 @@ jobs:
           }
           for path, required_fragments in migrations.items():
               source = Path(path)
-              if not source.is_file():
-                  raise SystemExit(f"Missing canonical migration source: {path}")
+              if not source.is_file(): raise SystemExit(f"Missing canonical migration source: {path}")
               text = source.read_text().lower()
               for fragment in required_fragments:
-                  if fragment.lower() not in text:
-                      raise SystemExit(f"Canonical migration source {path} is missing contract fragment: {fragment}")
+                  if fragment.lower() not in text: raise SystemExit(f"Canonical migration source {path} is missing contract fragment: {fragment}")
           print("Canonical database migration sources are present and structurally verified.")
           PY
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Install temporary Playwright package
         run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
-
       - name: TypeScript and production build
         run: pnpm build
-
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
-
       - name: Start production server
         run: |
           pnpm start > /tmp/damasio-release-heavy-e2e.log 2>&1 &
@@ -150,45 +137,34 @@ jobs:
           done
           cat /tmp/damasio-release-heavy-e2e.log
           exit 1
-
       - name: Run V1 two-month operational simulation
         run: pnpm exec playwright test tests/operational-simulator.spec.ts --reporter=line --workers=1
-
       - name: Validate canonical route on four authenticated screens
         run: pnpm exec playwright test tests/canonical-route-sync.spec.ts --reporter=line --workers=1
-
       - name: Purge exact V1 simulation run
         if: always()
         run: node scripts/purge-operational-simulation-v1.mjs
-
       - name: Run V2 namespace isolation and idempotent reset gate
         if: ${{ success() }}
         run: pnpm exec playwright test tests/advanced-operational-simulator.spec.ts --reporter=line --workers=1
-
       - name: Run V2 Customer-to-History journey gate
         if: ${{ success() }}
         run: pnpm exec playwright test tests/advanced-operational-simulator-journey.spec.ts --reporter=line --workers=1
-
       - name: Run V2 4,620-service zero-residue release gate
         if: ${{ success() }}
         run: pnpm exec playwright test tests/advanced-operational-simulator-large.spec.ts --reporter=line --workers=1
-
       - name: Run Full Ecosystem journeys
         if: ${{ success() }}
         run: pnpm exec playwright test tests/full-ecosystem.spec.ts tests/full-ecosystem-smart-route.spec.ts tests/full-ecosystem-stripe.spec.ts tests/full-ecosystem-tenant-isolation.spec.ts --reporter=line --workers=1
-
       - name: Run canonical business lifecycle and financial invariant gate
         if: ${{ success() }}
         run: pnpm exec playwright test tests/full-ecosystem-business-lifecycle.spec.ts --reporter=line --workers=1
-
       - name: Run Customer wallet and tip identity security gate
         if: ${{ success() }}
         run: pnpm exec playwright test tests/full-ecosystem-customer-wallet-security.spec.ts --reporter=line --workers=1
-
       - name: Run Browser Operator real-user journeys
         if: ${{ success() }}
         run: pnpm exec playwright test --config=playwright.operator.config.mjs
-
       - name: Upload release gate evidence
         if: always()
         uses: actions/upload-artifact@v4
