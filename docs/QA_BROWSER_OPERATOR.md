@@ -104,6 +104,14 @@ The implementation should consume CI secrets, never commit credentials:
 
 The runner must fail closed when the URL/namespace/safety flags do not identify the approved QA environment.
 
+## Implemented PR #88 phase
+
+- `tests/browser-operator/fixtures.ts` creates a fully namespaced QA-only company, Admin, Employee, Customer, Customer/Property, pre-quote request, quote, lead, jobs and canonical route data using only `QA_NAMESPACE` values.
+- `tests/browser-operator/admin-mutable-journey.spec.ts` opens Schedule, Routes, View and Advisor; publishes Hamilton and Burlington route days; validates stale Sunday recurrence cleanup, published-week replacement, geographic clustering, move, remove-from-day, cancel/reload and `route_stops.position -> visits.route_order`.
+- `tests/browser-operator/employee-mobile-journey.spec.ts` signs in on the mobile Employee viewport, publishes a QA route for today, runs Start/Finish through the authenticated mobile route API, attaches a QA work-photo fixture, submits Customer feedback and verifies the resulting feedback/task/photo rows.
+- `tests/browser-operator/customer-master-smoke.spec.ts` verifies Customer portal/mobile reads for the created QA tenant and runs read-only Master smoke when QA Master credentials are configured.
+- Cleanup is mandatory after every mutable scenario and the run fails if company-scoped customers, properties, requests, quotes, jobs, routes, visits, photos, employees, crews, profiles or route stops remain.
+
 ## Next implementation step
 
-Add `@playwright/test`, `playwright.config.ts`, reusable role/session fixtures, namespaced fixture factory/cleanup, and the first smoke scenario. Do not point the browser operator at production until the fail-closed environment guard and cleanup proof are green.
+Run the Browser Operator workflow against the shared QA deployment, inspect the visual evidence artifacts, and only then expand UI-click coverage for the full Smart Week planner controls. Do not point the browser operator at production; the fail-closed environment guard and cleanup proof must stay green.

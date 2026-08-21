@@ -24,7 +24,7 @@ export default defineConfig({
   },
   outputDir: "test-results/browser-operator",
   projects: [
-    { name: "operator-desktop", use: { ...devices["Desktop Chrome"] } },
+    { name: "operator-desktop", testIgnore: /.*employee.*\.spec\.ts/, use: { ...devices["Desktop Chrome"] } },
     { name: "employee-mobile", testMatch: /.*employee.*\.spec\.ts/, use: { ...devices["Pixel 7"] } },
   ],
 });

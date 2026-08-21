@@ -20,6 +20,11 @@ jobs:
       QA_ALLOW_MUTATIONS: "1"
       QA_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
       QA_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      QA_MASTER_EMAIL: ${{ secrets.E2E_MASTER_EMAIL }}
+      QA_MASTER_PASSWORD: ${{ secrets.E2E_MASTER_PASSWORD }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -40,12 +45,7 @@ jobs:
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
       - name: Run real browser operator journeys
-        run: |
-          pnpm exec playwright test \
-            --config=playwright.operator.config.mjs \
-            tests/browser-operator/operator-smoke.spec.ts \
-            tests/browser-operator/admin-core-navigation.spec.ts \
-            --project=operator-desktop
+        run: pnpm exec playwright test --config=playwright.operator.config.mjs
       - name: Upload visual evidence
         if: always()
         uses: actions/upload-artifact@v4
