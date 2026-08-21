@@ -1,5 +1,6 @@
 export type OperatorFixture = {
   namespace: string;
+  cleanupNamespace: string;
   companyId: string;
   admin: RoleAccount;
   employee: RoleAccount & { employeeId: string; crewId: string };
