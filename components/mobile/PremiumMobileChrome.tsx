@@ -27,17 +27,17 @@ export function PremiumMobileHeader({
       <div className="premium-mobile-brand-row">
         <Link href={menuHref} className="premium-mobile-menu" aria-label="Open menu"><span/><span/><span/></Link>
         <div className="premium-mobile-brand" aria-label="4Ever Seasons Damasio OS">
-          <i aria-hidden="true">♣</i>
+          <i aria-hidden="true">4S</i>
           <div><strong>4EVER SEASONS</strong><small>DAMASIO OS</small></div>
         </div>
-        <Link href={notificationHref} className="premium-mobile-bell" aria-label="Open notifications">♢<b/></Link>
+        <Link href={notificationHref} className="premium-mobile-bell" aria-label="Open notifications">AL<b/></Link>
       </div>
       <div className="premium-mobile-identity-row">
         <div className="premium-mobile-role-badge">
-          {avatarUrl ? <img src={avatarUrl} alt="Profile"/> : <i aria-hidden="true">{role === "MASTER" ? "◆" : role === "ADMIN" ? "✦" : role === "EMPLOYEE" ? "♟" : "○"}</i>}
+          {avatarUrl ? <img src={avatarUrl} alt="Profile"/> : <i aria-hidden="true">{role === "MASTER" ? "MT" : role === "ADMIN" ? "AD" : role === "EMPLOYEE" ? "FD" : "CU"}</i>}
           <span>{role}</span>
         </div>
-        <div className="premium-mobile-greeting"><span>{role === "EMPLOYEE" ? "Good morning," : "Welcome back,"}</span><strong>{name}</strong><small>{subtitle}</small></div>
+        <div className="premium-mobile-greeting"><span>{role === "EMPLOYEE" ? "Today's route" : "Operations workspace"}</span><strong>{name}</strong><small>{subtitle}</small></div>
         <Link href={menuHref} className="premium-mobile-location">{rightLabel}<i>⌄</i></Link>
       </div>
     </header>
@@ -57,8 +57,4 @@ export function PremiumMobileNav({items, active}:{items:NavItem[];active:string}
       {items.map(item => <Link key={item.id} href={item.href} className={item.id === active ? "active" : ""}><i>{item.icon}</i><span>{item.label}</span></Link>)}
     </nav>
   );
-}
-
-export function PremiumMetricCard({icon,label,value,note,tone="green",href}:{icon:ReactNode;label:string;value:ReactNode;note:string;tone?:"green"|"gold"|"neutral";href:string}) {
-  return <Link href={href} className={`premium-metric-card ${tone}`}><i>{icon}</i><span>{label}</span><strong>{value}</strong><small>{note}</small></Link>;
 }
