@@ -69,14 +69,14 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
       <header className="studio-topnav">
         <Link href="/admin" className="studio-brand" aria-label="4Ever Seasons admin">
           <Image src="/brand/4ever-seasons-logo-mark.jpg" alt="" width={40} height={40} priority />
-          <div><span>4EVER SEASONS</span><small>Operations Studio</small></div>
+          <div><span>4Ever Seasons</span><small>Operations Studio</small></div>
         </Link>
         <nav className="studio-nav" aria-label="Admin navigation">
           {topNav.map(([label, href]) => (
             <Link key={href} href={href} className={navActive(active,label)?"active":""}>{label}</Link>
           ))}
         </nav>
-        <Link href="/admin/alerts" onClick={openNotifications} className="studio-icon" aria-label="Alerts"><span className="studio-alert-bulb" aria-hidden="true">💡</span>{unread > 0 && <b>{unread}</b>}</Link>
+        <Link href="/admin/alerts" onClick={openNotifications} className="studio-icon" aria-label="Alerts"><span className="studio-alert-bulb" aria-hidden="true">AL</span>{unread > 0 && <b>{unread}</b>}</Link>
         <Link href="/admin/settings" className="studio-user"><span>AD</span><div><strong>Company Admin</strong><small>Administrator</small></div></Link>
         <button type="button" className="studio-signout" onClick={() => void signOutAccount()}>Sign out</button>
         <button type="button" className="studio-menu" onClick={() => setMobileMenuOpen(true)}>Menu</button>
@@ -103,8 +103,8 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
         .studio-brand,.studio-user,.studio-nav{min-width:0!important}
         .studio-nav{max-width:100%!important;overflow-x:auto!important;overflow-y:hidden!important;overscroll-behavior-x:contain;scrollbar-width:thin;white-space:nowrap}
         .studio-nav>a{flex:0 0 auto!important;white-space:nowrap!important;max-width:none!important}
-        .studio-alert-bulb{display:block;font-size:19px;line-height:1;filter:saturate(1.12)}
-        .studio-icon{color:#e2ae21!important;background:#fffaf0!important;border-color:#e1c46b!important}
+        .studio-alert-bulb{display:block;font-size:11px;line-height:1;font-weight:900;letter-spacing:.04em}
+        .studio-icon{color:#8a6314!important;background:#fffaf0!important;border-color:#e1c46b!important}
         .studio-icon:hover{background:#fff4c9!important}
         .desktop-route-modes{min-width:0!important;max-width:100%!important;overflow-x:auto!important;overflow-y:hidden!important;flex-wrap:nowrap!important;scrollbar-width:thin}
         .desktop-route-modes>button{flex:0 0 auto!important;white-space:nowrap!important}
