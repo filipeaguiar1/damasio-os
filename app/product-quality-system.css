@@ -77,7 +77,7 @@ body{
   letter-spacing:0!important;
 }
 
-.public-home .hero-proof{
+.public-home .public-hero .hero-proof{
   border-radius:var(--ui-radius-md)!important;
   background:#fff!important;
   box-shadow:0 8px 18px rgba(16,48,34,.055)!important;
