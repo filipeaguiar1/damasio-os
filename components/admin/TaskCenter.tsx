@@ -47,6 +47,10 @@ function workerName(task: AdminLiveTask) {
   return task.employeeName || task.crewName || "Waiting for assignment";
 }
 
+function PropertyIcon(){
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4l8 7.2V20H4v-8.8Z" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/><path d="M9 20v-6h6v6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/></svg>;
+}
+
 export function TaskCenter({ mode = "all" }: { mode?: Mode }) {
   const [workspace, setWorkspace] = useState<AdminTaskWorkspace>(emptyWorkspace);
   const [loading, setLoading] = useState(true);
@@ -233,7 +237,7 @@ export function TaskCenter({ mode = "all" }: { mode?: Mode }) {
                 {visibleProperties.map((property) => <option key={property.id} value={property.id}>{property.customerName} — {property.address}</option>)}
               </select>
             </div>
-            {selectedProperty && <div className={styles.propertyHint}><i>⌂</i><div><strong>{selectedProperty.customerName}</strong><small>{selectedProperty.address}{selectedProperty.city ? ` · ${selectedProperty.city}, ${selectedProperty.province || ""}` : ""}</small></div></div>}
+            {selectedProperty && <div className={styles.propertyHint}><i><PropertyIcon/></i><div><strong>{selectedProperty.customerName}</strong><small>{selectedProperty.address}{selectedProperty.city ? ` · ${selectedProperty.city}, ${selectedProperty.province || ""}` : ""}</small></div></div>}
             <div className={styles.field}><label>Work Order title</label><input name="title" placeholder="Example: Gate / lawn correction" required /></div>
             <div className={styles.field}><label>Customer issue / instructions</label><textarea name="issue" placeholder="Describe exactly what needs to be corrected." required /></div>
             <div className={styles.formGrid}>
@@ -253,21 +257,24 @@ export function TaskCenter({ mode = "all" }: { mode?: Mode }) {
           </div>
           <div className={styles.queue}>
             {loading ? <div className={styles.empty}><strong>Loading Work Orders…</strong></div> : filtered.length === 0 ? <div className={styles.empty}><strong>No Work Orders in this view.</strong><p>Try another filter or create a return visit from a real property.</p></div> : filtered.map((task) => <div className={styles.task} key={task.id}>
-              <i className={styles.house}>⌂</i>
+              <i className={styles.house}><PropertyIcon/></i>
               <div className={styles.taskMain}>
                 <div className={styles.titleLine}><strong>{task.title}</strong><span className={`${styles.pill} ${task.priority === "urgent" ? styles.urgent : ""}`}>{task.priority}</span><span className={`${styles.pill} ${statusClass(task.status)}`}>{task.status.replaceAll("_", " ")}</span></div>
                 <p>{task.customerName} · {task.address}</p>
                 <small>{task.issue}</small>
-                <div className={styles.meta}><span>Assigned: {workerName(task)}</span><span>Return: {prettyDate(task.scheduledDate)}</span>{task.durationSeconds ? <span>Timer: {duration(task.durationSeconds)}</span> : null}<span>Evidence: {task.photos.length}</span></div>
+                <div className={styles.meta}><span>{workerName(task)}</span><span>{prettyDate(task.scheduledDate)}</span>{task.completionDurationSeconds ? <span>{duration(task.completionDurationSeconds)}</span> : null}</div>
               </div>
               <div className={styles.actions}>
-                <Link href={`/admin/tasks/${task.id}`}>Details</Link>
-                <Link href={`/admin/customers/${task.customerId}`}>Property</Link>
-                {["open", "returned_to_admin"].includes(task.status) && <button className={styles.primary} type="button" onClick={() => beginAssign(task)}>Assign</button>}
-                {task.status === "assigned" && <button className={styles.danger} type="button" onClick={() => void unassign(task)}>Unassign</button>}
-                {task.status === "completed" && <button className={styles.primary} type="button" onClick={() => void resolve(task)}>Resolve</button>}
+                <Link href={`/admin/tasks/${task.id}`}>Open</Link>
+                {!['resolved','in_progress'].includes(task.status) && <button type="button" onClick={() => beginAssign(task)}>{task.status === "assigned" ? "Reassign" : "Assign"}</button>}
+                {task.status === "assigned" && <button type="button" onClick={() => void unassign(task)}>Unassign</button>}
+                {task.status === "completed" && <button type="button" className={styles.primary} onClick={() => void resolve(task)}>Resolve</button>}
               </div>
-              {assigningId === task.id && <div className={styles.assignBox}><select value={assignTarget} onChange={(event) => setAssignTarget(event.target.value)}><option value="">Employee or Crew</option>{workspace.workers.map((worker) => <option key={`${worker.kind}:${worker.id}`} value={`${worker.kind}:${worker.id}`}>{worker.kind === "crew" ? "Crew" : "Employee"} · {worker.name}</option>)}</select><input type="date" value={assignDate} onChange={(event) => setAssignDate(event.target.value)} /><button type="button" disabled={busy || !assignTarget} onClick={() => void saveAssignment(task)}>Send</button></div>}
+              {assigningId === task.id && <div className={styles.assignBox}>
+                <select value={assignTarget} onChange={(event) => setAssignTarget(event.target.value)}><option value="">Choose Employee / Crew</option>{workspace.workers.map((worker) => <option key={`${worker.kind}:${worker.id}`} value={`${worker.kind}:${worker.id}`}>{worker.kind === "crew" ? "Crew" : "Employee"} · {worker.name}</option>)}</select>
+                <input type="date" value={assignDate} onChange={(event) => setAssignDate(event.target.value)} />
+                <button type="button" disabled={busy || !assignTarget} onClick={() => void saveAssignment(task)}>Save assignment</button>
+              </div>}
             </div>)}
           </div>
         </article>
