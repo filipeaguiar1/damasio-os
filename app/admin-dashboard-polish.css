@@ -81,7 +81,12 @@
   color:#fff!important;
   background:#0d6d49!important;
   border-color:#0d6d49!important;
-  box-shadow:0 5px 12px rgba(13,109,73,.16)!important;
+  box-shadow:none!important;
+}
+
+.studio-shell .studio-rail nav a.primary:hover{
+  box-shadow:none!important;
+  transform:none!important;
 }
 
 .studio-shell .studio-rail nav a .quick-action-icon{
