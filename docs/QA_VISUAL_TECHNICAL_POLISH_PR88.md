@@ -41,12 +41,12 @@ Safe online optimization applied:
 - [x] Shared design-system overlay added without deleting existing functional CSS.
 - [x] Landing page service/features placeholders made professional.
 - [x] Admin shell/Alert Center visual polish.
-- [x] Employee route/profile placeholders and alerts visually neutralized through shared CSS.
-- [x] Customer mobile profile/request placeholders visually neutralized through shared CSS and service labels.
-- [x] Master theme selector placeholders visually neutralized through shared CSS.
+- [x] Employee route/profile placeholders and alerts neutralized through direct copy/icon replacement.
+- [x] Customer mobile profile/request placeholders neutralized through direct copy/icon replacement.
+- [x] Admin map property placeholder neutralized through direct copy/icon replacement.
+- [x] Master theme selector neutralized visually through the shared design-system layer.
 - [x] Online database optimization applied only where redundancy was proven.
 - [x] Typecheck passed after the first wave.
-- [x] Direct code-level replacement for employee route/property, customer mobile, admin map, mobile alerts and master theme pictograms after resyncing with the PR head.
-- [x] Full production build passed after resyncing the final branch state.
+- [x] Full production build passed after resyncing the final branch state locally.
 - [ ] Follow-up visual screenshot pass across desktop/mobile.
 - [ ] Deeper page-by-page copy pass for secondary admin/customer screens.
