@@ -1,0 +1,275 @@
+/* Public brand personality pass — marketing pages only. */
+.public-home,
+.public-page{
+  --brand-forest:#082f24;
+  --brand-green:#0f6b49;
+  --brand-leaf:#64b874;
+  --brand-mint:#dff3e4;
+  --brand-sun:#f1b43a;
+  --brand-fall:#d96b2b;
+  --brand-winter:#4e8fb8;
+  --brand-cream:#f8f6ef;
+}
+
+/* Home: add rhythm, depth and seasonal colour without changing layout. */
+.public-home .public-services{
+  position:relative;
+  isolation:isolate;
+  background:
+    radial-gradient(circle at 10% 10%,rgba(100,184,116,.20),transparent 24%),
+    radial-gradient(circle at 94% 82%,rgba(78,143,184,.14),transparent 28%),
+    linear-gradient(180deg,#edf5ef 0%,#f7f8f3 100%);
+}
+.public-home .public-services:before{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:-1;
+  opacity:.28;
+  background-image:linear-gradient(rgba(15,107,73,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(15,107,73,.05) 1px,transparent 1px);
+  background-size:42px 42px;
+  mask-image:linear-gradient(to bottom,black,transparent 82%);
+}
+.public-home .service-scope-intro{
+  padding:28px;
+  border:1px solid rgba(15,107,73,.14);
+  border-radius:22px;
+  background:linear-gradient(150deg,rgba(255,255,255,.94),rgba(235,247,239,.86));
+  box-shadow:0 24px 60px rgba(8,47,36,.08);
+}
+.public-home .service-list{
+  display:grid;
+  gap:12px;
+  border-top:0;
+}
+.public-home .service-row{
+  position:relative;
+  grid-template-columns:54px minmax(0,1fr) auto;
+  padding:21px 20px;
+  border:1px solid rgba(8,47,36,.10);
+  border-radius:16px;
+  background:rgba(255,255,255,.88);
+  box-shadow:0 12px 28px rgba(8,47,36,.055);
+  overflow:hidden;
+  transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
+}
+.public-home .service-row:before{
+  content:"";
+  position:absolute;
+  inset:0 auto 0 0;
+  width:5px;
+  background:var(--brand-leaf);
+}
+.public-home .service-row:nth-child(2):before{background:var(--brand-sun)}
+.public-home .service-row:nth-child(3):before{background:var(--brand-fall)}
+.public-home .service-row:nth-child(4):before{background:var(--brand-winter)}
+.public-home .service-row:nth-child(5):before{background:#7eaa62}
+.public-home .service-row:nth-child(6):before{background:#876aa7}
+.public-home .service-row:hover{
+  transform:translateY(-2px);
+  border-color:rgba(15,107,73,.24);
+  box-shadow:0 18px 38px rgba(8,47,36,.10);
+}
+.public-home .service-row b{
+  width:36px;
+  height:36px;
+  display:grid;
+  place-items:center;
+  border-radius:10px;
+  background:#edf5ef;
+  color:#0f6b49;
+}
+.public-home .service-row a{
+  border-color:rgba(15,107,73,.24);
+  background:#f5faf6;
+}
+
+.public-home .public-membership{
+  position:relative;
+  overflow:hidden;
+  background:
+    radial-gradient(circle at 88% 8%,rgba(241,180,58,.13),transparent 25%),
+    linear-gradient(180deg,#fff 0%,#fbf8ef 100%);
+}
+.public-home .membership-head{
+  padding-left:20px;
+  border-left:4px solid var(--brand-sun);
+}
+.public-home .plan-card{
+  min-height:390px;
+  padding:26px;
+  border-radius:20px!important;
+  border-color:rgba(8,47,36,.10)!important;
+  background:linear-gradient(155deg,#fff,#f7faf7);
+  box-shadow:0 18px 44px rgba(8,47,36,.075)!important;
+  transition:transform .18s ease,box-shadow .18s ease;
+  overflow:hidden;
+}
+.public-home .plan-card:before{
+  content:"";
+  position:absolute;
+  width:150px;
+  height:150px;
+  border-radius:999px;
+  right:-60px;
+  bottom:-64px;
+  background:rgba(100,184,116,.10);
+}
+.public-home .plan-card:hover{transform:translateY(-4px);box-shadow:0 24px 54px rgba(8,47,36,.12)!important}
+.public-home .plan-card-featured{
+  background:
+    radial-gradient(circle at 90% 6%,rgba(100,184,116,.30),transparent 32%),
+    linear-gradient(145deg,#0a3b2c,#08281f 72%);
+  border-color:#0a3b2c!important;
+  box-shadow:0 26px 60px rgba(8,47,36,.22)!important;
+}
+.public-home .plan-card-featured:before{background:rgba(255,255,255,.07)}
+.public-home .plan-list span{
+  padding:9px 10px;
+  border-radius:9px;
+  background:rgba(15,107,73,.055);
+}
+.public-home .plan-card-featured .plan-list span{background:rgba(255,255,255,.08);color:rgba(255,255,255,.88)}
+
+.public-home .portal-proof article{
+  border-radius:16px;
+  border-color:rgba(8,47,36,.10);
+  background:linear-gradient(145deg,#fff,#f6faf7);
+  box-shadow:0 12px 30px rgba(8,47,36,.055);
+}
+.public-home .public-final-cta{
+  background:linear-gradient(180deg,#f8f6ef,#eef5ef);
+}
+.public-home .final-cta-layout{
+  position:relative;
+  overflow:hidden;
+  border-radius:22px;
+  border-color:rgba(15,107,73,.16);
+  background:
+    radial-gradient(circle at 95% 10%,rgba(100,184,116,.22),transparent 26%),
+    linear-gradient(135deg,#fff,#f2f8f3);
+  box-shadow:0 20px 48px rgba(8,47,36,.08);
+}
+
+/* Public landing pages: services, cities, about, contact, conversion. */
+.public-page{
+  background:
+    radial-gradient(circle at 92% 12%,rgba(100,184,116,.10),transparent 24%),
+    linear-gradient(180deg,#f5f7f2 0%,#f8f6ef 100%);
+}
+.public-page-hero{
+  position:relative;
+  overflow:hidden;
+  border-bottom:1px solid rgba(8,47,36,.12);
+  background:
+    radial-gradient(circle at 86% 20%,rgba(100,184,116,.24),transparent 24%),
+    radial-gradient(circle at 12% 82%,rgba(78,143,184,.12),transparent 28%),
+    linear-gradient(135deg,#ffffff 0%,#edf7f0 100%);
+}
+.public-page-hero:after{
+  content:"";
+  position:absolute;
+  width:280px;
+  height:280px;
+  right:-100px;
+  top:-110px;
+  border:42px solid rgba(15,107,73,.055);
+  border-radius:999px;
+  pointer-events:none;
+}
+.public-page .public-page-kicker{
+  display:inline-flex;
+  padding:7px 10px;
+  border-radius:999px;
+  background:#e6f3e9;
+  color:#0d5b40;
+  letter-spacing:.10em;
+}
+.public-page h1{color:#092f24;text-wrap:balance}
+.public-page h2{color:#0b392b}
+.public-page .public-page-panel{
+  position:relative;
+  overflow:hidden;
+  padding:26px;
+  border-radius:18px;
+  border-color:rgba(8,47,36,.10);
+  background:linear-gradient(150deg,#fff,#f8fbf8);
+  box-shadow:0 15px 36px rgba(8,47,36,.065);
+  transition:transform .18s ease,box-shadow .18s ease;
+}
+.public-page .public-page-panel:before{
+  content:"";
+  position:absolute;
+  inset:0 auto 0 0;
+  width:4px;
+  background:linear-gradient(var(--brand-leaf),var(--brand-green));
+}
+.public-page .public-page-panel:hover{transform:translateY(-3px);box-shadow:0 22px 44px rgba(8,47,36,.10)}
+.public-page .public-page-panel a{color:#0d6a49;font-weight:900}
+.public-page .public-page-split{
+  padding:34px!important;
+  border:1px solid rgba(8,47,36,.10);
+  border-radius:22px;
+  background:rgba(255,255,255,.72);
+  box-shadow:0 16px 40px rgba(8,47,36,.055);
+}
+.public-page .public-page-list li{
+  padding:16px 18px;
+  border:1px solid rgba(8,47,36,.08);
+  border-radius:12px;
+  background:#fff;
+}
+
+/* Quote received: stronger success moment and clearer visual hierarchy. */
+.quote-received-page .public-page-hero{
+  min-height:470px;
+  display:flex;
+  align-items:center;
+  background:
+    radial-gradient(circle at 80% 22%,rgba(241,180,58,.17),transparent 23%),
+    radial-gradient(circle at 16% 76%,rgba(78,143,184,.13),transparent 25%),
+    linear-gradient(135deg,#f7fff9 0%,#e5f4e9 48%,#f8f6ef 100%);
+}
+.quote-received-page .public-page-hero .public-page-shell{
+  position:relative;
+  padding:52px 42px!important;
+  border:1px solid rgba(8,47,36,.12);
+  border-radius:28px;
+  background:rgba(255,255,255,.82);
+  box-shadow:0 28px 70px rgba(8,47,36,.12);
+  backdrop-filter:blur(10px);
+}
+.quote-received-page .public-page-grid .public-page-panel:nth-child(1):before{background:var(--brand-leaf)}
+.quote-received-page .public-page-grid .public-page-panel:nth-child(2):before{background:var(--brand-sun)}
+.quote-received-page .public-page-grid .public-page-panel:nth-child(3):before{background:var(--brand-winter)}
+
+/* Footer gets a slightly more premium, branded finish. */
+.footer{
+  position:relative;
+  overflow:hidden;
+  background:
+    radial-gradient(circle at 14% 0%,rgba(100,184,116,.16),transparent 27%),
+    radial-gradient(circle at 88% 110%,rgba(78,143,184,.12),transparent 30%),
+    linear-gradient(145deg,#061f17,#082d22 70%,#0b392a)!important;
+}
+.footer:before{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  opacity:.18;
+  background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);
+  background-size:46px 46px;
+}
+.footer .footer-grid,.footer .footer-bottom{position:relative;z-index:1}
+.footer h4{color:#a9d2b9!important}
+.footer a{transition:color .16s ease,transform .16s ease}
+.footer a:hover{color:#fff;transform:translateX(2px)}
+
+@media(max-width:900px){
+  .public-home .service-scope-intro{position:relative;top:auto;padding:22px}
+  .public-home .service-row{grid-template-columns:44px minmax(0,1fr);padding:18px}
+  .public-home .service-row>a{grid-column:2;justify-self:start}
+  .public-page .public-page-split{padding:24px!important}
+  .quote-received-page .public-page-hero .public-page-shell{padding:34px 24px!important;border-radius:22px}
+}
