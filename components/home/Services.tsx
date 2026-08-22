@@ -24,7 +24,7 @@ export function Services() {
             <h3>{title}</h3>
             <p>{copy}</p>
           </div>
-          <a href={`/quote?service=${service}`} aria-label={`Request ${title}`}>Request</a>
+          <a href={`#quote?service=${service}`} aria-label={`Request ${title}`}>Request</a>
         </article>)}</div>
       </div>
     </div>
