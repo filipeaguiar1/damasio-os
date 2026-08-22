@@ -15,6 +15,7 @@ import "./advisor-smart-route-tweaks.css";
 import "./advisor-stability-fixes.css";
 import "./product-quality-system.css";
 import "./admin-dashboard-polish.css";
+import "./admin-primary-pages-polish.css";
 import "./portal-desktop-polish.css";
 import "./master-platform-polish.css";
 import "./public-pages.css";
