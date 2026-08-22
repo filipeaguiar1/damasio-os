@@ -67,6 +67,11 @@ export default function ServiceLandingPage({ params }: { params: { service: stri
         <ul className="public-page-list">{service.scope.map((item) => <li key={item}><strong>{item}</strong></li>)}</ul>
       </div></section>
 
+      <section><div className="public-page-shell public-page-split">
+        <div><span className="public-page-kicker">What to expect</span><h2>Service based on the actual property.</h2></div>
+        <div>{service.details.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</div>
+      </div></section>
+
       <section className="section-white"><div className="public-page-shell">
         <span className="public-page-kicker">Service areas</span>
         <div className="public-page-grid">
