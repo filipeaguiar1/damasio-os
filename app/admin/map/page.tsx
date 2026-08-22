@@ -147,7 +147,7 @@ export default function RouteMap(){
         <div ref={mapNode} className="pw-route-map" aria-label="Interactive route map"/>
         <div className="pw-map-legend"><span><i className="open"/>Open</span><span><i className="done"/>Done</span><span><i className="skip"/>Skipped</span><span><i className="issue"/>Issue</span></div>
         {current&&<article className="pw-property-sheet">
-          <div className="pw-property-photo">{current.propertyPhoto?<img src={current.propertyPhoto} alt="Property"/>:<span>🏠</span>}</div>
+          <div className="pw-property-photo">{current.propertyPhoto?<img src={current.propertyPhoto} alt="Property"/>:<span>HOME</span>}</div>
           <div className="pw-property-copy"><div><strong>{current.address}</strong><span>{current.name}</span></div><small>{current.service} · {current.assignedCrew}</small></div>
           <b style={{color:current.color}}>{current.label}</b>
           <div className="pw-property-buttons"><Link href={`/admin/customers?property=${current.id}`}>Open property</Link><a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(current.address)}`} target="_blank" rel="noreferrer">Directions</a></div>
