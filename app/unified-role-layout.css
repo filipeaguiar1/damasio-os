@@ -1,0 +1,390 @@
+/* 4Ever Seasons — shared role layout system
+   Visual-only overrides. No route, auth, billing or data behavior changes. */
+
+:root{
+  --role-bg:#f3f6f3;
+  --role-surface:#ffffff;
+  --role-surface-soft:#f8faf8;
+  --role-line:#d7e0da;
+  --role-line-strong:#bdcbc2;
+  --role-ink:#18241e;
+  --role-muted:#68766e;
+  --role-green:#0b3a2a;
+  --role-green-2:#14583d;
+  --role-green-soft:#e9f1ec;
+  --role-radius:14px;
+  --role-radius-lg:18px;
+  --role-shadow:0 8px 24px rgba(16,46,33,.055);
+  --role-shadow-raised:0 14px 34px rgba(16,46,33,.08);
+  --role-content:1560px;
+}
+
+/* Shared application canvas */
+.studio-shell,
+.admin-pro-shell,
+.portal-pro-shell,
+.role-mobile-shell,
+.mobile-app-shell{
+  color:var(--role-ink);
+  background:var(--role-bg)!important;
+}
+
+.studio-main,
+.pro-main,
+.pro-content{
+  min-width:0;
+}
+
+.studio-main,
+.pro-content{
+  background:var(--role-bg)!important;
+}
+
+.studio-main{
+  padding:28px clamp(18px,2.4vw,38px) 74px!important;
+}
+
+.pro-content{
+  padding:30px clamp(18px,2.5vw,40px) 52px!important;
+}
+
+.studio-main>*:not(style),
+.pro-content>*:not(style){
+  width:min(100%,var(--role-content));
+  margin-left:auto;
+  margin-right:auto;
+}
+
+/* Shared page hierarchy */
+.studio-main :where(.app-top,.calendar-heading,.studio-page-head,.customer-directory-head,.tasks-page-head,.operations-studio-hero),
+.pro-content :where(.app-top,.calendar-heading,.page-head,.portal-hero){
+  border:1px solid var(--role-line)!important;
+  border-radius:var(--role-radius-lg)!important;
+  background:var(--role-surface)!important;
+  box-shadow:var(--role-shadow)!important;
+}
+
+.studio-main :where(.app-top,.calendar-heading),
+.pro-content :where(.app-top,.calendar-heading){
+  padding:22px 24px!important;
+}
+
+.studio-main :where(h1),
+.pro-content :where(h1){
+  color:var(--role-ink);
+  letter-spacing:-.035em!important;
+  line-height:1.05!important;
+}
+
+.studio-main :where(.app-top h1,.studio-page-head h1),
+.pro-content :where(.app-top h1,.page-head h1){
+  font-size:clamp(30px,3.2vw,44px)!important;
+}
+
+.studio-main :where(h2),
+.pro-content :where(h2){
+  letter-spacing:-.02em!important;
+}
+
+.studio-main :where(p,.muted,.helper,.subtitle),
+.pro-content :where(p,.muted,.helper,.subtitle){
+  color:var(--role-muted);
+}
+
+/* One component language across roles */
+.studio-main :where(.card,.table-card,.profile-card,.dash-card,.portal-card,.feature-card,.service-card,.mini-card,.payment-card,.stat-card,.metric-card,.employee-card,.customer-card,.report-card,.estimate-preview),
+.pro-content :where(.card,.table-card,.profile-card,.dash-card,.portal-card,.feature-card,.service-card,.mini-card,.payment-card,.stat-card,.metric-card,.employee-card,.customer-card,.report-card,.estimate-preview){
+  background:var(--role-surface)!important;
+  border:1px solid var(--role-line)!important;
+  border-radius:var(--role-radius)!important;
+  box-shadow:var(--role-shadow)!important;
+}
+
+.studio-main :where(.card,.profile-card,.dash-card,.portal-card,.feature-card,.service-card,.mini-card,.payment-card,.stat-card,.metric-card,.employee-card,.customer-card,.report-card),
+.pro-content :where(.card,.profile-card,.dash-card,.portal-card,.feature-card,.service-card,.mini-card,.payment-card,.stat-card,.metric-card,.employee-card,.customer-card,.report-card){
+  padding:20px!important;
+}
+
+.studio-main :where(input,select,textarea),
+.pro-content :where(input,select,textarea){
+  min-height:44px;
+  border:1px solid var(--role-line-strong)!important;
+  border-radius:10px!important;
+  background:#fff!important;
+  color:var(--role-ink)!important;
+  box-shadow:none!important;
+}
+
+.studio-main :where(input,select,textarea):focus,
+.pro-content :where(input,select,textarea):focus{
+  border-color:#468064!important;
+  box-shadow:0 0 0 3px rgba(47,125,77,.12)!important;
+  outline:0!important;
+}
+
+.studio-main :where(.btn,button),
+.pro-content :where(.btn,button){
+  border-radius:10px;
+}
+
+.studio-main .btn-primary,
+.pro-content .btn-primary{
+  background:var(--role-green)!important;
+  border-color:var(--role-green)!important;
+  box-shadow:0 7px 16px rgba(11,58,42,.12)!important;
+}
+
+.studio-main .btn-outline,
+.pro-content .btn-outline{
+  background:#fff!important;
+  color:var(--role-green)!important;
+  border-color:#aabbb1!important;
+  box-shadow:none!important;
+}
+
+/* Tables: operational, readable, not decorative */
+.studio-main :where(.table-card),
+.pro-content :where(.table-card){overflow:hidden}
+
+.studio-main table,
+.pro-content table{
+  background:#fff;
+}
+
+.studio-main table th,
+.pro-content table th{
+  background:#f5f8f6!important;
+  color:#5c6d63!important;
+  border-color:#dbe3de!important;
+  font-size:11px!important;
+  font-weight:800!important;
+  letter-spacing:.055em!important;
+  text-transform:uppercase!important;
+}
+
+.studio-main table td,
+.pro-content table td{
+  border-color:#e2e8e4!important;
+  color:#26342d;
+}
+
+.studio-main tbody tr:hover td,
+.pro-content tbody tr:hover td{
+  background:#fafcfb;
+}
+
+/* Admin/company chrome */
+.studio-topnav{
+  min-height:72px!important;
+  background:#092d21!important;
+  border-bottom:1px solid rgba(255,255,255,.09)!important;
+  box-shadow:0 5px 22px rgba(7,31,24,.12)!important;
+}
+
+.studio-brand img{
+  border-radius:10px!important;
+}
+
+.studio-brand span{
+  letter-spacing:.01em!important;
+  font-weight:850!important;
+}
+
+.studio-nav>a{
+  border-radius:8px!important;
+  font-weight:700!important;
+}
+
+.studio-nav>a.active{
+  background:rgba(255,255,255,.12)!important;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)!important;
+}
+
+.studio-rail{
+  background:#fff!important;
+  border-right:1px solid var(--role-line)!important;
+  box-shadow:none!important;
+}
+
+.studio-rail>strong{
+  color:#617168!important;
+  letter-spacing:.07em;
+  text-transform:uppercase;
+  font-size:11px!important;
+}
+
+.studio-rail nav a,
+.studio-system-status,
+.studio-rail-filler{
+  border-radius:10px!important;
+}
+
+.studio-rail nav a:not(.primary){
+  background:#fff!important;
+  border:1px solid transparent!important;
+}
+
+.studio-rail nav a:not(.primary):hover{
+  background:var(--role-surface-soft)!important;
+  border-color:var(--role-line)!important;
+}
+
+.studio-bottom-status{
+  background:#fff!important;
+  border-top:1px solid var(--role-line)!important;
+  color:#607067!important;
+}
+
+/* Customer + employee shared shell */
+.portal-pro-shell .pro-sidebar{
+  background:#092d21!important;
+  border-right:1px solid rgba(255,255,255,.06)!important;
+  box-shadow:8px 0 28px rgba(8,39,28,.08)!important;
+}
+
+.portal-brand-card{
+  border-radius:14px!important;
+  background:rgba(255,255,255,.055)!important;
+  border:1px solid rgba(255,255,255,.085)!important;
+}
+
+.portal-word-nav{
+  gap:4px!important;
+}
+
+.portal-word-nav a{
+  min-height:42px;
+  display:flex;
+  align-items:center;
+  padding:10px 13px!important;
+  border-radius:9px!important;
+  color:rgba(255,255,255,.76)!important;
+  font-weight:680!important;
+}
+
+.portal-word-nav a:hover{
+  background:rgba(255,255,255,.065)!important;
+  color:#fff!important;
+}
+
+.portal-word-nav a.active{
+  background:#fff!important;
+  color:var(--role-green)!important;
+  box-shadow:0 7px 18px rgba(0,0,0,.12)!important;
+}
+
+.portal-pro-shell .admin-profile{
+  border-radius:12px!important;
+  border:1px solid rgba(255,255,255,.08)!important;
+  background:rgba(255,255,255,.05)!important;
+}
+
+.portal-pro-shell .profile-avatar,
+.portal-pro-shell .mini-user>span{
+  border-radius:10px!important;
+  overflow:hidden;
+}
+
+.portal-pro-shell .pro-topbar{
+  min-height:70px!important;
+  background:rgba(255,255,255,.97)!important;
+  border-bottom:1px solid var(--role-line)!important;
+  box-shadow:0 5px 18px rgba(16,46,33,.035)!important;
+  backdrop-filter:blur(12px);
+}
+
+.portal-pro-shell .topbar-pill{
+  border-radius:9px!important;
+  background:var(--role-green-soft)!important;
+  color:var(--role-green)!important;
+  border:1px solid #ccdbd1!important;
+}
+
+.portal-pro-shell .help-card{
+  border-radius:12px!important;
+  background:rgba(255,255,255,.055)!important;
+  border:1px solid rgba(255,255,255,.08)!important;
+}
+
+/* Mobile: same identity, less chrome */
+.role-mobile-shell,
+.mobile-app-shell{
+  background:var(--role-bg)!important;
+}
+
+.role-mobile-card,
+.mobile-stats-card>a,
+.mobile-stats-card>div,
+.role-mobile-stat,
+.role-mobile-action,
+.role-customer-modules>a,
+.employee-week-picker,
+.employee-mobile-progress,
+.employee-smart-route,
+.mobile-service-screen{
+  border:1px solid var(--role-line)!important;
+  border-radius:13px!important;
+  box-shadow:0 6px 18px rgba(16,46,33,.05)!important;
+}
+
+.role-mobile-hero,
+.mobile-hero-card,
+.mobile-native-hero,
+.mobile-admin-payments-intro,
+.mobile-shared-route-workspace>header{
+  border-radius:16px!important;
+  background:var(--role-green)!important;
+  box-shadow:0 10px 24px rgba(8,48,34,.12)!important;
+}
+
+.mobile-shell-bottom{
+  background:rgba(255,255,255,.97)!important;
+  border-top:1px solid var(--role-line)!important;
+  box-shadow:0 -8px 24px rgba(16,46,33,.06)!important;
+  backdrop-filter:blur(12px);
+}
+
+.mobile-shell-bottom :where(a,button){
+  color:#67766e!important;
+}
+
+.mobile-shell-bottom .active{
+  color:var(--role-green)!important;
+}
+
+/* Avoid the "every section is a floating card" look. */
+.studio-main :where(.grid-2,.grid-3,.grid-4,.stats),
+.pro-content :where(.grid-2,.grid-3,.grid-4,.stats){
+  gap:16px!important;
+}
+
+@media (max-width:1000px){
+  .studio-main,
+  .pro-content{
+    padding-left:14px!important;
+    padding-right:14px!important;
+    padding-top:16px!important;
+  }
+
+  .studio-main :where(.app-top,.calendar-heading),
+  .pro-content :where(.app-top,.calendar-heading){
+    padding:17px!important;
+    border-radius:14px!important;
+  }
+
+  .studio-main :where(.app-top h1,.studio-page-head h1),
+  .pro-content :where(.app-top h1,.page-head h1){
+    font-size:30px!important;
+  }
+
+  .portal-pro-shell .pro-topbar{
+    min-height:60px!important;
+  }
+}
+
+@media (min-width:1400px){
+  .studio-main,
+  .pro-content{
+    padding-top:34px!important;
+  }
+}
