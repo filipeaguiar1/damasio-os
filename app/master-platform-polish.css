@@ -1,0 +1,270 @@
+/* 4Ever Seasons — Master control-plane visual system
+   Scoped to /master surfaces. Keeps platform administration visually distinct from company admin. */
+
+.master-shell{
+  --master-ink:#142019;
+  --master-muted:#617268;
+  --master-navy:#102b26;
+  --master-green:#0b3a2a;
+  --master-green-2:#14563e;
+  --master-green-soft:#dfece4;
+  --master-canvas:#e7ede9;
+  --master-cream:#f3efe6;
+  --master-surface:#f9faf8;
+  --master-line:#c5d2ca;
+  --master-line-strong:#aebfb4;
+  --master-shadow:0 8px 24px rgba(10,42,31,.07);
+  min-height:100dvh!important;
+  background:var(--master-canvas)!important;
+  color:var(--master-ink)!important;
+}
+
+.master-sidebar{
+  background:linear-gradient(180deg,#071f18 0%,#0a3024 52%,#0d3b2c 100%)!important;
+  border-right:1px solid #315949!important;
+  box-shadow:7px 0 24px rgba(6,31,23,.11)!important;
+}
+.master-sidebar>div:first-child{
+  padding-bottom:18px!important;
+  border-bottom:1px solid rgba(255,255,255,.10)!important;
+}
+.master-sidebar .master-kicker{color:#8db5a1!important}
+.master-sidebar h1{color:#fff!important;letter-spacing:-.025em!important}
+.master-sidebar h1 b{color:#9cc6af!important}
+.master-sidebar nav{
+  display:grid!important;
+  gap:7px!important;
+}
+.master-sidebar nav button{
+  min-height:43px!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  color:#d2e1d9!important;
+  background:#0d392b!important;
+  border:1px solid #285243!important;
+  border-radius:10px!important;
+  padding:10px 12px!important;
+  font-weight:730!important;
+  box-shadow:0 2px 5px rgba(3,24,17,.045)!important;
+}
+.master-sidebar nav button:hover{
+  color:#fff!important;
+  background:#124735!important;
+  border-color:#3b6755!important;
+}
+.master-sidebar nav button.active{
+  color:#103c2b!important;
+  background:#edf4ef!important;
+  border-color:#b8cfC1!important;
+  box-shadow:0 8px 17px rgba(3,24,17,.16)!important;
+}
+.master-sidebar nav button>span{
+  min-width:25px!important;
+  min-height:23px!important;
+  display:grid!important;
+  place-items:center!important;
+  padding:0 6px!important;
+  border-radius:7px!important;
+  background:rgba(255,255,255,.08)!important;
+  border:1px solid rgba(255,255,255,.09)!important;
+  color:inherit!important;
+  font-size:10px!important;
+  font-weight:850!important;
+}
+.master-sidebar nav button.active>span{
+  background:#dbe9e0!important;
+  border-color:#c5d9cc!important;
+}
+.master-user{
+  background:#103c2e!important;
+  border:1px solid #2b5946!important;
+  border-radius:11px!important;
+  color:#fff!important;
+}
+.master-user small{color:#abc5b8!important}
+.master-user button{
+  background:#f3efe6!important;
+  color:#183d2c!important;
+  border:1px solid #d8d0bd!important;
+  border-radius:8px!important;
+}
+
+.master-content{
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.30),rgba(255,255,255,0) 260px),
+    var(--master-canvas)!important;
+}
+.master-alert{
+  border:1px solid #b6cabd!important;
+  background:#e6f0e9!important;
+  color:#234d39!important;
+  border-radius:10px!important;
+  box-shadow:0 5px 15px rgba(10,42,31,.05)!important;
+}
+
+.master-header{
+  min-height:126px!important;
+  padding:22px 24px!important;
+  background:linear-gradient(118deg,#0b3427 0%,#124a36 100%)!important;
+  border:1px solid #245943!important;
+  border-radius:15px!important;
+  color:#fff!important;
+  box-shadow:0 12px 28px rgba(7,43,30,.14)!important;
+}
+.master-header .master-kicker{color:#9cc7b0!important}
+.master-header h2{color:#fff!important;letter-spacing:-.035em!important}
+.master-header p{color:#c8dbd1!important;max-width:760px!important}
+.master-summary{
+  min-width:104px!important;
+  background:rgba(255,255,255,.08)!important;
+  border:1px solid rgba(255,255,255,.14)!important;
+  border-radius:11px!important;
+  color:#fff!important;
+}
+.master-summary b{color:#fff!important}
+.master-summary span{color:#bdd3c7!important}
+
+.master-toolbar{
+  padding:13px!important;
+  background:#dce8e0!important;
+  border:1px solid #bfd0c5!important;
+  border-radius:12px!important;
+  box-shadow:none!important;
+}
+.master-toolbar input,
+.master-content :where(input,select,textarea){
+  background:#fbfcfa!important;
+  color:#1a2d23!important;
+  border:1px solid #aebfb4!important;
+  border-radius:9px!important;
+  box-shadow:none!important;
+}
+.master-toolbar>button,
+.master-primary{
+  background:#126b49!important;
+  border:1px solid #126b49!important;
+  color:#fff!important;
+  border-radius:9px!important;
+  box-shadow:0 6px 13px rgba(18,107,73,.13)!important;
+}
+.master-inline-button{
+  background:#eef4f0!important;
+  color:#174934!important;
+  border:1px solid #bfd1c5!important;
+  border-radius:8px!important;
+}
+
+.master-company-grid{gap:14px!important}
+.master-company-card{
+  background:#f7f9f6!important;
+  border:1px solid #c3d2c8!important;
+  border-top:3px solid #6f9b82!important;
+  border-radius:13px!important;
+  box-shadow:0 6px 18px rgba(10,42,31,.055)!important;
+}
+.master-company-card:nth-child(3n+2){background:#f6f3eb!important;border-top-color:#9c8a61!important}
+.master-company-card:nth-child(3n){background:#eef4f1!important;border-top-color:#608a78!important}
+.master-company-top>span{
+  background:#dfece4!important;
+  color:#285641!important;
+  border:1px solid #c6d8cd!important;
+  border-radius:9px!important;
+}
+.master-company-card h3{color:#17281f!important}
+.master-company-card p{color:#697a70!important}
+.master-company-card dl>div{
+  background:#edf3ef!important;
+  border:1px solid #d1ddd5!important;
+  border-radius:8px!important;
+}
+.master-card-actions button{
+  background:#126a48!important;
+  border-color:#126a48!important;
+  color:#fff!important;
+  border-radius:8px!important;
+}
+.master-card-actions button.secondary{
+  background:#eef4f0!important;
+  color:#174934!important;
+  border-color:#c1d1c7!important;
+}
+
+.master-list,
+.master-table-wrap,
+.master-season-panel{
+  background:#f8faf8!important;
+  border:1px solid #c4d2c9!important;
+  border-radius:13px!important;
+  box-shadow:0 6px 18px rgba(10,42,31,.05)!important;
+}
+.master-list article{
+  border-color:#d2ddd6!important;
+  background:#f8faf8!important;
+}
+.master-list article:nth-child(even){background:#f0f4f1!important}
+.master-table-wrap{overflow:hidden!important}
+.master-table th{
+  background:#dfe8e2!important;
+  color:#4e6357!important;
+  border-color:#c9d5cd!important;
+  font-size:10px!important;
+  font-weight:850!important;
+  letter-spacing:.06em!important;
+  text-transform:uppercase!important;
+}
+.master-table td{
+  background:#fafbf9!important;
+  border-color:#d7e0da!important;
+  color:#26382f!important;
+}
+.master-table tr:nth-child(even) td{background:#f3f6f3!important}
+.master-status{
+  background:#e2eee7!important;
+  color:#2c5b44!important;
+  border:1px solid #c7d9ce!important;
+  border-radius:7px!important;
+}
+.master-empty{
+  background:#f0f4f1!important;
+  border:1px dashed #bdccc3!important;
+  color:#6a7b72!important;
+  border-radius:9px!important;
+}
+
+.master-season-panel{background:#f6f3eb!important}
+.master-season-mode,
+.master-payout-toolbar{border-color:#d6d0c1!important}
+.master-season-mode button,
+.master-season-grid button,
+.master-payout-metrics article{
+  background:#edf3ef!important;
+  border:1px solid #c6d5cc!important;
+  border-radius:10px!important;
+  box-shadow:none!important;
+}
+.master-season-mode button.active,
+.master-season-grid button.active{
+  background:#dbeadf!important;
+  border-color:#8eb19d!important;
+  color:#153f2d!important;
+}
+.master-payout-metrics article strong{color:#174a35!important}
+.master-season-save{border-color:#d2cdc0!important}
+
+.master-gate{
+  background:linear-gradient(145deg,#071f18,#0c3b2c)!important;
+}
+.master-gate-card{
+  background:#f5f2ea!important;
+  border:1px solid #d7d0c1!important;
+  border-radius:14px!important;
+  box-shadow:0 18px 44px rgba(0,0,0,.16)!important;
+}
+
+@media(max-width:900px){
+  .master-shell{background:#e9efea!important}
+  .master-sidebar{background:#082d22!important}
+  .master-header{min-height:0!important;padding:18px!important}
+  .master-content{background:#e9efea!important}
+}
