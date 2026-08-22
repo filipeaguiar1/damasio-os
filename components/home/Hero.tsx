@@ -36,18 +36,22 @@ export function Hero() {
         gap:14px;
       }
       .public-home .hero-customer-link{
-        background:rgba(255,255,255,.78)!important;
-        color:#0b472f!important;
-        border:1.5px solid #1b6848!important;
-        box-shadow:0 10px 26px rgba(13,61,44,.08)!important;
+        background:#ffffff!important;
+        color:#0f5132!important;
+        border:1.5px solid #0f5132!important;
+        box-shadow:0 10px 26px rgba(13,61,44,.1)!important;
         transition:transform .18s ease,box-shadow .18s ease,background .18s ease!important;
       }
       .public-home .hero-customer-link:hover{
-        background:#fff!important;
-        color:#083d2a!important;
-        border-color:#0d5539!important;
+        background:#eaf6ee!important;
+        color:#0b3f27!important;
+        border-color:#0b3f27!important;
         transform:scale(1.025);
         box-shadow:0 14px 32px rgba(13,61,44,.13)!important;
+      }
+      .public-home .hero-customer-link:focus-visible{
+        outline:3px solid rgba(15,81,50,.32);
+        outline-offset:3px;
       }
       .public-home .hero-proof-grid{
         margin-top:36px;
