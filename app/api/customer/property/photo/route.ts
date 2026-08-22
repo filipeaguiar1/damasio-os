@@ -10,6 +10,10 @@ function serverClient() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) as any;
 }
 
+function companyFilter(companyId: string) {
+  return `company_id.eq.${companyId},organization_id.eq.${companyId}`;
+}
+
 async function resolveCustomerProperty(client: any, userId: string, email: string) {
   const { data: customers, error: customerError } = await client
     .from("customers")
@@ -31,9 +35,9 @@ async function resolveCustomerProperty(client: any, userId: string, email: strin
   if (customerIds.length) {
     const result = await client
       .from("properties")
-      .select("id,company_id,customer_id")
+      .select("id,company_id,organization_id,customer_id")
       .in("customer_id", customerIds)
-      .eq("company_id", companyId)
+      .or(companyFilter(companyId))
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
@@ -55,9 +59,9 @@ async function resolveCustomerProperty(client: any, userId: string, email: strin
     if (lead.data?.property_id) {
       const result = await client
         .from("properties")
-        .select("id,company_id,customer_id")
+        .select("id,company_id,organization_id,customer_id")
         .eq("id", lead.data.property_id)
-        .eq("company_id", companyId)
+        .or(companyFilter(companyId))
         .maybeSingle();
       if (result.error) throw new Error(result.error.message);
       property = result.data;
@@ -71,7 +75,7 @@ async function resolveCustomerProperty(client: any, userId: string, email: strin
       .from("properties")
       .update({ customer_id: authenticatedCustomer.id })
       .eq("id", property.id)
-      .eq("company_id", companyId);
+      .or(companyFilter(companyId));
     if (linkError) throw new Error(linkError.message);
   }
 
