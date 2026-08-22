@@ -254,3 +254,7 @@ table td,table th{
   font-weight:900;
   letter-spacing:.04em;
 }
+
+.season-particles{
+  display:none!important;
+}
