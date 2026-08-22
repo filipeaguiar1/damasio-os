@@ -1,0 +1,191 @@
+/* 4Ever Seasons — Dispatch & Routes visual system v2
+   Visual-only overrides scoped to the canonical Route Operations workspace. */
+
+.route-ops-v3{
+  --route-ink:#14241c;
+  --route-muted:#61736a;
+  --route-green:#0b3a2a;
+  --route-green-2:#12543b;
+  --route-canvas:#e9efea;
+  --route-surface:#f8faf8;
+  --route-soft:#e6eee9;
+  --route-line:#c4d2c9;
+  color:var(--route-ink);
+}
+
+.route-ops-v3 .desktop-route-hero{
+  margin-bottom:12px!important;
+  padding:22px 24px!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:20px!important;
+  background:linear-gradient(118deg,#0a3427 0%,#104b36 75%,#15573e 100%)!important;
+  border:1px solid #255b44!important;
+  border-radius:15px!important;
+  box-shadow:0 12px 27px rgba(7,45,31,.14)!important;
+}
+.route-ops-v3 .desktop-route-hero>div>span{
+  color:#9dc8b2!important;
+  font-size:10px!important;
+  font-weight:900!important;
+  letter-spacing:.1em!important;
+  text-transform:uppercase!important;
+}
+.route-ops-v3 .desktop-route-hero h1{
+  max-width:940px!important;
+  margin:6px 0 5px!important;
+  color:#fff!important;
+  font-size:clamp(27px,2.8vw,40px)!important;
+  line-height:1.05!important;
+  letter-spacing:-.04em!important;
+}
+.route-ops-v3 .desktop-route-hero p{
+  margin:0!important;
+  max-width:880px!important;
+  color:#c8dbd1!important;
+  line-height:1.5!important;
+}
+.route-ops-v3 .desktop-route-hero>.btn{
+  flex:0 0 auto!important;
+  background:#f3efe6!important;
+  color:#174633!important;
+  border:1px solid #d9d1c0!important;
+  border-radius:9px!important;
+  box-shadow:none!important;
+}
+
+.route-ops-v3 .desktop-route-modes{
+  display:flex!important;
+  gap:6px!important;
+  width:max-content!important;
+  max-width:100%!important;
+  margin-bottom:14px!important;
+  padding:5px!important;
+  background:#dfe8e2!important;
+  border:1px solid #c1d0c6!important;
+  border-radius:10px!important;
+  box-shadow:none!important;
+}
+.route-ops-v3 .desktop-route-modes>button{
+  min-height:38px!important;
+  padding:8px 13px!important;
+  border:1px solid transparent!important;
+  border-radius:7px!important;
+  background:transparent!important;
+  color:#53685c!important;
+  font-weight:820!important;
+}
+.route-ops-v3 .desktop-route-modes>button:hover{
+  background:#eef3ef!important;
+  border-color:#c8d5cd!important;
+  color:#214735!important;
+}
+.route-ops-v3 .desktop-route-modes>button.active{
+  background:#0f5f42!important;
+  border-color:#0f5f42!important;
+  color:#fff!important;
+  box-shadow:0 5px 11px rgba(15,95,66,.13)!important;
+}
+
+.route-ops-v3 .desktop-route-message{
+  margin-bottom:14px!important;
+  padding:11px 13px!important;
+  background:#e4eee7!important;
+  border:1px solid #bfd2c5!important;
+  border-radius:9px!important;
+  color:#27523d!important;
+  box-shadow:none!important;
+}
+
+.route-ops-v3 .build-v3{
+  gap:13px!important;
+  margin-top:14px!important;
+}
+.route-ops-v3 .build-v3>header{
+  padding:18px 20px!important;
+  border:1px solid #2a5d48!important;
+  border-radius:12px!important;
+  background:#103d2e!important;
+  box-shadow:0 8px 20px rgba(7,45,31,.11)!important;
+}
+.route-ops-v3 .build-v3>header h2{
+  margin:4px 0!important;
+  font-size:24px!important;
+  letter-spacing:-.03em!important;
+}
+.route-ops-v3 .build-v3>header p{color:#bdd0c6!important}
+
+.route-ops-v3 .build-controls{
+  padding:13px!important;
+  background:#e6eee9!important;
+  border:1px solid #c2d1c7!important;
+  border-radius:11px!important;
+  box-shadow:none!important;
+}
+.route-ops-v3 .build-controls input,
+.route-ops-v3 .build-controls select{
+  min-height:43px!important;
+  background:#fbfcfa!important;
+  border:1px solid #aebfb5!important;
+  border-radius:8px!important;
+}
+
+.route-ops-v3 .build-grid>aside,
+.route-ops-v3 .build-grid>main{
+  background:#f7f9f7!important;
+  border:1px solid #c4d2c9!important;
+  border-radius:12px!important;
+  box-shadow:0 6px 17px rgba(11,44,31,.05)!important;
+}
+.route-ops-v3 .build-list-head{
+  background:#e8f0eb!important;
+  border-color:#cbd8d0!important;
+}
+.route-ops-v3 .build-list-head button{color:#285b43!important}
+.route-ops-v3 .build-list{background:#f5f7f5!important}
+.route-ops-v3 .build-list>button,
+.route-ops-v3 .build-recs>button{
+  background:#fafbf9!important;
+  border:1px solid #d0dbd4!important;
+  border-radius:9px!important;
+}
+.route-ops-v3 .build-list>button:nth-child(even){background:#f0f4f1!important}
+.route-ops-v3 .build-list>button:hover,
+.route-ops-v3 .build-recs>button:hover{
+  border-color:#9fb8aa!important;
+  background:#eaf1ec!important;
+}
+.route-ops-v3 .build-list>button.active,
+.route-ops-v3 .build-recs>button.active{
+  border-color:#5c9476!important;
+  background:#deece3!important;
+  box-shadow:inset 3px 0 0 #2e7755!important;
+}
+.route-ops-v3 .build-list b,
+.route-ops-v3 .build-recs>button>b{
+  background:#dde9e1!important;
+  border:1px solid #c3d5c9!important;
+  color:#245b41!important;
+}
+.route-ops-v3 .build-recs em{
+  border:1px solid #c3d5c9!important;
+  border-radius:7px!important;
+  background:#e3eee7!important;
+}
+.route-ops-v3 .build-choice{
+  border:1px solid #2f5c49!important;
+  border-radius:11px!important;
+  background:#103b2d!important;
+  box-shadow:none!important;
+}
+.route-ops-v3 .build-save{
+  border:1px solid #c6d4cb!important;
+  border-radius:10px!important;
+  background:#e9f0eb!important;
+}
+
+@media(max-width:900px){
+  .route-ops-v3 .desktop-route-hero{align-items:flex-start!important;flex-direction:column!important;padding:18px!important}
+  .route-ops-v3 .desktop-route-modes{width:100%!important}
+}
