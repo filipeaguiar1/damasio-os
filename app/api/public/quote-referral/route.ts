@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { sendQuoteAlert } from "@/lib/server/quoteEmail";
 
 export const dynamic = "force-dynamic";
 
@@ -209,6 +210,18 @@ export async function POST(request: NextRequest) {
       status: companyId ? "offered" : "new"
     }).select("id").single();
     if (error) throw error;
+
+    await sendQuoteAlert({
+      stage: "complete",
+      name: body.name,
+      email: body.email,
+      phone: body.phone,
+      address: body.address,
+      service: body.service,
+      estimatedTotal: body.estimatedTotal ?? null,
+      leadId: data.id,
+      companyName,
+    });
 
     return NextResponse.json({ saved: true, leadId: data.id, customerId, propertyId, companyName }, { status: 201 });
   } catch (error) {
