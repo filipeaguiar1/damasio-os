@@ -12,7 +12,7 @@ import {createLiveCustomerTask,uploadLiveTaskPhotos,usesLiveTaskBackend} from "@
 import type {CustomerPortalBoard} from "@/lib/repositories/customerPortalRepository";
 
 const empty:CustomerPortalBoard={property:null,visits:[],tasks:[],requests:[],quotes:[],feedback:[]};
-const services=[["Spring Cleanup","🌱","Seasonal property cleanup"],["Fall Cleanup","🍂","Leaves and winter preparation"],["Custom Request","＋","Tell us what your property needs"],["Return Visit","↺","Something needs another look"]] as const;
+const services=[["Spring Cleanup","SC","Seasonal property cleanup"],["Fall Cleanup","FC","Leaves and winter preparation"],["Custom Request","CR","Tell us what your property needs"],["Return Visit","RV","Something needs another look"]] as const;
 function fullPropertyAddress(board:CustomerPortalBoard){const property=board.property;return property?[property.address,property.city,property.province,property.postalCode].filter(Boolean).join(", "):"Customer property"}
 
 export default function MobileCustomerRequests(){

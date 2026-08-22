@@ -1,15 +1,19 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./public-site-polish.css";
 import "./role-portal-alignment.css";
 import "./customer-profile-media.css";
 import "./role-profile-media.css";
 import "./role-mobile-system.css";
 import "./customer-mobile-overnight.css";
+import "./mobile-employee-polish-v2.css";
+import "./mobile-employee-polish-v3.css";
 import "./e2e-surface-fixes.css";
 import "./route-build-polish.css";
 import "./route-experience-polish.css";
 import "./advisor-smart-route-tweaks.css";
 import "./advisor-stability-fixes.css";
+import "./product-quality-system.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 import {AdminAccessFallback} from "@/components/master/AdminAccessFallback";
 import {CustomerLegacyDataGuard} from "@/components/customer/CustomerLegacyDataGuard";
@@ -19,7 +23,7 @@ import {RouteWorkerConsistencyEnhancer} from "@/components/admin/RouteWorkerCons
 import {CustomerSelectSearchEnhancer} from "@/components/payments/CustomerSelectSearchEnhancer";
 
 export const metadata: Metadata = {
-  title: "4Ever Seasons | Premium Property Care",
+  title: "4 Ever Seasons | Premium Property Care",
   description: "Modern four-season property care with instant quotes, live routes, customer portals and field proof.",
   manifest: "/manifest.json"
 };

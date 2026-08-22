@@ -1,0 +1,260 @@
+:root{
+  --forest:#0b3a2a;
+  --forest2:#071f18;
+  --leaf:#2f7d4d;
+  --lime:#dfece3;
+  --cream:#f3f5f1;
+  --ink:#16231d;
+  --muted:#647168;
+  --line:#d5ded7;
+  --amber:#b7791f;
+  --red:#b42318;
+  --blue:#24536b;
+  --shadow:0 10px 26px rgba(18,41,31,.07);
+  --radius:16px;
+  --ui-radius-sm:8px;
+  --ui-radius-md:12px;
+  --ui-radius-lg:16px;
+  --ui-space-1:4px;
+  --ui-space-2:8px;
+  --ui-space-3:12px;
+  --ui-space-4:16px;
+  --ui-space-5:20px;
+  --ui-space-6:24px;
+  --ui-surface:#ffffff;
+  --ui-surface-muted:#f7f9f6;
+  --ui-focus:0 0 0 3px rgba(47,125,77,.18);
+}
+
+body{
+  background:var(--cream);
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  letter-spacing:0;
+}
+
+:where(button,a,input,select,textarea):focus-visible{
+  outline:0;
+  box-shadow:var(--ui-focus);
+}
+
+.btn{
+  min-height:42px;
+  border-radius:var(--ui-radius-sm);
+  padding:11px 16px;
+  font-weight:850;
+  letter-spacing:0;
+}
+
+.btn-primary{
+  background:var(--forest);
+  color:#fff;
+  border:1px solid var(--forest);
+  box-shadow:0 8px 18px rgba(11,58,42,.14);
+}
+
+.btn-primary:hover{background:#082c21}
+.btn-outline{background:#fff;border:1px solid #9cafaa;color:var(--forest)}
+.btn-white{border:1px solid #d4dfd8;color:var(--forest)}
+
+.card,.table-card,.profile-card,.dash-card,.portal-card,.feature-card,.service-card,.plan-card,.mini-card,.payment-card{
+  border-color:var(--line)!important;
+  border-radius:var(--ui-radius-lg)!important;
+  box-shadow:var(--shadow)!important;
+}
+
+.public-home .public-hero{
+  background:#eef3ef!important;
+  border-bottom:1px solid #d7e1da;
+}
+
+.public-home .hero-brand-title{
+  letter-spacing:0!important;
+  font-size:clamp(52px,7vw,86px)!important;
+}
+
+.public-home .hero-brand-subtitle{
+  color:#415b4e!important;
+  letter-spacing:0!important;
+}
+
+.public-home .hero-proof{
+  border-radius:var(--ui-radius-md)!important;
+  background:#fff!important;
+  box-shadow:0 8px 18px rgba(16,48,34,.055)!important;
+}
+
+.public-home .hero-customer-link{
+  border-radius:var(--ui-radius-sm)!important;
+  box-shadow:none!important;
+}
+
+.public-home .hero-customer-link:hover{
+  transform:none!important;
+  box-shadow:0 8px 18px rgba(12,58,39,.08)!important;
+}
+
+.service-icon,.icon,.portal-icon,.feature-index{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  letter-spacing:0;
+}
+
+.service-glyph,.feature-glyph{
+  font-size:13px;
+  font-weight:900;
+  letter-spacing:.04em;
+}
+
+.studio-topnav{
+  background:#08241b!important;
+  border-bottom:1px solid rgba(255,255,255,.08)!important;
+}
+
+.studio-main{
+  background:#f4f6f3!important;
+}
+
+.studio-page-head,.studio-panel,.studio-kpi{
+  border-radius:var(--ui-radius-md)!important;
+  border-color:#d6e0da!important;
+  box-shadow:0 8px 22px rgba(16,42,30,.055)!important;
+}
+
+.studio-page-head h1{
+  font-size:clamp(28px,3vw,38px)!important;
+  letter-spacing:0!important;
+}
+
+.operations-studio-hero,.customer-directory-head,.tasks-page-head{
+  background:#fff!important;
+}
+
+.operations-studio-hero:after,.studio-kpi:after{
+  display:none!important;
+}
+
+.studio-kpis{
+  grid-template-columns:repeat(6,minmax(124px,1fr))!important;
+}
+
+.studio-kpi{
+  min-height:112px!important;
+  padding:14px!important;
+}
+
+.studio-kpi i,.quick-action-icon,.studio-alert-indicator,.pq-icon{
+  width:32px;
+  height:32px;
+  display:grid;
+  place-items:center;
+  border-radius:var(--ui-radius-sm);
+  background:#edf3ef;
+  color:var(--forest);
+  font-style:normal;
+  font-weight:900;
+  font-size:12px;
+}
+
+.studio-kpi strong{
+  font-size:26px!important;
+}
+
+.studio-panel{
+  padding:16px!important;
+}
+
+.studio-panel h2{
+  font-size:16px!important;
+  letter-spacing:0!important;
+}
+
+.studio-empty,.billing-empty,.customer-native-empty,.mobile-native-empty,.pdw-empty,.canonical-empty{
+  border:1px dashed #cbd7d0!important;
+  border-radius:var(--ui-radius-md)!important;
+  background:#fff!important;
+  color:#65746b!important;
+}
+
+.studio-map,.planner-map,.premium-route-map-art{
+  border-radius:var(--ui-radius-md)!important;
+}
+
+.role-mobile-shell,.mobile-app-shell{
+  background:#f4f6f3!important;
+}
+
+.role-mobile-card,.mobile-stats-card>a,.mobile-stats-card>div,.role-mobile-stat,.role-mobile-action,.role-customer-modules>a,.employee-week-picker,.employee-mobile-progress,.employee-smart-route,.mobile-service-screen{
+  border-radius:var(--ui-radius-md)!important;
+  box-shadow:0 8px 18px rgba(12,43,30,.055)!important;
+}
+
+.role-mobile-hero,.mobile-hero-card,.mobile-native-hero,.mobile-admin-payments-intro,.mobile-shared-route-workspace>header{
+  border-radius:var(--ui-radius-lg)!important;
+  background:#0b3a2a!important;
+  box-shadow:0 10px 24px rgba(8,48,34,.14)!important;
+}
+
+table th{
+  background:#f4f7f5!important;
+  color:#516157!important;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  font-size:11px;
+}
+
+table td,table th{
+  padding:12px 14px!important;
+}
+
+.status,.pay-pill,.tag,.pill,.recurrence-pill,.expense-category,.estimate-status{
+  border-radius:var(--ui-radius-sm)!important;
+  background:#edf3ef!important;
+  color:#315848!important;
+  font-size:11px!important;
+}
+
+.studio-alert-bulb,
+.notification-button,
+.house-placeholder,
+.contract-icon,
+.pw-property-photo span,
+.customer-property-photo span,
+.master-season-grid i{
+  font-size:0!important;
+}
+
+.studio-alert-bulb:before,
+.notification-button:before{
+  content:"AL";
+  font-size:11px;
+  font-weight:900;
+}
+
+.house-placeholder:before,
+.pw-property-photo span:before,
+.customer-property-photo span:before{
+  content:"HOME";
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.04em;
+}
+
+.contract-icon:before{
+  content:"LC";
+  font-size:13px;
+  font-weight:900;
+}
+
+.master-season-grid button:nth-child(1) i:before{content:"SP"}
+.master-season-grid button:nth-child(2) i:before{content:"SU"}
+.master-season-grid button:nth-child(3) i:before{content:"AU"}
+.master-season-grid button:nth-child(4) i:before{content:"WI"}
+
+.master-season-grid i:before{
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.04em;
+}
+
+.season-particles{
+  display:none!important;
+}

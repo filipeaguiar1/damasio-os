@@ -369,7 +369,7 @@ export default function EmployeeRoutePage(){
     <div className="field-topbar">
       <div className="field-brand-mini"><div className="field-brand-mark">4</div><div>4Ever Seasons Field</div></div>
       <div className="topbar-actions">
-        <div className="notification-wrap"><button className="notification-button" onClick={()=>{setNotificationsSeen(true);setNotificationOpen(!notificationOpen)}}>🔔{unreadIssues>0&&<span className="notification-badge">{unreadIssues}</span>}</button>{notificationOpen&&<div className="notification-popover field"><strong>Notifications</strong>{openTasks.length===0?<p>No notifications right now.</p>:openTasks.map(t=><Link key={t.id} href={`/employee/property/${t.leadId}`}>• {t.title}<br/><small>{t.customer}</small></Link>)}</div>}</div>
+        <div className="notification-wrap"><button className="notification-button" aria-label="Open route alerts" onClick={()=>{setNotificationsSeen(true);setNotificationOpen(!notificationOpen)}}>AL{unreadIssues>0&&<span className="notification-badge">{unreadIssues}</span>}</button>{notificationOpen&&<div className="notification-popover field"><strong>Route alerts</strong>{openTasks.length===0?<p>No route alerts right now.</p>:openTasks.map(t=><Link key={t.id} href={`/employee/property/${t.leadId}`}>{t.title}<br/><small>{t.customer}</small></Link>)}</div>}</div>
         <div className="profile-menu-wrap">
           <button className="field-avatar" onClick={()=>setMenuOpen(!menuOpen)}>{profile.photoLabel||profile.name.slice(0,1)||"E"}</button>
           {menuOpen&&<div className="employee-menu">
@@ -485,13 +485,13 @@ export default function EmployeeRoutePage(){
 
     {view==="details"&&selected&&<main className="field-container">
       <div className="house-image">
-        {selected.propertyPhoto?<img src={selected.propertyPhoto} alt="Official property"/>:<div className="house-placeholder">🏠</div>}
+        {selected.propertyPhoto?<img src={selected.propertyPhoto} alt="Official property"/>:<div className="house-placeholder">HOME</div>}
         {hasValidAddress(selected.address)?<a className="direction-btn" href={mapsHref(selected.address)} onClick={(e)=>openNativeDirections(selected.address,e)} target="_blank" rel="noopener noreferrer">Get directions</a>:<span className="direction-btn disabled">Address missing</span>}
       </div>
 
       <span className="eyebrow">Service Screen</span>
       <h1 className="field-title">{selected.address}</h1>
-      {doneMessage&&<div className="done-confirmation">✅ {doneMessage}</div>}
+      {doneMessage&&<div className="done-confirmation"><strong>Done</strong> {doneMessage}</div>}
 
       <div className="details-table">
         <div className="details-row"><span>Client</span><span>{selected.name}</span></div>
@@ -504,11 +504,11 @@ export default function EmployeeRoutePage(){
 
       <h2>Service</h2>
       <div className="contract-row">
-        <div className="contract-icon">🌱</div>
+        <div className="contract-icon">LC</div>
         <div><h2 style={{margin:0}}>{selected.service}</h2><p style={{margin:"6px 0 0",color:"#6b7280"}}>{selected.scheduledDate||"Season"} • {selected.scheduledWindow||"Flexible"}</p></div>
       </div>
 
-      {details?.propertyAlerts&&<div className="info-blue">⚠️ {details.propertyAlerts}</div>}
+      {details?.propertyAlerts&&<div className="info-blue"><strong>Property alert</strong> {details.propertyAlerts}</div>}
 
       <div className="details-table">
         <div className="details-row"><span>Grass height</span><span>{details?.grassHeight||"3in"}</span></div>
@@ -533,7 +533,7 @@ export default function EmployeeRoutePage(){
 
       <div className="row" style={{marginBottom:12}}>
         <button className="start-btn" onClick={start} disabled={selected.canonicalVisitId?canonicalActive||canonicalDone||canonicalMissed:session?.status==="running"}>Start</button>
-        <button className="btn btn-outline" onClick={()=>setCommentOpen(!commentOpen)}>💬 Comment</button>
+        <button className="btn btn-outline" onClick={()=>setCommentOpen(!commentOpen)}>Comment</button>
         <button className="finish-btn" onClick={finish} disabled={selected.canonicalVisitId?!canonicalActive:!session||session.status==="finished"}>Finish</button>
       </div>
       {commentOpen&&<div className="field-card" style={{padding:16,marginBottom:20}}>
