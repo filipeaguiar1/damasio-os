@@ -1,4 +1,4 @@
-import { QuoteWizard } from "./QuoteWizard";
+import { QuoteWizardConversion } from "./QuoteWizardConversion";
 
 export function Hero() {
   return <section className="public-home-site-hero">
@@ -22,7 +22,7 @@ export function Hero() {
         </div>
       </div>
       <aside id="quote" className="hero-quote-panel" aria-label="Request a quote">
-        <QuoteWizard />
+        <QuoteWizardConversion />
       </aside>
     </div>
   </section>;
