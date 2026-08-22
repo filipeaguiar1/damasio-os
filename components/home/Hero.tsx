@@ -13,7 +13,7 @@ export function Hero() {
         <p className="hero-text">Local lawn care, seasonal cleanups, garden work and winter visits with clear scope, visit notes and photos after the work is done.</p>
         <div className="hero-actions">
           <a className="btn btn-primary hero-primary" href="#quote">Get your instant quote</a>
-          <a className="btn btn-outline hero-customer-link" href="/auth/login">Already a customer?</a>
+          <a className="btn btn-outline hero-customer-link" href="/login">Already a customer?</a>
         </div>
         <div className="hero-proof-grid" aria-label="Service technology highlights">
           <div className="hero-proof"><span>Smart scheduling</span><strong>Neighbourhood routes</strong><small>Planned service with organized local coverage.</small></div>
