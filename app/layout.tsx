@@ -15,6 +15,7 @@ import "./advisor-smart-route-tweaks.css";
 import "./advisor-stability-fixes.css";
 import "./product-quality-system.css";
 import "./admin-dashboard-polish.css";
+import "./portal-desktop-polish.css";
 import "./public-pages.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 import {AdminAccessFallback} from "@/components/master/AdminAccessFallback";
