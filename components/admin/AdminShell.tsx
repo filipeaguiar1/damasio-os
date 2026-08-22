@@ -26,7 +26,6 @@ const quickActions: NavLink[] = [
   ["Build Route", "/admin/routes?tab=build"],
   ["Request Approval", "/admin/requests"],
   ["Message Center", "/admin/notifications"],
-  ["Database Health", "/admin/database"],
 ];
 
 function navActive(active:string,label:string){

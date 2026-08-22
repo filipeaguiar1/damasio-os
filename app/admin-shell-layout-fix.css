@@ -1,0 +1,68 @@
+/* Desktop Admin shell geometry fix.
+   Keeps the header and rail in place while removing legacy spacer gaps. */
+
+@media (min-width: 901px){
+  .studio-shell{
+    --studio-header-height:70px;
+    --studio-rail-width:212px;
+    --studio-status-height:32px;
+    display:grid!important;
+    grid-template-columns:var(--studio-rail-width) minmax(0,1fr)!important;
+    grid-template-rows:var(--studio-header-height) minmax(calc(100vh - var(--studio-header-height) - var(--studio-status-height)),auto) var(--studio-status-height)!important;
+    min-height:100vh!important;
+    align-items:start!important;
+  }
+
+  .studio-shell .studio-topnav{
+    position:fixed!important;
+    top:0!important;
+    left:0!important;
+    right:0!important;
+    z-index:5000!important;
+    width:100%!important;
+    height:var(--studio-header-height)!important;
+    min-height:var(--studio-header-height)!important;
+    margin:0!important;
+  }
+
+  .studio-shell .studio-rail{
+    position:fixed!important;
+    top:var(--studio-header-height)!important;
+    bottom:var(--studio-status-height)!important;
+    left:0!important;
+    z-index:4200!important;
+    width:var(--studio-rail-width)!important;
+    height:auto!important;
+    max-height:none!important;
+    margin:0!important;
+    padding-top:12px!important;
+    align-self:auto!important;
+    overflow-y:auto!important;
+    transform:none!important;
+  }
+
+  .studio-shell .studio-rail>strong{
+    display:block!important;
+    margin:0 0 8px!important;
+    padding-top:0!important;
+  }
+
+  .studio-shell .studio-main{
+    grid-column:2!important;
+    grid-row:2!important;
+    align-self:start!important;
+    min-height:calc(100vh - var(--studio-header-height) - var(--studio-status-height))!important;
+    margin:0!important;
+    padding-top:24px!important;
+  }
+
+  .studio-shell .studio-bottom-status{
+    position:fixed!important;
+    left:var(--studio-rail-width)!important;
+    right:0!important;
+    bottom:0!important;
+    z-index:4500!important;
+    min-height:var(--studio-status-height)!important;
+    margin:0!important;
+  }
+}

@@ -43,32 +43,52 @@
 }
 
 .studio-shell .studio-rail nav a{
-  color:#e9f4ee!important;
-  border-color:transparent!important;
-  background:transparent!important;
+  min-height:46px!important;
+  display:flex!important;
+  align-items:center!important;
+  gap:11px!important;
+  padding:8px 10px!important;
+  color:#edf7f1!important;
+  border:1px solid rgba(255,255,255,.06)!important;
+  border-radius:10px!important;
+  background:rgba(255,255,255,.035)!important;
+  box-shadow:none!important;
+  transition:background .15s ease,border-color .15s ease,transform .15s ease!important;
 }
 
 .studio-shell .studio-rail nav a:hover{
-  background:rgba(255,255,255,.08)!important;
-  border-color:rgba(255,255,255,.09)!important;
+  background:rgba(255,255,255,.085)!important;
+  border-color:rgba(255,255,255,.13)!important;
+  transform:translateX(1px)!important;
 }
 
+/* Quick Actions are one visual family. No permanently special first item. */
 .studio-shell .studio-rail nav a.primary{
-  background:linear-gradient(135deg,#15915f,#0c6b48)!important;
-  border-color:#31ae79!important;
-  box-shadow:0 10px 24px rgba(0,0,0,.22)!important;
+  color:#edf7f1!important;
+  background:rgba(255,255,255,.035)!important;
+  border-color:rgba(255,255,255,.06)!important;
+  box-shadow:none!important;
 }
 
-.studio-shell .studio-rail nav a .quick-action-icon{
-  color:#dff3e8!important;
-  background:rgba(255,255,255,.08)!important;
-  border-color:rgba(255,255,255,.12)!important;
-}
-
+.studio-shell .studio-rail nav a .quick-action-icon,
 .studio-shell .studio-rail nav a.primary .quick-action-icon{
-  color:#0b6d49!important;
-  background:#f4fff8!important;
-  border-color:#f4fff8!important;
+  flex:0 0 32px!important;
+  width:32px!important;
+  height:32px!important;
+  display:grid!important;
+  place-items:center!important;
+  color:#dff3e8!important;
+  background:rgba(255,255,255,.075)!important;
+  border:1px solid rgba(255,255,255,.12)!important;
+  border-radius:9px!important;
+}
+
+.studio-shell .studio-rail nav a .quick-action-label{
+  min-width:0!important;
+  font-size:13px!important;
+  line-height:1.15!important;
+  font-weight:780!important;
+  white-space:nowrap!important;
 }
 
 .studio-shell .studio-rail-summary{
