@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./public-site-polish.css";
-import "./public-pages.css";
 import "./role-portal-alignment.css";
 import "./customer-profile-media.css";
 import "./role-profile-media.css";
@@ -15,6 +14,7 @@ import "./route-experience-polish.css";
 import "./advisor-smart-route-tweaks.css";
 import "./advisor-stability-fixes.css";
 import "./product-quality-system.css";
+import "./public-pages.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 import {AdminAccessFallback} from "@/components/master/AdminAccessFallback";
 import {CustomerLegacyDataGuard} from "@/components/customer/CustomerLegacyDataGuard";
