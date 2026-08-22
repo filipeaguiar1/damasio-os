@@ -5,16 +5,22 @@ import "./public-site-polish.css";
 import "./role-portal-alignment.css";
 import "./customer-profile-media.css";
 import "./role-profile-media.css";
+import "./unified-mobile.css";
 import "./role-mobile-system.css";
+import "./premium-mobile.css";
+import "./premium-mobile-fixes.css";
 import "./customer-mobile-overnight.css";
-import "./mobile-employee-polish-v2.css";
-import "./mobile-employee-polish-v3.css";
 import "./e2e-surface-fixes.css";
 import "./route-build-polish.css";
 import "./route-experience-polish.css";
 import "./advisor-smart-route-tweaks.css";
 import "./advisor-stability-fixes.css";
 import "./product-quality-system.css";
+import "./mobile-audit-fixes.css";
+import "./customer-wallet-feedback.css";
+import "./mobile-employee-polish.css";
+import "./mobile-employee-polish-v2.css";
+import "./mobile-employee-polish-v3.css";
 import "./admin-dashboard-polish.css";
 import "./admin-primary-pages-polish.css";
 import "./route-operations-visual-v2.css";
@@ -28,6 +34,7 @@ import {RouteAdvisorFeedbackNavigator} from "@/components/admin/RouteAdvisorFeed
 import {AdvisorHouseQuickAccess} from "@/components/admin/AdvisorHouseQuickAccess";
 import {RouteWorkerConsistencyEnhancer} from "@/components/admin/RouteWorkerConsistencyEnhancer";
 import {CustomerSelectSearchEnhancer} from "@/components/payments/CustomerSelectSearchEnhancer";
+import {EmployeeMobilePolish} from "@/components/mobile/EmployeeMobilePolish";
 import {getSiteUrl} from "@/lib/seo/siteUrl";
 
 const siteUrl = getSiteUrl();
@@ -46,5 +53,5 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: "#043d2e", width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="en-CA" data-season="summer"><body><SeasonThemeProvider><CustomerLegacyDataGuard/><RouteAdvisorFeedbackNavigator/><AdvisorHouseQuickAccess/><RouteWorkerConsistencyEnhancer/><CustomerSelectSearchEnhancer/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
+  return <html lang="en-CA" data-season="summer"><body><SeasonThemeProvider><CustomerLegacyDataGuard/><RouteAdvisorFeedbackNavigator/><EmployeeMobilePolish/><AdvisorHouseQuickAccess/><RouteWorkerConsistencyEnhancer/><CustomerSelectSearchEnhancer/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
 }
