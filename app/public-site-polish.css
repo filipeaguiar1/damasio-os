@@ -15,7 +15,7 @@
 
 .public-home-site-hero{
   position:relative;
-  min-height:calc(100vh - 88px);
+  min-height:calc(100vh - 80px);
   display:grid;
   align-items:end;
   overflow:hidden;
@@ -34,27 +34,28 @@
   width:100%;
   height:100%;
   object-fit:cover;
-  object-position:center;
+  object-position:center 58%;
+  filter:saturate(.72) contrast(1.04);
 }
 
 .public-hero-overlay{
   background:
-    linear-gradient(90deg,rgba(5,22,16,.86) 0%,rgba(5,22,16,.64) 37%,rgba(5,22,16,.22) 72%,rgba(5,22,16,.08) 100%),
-    linear-gradient(0deg,rgba(5,22,16,.52),rgba(5,22,16,0) 42%);
+    linear-gradient(90deg,rgba(5,20,15,.88) 0%,rgba(5,20,15,.7) 42%,rgba(5,20,15,.42) 72%,rgba(5,20,15,.32) 100%),
+    linear-gradient(0deg,rgba(5,20,15,.56),rgba(5,20,15,.05) 48%);
 }
 
 .public-hero-layout{
   position:relative;
   z-index:1;
   display:grid;
-  grid-template-columns:minmax(0,1fr) minmax(360px,440px);
-  gap:34px;
-  align-items:end;
-  padding:76px 0 54px;
+  grid-template-columns:minmax(0,720px) minmax(360px,440px);
+  gap:42px;
+  align-items:center;
+  padding:72px 0 68px;
 }
 
 .public-hero-copy{
-  max-width:790px;
+  max-width:720px;
 }
 
 .public-hero-copy .section-kicker{
@@ -63,10 +64,10 @@
 
 .public-hero-copy h1{
   margin:0;
-  max-width:790px;
+  max-width:720px;
   color:#fff;
-  font-size:clamp(48px,6.8vw,92px);
-  line-height:.92;
+  font-size:clamp(46px,5.4vw,74px);
+  line-height:.98;
   letter-spacing:0;
   text-wrap:balance;
 }
@@ -89,14 +90,15 @@
 .public-home .hero-primary{
   min-height:48px;
   padding:14px 20px;
-  background:#fff;
-  color:#0b3124;
-  border-color:#fff;
+  background:#14774f;
+  color:#fff;
+  border-color:#72b58f;
   box-shadow:0 14px 34px rgba(0,0,0,.18);
 }
 
 .public-home .hero-primary:hover{
-  background:#edf5ef;
+  background:#0f613f;
+  color:#fff;
 }
 
 .public-home .hero-customer-link{
@@ -116,42 +118,44 @@
   display:grid;
   grid-template-columns:repeat(3,minmax(0,1fr));
   gap:10px;
-  margin-top:34px;
-  max-width:790px;
+  margin-top:32px;
+  max-width:720px;
 }
 
-.public-home .hero-proof{
-  padding:14px;
-  border:1px solid rgba(255,255,255,.22);
-  border-radius:10px;
-  background:rgba(8,26,19,.48);
-  backdrop-filter:blur(10px);
+.public-home-site-hero .hero-proof{
+  min-height:112px;
+  padding:15px 15px 14px;
+  border:1px solid rgba(206,226,214,.34)!important;
+  border-radius:10px!important;
+  background:rgba(8,25,18,.72)!important;
+  box-shadow:0 18px 42px rgba(0,0,0,.18)!important;
 }
 
-.public-home .hero-proof span{
+.public-home-site-hero .hero-proof span,
+.public-home-site-hero .hero-proof > span{
   display:block;
   margin-bottom:7px;
-  color:#bfd7ca;
+  color:#d5e7db!important;
   font-size:10px;
   font-weight:900;
   letter-spacing:.12em;
   text-transform:uppercase;
 }
 
-.public-home .hero-proof strong,
-.public-home .hero-proof small{
+.public-home-site-hero .hero-proof strong,
+.public-home-site-hero .hero-proof small{
   display:block;
 }
 
-.public-home .hero-proof strong{
-  color:#fff;
-  font-size:14px;
+.public-home-site-hero .hero-proof strong{
+  color:#fff!important;
+  font-size:15px;
   line-height:1.25;
 }
 
-.public-home .hero-proof small{
+.public-home-site-hero .hero-proof small{
   margin-top:6px;
-  color:rgba(255,255,255,.72);
+  color:rgba(255,255,255,.78)!important;
   line-height:1.45;
 }
 
@@ -160,12 +164,13 @@
 }
 
 .public-home .quote-card{
-  padding:22px;
-  border-radius:12px!important;
-  border:1px solid rgba(255,255,255,.34)!important;
-  background:rgba(255,255,255,.94);
-  box-shadow:0 24px 70px rgba(0,0,0,.22)!important;
-  backdrop-filter:blur(12px);
+  padding:24px;
+  border-radius:10px!important;
+  border:1px solid rgba(15,55,38,.18)!important;
+  background:#f7f8f4;
+  color:#142b22!important;
+  box-shadow:0 24px 64px rgba(0,0,0,.2)!important;
+  backdrop-filter:none;
 }
 
 .public-home .quote-head h2{
@@ -179,9 +184,25 @@
   align-items:center;
 }
 
+.public-home .quote-card .stack > strong,
+.public-home .quote-card label{
+  color:#24392f!important;
+}
+
+.public-home .quote-card .pill{
+  color:#174934!important;
+  background:#e9f1ea!important;
+}
+
+.public-home .quote-card .btn-primary{
+  color:#fff!important;
+}
+
 .public-home .option{
-  border-radius:10px;
+  border-radius:8px;
   text-align:left;
+  border-color:#cfd8d1;
+  background:#fff;
   transition:border-color .15s ease,background .15s ease;
 }
 
@@ -190,7 +211,8 @@
 }
 
 .public-home .option.active{
-  background:#0b3a2a;
+  background:#0a3a29;
+  border-color:#0a3a29;
   color:#fff;
 }
 
