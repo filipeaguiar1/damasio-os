@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./homepage-conversion-polish.css";
 import "./public-site-polish.css";
 import "./role-portal-alignment.css";
 import "./customer-profile-media.css";
@@ -37,38 +38,12 @@ export const metadata: Metadata = {
   description: "Local lawn care, seasonal cleanups, garden maintenance and winter property service across Hamilton, Burlington and Oakville, Ontario.",
   applicationName: "4Ever Seasons",
   manifest: "/manifest.json",
-  robots: {
-    index: true,
-    follow: true,
-    googleBot: {
-      index: true,
-      follow: true,
-      "max-image-preview": "large",
-      "max-snippet": -1,
-      "max-video-preview": -1,
-    },
-  },
-  openGraph: {
-    type: "website",
-    locale: "en_CA",
-    url: siteUrl,
-    siteName: "4Ever Seasons",
-    title: "4Ever Seasons | Property Maintenance in Hamilton, Burlington & Oakville",
-    description: "Local lawn care, seasonal cleanups, garden maintenance and winter property service across Hamilton, Burlington and Oakville, Ontario.",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "4Ever Seasons | Property Maintenance in Hamilton, Burlington & Oakville",
-    description: "Local four-season property maintenance across Hamilton, Burlington and Oakville, Ontario.",
-  },
+  robots: { index: true, follow: true, googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1, "max-video-preview": -1 } },
+  openGraph: { type: "website", locale: "en_CA", url: siteUrl, siteName: "4Ever Seasons", title: "4Ever Seasons | Property Maintenance in Hamilton, Burlington & Oakville", description: "Local lawn care, seasonal cleanups, garden maintenance and winter property service across Hamilton, Burlington and Oakville, Ontario." },
+  twitter: { card: "summary_large_image", title: "4Ever Seasons | Property Maintenance in Hamilton, Burlington & Oakville", description: "Local four-season property maintenance across Hamilton, Burlington and Oakville, Ontario." },
 };
 
-export const viewport: Viewport = {
-  themeColor: "#043d2e",
-  width: "device-width",
-  initialScale: 1,
-  viewportFit: "cover"
-};
+export const viewport: Viewport = { themeColor: "#043d2e", width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return <html lang="en-CA" data-season="summer"><body><SeasonThemeProvider><CustomerLegacyDataGuard/><RouteAdvisorFeedbackNavigator/><AdvisorHouseQuickAccess/><RouteWorkerConsistencyEnhancer/><CustomerSelectSearchEnhancer/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
