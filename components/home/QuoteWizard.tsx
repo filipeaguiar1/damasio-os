@@ -140,21 +140,22 @@ export function QuoteWizard() {
     });
   }, [service, size, grassHeight, grassHandling, difficulty, cleanupLeafLevel, cleanupDebrisLevel, cleanupDisposal, cleanupVisitCount, snowDrivewaySize, snowArea, snowSidewalk, snowSalt, snowBilling, hasServiceDetails, isExtra]);
 
-  const detailsSummary = [
-    size ? `Property size: ${pretty(size)}` : null,
-    isLawn && grassHeight ? `Grass height: ${pretty(grassHeight)}` : null,
-    isLawn && grassHandling ? `Grass handling: ${pretty(grassHandling)}` : null,
-    isCleanup && cleanupLeafLevel ? `Leaf amount: ${pretty(cleanupLeafLevel)}` : null,
-    isCleanup && cleanupDebrisLevel ? `Stick/debris pickup: ${pretty(cleanupDebrisLevel)}` : null,
-    isCleanup && cleanupDisposal ? `Cleanup disposal: ${pretty(cleanupDisposal)}` : null,
-    isCleanup && cleanupVisitCount ? `Cleanup visits: ${pretty(cleanupVisitCount)}` : null,
-    isSnow && snowDrivewaySize ? `Driveway size: ${pretty(snowDrivewaySize)}` : null,
-    isSnow && snowArea ? `Snow clearing area: ${pretty(snowArea)}` : null,
-    isSnow && snowSidewalk ? `Sidewalk/walkway clearing: ${pretty(snowSidewalk)}` : null,
-    isSnow && snowSalt ? `Salt/de-icing: ${pretty(snowSalt)}` : null,
-    isSnow && snowBilling ? `Snow billing preference: ${pretty(snowBilling)}` : null,
-    difficulty ? `Terrain/access difficulty: ${pretty(difficulty)}` : null,
-  ].filter(Boolean).join(" | ");
+  const detailsSummaryItems = [
+    size ? { label: "Property size", value: pretty(size) } : null,
+    isLawn && grassHeight ? { label: "Grass height", value: pretty(grassHeight) } : null,
+    isLawn && grassHandling ? { label: "Grass handling", value: pretty(grassHandling) } : null,
+    isCleanup && cleanupLeafLevel ? { label: "Leaf amount", value: pretty(cleanupLeafLevel) } : null,
+    isCleanup && cleanupDebrisLevel ? { label: "Stick/debris pickup", value: pretty(cleanupDebrisLevel) } : null,
+    isCleanup && cleanupDisposal ? { label: "Cleanup disposal", value: pretty(cleanupDisposal) } : null,
+    isCleanup && cleanupVisitCount ? { label: "Cleanup visits", value: pretty(cleanupVisitCount) } : null,
+    isSnow && snowDrivewaySize ? { label: "Driveway size", value: pretty(snowDrivewaySize) } : null,
+    isSnow && snowArea ? { label: "Snow clearing area", value: pretty(snowArea) } : null,
+    isSnow && snowSidewalk ? { label: "Walkway clearing", value: pretty(snowSidewalk) } : null,
+    isSnow && snowSalt ? { label: "Salt/de-icing", value: pretty(snowSalt) } : null,
+    isSnow && snowBilling ? { label: "Snow billing", value: pretty(snowBilling) } : null,
+    difficulty ? { label: "Access difficulty", value: pretty(difficulty) } : null,
+  ].filter(Boolean) as { label: string; value: string }[];
+  const detailsSummary = detailsSummaryItems.map(item => `${item.label}: ${item.value}`).join(" | ");
 
   function showQuote() {
     if (!lead.address.trim()) return setMsg("Add the property address first.");
@@ -286,7 +287,19 @@ export function QuoteWizard() {
 
       {step === 4 && <div className="stack">
         <div className="quote-result"><small>{quoteNumber ? "Request received" : "Review before sending"}</small><div className="quote-price">{quoteNumber || (isExtra ? "Admin Review" : `$${quote.total.toFixed(2)}`)}</div><p>{quoteNumber ? `Admin will review and send the final quote to ${lead.email}.` : "Confirm below to send this request to Admin for approval."}</p></div>
-        {!isExtra && <div className="notice">{detailsSummary}. This is an average estimate, not the final approved price.</div>}
+        {!isExtra && <div className="quote-scope-summary" aria-label="Selected property details">
+          <div className="quote-scope-head">
+            <span>Scope review</span>
+            <strong>Average estimate only</strong>
+          </div>
+          <dl>
+            {detailsSummaryItems.map(item => <div key={item.label}>
+              <dt>{item.label}</dt>
+              <dd>{item.value}</dd>
+            </div>)}
+          </dl>
+          <p>Admin reviews the property details before sending the final approved price.</p>
+        </div>}
         {quoteNumber ? <div className="notice">Keep this quote number: {quoteNumber}</div> : <div className="row"><button className="btn btn-outline" disabled={busy} onClick={() => setStep(2)}>Edit Service</button><button className="btn btn-outline" disabled={busy} onClick={() => setStep(3)}>Edit Contact</button><button className="btn btn-primary" disabled={busy} onClick={() => void submit()}>{busy ? "Sending..." : "Send to Admin for Approval"}</button></div>}
         {msg && <div className="payment-message">{msg}</div>}
       </div>}
