@@ -21,6 +21,7 @@ import "./portal-desktop-polish.css";
 import "./master-platform-polish.css";
 import "./public-pages.css";
 import "./admin-shell-personality-v2.css";
+import "./admin-shell-layout-fix.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 import {AdminAccessFallback} from "@/components/master/AdminAccessFallback";
 import {CustomerLegacyDataGuard} from "@/components/customer/CustomerLegacyDataGuard";
