@@ -15,7 +15,6 @@ import "./advisor-smart-route-tweaks.css";
 import "./advisor-stability-fixes.css";
 import "./product-quality-system.css";
 import "./public-pages.css";
-import "./unified-role-layout.css";
 import {SeasonThemeProvider} from "@/components/SeasonThemeProvider";
 import {AdminAccessFallback} from "@/components/master/AdminAccessFallback";
 import {CustomerLegacyDataGuard} from "@/components/customer/CustomerLegacyDataGuard";
