@@ -13,7 +13,7 @@ import { getSiteUrl } from "@/lib/seo/siteUrl";
 const siteUrl = getSiteUrl();
 
 export const metadata: Metadata = {
-  title: "4Ever Seasons | Lawn Care & Property Maintenance in Hamilton, Burlington & Oakville",
+  title: "Lawn Care & Property Maintenance | 4Ever Seasons",
   description: "Lawn care, seasonal cleanups, garden maintenance and winter property service in Hamilton, Burlington and Oakville, Ontario. Request a property quote online.",
   alternates: { canonical: "/" },
   openGraph: {
