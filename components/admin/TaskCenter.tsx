@@ -262,7 +262,7 @@ export function TaskCenter({ mode = "all" }: { mode?: Mode }) {
                 <div className={styles.titleLine}><strong>{task.title}</strong><span className={`${styles.pill} ${task.priority === "urgent" ? styles.urgent : ""}`}>{task.priority}</span><span className={`${styles.pill} ${statusClass(task.status)}`}>{task.status.replaceAll("_", " ")}</span></div>
                 <p>{task.customerName} · {task.address}</p>
                 <small>{task.issue}</small>
-                <div className={styles.meta}><span>{workerName(task)}</span><span>{prettyDate(task.scheduledDate)}</span>{task.completionDurationSeconds ? <span>{duration(task.completionDurationSeconds)}</span> : null}</div>
+                <div className={styles.meta}><span>{workerName(task)}</span><span>{prettyDate(task.scheduledDate)}</span>{task.durationSeconds ? <span>{duration(task.durationSeconds)}</span> : null}</div>
               </div>
               <div className={styles.actions}>
                 <Link href={`/admin/tasks/${task.id}`}>Open</Link>
