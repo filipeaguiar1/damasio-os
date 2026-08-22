@@ -214,7 +214,7 @@
   flex-wrap:wrap!important;
 }
 
-.studio-shell .studio-head-actionssþspan{
+.studio-shell .studio-head-actions>span{
   min-height:36px!important;
   display:inline-flex!important;
   align-items:center!important;
@@ -235,7 +235,7 @@
 }
 
 .studio-shell .studio-head-actions .btn-outline{
-  color:color:#17372b!important;
+  color:#17372b!important;
   background:#f3efe4!important;
   border-color:#f3efe4!important;
 }
