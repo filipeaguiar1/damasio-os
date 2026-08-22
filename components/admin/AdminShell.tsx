@@ -41,6 +41,17 @@ function BellIcon(){
   return <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 }
 
+function ActionIcon({label}:{label:string}){
+  const common={fill:"none",stroke:"currentColor",strokeWidth:1.8,strokeLinecap:"round" as const,strokeLinejoin:"round" as const};
+  if(label==="New Work Order")return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" {...common}/></svg>;
+  if(label==="Add Customer")return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 19a6 6 0 0 0-12 0M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M19 8v6M16 11h6" {...common}/></svg>;
+  if(label==="Recommend Service")return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c3 3 5 5.8 5 9a5 5 0 0 1-10 0c0-3.2 2-6 5-9ZM9.5 15.5c1.4-.4 2.7-1.4 3.7-3" {...common}/></svg>;
+  if(label==="Build Route")return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="18" r="2" {...common}/><circle cx="18" cy="6" r="2" {...common}/><path d="M8 18c6 0 2-12 8-12" {...common}/></svg>;
+  if(label==="Request Approval")return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10v4h3v14H4V7h3V3ZM8 13l3 3 5-6" {...common}/></svg>;
+  if(label==="Message Center")return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v12H8l-4 4V5Z" {...common}/><path d="M8 9h8M8 13h5" {...common}/></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18V6M4 18h16M8 15v-4M12 15V8M16 15v-7M20 15V5" {...common}/></svg>;
+}
+
 export function AdminShell({ children, active }: { children: React.ReactNode; active: string }) {
   const [unread, setUnread] = useState(0);
   const [pendingRequests, setPendingRequests] = useState(0);
@@ -88,7 +99,7 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
       <aside className={`studio-rail ${mobileMenuOpen ? "mobile-menu-open" : ""}`}>
         <button type="button" className="mobile-menu-close" onClick={() => setMobileMenuOpen(false)} aria-label="Close menu">x</button>
         <strong>Quick Actions</strong>
-        <nav>{quickActions.map(([label, href], index) => <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} className={index === 0 ? "primary" : ""}><span className="quick-action-icon">{index === 0 ? "+" : String(index)}</span><strong className="quick-action-label">{label}</strong></Link>)}</nav>
+        <nav>{quickActions.map(([label, href], index) => <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} className={index === 0 ? "primary" : ""}><span className="quick-action-icon"><ActionIcon label={label}/></span><strong className="quick-action-label">{label}</strong></Link>)}</nav>
         <section className="studio-rail-summary"><span>Today</span><div><small>Pending Requests</small><b>{pendingRequests}</b></div><div><small>Unread Alerts</small><b>{unread}</b></div></section>
         <Link href="/admin/production" className="studio-system-status"><i></i><span>System Status</span><small>Production checklist</small></Link>
         <section className="studio-rail-filler" aria-label="Workspace status"><div><small>Workspace</small><strong>Company isolated</strong></div><p>Admin tools use company-scoped data so each company stays separated.</p><Link href="/admin/saas">Tenant readiness</Link></section>
@@ -110,6 +121,7 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
         .studio-alert-bulb{display:grid;place-items:center;line-height:1}
         .studio-alert-bulb:before{content:none!important}
         .studio-alert-bulb svg{display:block}
+        .quick-action-icon svg{width:17px;height:17px;display:block}
         .studio-icon{color:#f4f7f5!important;background:rgba(255,255,255,.08)!important;border-color:rgba(255,255,255,.16)!important}
         .studio-icon:hover{background:rgba(255,255,255,.14)!important}
         .desktop-route-modes{min-width:0!important;max-width:100%!important;overflow-x:auto!important;overflow-y:hidden!important;flex-wrap:nowrap!important;scrollbar-width:thin}
@@ -117,15 +129,8 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
         .route-simple-summary>.btn.btn-primary{background:#fbfffc!important;color:#075239!important;border:2px solid #d8f0df!important;box-shadow:0 10px 24px rgba(0,0,0,.14)!important;text-shadow:none!important;opacity:1!important}
         .route-simple-summary>.btn.btn-primary:hover{background:#fff!important;color:#053f2d!important}
         .route-simple-summary>.btn.btn-primary:disabled{background:#dcebe3!important;color:#355d4c!important;border-color:#c7dbd0!important;box-shadow:none!important;opacity:1!important}
-        .admin-layout-refresh .studio-main{background:linear-gradient(180deg,#f6f9f7 0%,#f1f5f2 100%)}
-        .admin-layout-refresh .studio-main>.app-top,.admin-layout-refresh .studio-main>.calendar-heading{padding:20px 22px!important;border:1px solid #bdcec4!important;border-radius:18px!important;background:#fff!important;box-shadow:0 8px 24px rgba(10,52,37,.045)!important}
-        .admin-layout-refresh .studio-main :where(.card,.table-card,.profile-card,.estimate-preview,.stat-card,.metric-card,.employee-card,.customer-card,.report-card){border-color:#b8c9bf!important;box-shadow:0 8px 24px rgba(10,52,37,.05)!important}
-        .admin-layout-refresh .studio-main :where(input,select,textarea){border-color:#aebfb6!important}
-        .admin-layout-refresh .studio-main :where(input,select,textarea):focus{border-color:#0f8051!important;box-shadow:0 0 0 3px rgba(15,128,81,.09)!important;outline:none!important}
         .admin-layout-refresh .studio-main :where(.tab-row,.tabs,.filter-tabs,.sub-tabs){max-width:100%;overflow-x:auto;overflow-y:hidden;flex-wrap:nowrap!important;scrollbar-width:thin}
         .admin-layout-refresh .studio-main :where(.tab-row,.tabs,.filter-tabs,.sub-tabs)>*{flex:0 0 auto;white-space:nowrap}
-        .admin-layout-refresh .studio-main table th{color:#5f7167!important;background:#f8fbf9!important}
-        .admin-layout-refresh .studio-main table td,.admin-layout-refresh .studio-main table th{border-color:#d6e0da!important}
         @media(min-width:901px){.studio-topnav{grid-template-columns:minmax(190px,250px) minmax(0,1fr) 46px minmax(48px,190px) auto!important;column-gap:8px!important}}
         @media(min-width:901px) and (max-width:1260px){.studio-topnav{grid-template-columns:minmax(165px,215px) minmax(0,1fr) 44px 48px!important}.studio-user{width:44px!important;min-width:44px!important;padding:0!important;justify-content:center!important}.studio-user>div,.studio-signout{display:none!important}.studio-brand>div small{display:none!important}}
       `}</style>
