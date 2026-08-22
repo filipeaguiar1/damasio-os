@@ -9,16 +9,16 @@ export function Hero() {
     <div className="container public-hero-layout">
       <div className="public-hero-copy">
         <span className="section-kicker">Oakville, Burlington, Hamilton</span>
-        <h1>Property care that looks scheduled, sharp and accountable.</h1>
-        <p className="hero-text">4Ever Seasons maintains lawns, cleanups, gardens and winter routes for homeowners who want the property handled without chasing updates.</p>
+        <h1>Property maintenance, done on schedule.</h1>
+        <p className="hero-text">Local lawn care, seasonal cleanups, garden work and winter visits with clear scope, visit notes and photos after the work is done.</p>
         <div className="hero-actions">
           <a className="btn btn-primary hero-primary" href="#quote">Request a property quote</a>
           <a className="btn btn-outline hero-customer-link" href="/customer">Open customer portal</a>
         </div>
         <div className="hero-proof-grid" aria-label="Service proof points">
-          <div className="hero-proof"><span>Routes</span><strong>Limited by neighbourhood</strong><small>Crews stay local so service windows are realistic.</small></div>
-          <div className="hero-proof"><span>Updates</span><strong>Photos and service history</strong><small>Customer records stay attached to each property.</small></div>
-          <div className="hero-proof"><span>Season</span><strong>Lawn, cleanup and snow</strong><small>One team for the full property calendar.</small></div>
+          <div className="hero-proof"><span>Route planning</span><strong>Neighbourhood capacity</strong><small>Local schedules keep arrival windows realistic.</small></div>
+          <div className="hero-proof"><span>Visit records</span><strong>Notes and photos</strong><small>Property history stays attached to the address.</small></div>
+          <div className="hero-proof"><span>Seasonal work</span><strong>Lawn, cleanup and snow</strong><small>One property calendar across the year.</small></div>
         </div>
       </div>
       <aside id="quote" className="hero-quote-panel" aria-label="Request a quote">
