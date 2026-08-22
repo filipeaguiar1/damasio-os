@@ -22,11 +22,40 @@ import {RouteAdvisorFeedbackNavigator} from "@/components/admin/RouteAdvisorFeed
 import {AdvisorHouseQuickAccess} from "@/components/admin/AdvisorHouseQuickAccess";
 import {RouteWorkerConsistencyEnhancer} from "@/components/admin/RouteWorkerConsistencyEnhancer";
 import {CustomerSelectSearchEnhancer} from "@/components/payments/CustomerSelectSearchEnhancer";
+import {getSiteUrl} from "@/lib/seo/siteUrl";
+
+const siteUrl = getSiteUrl();
 
 export const metadata: Metadata = {
-  title: "4Ever Seasons | Premium Property Care",
-  description: "Modern four-season property care with instant quotes, live routes, customer portals and field proof.",
-  manifest: "/manifest.json"
+  metadataBase: new URL(siteUrl),
+  title: "4Ever Seasons | Property Maintenance in Hamilton, Burlington & Oakville",
+  description: "Local lawn care, seasonal cleanups, garden maintenance and winter property service across Hamilton, Burlington and Oakville, Ontario.",
+  applicationName: "4Ever Seasons",
+  manifest: "/manifest.json",
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
+  openGraph: {
+    type: "website",
+    locale: "en_CA",
+    url: siteUrl,
+    siteName: "4Ever Seasons",
+    title: "4Ever Seasons | Property Maintenance in Hamilton, Burlington & Oakville",
+    description: "Local lawn care, seasonal cleanups, garden maintenance and winter property service across Hamilton, Burlington and Oakville, Ontario.",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "4Ever Seasons | Property Maintenance in Hamilton, Burlington & Oakville",
+    description: "Local four-season property maintenance across Hamilton, Burlington and Oakville, Ontario.",
+  },
 };
 
 export const viewport: Viewport = {
@@ -37,5 +66,5 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="en" data-season="summer"><body><SeasonThemeProvider><CustomerLegacyDataGuard/><RouteAdvisorFeedbackNavigator/><AdvisorHouseQuickAccess/><RouteWorkerConsistencyEnhancer/><CustomerSelectSearchEnhancer/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
+  return <html lang="en-CA" data-season="summer"><body><SeasonThemeProvider><CustomerLegacyDataGuard/><RouteAdvisorFeedbackNavigator/><AdvisorHouseQuickAccess/><RouteWorkerConsistencyEnhancer/><CustomerSelectSearchEnhancer/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
 }
