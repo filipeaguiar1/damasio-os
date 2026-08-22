@@ -1,7 +1,29 @@
 import { QuoteWizard } from "./QuoteWizard";
 
-export function Hero(){return <section className="hero customer-portal-contrast-fix"><style>{`
-.customer-portal-contrast-fix .hero-customer-link{background:#fff!important;color:#0f5132!important;border:1.5px solid #0f5132!important;box-shadow:0 10px 26px rgba(13,61,44,.10)!important;transition:background .18s ease,color .18s ease,border-color .18s ease,box-shadow .18s ease!important}
-.customer-portal-contrast-fix .hero-customer-link:hover{background:#eaf6ee!important;color:#0b3f27!important;border-color:#0b3f27!important;box-shadow:0 14px 32px rgba(13,61,44,.13)!important}
-.customer-portal-contrast-fix .hero-customer-link:focus-visible{outline:3px solid rgba(15,81,50,.32);outline-offset:3px}
-`}</style><div className="container hero-grid"><div><span className="eyebrow">Hamilton • Burlington • Oakville</span><h1>Property maintenance made simple.</h1><p className="hero-text">A professional website, quote engine, CRM, customer portal and employee portal for 4Ever Seasons.</p><div className="hero-actions"><a className="btn btn-primary" href="#quote">Get Instant Quote</a><a className="btn btn-outline hero-customer-link" href="/customer">Customer Portal</a></div><div className="grid-3" style={{marginTop:30}}><div className="card mini-card"><div className="mini-label">Quote</div><div className="mini-value">60 sec</div></div><div className="card mini-card"><div className="mini-label">Payments</div><div className="mini-value">Online</div></div><div className="card mini-card"><div className="mini-label">CRM</div><div className="mini-value">Ready</div></div></div></div><div id="quote"><QuoteWizard/></div></div></section>}
+export function Hero() {
+  return <section className="public-home-site-hero">
+    <div className="public-hero-photo" aria-hidden="true">
+      <img src="/brand/4ever-seasons-sidebar-art.jpg" alt="" />
+    </div>
+    <div className="public-hero-overlay" />
+    <div className="container public-hero-layout">
+      <div className="public-hero-copy">
+        <span className="section-kicker">Oakville, Burlington, Hamilton</span>
+        <h1>Property care that looks scheduled, sharp and accountable.</h1>
+        <p className="hero-text">4Ever Seasons maintains lawns, cleanups, gardens and winter routes for homeowners who want the property handled without chasing updates.</p>
+        <div className="hero-actions">
+          <a className="btn btn-primary hero-primary" href="#quote">Request a property quote</a>
+          <a className="btn btn-outline hero-customer-link" href="/customer">Open customer portal</a>
+        </div>
+        <div className="hero-proof-grid" aria-label="Service proof points">
+          <div className="hero-proof"><span>Routes</span><strong>Limited by neighbourhood</strong><small>Crews stay local so service windows are realistic.</small></div>
+          <div className="hero-proof"><span>Updates</span><strong>Photos and service history</strong><small>Customer records stay attached to each property.</small></div>
+          <div className="hero-proof"><span>Season</span><strong>Lawn, cleanup and snow</strong><small>One team for the full property calendar.</small></div>
+        </div>
+      </div>
+      <aside id="quote" className="hero-quote-panel" aria-label="Request a quote">
+        <QuoteWizard />
+      </aside>
+    </div>
+  </section>;
+}
