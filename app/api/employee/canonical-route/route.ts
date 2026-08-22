@@ -22,6 +22,13 @@ function companyFilter(companyId: string) {
   return `company_id.eq.${companyId},organization_id.eq.${companyId}`;
 }
 
+function noRoute(message: string) {
+  return NextResponse.json(
+    { error: message, code: "NO_ROUTE" },
+    { status: 404, headers: { "Cache-Control": "no-store, max-age=0" } },
+  );
+}
+
 export async function GET(request: NextRequest) {
   try {
     const date = request.nextUrl.searchParams.get("date")?.trim();
@@ -88,7 +95,7 @@ export async function GET(request: NextRequest) {
       resolutionSource = "crew_fallback";
     }
 
-    if (!ids.length) throw new Error("No route is assigned for this date.");
+    if (!ids.length) return noRoute("No route is assigned for this date.");
 
     const [routesResult, statesResult, visitsResult, stopsResult] = await Promise.all([
       service.from("routes").select("id,created_at").in("id", ids).or(companyFilter(companyId)),
@@ -139,7 +146,7 @@ export async function GET(request: NextRequest) {
     );
 
     const selected = candidates[0];
-    if (!selected) throw new Error("No active canonical route remains for this date.");
+    if (!selected) return noRoute("No active canonical route remains for this date.");
 
     console.info("employee-canonical-route-resolved", {
       date,
