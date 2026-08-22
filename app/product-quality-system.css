@@ -128,6 +128,26 @@ body{
   background:#fff!important;
 }
 
+.operations-studio-hero{
+  color:var(--ink)!important;
+}
+
+.operations-studio-hero h1{
+  color:#10251b!important;
+  margin-bottom:8px!important;
+}
+
+.operations-studio-hero p{
+  color:#5f7067!important;
+  max-width:720px;
+}
+
+.operations-studio-hero .studio-head-actions>span{
+  color:#315848!important;
+  background:#edf3ef!important;
+  border:1px solid #d3dfd7!important;
+}
+
 .operations-studio-hero:after,.studio-kpi:after{
   display:none!important;
 }
@@ -212,7 +232,6 @@ table td,table th{
   font-size:11px!important;
 }
 
-.studio-alert-bulb,
 .notification-button,
 .house-placeholder,
 .contract-icon,
@@ -222,7 +241,6 @@ table td,table th{
   font-size:0!important;
 }
 
-.studio-alert-bulb:before,
 .notification-button:before{
   content:"AL";
   font-size:11px;
