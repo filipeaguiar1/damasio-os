@@ -28,6 +28,11 @@ function gateMode(): GateMode {
   return (process.env.MOBILE_WEB_GATE_MODE || "all").toLowerCase() === "off" ? "off" : "all";
 }
 
+function markPrivate(response: NextResponse) {
+  response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+  return response;
+}
+
 export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
@@ -48,7 +53,11 @@ export function middleware(request: NextRequest) {
     url.searchParams.set("platform", platform);
     const response = NextResponse.redirect(url, 307);
     response.headers.set("Vary", "User-Agent, Sec-CH-UA-Mobile");
-    return response;
+    return markPrivate(response);
+  }
+
+  if (PORTAL_PATH.test(pathname)) {
+    return markPrivate(NextResponse.next());
   }
 
   return NextResponse.next();
