@@ -10,15 +10,15 @@ export function Footer(){
       </div>
       <div>
         <h4>Services</h4>
-        <a href="/#services">Lawn Care</a>
-        <a href="/#services">Seasonal Cleanups</a>
-        <a href="/#services">Garden &amp; Bed Care</a>
-        <a href="/#services">Snow Removal</a>
+        <Link href="/services/lawn-care">Lawn Care</Link>
+        <Link href="/services/seasonal-cleanups">Seasonal Cleanups</Link>
+        <Link href="/services/garden-care">Garden &amp; Bed Care</Link>
+        <Link href="/services/snow-removal">Snow Removal</Link>
         <a href="/#services">Mulch &amp; Property Maintenance</a>
       </div>
       <div>
         <h4>Service Areas</h4>
-        <div className="footer-area-list"><span>Oakville</span><span>Burlington</span><span>Hamilton</span></div>
+        <div className="footer-area-list"><span><Link href="/service-areas/oakville">Oakville</Link></span><span><Link href="/service-areas/burlington">Burlington</Link></span><span><Link href="/service-areas/hamilton">Hamilton</Link></span></div>
       </div>
       <div>
         <h4>Company</h4>
