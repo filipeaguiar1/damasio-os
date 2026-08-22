@@ -19,6 +19,9 @@
 
 /* Strong, quiet application chrome */
 .studio-shell .studio-topnav{
+  position:sticky!important;
+  top:0!important;
+  z-index:120!important;
   min-height:70px!important;
   background:#082f23!important;
   border-bottom:1px solid rgba(255,255,255,.09)!important;
@@ -50,14 +53,37 @@
 
 /* Left rail should feel intentional, not washed out */
 .studio-shell .studio-rail{
-  background:#f4f1e9!important;
-  border-right:1px solid #cbd5ce!important;
-  box-shadow:4px 0 14px rgba(15,43,32,.035)!important;
+  background:linear-gradient(180deg,#0a3326 0%,#0b3d2d 54%,#071b15 100%)!important;
+  border-right:1px solid rgba(255,255,255,.09)!important;
+  box-shadow:12px 0 30px rgba(4,25,17,.14)!important;
+  color:#eef8f2!important;
+}
+
+@media(min-width:901px){
+  .studio-shell .studio-rail{
+    top:0!important;
+    padding-top:94px!important;
+  }
+
+  .studio-shell .studio-rail:before{
+    content:"";
+    position:absolute;
+    left:0;
+    right:0;
+    top:0;
+    height:94px;
+    background:#06130f!important;
+  }
+
+  .studio-shell .studio-rail>*{
+    position:relative;
+    z-index:1;
+  }
 }
 
 .studio-shell .studio-rail>strong,
 .studio-shell .studio-rail-summary>span{
-  color:#526159!important;
+  color:#b8d2c4!important;
   font-size:10px!important;
   font-weight:850!important;
   letter-spacing:.09em!important;
@@ -65,22 +91,22 @@
 }
 
 .studio-shell .studio-rail nav a{
-  color:#26372f!important;
-  background:transparent!important;
-  border:1px solid transparent!important;
+  color:#e8f4ee!important;
+  background:rgba(255,255,255,.055)!important;
+  border:1px solid rgba(255,255,255,.08)!important;
   border-radius:9px!important;
   font-weight:750!important;
 }
 
 .studio-shell .studio-rail nav a:hover{
-  background:#e9ede8!important;
-  border-color:#d0dad3!important;
+  background:rgba(255,255,255,.1)!important;
+  border-color:rgba(255,255,255,.14)!important;
 }
 
 .studio-shell .studio-rail nav a.primary{
   color:#fff!important;
-  background:#0d6d49!important;
-  border-color:#0d6d49!important;
+  background:#0d7b50!important;
+  border-color:#2fb177!important;
   box-shadow:none!important;
 }
 
@@ -90,36 +116,41 @@
 }
 
 .studio-shell .studio-rail nav a .quick-action-icon{
-  background:#e5ebe6!important;
-  color:#345546!important;
-  border:1px solid #ced9d1!important;
+  background:rgba(255,255,255,.08)!important;
+  color:#dff3e8!important;
+  border:1px solid rgba(255,255,255,.13)!important;
 }
 
 .studio-shell .studio-rail nav a.primary .quick-action-icon{
-  background:#fff!important;
-  color:#0d6d49!important;
+  background:#f4fff8!important;
+  color:#0b6d49!important;
   border-color:#fff!important;
 }
 
 .studio-shell .studio-rail-summary{
-  border-top:1px solid #d4dcd6!important;
-  border-bottom:1px solid #d4dcd6!important;
+  background:rgba(255,255,255,.06)!important;
+  border:1px solid rgba(255,255,255,.09)!important;
   padding-top:14px!important;
   padding-bottom:14px!important;
 }
 
 .studio-shell .studio-rail-summary div small,
 .studio-shell .studio-system-status small,
-.studio-shell .studio-rail-filler p{color:#69776f!important}
+.studio-shell .studio-rail-filler p{color:#bdd3c7!important}
 
 .studio-shell .studio-rail-summary div b,
 .studio-shell .studio-system-status span,
 .studio-shell .studio-rail-filler strong,
-.studio-shell .studio-rail-filler a{color:#213229!important}
+.studio-shell .studio-rail-filler a{color:#fff!important}
 
 .studio-shell .studio-rail-filler{
-  background:#e7eee8!important;
-  border:1px solid #cad7ce!important;
+  background:linear-gradient(160deg,rgba(102,222,84,.14),rgba(255,255,255,.04))!important;
+  border:1px solid rgba(255,255,255,.09)!important;
+}
+
+.studio-shell .studio-rail-filler a{
+  background:#dff6cf!important;
+  color:#083525!important;
 }
 
 .studio-shell .studio-main{

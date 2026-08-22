@@ -5,7 +5,7 @@ import type { ServiceKey } from "@/lib/pricing";
 import { serviceLabels } from "@/lib/pricing";
 import { QuoteWizard } from "./QuoteWizard";
 
-const serviceKeys: ServiceKey[] = ["weekly_lawn", "biweekly_lawn", "one_time_lawn", "spring_cleanup", "fall_cleanup", "snow_removal", "extra_service"];
+const serviceKeys: ServiceKey[] = ["weekly_lawn", "biweekly_lawn", "one_time_lawn", "spring_cleanup", "fall_cleanup", "snow_removal", "extra_service", "year_care"];
 
 function readRequestedService(): ServiceKey | null {
   const searchService = new URLSearchParams(window.location.search).get("service");

@@ -1,4 +1,4 @@
-export type ServiceKey = "weekly_lawn"|"biweekly_lawn"|"one_time_lawn"|"spring_cleanup"|"fall_cleanup"|"snow_removal"|"extra_service";
+export type ServiceKey = "weekly_lawn"|"biweekly_lawn"|"one_time_lawn"|"spring_cleanup"|"fall_cleanup"|"snow_removal"|"extra_service"|"year_care";
 
 // V50.1 Production Stabilization
 // One canonical quote size type for all quote calculators/forms.
@@ -20,8 +20,8 @@ export type SnowSaltKey = "no" | "yes" | "quote_both";
 export type SnowBillingKey = "per_storm" | "seasonal" | "both";
 
 export const HST_RATE = 0.13;
-export const serviceLabels: Record<ServiceKey,string>={weekly_lawn:"Weekly Lawn Care",biweekly_lawn:"Biweekly Lawn Care",one_time_lawn:"One-Time Lawn Cut",spring_cleanup:"Spring Cleanup",fall_cleanup:"Fall Cleanup",snow_removal:"Snow Removal",extra_service:"Extra Service Request"};
-export const basePrices: Record<ServiceKey,number>={weekly_lawn:45,biweekly_lawn:55,one_time_lawn:70,spring_cleanup:185,fall_cleanup:210,snow_removal:55,extra_service:0};
+export const serviceLabels: Record<ServiceKey,string>={weekly_lawn:"Weekly Lawn Care",biweekly_lawn:"Biweekly Lawn Care",one_time_lawn:"One-Time Lawn Cut",spring_cleanup:"Spring Cleanup",fall_cleanup:"Fall Cleanup",snow_removal:"Snow Removal",extra_service:"Extra Service Request",year_care:"Year Care"};
+export const basePrices: Record<ServiceKey,number>={weekly_lawn:45,biweekly_lawn:55,one_time_lawn:70,spring_cleanup:185,fall_cleanup:210,snow_removal:55,extra_service:0,year_care:0};
 export const memberships=[{name:"Essential",price:149,description:"Routine maintenance."},{name:"Premium",price:189,description:"Priority scheduling."},{name:"Elite",price:249,description:"Year-round priority care."}];
 
 export const sizeMultiplier: Record<QuoteSizeKey,number>={

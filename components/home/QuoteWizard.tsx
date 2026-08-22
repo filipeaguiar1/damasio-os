@@ -29,6 +29,7 @@ const services: { key: ServiceKey; note?: string }[] = [
   { key: "fall_cleanup", note: "Seasonal estimate" },
   { key: "snow_removal", note: "Winter estimate" },
   { key: "extra_service", note: "Admin review" },
+  { key: "year_care", note: "Premium annual care" },
 ];
 
 const lawnServices: ServiceKey[] = ["weekly_lawn", "biweekly_lawn", "one_time_lawn"];
@@ -72,7 +73,7 @@ export function QuoteWizard() {
   const [busy, setBusy] = useState(false);
   const [preQuoteAlerted, setPreQuoteAlerted] = useState(false);
 
-  const isExtra = service === "extra_service";
+  const isExtra = service === "extra_service" || service === "year_care";
   const isLawn = lawnServices.includes(service);
   const isCleanup = service === "spring_cleanup" || service === "fall_cleanup";
   const isSnow = service === "snow_removal";
@@ -221,7 +222,7 @@ export function QuoteWizard() {
 
       {step === 1 && <div className="stack">
         <strong>What service do you need?</strong>
-        <div className="option-grid">{services.map(item => <button key={item.key} className={service === item.key ? "option active" : "option"} onClick={() => { setService(item.key); setPreQuoteAlerted(false); setMsg(""); }}><strong>{serviceLabels[item.key]}</strong>{item.note && <small>{item.note}</small>}</button>)}</div>
+        <div className="option-grid">{services.map(item => <button key={item.key} className={`${service === item.key ? "option active" : "option"} ${item.key === "year_care" ? "year-care-option" : ""}`} onClick={() => { setService(item.key); setPreQuoteAlerted(false); setMsg(""); }}><strong>{serviceLabels[item.key]}</strong>{item.note && <small>{item.note}</small>}</button>)}</div>
         {isCleanup && <div className="notice">Spring and fall cleanup estimates use leaf volume, debris, disposal and visit count. Admin confirms the final scope after review.</div>}
         {isSnow && <div className="notice">Snow estimates use driveway size, paved area, sidewalk/walkway scope, salting and seasonal/per-storm preference.</div>}
         <button className="btn btn-primary" onClick={() => setStep(2)}>Next</button>
