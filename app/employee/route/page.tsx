@@ -533,7 +533,7 @@ export default function EmployeeRoutePage(){
 
       <div className="row" style={{marginBottom:12}}>
         <button className="start-btn" onClick={start} disabled={selected.canonicalVisitId?canonicalActive||canonicalDone||canonicalMissed:session?.status==="running"}>Start</button>
-        <button className="btn btn-outline" onClick={()=>setCommentOpen(!commentOpen)}>💬 Comment</button>
+        <button className="btn btn-outline" onClick={()=>setCommentOpen(!commentOpen)}>Comment</button>
         <button className="finish-btn" onClick={finish} disabled={selected.canonicalVisitId?!canonicalActive:!session||session.status==="finished"}>Finish</button>
       </div>
       {commentOpen&&<div className="field-card" style={{padding:16,marginBottom:20}}>
