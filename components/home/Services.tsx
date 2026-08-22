@@ -1,17 +1,32 @@
 const services = [
-  ["Lawn routes", "Weekly, biweekly and one-time cuts with edging, trimming and route visibility."],
-  ["Spring reset", "Debris, beds, edging and opening work after winter."],
-  ["Fall cleanup", "Leaf removal, garden cutback and pre-winter property prep."],
-  ["Snow coverage", "Driveways, walks, salting options and seasonal route planning."],
-  ["Garden care", "Mulch, bed maintenance, planting support and tidy seasonal refreshes."],
-  ["Custom work", "Stone, soil, hedge trimming and property-specific requests quoted after review."],
+  ["Lawn routes", "Weekly, biweekly and one-time cuts", "Edging, trimming, cleanup pass and visit visibility."],
+  ["Spring reset", "Opening work after winter", "Debris, beds, edging and property readiness."],
+  ["Fall cleanup", "Leaf and pre-winter prep", "Leaf removal, garden cutback and disposal options."],
+  ["Snow coverage", "Winter route planning", "Driveways, walks, salting options and seasonal terms."],
+  ["Garden care", "Seasonal bed maintenance", "Mulch, planting support and tidy refreshes."],
+  ["Custom work", "Reviewed before approval", "Stone, soil, hedge trimming and property-specific requests."],
 ];
 
 export function Services() {
   return <section id="services" className="section public-services" aria-labelledby="services-title">
     <div className="container">
-      <div className="section-top"><div><span className="section-kicker">Season by season</span><h2 id="services-title">Maintenance with a clear scope.</h2><p className="section-intro">Each service is scoped around the property, the route and the season so expectations stay clear from quote to completion.</p></div></div>
-      <div className="service-list">{services.map(([title, copy], index) => <article className="service-row" key={title}><b>{String(index + 1).padStart(2, "0")}</b><div><h3>{title}</h3><p>{copy}</p></div><a href="#quote">Request</a></article>)}</div>
+      <div className="service-scope-layout">
+        <div className="service-scope-intro">
+          <span className="section-kicker">Season by season</span>
+          <h2 id="services-title">Maintenance with a clear scope.</h2>
+          <p className="section-intro">Each quote starts with the property, the season and the work area. The team can confirm access, disposal, salting or special notes before the final approved price is sent.</p>
+          <a className="btn btn-primary" href="#quote">Request a property quote</a>
+        </div>
+        <div className="service-list">{services.map(([title, meta, copy], index) => <article className="service-row" key={title}>
+          <b>{String(index + 1).padStart(2, "0")}</b>
+          <div>
+            <span>{meta}</span>
+            <h3>{title}</h3>
+            <p>{copy}</p>
+          </div>
+          <a href="#quote">Request</a>
+        </article>)}</div>
+      </div>
     </div>
   </section>;
 }
