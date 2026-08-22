@@ -27,7 +27,7 @@ export default function QuoteReceivedPage({
   return (
     <>
       <Header />
-      <main className="public-page">
+      <main className="public-page quote-received-page">
         <section className="public-page-hero">
           <div className="public-page-shell" style={{ maxWidth: 980 }}>
             <div
