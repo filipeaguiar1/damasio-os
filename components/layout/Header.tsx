@@ -7,27 +7,26 @@ export function Header() {
         <Link className="brand" href="/">
           <img
             src="/brand/4ever-seasons-logo-mark.jpg"
-            alt="4Ever Seasons"
+            alt="4 Ever Seasons"
             className="brand-logo brand-logo-new brand-logo-mark"
             width="52"
             height="52"
             decoding="async"
           />
           <span className="brand-copy">
-            <strong>4Ever Seasons</strong>
+            <strong>4 Ever Seasons</strong>
             <small>Property Maintenance</small>
           </span>
         </Link>
-        <nav className="nav">
+        <nav className="nav" aria-label="Main navigation">
           <a href="/#services">Services</a>
           <a href="/#plans">Plans</a>
-          <Link href="/customer">Customer</Link>
-          <Link href="/employee">Employee</Link>
-          <Link href="/admin">Admin</Link>
-          <Link href="/login">Login</Link>
+          <Link href="/about">About</Link>
+          <Link href="/contact">Contact</Link>
+          <Link href="/customer">Customer Portal</Link>
         </nav>
         <Link className="btn btn-primary header-login" href="/login">
-          <span className="header-login-desktop">Open 4Ever Seasons</span>
+          <span className="header-login-desktop">Sign in</span>
           <span className="header-login-mobile">Sign in</span>
         </Link>
       </div>
