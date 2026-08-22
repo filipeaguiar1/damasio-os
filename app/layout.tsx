@@ -24,7 +24,7 @@ import {RouteWorkerConsistencyEnhancer} from "@/components/admin/RouteWorkerCons
 import {CustomerSelectSearchEnhancer} from "@/components/payments/CustomerSelectSearchEnhancer";
 
 export const metadata: Metadata = {
-  title: "4 Ever Seasons | Premium Property Care",
+  title: "4Ever Seasons | Premium Property Care",
   description: "Modern four-season property care with instant quotes, live routes, customer portals and field proof.",
   manifest: "/manifest.json"
 };
