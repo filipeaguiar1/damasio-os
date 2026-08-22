@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-const CLEANUP_BATCH_SIZE = 4;
+const CLEANUP_BATCH_SIZE = 12;
 
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
