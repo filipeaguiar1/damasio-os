@@ -4,7 +4,7 @@ export function Footer(){
   return <footer className="footer">
     <div className="container footer-grid">
       <div className="footer-brand-copy">
-        <h3>4 Ever Seasons</h3>
+        <h3>4Ever Seasons</h3>
         <p>Reliable property care for homes in Oakville, Burlington and Hamilton, with clear service details and simple customer access.</p>
         <a className="footer-support" href="mailto:support@4everseasons.com">support@4everseasons.com</a>
       </div>
@@ -34,7 +34,7 @@ export function Footer(){
       </div>
     </div>
     <div className="footer-bottom">
-      <span>© 2026 4 Ever Seasons. All rights reserved.</span>
+      <span>© 2026 4Ever Seasons. All rights reserved.</span>
       <div className="footer-bottom-links"><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link></div>
     </div>
   </footer>
