@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import styles from "./page.module.css";
 
 export const metadata: Metadata = {
   title: "Get the 4Ever Seasons App",
-  description: "Download the 4Ever Seasons mobile app for the supported mobile experience.",
+  description: "Continue with 4Ever Seasons in the mobile app.",
 };
 
 type Platform = "android" | "ios";
@@ -41,60 +42,49 @@ export default function GetTheAppPage({ searchParams }: PageProps) {
   const configuredAndroidUrl = process.env.NEXT_PUBLIC_ANDROID_APP_URL?.trim();
   const configuredIosUrl = process.env.NEXT_PUBLIC_IOS_APP_URL?.trim();
   const androidUrl = configuredAndroidUrl || ANDROID_FALLBACK;
+  const iosReady = Boolean(configuredIosUrl);
+  const primaryHref = platform === "ios" ? configuredIosUrl : androidUrl;
+  const primaryLabel = platform === "ios" ? "Continue on iPhone" : "Continue on Android";
 
   return (
     <main className={styles.page}>
-      <section className={styles.card} aria-labelledby="get-app-title">
-        <div className={styles.brandMark} aria-hidden="true">4</div>
-        <p className={styles.eyebrow}>4Ever Seasons</p>
-        <h1 id="get-app-title">Continue in the mobile app</h1>
-        <p className={styles.lead}>
-          The 4Ever Seasons platform is available on phones through the app for a more reliable and consistent experience.
-        </p>
+      <section className={styles.panel} aria-labelledby="get-app-title">
+        <div className={styles.brand}>
+          <Image src="/brand/4ever-seasons-logo-mark.jpg" alt="4Ever Seasons" width={66} height={66} priority />
+          <div>
+            <strong>4Ever Seasons</strong>
+            <span>Property Maintenance</span>
+          </div>
+        </div>
+
+        <div className={styles.hero}>
+          <p className={styles.kicker}>BEST ON MOBILE</p>
+          <h1 id="get-app-title">Continue in the app.</h1>
+          <p className={styles.lead}>Faster, cleaner and built for your phone.</p>
+        </div>
 
         <div className={styles.actions}>
-          {platform === "ios" ? (
-            <>
-              {configuredIosUrl ? (
-                <a className={styles.primaryButton} href={configuredIosUrl} rel="noreferrer">
-                  <AppleIcon />
-                  <span><small>Download on the</small>App Store</span>
-                </a>
-              ) : (
-                <div className={styles.disabledButton} aria-disabled="true">
-                  <AppleIcon />
-                  <span><small>iPhone & iPad</small>App Store coming soon</span>
-                </div>
-              )}
-              <a className={styles.secondaryButton} href={androidUrl} rel="noreferrer">
-                <AndroidIcon />
-                <span><small>Also available for</small>Android</span>
-              </a>
-            </>
+          {primaryHref ? (
+            <a className={styles.primaryButton} href={primaryHref} rel="noreferrer">
+              {platform === "ios" ? <AppleIcon /> : <AndroidIcon />}
+              <span>{primaryLabel}</span>
+            </a>
           ) : (
-            <>
-              <a className={styles.primaryButton} href={androidUrl} rel="noreferrer">
-                <AndroidIcon />
-                <span><small>{configuredAndroidUrl ? "Get it for" : "Install for"}</small>Android</span>
-              </a>
-              {configuredIosUrl ? (
-                <a className={styles.secondaryButton} href={configuredIosUrl} rel="noreferrer">
-                  <AppleIcon />
-                  <span><small>Also available on the</small>App Store</span>
-                </a>
-              ) : (
-                <div className={styles.disabledButton} aria-disabled="true">
-                  <AppleIcon />
-                  <span><small>iPhone & iPad</small>App Store coming soon</span>
-                </div>
-              )}
-            </>
+            <div className={styles.unavailable} aria-disabled="true">
+              <AppleIcon />
+              <span>iPhone app coming soon</span>
+            </div>
+          )}
+
+          {platform === "android" && iosReady && (
+            <a className={styles.textLink} href={configuredIosUrl} rel="noreferrer">Using an iPhone?</a>
+          )}
+          {platform === "ios" && (
+            <a className={styles.textLink} href={androidUrl} rel="noreferrer">Using Android?</a>
           )}
         </div>
 
-        <p className={styles.note}>
-          Already installed? Open 4Ever Seasons directly from your home screen.
-        </p>
+        <a className={styles.websiteLink} href="/">Back to 4Ever Seasons website</a>
       </section>
     </main>
   );
