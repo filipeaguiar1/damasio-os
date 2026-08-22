@@ -34,48 +34,15 @@ const services: { key: ServiceKey; note?: string }[] = [
 const lawnServices: ServiceKey[] = ["weekly_lawn", "biweekly_lawn", "one_time_lawn"];
 
 const labels: Record<string, string> = {
-  xs: "XS",
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  oversize: "Oversize",
-  "2in": "2 inches",
-  "3in": "3 inches",
-  "4in": "4 inches",
-  "5in": "5 inches",
-  mulched: "Mulched",
-  bag_green_bin: "Bag to green bin",
-  bag_leave_property: "Bag and leave on property",
-  removed: "Removed",
-  light: "Light",
-  moderate: "Moderate",
-  heavy: "Heavy",
-  not_sure: "Not sure",
-  typical: "Typical",
-  wooded: "Large / wooded",
-  haul_away: "Haul away debris",
-  mulch_wooded_area: "Mulch or blow into wooded area",
-  quote_both: "Quote both",
-  one: "One visit",
-  two: "Two visits",
-  unlimited: "Unlimited visits",
-  one_car: "1-car driveway",
-  two_car: "2-car driveway",
-  three_car: "3-car driveway",
-  four_plus: "4+ car driveway",
-  custom: "Custom / long driveway",
-  under_500: "Under 500 sq ft",
-  "500_1000": "500-1,000 sq ft",
-  "1000_1500": "1,000-1,500 sq ft",
-  "1500_plus": "1,500+ sq ft",
-  no: "No",
-  yes: "Yes",
-  front_walk: "Front walkway",
-  sidewalk_steps: "Sidewalk and steps",
-  all_paved: "All paved surfaces",
-  per_storm: "Per storm",
-  seasonal: "Seasonal",
-  both: "Quote both",
+  xs: "XS", small: "Small", medium: "Medium", large: "Large", oversize: "Oversize",
+  "2in": "2 inches", "3in": "3 inches", "4in": "4 inches", "5in": "5 inches",
+  mulched: "Mulched", bag_green_bin: "Bag to green bin", bag_leave_property: "Bag and leave on property", removed: "Removed",
+  light: "Light", moderate: "Moderate", heavy: "Heavy", not_sure: "Not sure", typical: "Typical", wooded: "Large / wooded",
+  haul_away: "Haul away debris", mulch_wooded_area: "Mulch or blow into wooded area", quote_both: "Quote both",
+  one: "One visit", two: "Two visits", unlimited: "Unlimited visits", one_car: "1-car driveway", two_car: "2-car driveway",
+  three_car: "3-car driveway", four_plus: "4+ car driveway", custom: "Custom / long driveway", under_500: "Under 500 sq ft",
+  "500_1000": "500-1,000 sq ft", "1000_1500": "1,000-1,500 sq ft", "1500_plus": "1,500+ sq ft", no: "No", yes: "Yes",
+  front_walk: "Front walkway", sidewalk_steps: "Sidewalk and steps", all_paved: "All paved surfaces", per_storm: "Per storm", seasonal: "Seasonal", both: "Quote both",
 };
 
 function pretty(value?: string) {
@@ -103,6 +70,7 @@ export function QuoteWizard() {
   const [lead, setLead] = useState({ name: "", phone: "", email: "", address: "", notes: "" });
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [preQuoteAlerted, setPreQuoteAlerted] = useState(false);
 
   const isExtra = service === "extra_service";
   const isLawn = lawnServices.includes(service);
@@ -163,6 +131,22 @@ export function QuoteWizard() {
     if (!lead.name.trim() || !lead.phone.trim() || !lead.email.trim()) return setMsg("Add name, phone and email before showing the quote.");
     setMsg("");
     setStep(4);
+    if (!preQuoteAlerted) {
+      setPreQuoteAlerted(true);
+      void fetch("/api/public/quote-alert", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone,
+          address: lead.address,
+          service: serviceLabels[service],
+          estimatedTotal: isExtra ? null : quote.total,
+          website: "",
+        }),
+      }).catch(error => console.error("Pre-quote alert request failed", error));
+    }
   }
 
   async function submit() {
@@ -237,7 +221,7 @@ export function QuoteWizard() {
 
       {step === 1 && <div className="stack">
         <strong>What service do you need?</strong>
-        <div className="option-grid">{services.map(item => <button key={item.key} className={service === item.key ? "option active" : "option"} onClick={() => { setService(item.key); setMsg(""); }}><strong>{serviceLabels[item.key]}</strong>{item.note && <small>{item.note}</small>}</button>)}</div>
+        <div className="option-grid">{services.map(item => <button key={item.key} className={service === item.key ? "option active" : "option"} onClick={() => { setService(item.key); setPreQuoteAlerted(false); setMsg(""); }}><strong>{serviceLabels[item.key]}</strong>{item.note && <small>{item.note}</small>}</button>)}</div>
         {isCleanup && <div className="notice">Spring and fall cleanup estimates use leaf volume, debris, disposal and visit count. Admin confirms the final scope after review.</div>}
         {isSnow && <div className="notice">Snow estimates use driveway size, paved area, sidewalk/walkway scope, salting and seasonal/per-storm preference.</div>}
         <button className="btn btn-primary" onClick={() => setStep(2)}>Next</button>
@@ -276,7 +260,7 @@ export function QuoteWizard() {
 
       {step === 3 && <div className="stack">
         <strong>Where should we send your final quote?</strong>
-        <div className="notice">Your average estimate appears after these details are complete. Nothing is saved or sent yet.</div>
+        <div className="notice">Your average estimate appears after these details are complete. Nothing is saved or sent to Admin until you approve it on the next step.</div>
         <input className="input" placeholder="Full name" value={lead.name} onChange={event => setLead({ ...lead, name: event.target.value })} />
         <input className="input" placeholder="Phone" value={lead.phone} onChange={event => setLead({ ...lead, phone: event.target.value })} />
         <input className="input" placeholder="Email" value={lead.email} onChange={event => setLead({ ...lead, email: event.target.value })} />
@@ -288,16 +272,8 @@ export function QuoteWizard() {
       {step === 4 && <div className="stack">
         <div className="quote-result"><small>{quoteNumber ? "Request received" : "Review before sending"}</small><div className="quote-price">{quoteNumber || (isExtra ? "Admin Review" : `$${quote.total.toFixed(2)}`)}</div><p>{quoteNumber ? `Admin will review and send the final quote to ${lead.email}.` : "Confirm below to send this request to Admin for approval."}</p></div>
         {!isExtra && <div className="quote-scope-summary" aria-label="Selected property details">
-          <div className="quote-scope-head">
-            <span>Scope review</span>
-            <strong>Average estimate only</strong>
-          </div>
-          <dl>
-            {detailsSummaryItems.map(item => <div key={item.label}>
-              <dt>{item.label}</dt>
-              <dd>{item.value}</dd>
-            </div>)}
-          </dl>
+          <div className="quote-scope-head"><span>Scope review</span><strong>Average estimate only</strong></div>
+          <dl>{detailsSummaryItems.map(item => <div key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>
           <p>Admin reviews the property details before sending the final approved price.</p>
         </div>}
         {quoteNumber ? <div className="notice">Keep this quote number: {quoteNumber}</div> : <div className="row"><button className="btn btn-outline" disabled={busy} onClick={() => setStep(2)}>Edit Service</button><button className="btn btn-outline" disabled={busy} onClick={() => setStep(3)}>Edit Contact</button><button className="btn btn-primary" disabled={busy} onClick={() => void submit()}>{busy ? "Sending..." : "Send to Admin for Approval"}</button></div>}
