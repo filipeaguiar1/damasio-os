@@ -58,3 +58,7 @@ export function PremiumMobileNav({items, active}:{items:NavItem[];active:string}
     </nav>
   );
 }
+
+export function PremiumMetricCard({icon,label,value,note,tone="green",href}:{icon:ReactNode;label:string;value:ReactNode;note:string;tone?:"green"|"gold"|"neutral";href:string}) {
+  return <Link href={href} className={`premium-metric-card ${tone}`}><i>{icon}</i><span>{label}</span><strong>{value}</strong><small>{note}</small></Link>;
+}
