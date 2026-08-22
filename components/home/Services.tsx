@@ -1,10 +1,10 @@
 const services = [
-  ["lawn", "🌱", "Lawn Care", "Weekly, biweekly and one-time cuts."],
-  ["spring", "✨", "Spring Cleanup", "Fresh-start cleanup for the new season."],
-  ["fall", "🍁", "Fall Cleanup", "Leaves, debris and winter preparation."],
-  ["snow", "❄️", "Snow Removal", "Reliable winter clearing options."],
-  ["beds", "🪴", "Mulch & Beds", "Request a custom property quote."],
-  ["stone", "🪨", "Stone & Rock", "Request a custom property quote."],
+  ["lawn", "LC", "Lawn Care", "Weekly, biweekly and one-time cuts."],
+  ["spring", "SC", "Spring Cleanup", "Fresh-start cleanup for the new season."],
+  ["fall", "FC", "Fall Cleanup", "Leaves, debris and winter preparation."],
+  ["snow", "SR", "Snow Removal", "Reliable winter clearing options."],
+  ["beds", "MB", "Mulch & Beds", "Request a custom property quote."],
+  ["stone", "SR", "Stone & Rock", "Request a custom property quote."],
 ];
 
 export function Services() {
