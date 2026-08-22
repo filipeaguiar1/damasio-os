@@ -1,0 +1,215 @@
+/* 4Ever Seasons — Admin primary page hierarchy
+   Shared only inside the company-admin studio. Complements route-specific CSS instead of replacing it. */
+
+@media (min-width:901px){
+  .studio-shell .studio-main>.app-top,
+  .studio-shell .studio-main>.calendar-heading,
+  .studio-shell .studio-main>.customer-directory-head,
+  .studio-shell .studio-main>.tasks-page-head{
+    margin-bottom:18px!important;
+    padding:21px 23px!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:space-between!important;
+    gap:22px!important;
+    background:#e3ede6!important;
+    border:1px solid #bdcec3!important;
+    border-left:4px solid #3d7659!important;
+    border-radius:13px!important;
+    box-shadow:0 6px 17px rgba(11,44,31,.055)!important;
+  }
+
+  .studio-shell .studio-main>.app-top .eyebrow,
+  .studio-shell .studio-main>.calendar-heading .eyebrow,
+  .studio-shell .studio-main>.customer-directory-head .eyebrow{
+    color:#37604c!important;
+    font-size:10px!important;
+    font-weight:850!important;
+    letter-spacing:.09em!important;
+  }
+
+  .studio-shell .studio-main>.app-top h1,
+  .studio-shell .studio-main>.calendar-heading h1,
+  .studio-shell .studio-main>.customer-directory-head h1{
+    margin-top:4px!important;
+    color:#14251c!important;
+    font-size:clamp(27px,2.4vw,36px)!important;
+    line-height:1.05!important;
+    letter-spacing:-.035em!important;
+  }
+
+  .studio-shell .studio-main>.app-top .section-intro,
+  .studio-shell .studio-main>.calendar-heading .section-intro,
+  .studio-shell .studio-main>.customer-directory-head .section-intro{
+    margin-top:7px!important;
+    color:#5d7165!important;
+    line-height:1.5!important;
+  }
+
+  .studio-shell .studio-main .toolbar-inline,
+  .studio-shell .studio-main>.app-top>.row{
+    display:flex!important;
+    align-items:center!important;
+    justify-content:flex-end!important;
+    gap:8px!important;
+    flex-wrap:wrap!important;
+  }
+
+  .studio-shell .studio-main .toolbar-inline :where(.btn,button),
+  .studio-shell .studio-main>.app-top>.row :where(.btn,button){
+    min-height:39px!important;
+    border-radius:9px!important;
+    box-shadow:none!important;
+  }
+
+  .studio-shell .studio-main .toolbar-inline>.input{
+    min-width:240px!important;
+    min-height:41px!important;
+    background:#f8faf8!important;
+    border:1px solid #aebfb5!important;
+    border-radius:9px!important;
+  }
+
+  /* Generic KPI groups on Customers, Reports, Inventory and Employees. */
+  .studio-shell .studio-main :where(.performance-grid,.business-metrics,.grid-3.customer-directory-stats,.stats.customer-directory-stats),
+  .studio-shell .studio-main>.grid-3,
+  .studio-shell .studio-main>.performance-grid,
+  .studio-shell .studio-main>.business-metrics{
+    gap:11px!important;
+  }
+
+  .studio-shell .studio-main :where(.performance-grid,.business-metrics,.customer-directory-stats,.grid-3) :where(.card,.business-metric){
+    min-height:104px!important;
+    padding:15px 16px!important;
+    background:#f1f6f2!important;
+    border:1px solid #c6d5cc!important;
+    border-top:3px solid #739c84!important;
+    border-radius:12px!important;
+    box-shadow:0 5px 14px rgba(11,44,31,.045)!important;
+  }
+
+  .studio-shell .studio-main :where(.performance-grid,.business-metrics,.customer-directory-stats,.grid-3)>:nth-child(2){background:#edf4f1!important;border-top-color:#4f8c70!important}
+  .studio-shell .studio-main :where(.performance-grid,.business-metrics,.customer-directory-stats,.grid-3)>:nth-child(3){background:#f4f1e8!important;border-top-color:#a18c60!important}
+  .studio-shell .studio-main :where(.performance-grid,.business-metrics,.customer-directory-stats,.grid-3)>:nth-child(4){background:#edf2f4!important;border-top-color:#6e8d9a!important}
+
+  .studio-shell .studio-main :where(.mini-label,.business-metric span){
+    color:#5a6e62!important;
+    font-size:10px!important;
+    font-weight:850!important;
+    letter-spacing:.065em!important;
+    text-transform:uppercase!important;
+  }
+  .studio-shell .studio-main :where(.mini-value,.business-metric strong){
+    color:#153c2d!important;
+    font-size:25px!important;
+    letter-spacing:-.03em!important;
+  }
+  .studio-shell .studio-main .business-metric small{color:#718178!important}
+
+  /* Tables are work surfaces, not white floating cards. */
+  .studio-shell .studio-main>.table-card,
+  .studio-shell .studio-main>.card.table-card,
+  .studio-shell .studio-main .customer-directory-card{
+    overflow:hidden!important;
+    background:#f8faf8!important;
+    border:1px solid #c3d1c8!important;
+    border-radius:13px!important;
+    box-shadow:0 6px 18px rgba(11,44,31,.05)!important;
+  }
+  .studio-shell .studio-main .table-head{
+    min-height:52px!important;
+    padding:12px 15px!important;
+    background:#e8f0eb!important;
+    border-color:#cad7cf!important;
+  }
+  .studio-shell .studio-main .table-head h2{
+    color:#17291f!important;
+    font-size:15px!important;
+    letter-spacing:-.015em!important;
+  }
+  .studio-shell .studio-main .table-head .section-intro,
+  .studio-shell .studio-main .sync-note{color:#64776b!important}
+  .studio-shell .studio-main .table-wrap{background:#f8faf8!important}
+  .studio-shell .studio-main table th{
+    background:#dfe8e2!important;
+    color:#506459!important;
+    border-color:#c7d4cc!important;
+    font-size:10px!important;
+    font-weight:850!important;
+    letter-spacing:.055em!important;
+  }
+  .studio-shell .studio-main table td{
+    background:#fafbf9!important;
+    color:#283a31!important;
+    border-color:#d8e1db!important;
+  }
+  .studio-shell .studio-main table tbody tr:nth-child(even) td{background:#f2f5f2!important}
+  .studio-shell .studio-main table tbody tr:hover td{background:#eaf1ec!important}
+
+  /* Form surfaces (Inventory / customer forms / profile editors). */
+  .studio-shell .studio-main>.profile-card,
+  .studio-shell .studio-main>.card.profile-card{
+    background:#f5f2e9!important;
+    border:1px solid #cec9bb!important;
+    border-left:4px solid #8d7b56!important;
+    border-radius:13px!important;
+    box-shadow:0 6px 18px rgba(62,50,28,.05)!important;
+  }
+  .studio-shell .studio-main>.profile-card h2{color:#26362e!important;letter-spacing:-.02em!important}
+  .studio-shell .studio-main :where(.field,.form-grid) label{color:#506459!important;font-weight:780!important}
+  .studio-shell .studio-main :where(.field,.form-grid) :where(input,select,textarea){
+    background:#fbfcfa!important;
+    border:1px solid #aebfb5!important;
+    border-radius:9px!important;
+  }
+
+  .studio-shell .studio-main .payment-message{
+    background:#e4eee7!important;
+    border:1px solid #c2d4c8!important;
+    color:#28543e!important;
+    border-radius:10px!important;
+    box-shadow:none!important;
+  }
+
+  .studio-shell .studio-main .pill,
+  .studio-shell .studio-main .expense-category{
+    border:1px solid #c7d7cd!important;
+    border-radius:7px!important;
+    background:#e3eee7!important;
+    color:#315b45!important;
+  }
+
+  /* Employee admin table details. */
+  .studio-shell .employee-admin-person>div,
+  .studio-shell .employee-admin-photo>div{
+    border:1px solid #bcd0c3!important;
+    border-radius:10px!important;
+    background:#dfece4!important;
+  }
+  .studio-shell .employee-contract-toggle{
+    min-height:34px!important;
+    padding:6px 9px!important;
+    border:1px solid #bfd0c5!important;
+    border-radius:8px!important;
+    background:#e8f0eb!important;
+    color:#23543c!important;
+  }
+  .studio-shell .employee-contract-toggle span{font-size:0!important}
+  .studio-shell .employee-contract-toggle span:before{content:"VIEW";font-size:9px;font-weight:850;letter-spacing:.04em}
+  .studio-shell .employee-contract-row td{background:#eaf0ec!important}
+  .studio-shell .employee-contract-list button{
+    background:#f7f9f7!important;
+    border-color:#c9d7cf!important;
+    border-radius:9px!important;
+  }
+}
+
+@media(max-width:900px){
+  .studio-shell .studio-main>.app-top,
+  .studio-shell .studio-main>.calendar-heading,
+  .studio-shell .studio-main>.customer-directory-head,
+  .studio-shell .studio-main>.tasks-page-head{
+    background:#e5eee8!important;
+    border-color:#c4d3ca!important;
+  }
+}
