@@ -17,19 +17,12 @@ const match = workerEmail.match(/^ops-sim-([0-9a-f]{8})-([a-z0-9]+)-worker-\d+@4
 if (!match) throw new Error(`V1 simulator purge refused an unexpected worker marker: ${workerEmail || "missing"}`);
 
 const runId = match[2].toLowerCase();
-const VISIT_CLEANUP_BATCH_SIZE = 12;
 const service = createClient(url, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
 function companyFilter(companyId) {
   return `company_id.eq.${companyId},organization_id.eq.${companyId}`;
-}
-
-function chunks(rows, size) {
-  const result = [];
-  for (let index = 0; index < rows.length; index += size) result.push(rows.slice(index, index + size));
-  return result;
 }
 
 function isStatementTimeout(error) {
@@ -42,6 +35,8 @@ function sleep(ms) {
 }
 
 async function cleanupVisitBatch(companyId, customerIds) {
+  if (!customerIds.length) return 0;
+
   const cleanup = await service.rpc("cleanup_operational_simulation_visits", {
     p_company_id: companyId,
     p_customer_ids: customerIds,
@@ -109,10 +104,11 @@ const customers = await service
 if (customers.error) throw new Error(`V1 simulator purge Customer inventory: ${customers.error.message}`);
 const customerIds = [...new Set((customers.data || []).map(row => String(row.id)).filter(Boolean))];
 
-let visitsRemoved = 0;
-for (const batch of chunks(customerIds, VISIT_CLEANUP_BATCH_SIZE)) {
-  visitsRemoved += await cleanupVisitBatch(companyId, batch);
-}
+// Prefer one verified cleanup RPC for the exact run. If PostgreSQL reaches the
+// statement timeout, cleanupVisitBatch automatically bisects the same verified
+// ID set until each batch succeeds. This keeps the safety boundary unchanged
+// while avoiding repeated customer validation and Visit scans during normal QA.
+const visitsRemoved = await cleanupVisitBatch(companyId, customerIds);
 
 const purgeData = await finalizeRunWithRetry(companyId, runId);
 
