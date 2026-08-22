@@ -28,6 +28,10 @@ function sleep(milliseconds: number) {
   return new Promise(resolve => window.setTimeout(resolve, milliseconds));
 }
 
+function isMissingDailyRoute(message: string) {
+  return /no route is assigned for this date|no active canonical route remains for this date/i.test(message);
+}
+
 export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
   const { requestedRouteId, routeDate } = targetValues(target);
   const [resolvedRouteId, setResolvedRouteId] = useState<string | null>(requestedRouteId);
@@ -80,7 +84,15 @@ export function useCanonicalRouteSnapshot(target?: CanonicalRouteTarget) {
       return next;
     } catch (reason) {
       if (request === requestRef.current && requestTargetKey === targetKeyRef.current) {
-        setError(reason instanceof Error ? reason.message : "Route synchronization failed.");
+        const message = reason instanceof Error ? reason.message : "Route synchronization failed.";
+        if (!requestedRouteId && routeDate && isMissingDailyRoute(message)) {
+          setResolvedRouteId(null);
+          snapshotRef.current = null;
+          setSnapshot(null);
+          setError("");
+        } else {
+          setError(message);
+        }
       }
       return null;
     } finally {
