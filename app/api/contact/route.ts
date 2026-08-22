@@ -21,7 +21,7 @@ export async function POST(request:NextRequest){
   if(email&&!validEmail(email))return NextResponse.json({error:"Please enter a valid email address or leave the email field blank."},{status:400});
   const apiKey=process.env.RESEND_API_KEY;
   if(!apiKey){console.error("Contact form is missing RESEND_API_KEY");return NextResponse.json({error:"Online messages are temporarily unavailable. Please email support@4everseasons.com."},{status:503})}
-  const from=process.env.CONTACT_FROM_EMAIL||"4 Ever Seasons <no-reply@auth.4everseasons.com>";
+  const from=process.env.CONTACT_FROM_EMAIL||"4Ever Seasons <no-reply@auth.4everseasons.com>";
   const html=`<div style="font-family:Arial,sans-serif;color:#17231d;line-height:1.6"><h2>New website message</h2><p><strong>Name:</strong> ${escapeHtml(name)}</p><p><strong>Email:</strong> ${email?escapeHtml(email):"Not provided"}</p><p><strong>Subject:</strong> ${escapeHtml(subject)}</p><hr style="border:0;border-top:1px solid #d9dfdb"/><p style="white-space:pre-wrap">${escapeHtml(message)}</p><hr style="border:0;border-top:1px solid #d9dfdb"/><small>Sent from the contact form at 4everseasons.com.</small></div>`;
   const payload:any={from,to:["support@4everseasons.com"],subject:`Website contact: ${subject}`,html};
   if(email)payload.reply_to=email;
