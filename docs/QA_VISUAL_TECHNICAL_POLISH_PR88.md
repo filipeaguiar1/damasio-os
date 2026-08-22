@@ -46,7 +46,7 @@ Safe online optimization applied:
 - [x] Master theme selector placeholders visually neutralized through shared CSS.
 - [x] Online database optimization applied only where redundancy was proven.
 - [x] Typecheck passed after the first wave.
-- [ ] Full production build after publishing/syncing the final branch state.
+- [x] Direct code-level replacement for employee route/property, customer mobile, admin map, mobile alerts and master theme pictograms after resyncing with the PR head.
+- [x] Full production build passed after resyncing the final branch state.
 - [ ] Follow-up visual screenshot pass across desktop/mobile.
 - [ ] Deeper page-by-page copy pass for secondary admin/customer screens.
-- [ ] Direct code-level replacement for remaining pictograms inside large legacy route/mobile/master files after the local checkout is fully resynced with the PR head.
