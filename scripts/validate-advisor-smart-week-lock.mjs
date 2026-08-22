@@ -13,20 +13,51 @@ function functionBody(source, name, nextName) {
   return source.slice(start, end);
 }
 
-// Regression lock: full Smart Week rebuild must remain deterministic and capacity-first.
+// Smart Week policy: Monday -> Sunday are all valid operating days. Capacity is a
+// ceiling, never a target that justifies splitting a coherent geographic cluster.
 assert.match(
   planner,
-  /for\(const day of days\)\{while\(day\.capacity>day\.homes\.length&&remaining\.length\)/,
-  "Advisor Smart Week must fill each earlier day to its configured capacity before opening the next day.",
+  /useState<number\[]>\(\[16,16,16,16,16,16,16\]\)/,
+  "Advisor Smart Week must keep all seven operating days available by default.",
+);
+assert.match(
+  planner,
+  /const nextCaps=DAY_LABELS\.map\(\(_,index\)=>Math\.max\(employee\.dailyCapacity,counts\[index\]\)\)/,
+  "Employee daily capacity must apply Monday through Sunday unless Admin changes a day manually.",
+);
+assert.match(
+  planner,
+  /function localityKey\(/,
+  "Smart Week must identify locality clusters before assigning houses to days.",
+);
+assert.match(
+  planner,
+  /function geographicClusters\(/,
+  "Smart Week must group houses geographically before day allocation.",
 );
 assert.doesNotMatch(
   planner,
-  /rebalanceGeographicDays|clusterCost/,
-  "Cross-day mathematical rebalancing is forbidden: it previously split obvious geographic clusters and destabilized the week.",
+  /for\(const day of days\)\{while\(day\.capacity>day\.homes\.length&&remaining\.length\)/,
+  "Smart Week must not greedily fill a day house-by-house across geographic clusters.",
+);
+assert.match(
+  planner,
+  /const matching=days\.find\(day=>day\.capacity>day\.homes\.length&&day\.homes\.some\(home=>localityKey\(home\)===cluster\.key\)\)/,
+  "An existing locality cluster should stay on its day before opening another day.",
+);
+assert.match(
+  planner,
+  /const empty=days\.find\(day=>day\.capacity>day\.homes\.length&&day\.homes\.length===0\)/,
+  "A different locality should prefer the next empty day instead of filling spare capacity in another locality.",
+);
+assert.match(
+  planner,
+  /for\(const day of days\)day\.homes=await optimize\(start,day\.homes\)/,
+  "Each daily cluster must still be ordered by the route optimizer.",
 );
 
-// Fit & save is intentionally incremental: place only new houses into open days,
-// score by geography, optimize affected daily routes, then persist canonically.
+// Fit & save remains incremental. It may add selected due work without rebuilding
+// an already-reviewed week; the explicit Rebuild Smart Week action owns cross-day clustering.
 const fitAndSave = functionBody(planner, "fitAndSaveNew", "moveHouse");
 assert.match(
   fitAndSave,
@@ -69,29 +100,45 @@ assert.doesNotMatch(
   "The legacy Advisor persistence enhancer must never be mounted over AdvancedRoutePlannerV7.",
 );
 
-function expectedPackedCounts(total, capacities) {
-  let remaining = total;
-  return capacities.map(capacity => {
-    const used = Math.min(Math.max(0, capacity), remaining);
-    remaining -= used;
-    return used;
-  });
+// Policy examples. Distinct clusters deliberately leave spare capacity behind.
+function expectedClusterCounts(clusterSizes, capacities) {
+  const used = capacities.map(() => 0);
+  let dayIndex = 0;
+  for (const size of clusterSizes) {
+    let remaining = size;
+    while (remaining > 0) {
+      while (dayIndex < capacities.length && used[dayIndex] >= capacities[dayIndex]) dayIndex += 1;
+      assert.ok(dayIndex < capacities.length, "Cluster plan exceeded weekly capacity.");
+      const available = capacities[dayIndex] - used[dayIndex];
+      const take = Math.min(available, remaining);
+      used[dayIndex] += take;
+      remaining -= take;
+      // A finished locality never shares its leftover daily room with the next locality.
+      if (remaining === 0) dayIndex += 1;
+    }
+  }
+  return used;
 }
 
 assert.deepEqual(
-  expectedPackedCounts(27, [16, 16, 16, 16, 16, 0, 0]),
-  [16, 11, 0, 0, 0, 0, 0],
-  "27 houses with capacity 16 must occupy Monday 16 + Tuesday 11 only.",
+  expectedClusterCounts([16, 8], [18, 18, 18, 18, 18, 18, 18]),
+  [16, 8, 0, 0, 0, 0, 0],
+  "16 Hamilton + 8 Burlington at capacity 18 must remain separate days.",
 );
 assert.deepEqual(
-  expectedPackedCounts(32, [16, 16, 16, 16, 16, 0, 0]),
-  [16, 16, 0, 0, 0, 0, 0],
-  "32 houses must not spill into Wednesday.",
+  expectedClusterCounts([25, 8], [18, 18, 18, 18, 18, 18, 18]),
+  [18, 7, 8, 0, 0, 0, 0],
+  "An oversized locality may span days, but the next locality starts on a new day.",
 );
 assert.deepEqual(
-  expectedPackedCounts(20, [16, 16, 16, 16, 16, 0, 0]),
-  [16, 4, 0, 0, 0, 0, 0],
-  "A partially filled second day is allowed only after the first day is full.",
+  expectedClusterCounts([16, 16, 16, 16, 16, 10], [16, 16, 16, 16, 16, 16, 16]),
+  [16, 16, 16, 16, 16, 10, 0],
+  "Saturday must be available when Monday-Friday capacity is naturally exhausted.",
+);
+assert.deepEqual(
+  expectedClusterCounts([16, 16, 16, 16, 16, 16, 4], [16, 16, 16, 16, 16, 16, 16]),
+  [16, 16, 16, 16, 16, 16, 4],
+  "Sunday must be available last in the Monday-to-Sunday priority sequence.",
 );
 
-console.log("PASS Advisor deterministic Smart Week regression lock");
+console.log("PASS Advisor geographic Smart Week regression lock");

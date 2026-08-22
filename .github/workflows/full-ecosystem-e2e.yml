@@ -39,6 +39,11 @@ jobs:
       NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
     steps:
       - uses: actions/checkout@v4
+        with:
+          # PR checks must validate the branch head that the user is actually reviewing,
+          # not an older synthetic merge ref cached from a previous PR event.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           version: 9.15.4

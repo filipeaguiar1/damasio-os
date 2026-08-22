@@ -2,202 +2,42 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { CanonicalVisitDetailDrawer } from "@/components/operations/CanonicalVisitDetailDrawer";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { operationalDateKey } from "@/lib/dates/operationalDate";
 import { canonicalRouteLeadsForEmployee } from "@/lib/routes/canonicalRouteIdentity";
 import { schedulingBoardToLeads, type RouteLead } from "@/lib/services/schedulingService";
 import type { SchedulingDispatchBoard } from "@/lib/repositories/schedulingRepository";
 
-type RouteEmployee = {
-  id: string;
-  employeeId: string | null;
-  crewId: string;
-  name: string;
-};
+type RouteEmployee={id:string;employeeId:string|null;crewId:string;name:string};
+function visitId(item:RouteLead){return item.canonicalVisitId||item.id;}
+function pretty(value?:string){return String(value||"scheduled").replaceAll("_"," ").replace(/\b\w/g,c=>c.toUpperCase());}
+function duration(seconds?:number){return Number.isFinite(Number(seconds))?`${Math.max(0,Math.round(Number(seconds)/60))} min`:"";}
+async function token(){const client=getSupabaseBrowserClient() as any;const{data}=await client.auth.getSession();const value=data.session?.access_token;if(!value)throw new Error("Your Admin session expired. Sign in again.");return value as string;}
+function announce(routeIds:string[],source:string){for(const routeId of routeIds)window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated",{detail:{routeId,source}}));if(typeof BroadcastChannel!=="undefined"){const channel=new BroadcastChannel("damasio-canonical-route");for(const routeId of routeIds)channel.postMessage({routeId,source});channel.close();}}
 
-function visitId(item: RouteLead) {
-  return item.canonicalVisitId || item.id;
-}
-
-async function accessToken() {
-  const client = getSupabaseBrowserClient() as any;
-  const { data } = await client.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) throw new Error("Your Admin session expired. Sign in again.");
-  return token as string;
-}
-
-function announceRouteUpdates(routeIds: string[]) {
-  for (const routeId of routeIds) {
-    window.dispatchEvent(new CustomEvent("damasio:canonical-route-updated", {
-      detail: { routeId, source: "admin_remove_from_today" },
-    }));
-  }
-  if (typeof BroadcastChannel !== "undefined") {
-    const channel = new BroadcastChannel("damasio-canonical-route");
-    for (const routeId of routeIds) {
-      channel.postMessage({ routeId, source: "admin_remove_from_today" });
-    }
-    channel.close();
-  }
-}
-
-export function RouteTodayRemovalPanel() {
-  const searchParams = useSearchParams();
-  const visible = searchParams.get("tab") === "advisor";
-  const [date, setDate] = useState(operationalDateKey());
-  const [employees, setEmployees] = useState<RouteEmployee[]>([]);
-  const [employeeId, setEmployeeId] = useState("");
-  const [leads, setLeads] = useState<RouteLead[]>([]);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [reason, setReason] = useState("Customer requested a different service day");
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function refresh(silent = false) {
-    try {
-      const token = await accessToken();
-      const response = await fetch(`/api/admin/routes?date=${encodeURIComponent(date)}&t=${Date.now()}`, {
-        headers: { authorization: `Bearer ${token}` },
-        cache: "no-store",
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Routes could not be loaded.");
-      const nextEmployees: RouteEmployee[] = result.employees || [];
-      setEmployees(nextEmployees);
-      setLeads(schedulingBoardToLeads((result.board || {}) as SchedulingDispatchBoard));
-      setEmployeeId(current => nextEmployees.some(item => item.id === current)
-        ? current
-        : nextEmployees[0]?.id || "");
-      if (!silent) setMessage("");
-    } catch (error) {
-      if (!silent) setMessage(error instanceof Error ? error.message : "Routes could not be loaded.");
-    }
-  }
-
-  useEffect(() => {
-    if (!visible) return;
-    void refresh();
-  }, [visible, date]);
-
-  const employee = employees.find(item => item.id === employeeId) || null;
-  const route = useMemo(() => {
-    if (!employee) return [];
-    return canonicalRouteLeadsForEmployee(
-      leads.filter(item => Boolean(item.canonicalVisitId) && item.scheduledDate === date),
-      { id: employee.employeeId || employee.id, crewId: employee.crewId },
-    )
-      .filter(item => item.canonicalVisitStatus === "scheduled")
-      .sort((left, right) => (left.routeOrder ?? 9999) - (right.routeOrder ?? 9999));
-  }, [leads, employee, date]);
-
-  useEffect(() => {
-    const available = new Set(route.map(visitId));
-    setSelected(current => current.filter(id => available.has(id)));
-  }, [route]);
-
-  function toggle(id: string) {
-    setSelected(current => current.includes(id)
-      ? current.filter(value => value !== id)
-      : [...current, id]);
-  }
-
-  async function removeSelected() {
-    if (!selected.length || reason.trim().length < 3) return;
-    const confirmed = window.confirm(
-      `Remove ${selected.length} scheduled visit${selected.length === 1 ? "" : "s"} from ${date}? They will remain pending and available for rescheduling.`,
-    );
-    if (!confirmed) return;
-
-    setBusy(true);
-    setMessage("Removing selected visits and rebuilding the canonical route now...");
-    try {
-      const token = await accessToken();
-      const response = await fetch("/api/admin/route-advisor", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${token}`,
-        },
-        cache: "no-store",
-        body: JSON.stringify({
-          action: "remove_today",
-          visitIds: selected,
-          removalReason: reason.trim(),
-        }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Visits could not be removed from today.");
-
-      const count = Number(result.count || selected.length);
-      const routeIds = [...new Set([
-        ...(Array.isArray(result.routeIds) ? result.routeIds : []),
-        result.routeId,
-      ].map(String).filter(Boolean))];
-
-      setSelected([]);
-      announceRouteUpdates(routeIds);
-      await refresh(true);
-      window.setTimeout(() => {
-        announceRouteUpdates(routeIds);
-        void refresh(true);
-      }, 500);
-
-      setMessage(`${count} visit${count === 1 ? "" : "s"} removed. The worker route and map were rebuilt automatically.`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Visits could not be removed from today.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (!visible) return null;
-
-  return <section className="route-today-removal">
-    <header>
-      <div>
-        <span>REMOVE FROM TODAY</span>
-        <h2>Keep the Job, remove only today&apos;s Visit.</h2>
-        <p>Selected visits leave the worker&apos;s route and return to Pending for rescheduling. Customer, Property and Job remain unchanged.</p>
-      </div>
-      <strong>{selected.length} selected</strong>
-    </header>
-
-    <div className="route-today-removal-controls">
-      <label><span>Employee</span><select value={employeeId} onChange={event => { setEmployeeId(event.target.value); setSelected([]); }}><option value="">Select Employee</option>{employees.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label><span>Route date</span><input type="date" value={date} onChange={event => { setDate(event.target.value); setSelected([]); }} /></label>
-      <label><span>Reason</span><select value={reason} onChange={event => setReason(event.target.value)}><option>Customer requested a different service day</option><option>Customer cancelled today&apos;s visit</option><option>Weather or access issue</option><option>Operational capacity adjustment</option><option>Other administrative reason</option></select></label>
-      <button className="btn btn-outline" disabled={busy} onClick={() => void refresh()}>{busy ? "Working..." : "Refresh"}</button>
-    </div>
-
-    {message && <div className="desktop-route-message">{message}</div>}
-
-    <div className="route-today-removal-list">
-      {route.map((home, index) => {
-        const id = visitId(home);
-        const active = selected.includes(id);
-        return <button key={id} type="button" className={active ? "selected" : "scheduled"} onClick={() => toggle(id)}>
-          <b>{home.routeOrder || index + 1}</b>
-          <span><strong>{home.name}</strong><small>{home.address} · {home.service}</small></span>
-          <em>{active ? "Selected to remove" : "On today’s route"}</em>
-        </button>;
-      })}
-      {!route.length && <div className="desktop-route-empty"><strong>No removable Scheduled Visits for this Employee/date.</strong><p>Completed and active visits remain protected.</p></div>}
-    </div>
-
-    <footer>
-      <button type="button" className="btn btn-outline" disabled={!route.length || busy} onClick={() => setSelected(selected.length === route.length ? [] : route.map(visitId))}>{selected.length === route.length && route.length ? "Clear all" : "Select all scheduled"}</button>
-      <button type="button" className="btn btn-primary" disabled={!selected.length || busy || reason.trim().length < 3} onClick={() => void removeSelected()}>{busy ? "Removing..." : `Remove from today (${selected.length})`}</button>
-    </footer>
-
-    <style jsx global>{`
-      .route-today-removal{display:grid;gap:14px;margin-top:18px;padding:18px;border:1px solid #bfd7cc;border-radius:22px;background:#fff;box-shadow:0 12px 30px rgba(19,52,39,.05)}
-      .route-today-removal>header{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}.route-today-removal>header span{color:#0b7655;font-size:10px;font-weight:950;letter-spacing:.12em}.route-today-removal>header h2{margin:5px 0;font-size:25px}.route-today-removal>header p{margin:0;color:#64748b}.route-today-removal>header>strong{padding:9px 12px;border-radius:999px;background:#e8f5ee;color:#0b684c;white-space:nowrap}
-      .route-today-removal-controls{display:grid;grid-template-columns:1fr 210px 1.4fr auto;gap:10px;align-items:end}.route-today-removal-controls label{display:grid;gap:5px}.route-today-removal-controls label>span{color:#607168;font-size:9px;font-weight:900;text-transform:uppercase}.route-today-removal-controls input,.route-today-removal-controls select{min-height:46px;border:1px solid #cbdad2;border-radius:11px;padding:0 12px;background:#fff}
-      .route-today-removal-list{display:grid;gap:8px}.route-today-removal-list>button{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;padding:13px;border:1px solid #8db9a5;border-radius:14px;background:#e8f5ee;text-align:left;cursor:pointer}.route-today-removal-list>button:hover{border-color:#0b7655}.route-today-removal-list>button.selected{border-color:#1d4ed8;background:#e8efff;box-shadow:0 0 0 2px rgba(29,78,216,.1)}.route-today-removal-list b{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:#0b7655;color:#fff}.route-today-removal-list .selected b{background:#1d4ed8}.route-today-removal-list span strong,.route-today-removal-list span small{display:block}.route-today-removal-list span small{margin-top:3px;color:#566b61}.route-today-removal-list em{font-style:normal;font-size:10px;font-weight:950;color:#0b684c}.route-today-removal-list .selected em{color:#1d4ed8}
-      .route-today-removal>footer{display:flex;justify-content:flex-end;gap:10px}
-      @media(max-width:900px){.route-today-removal-controls{grid-template-columns:1fr 1fr}.route-today-removal>header{flex-direction:column}.route-today-removal-list>button{grid-template-columns:36px 1fr}.route-today-removal-list em{grid-column:2}}
-      @media(max-width:620px){.route-today-removal-controls{grid-template-columns:1fr}.route-today-removal>footer{flex-direction:column}.route-today-removal>footer .btn{width:100%}}
-    `}</style>
-  </section>;
+export function RouteTodayRemovalPanel(){
+ const params=useSearchParams();const tab=params.get("tab");const visible=!tab||tab==="view";
+ const[date,setDate]=useState(operationalDateKey());const[employees,setEmployees]=useState<RouteEmployee[]>([]);const[employeeId,setEmployeeId]=useState("");const[leads,setLeads]=useState<RouteLead[]>([]);const[selected,setSelected]=useState<string[]>([]);const[query,setQuery]=useState("");const[reason,setReason]=useState("Customer requested a different service day");const[cancelReason,setCancelReason]=useState("Customer cancelled this service");const[selectedVisitId,setSelectedVisitId]=useState<string|null>(null);const[message,setMessage]=useState("");const[busy,setBusy]=useState(false);
+ async function refresh(silent=false){try{const access=await token();const response=await fetch(`/api/admin/routes?date=${encodeURIComponent(date)}&t=${Date.now()}`,{headers:{authorization:`Bearer ${access}`},cache:"no-store"});const result=await response.json();if(!response.ok)throw new Error(result.error||"Routes could not be loaded.");const next:RouteEmployee[]=result.employees||[];setEmployees(next);setLeads(schedulingBoardToLeads((result.board||{}) as SchedulingDispatchBoard));setEmployeeId(current=>next.some(item=>item.id===current)?current:next[0]?.id||"");if(!silent)setMessage("");}catch(error){if(!silent)setMessage(error instanceof Error?error.message:"Routes could not be loaded.");}}
+ useEffect(()=>{if(!visible)return;void refresh();const timer=window.setInterval(()=>void refresh(true),10000);return()=>window.clearInterval(timer);},[visible,date]);
+ const employee=employees.find(item=>item.id===employeeId)||null;
+ const route=useMemo(()=>{if(!employee)return[];const needle=query.trim().toLowerCase();return canonicalRouteLeadsForEmployee(leads.filter(item=>Boolean(item.canonicalVisitId)&&item.scheduledDate===date&&item.canonicalVisitStatus!=="cancelled"),{id:employee.employeeId||employee.id,crewId:employee.crewId}).filter(item=>!needle||`${item.name} ${item.address} ${item.service}`.toLowerCase().includes(needle)).sort((a,b)=>(a.routeOrder??9999)-(b.routeOrder??9999));},[leads,employee,date,query]);
+ const removable=useMemo(()=>route.filter(item=>item.canonicalVisitStatus==="scheduled"),[route]);
+ useEffect(()=>{const allowed=new Set(removable.map(visitId));setSelected(current=>current.filter(id=>allowed.has(id)));},[removable]);
+ function toggle(id:string){setSelected(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);}
+ async function removeVisits(ids:string[]){if(!ids.length)return;const ok=window.confirm(`Remove ${ids.length} scheduled visit${ids.length===1?"":"s"} from ${date}? The service remains active for rescheduling.`);if(!ok)return;setBusy(true);setMessage("Removing from this day and rebuilding the canonical route…");try{const access=await token();const response=await fetch("/api/admin/route-advisor",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${access}`},body:JSON.stringify({action:"remove_today",visitIds:ids,removalReason:reason.trim()})});const result=await response.json();if(!response.ok)throw new Error(result.error||"Visits could not be removed from this day.");const routeIds:string[]=[...(Array.isArray(result.routeIds)?result.routeIds:[]),result.routeId].map((value:unknown)=>String(value||"")).filter(Boolean);setSelected(current=>current.filter(id=>!ids.includes(id)));announce([...new Set(routeIds)],"admin_remove_from_today");await refresh(true);setMessage(`${ids.length} Visit${ids.length===1?"":"s"} removed from this day. The Job remains active.`);}catch(error){setMessage(error instanceof Error?error.message:"Visits could not be removed from this day.");}finally{setBusy(false);}}
+ async function cancelService(home:RouteLead){const id=visitId(home);if(home.canonicalVisitStatus!=="scheduled")return;const ok=window.confirm(`Cancel ${home.name}'s service at ${home.address} on ${date}? It will leave the route and any pending payout flow.`);if(!ok)return;setBusy(true);setMessage("Cancelling service and synchronizing route + payout…");try{const client=getSupabaseBrowserClient() as any;const{data,error}=await client.rpc("cancel_scheduled_visit",{p_visit_id:id,p_reason:cancelReason.trim()});if(error)throw new Error(error.message);const routeIds:string[]=Array.isArray(data?.routeIds)?data.routeIds.map((value:unknown)=>String(value||"")).filter((value:string)=>Boolean(value)):[];announce(routeIds,"admin_cancel_service");setSelected(current=>current.filter(value=>value!==id));if(selectedVisitId===id)setSelectedVisitId(null);await refresh(true);setMessage("Service cancelled. Route and pending payout state were updated automatically.");}catch(error){setMessage(error instanceof Error?error.message:"The service could not be cancelled.");}finally{setBusy(false);}}
+ if(!visible)return null;
+ return <section className="route-day-view">
+  <header><div><span>VIEW · DAILY OPERATIONS</span><h2>{employee?.name||"Employee route"}</h2><p>View each house, service evidence and history, then Move, Remove from day or Cancel only when allowed.</p></div><strong>{route.length} house{route.length===1?"":"s"}</strong></header>
+  <div className="route-day-controls"><label><span>Employee</span><select value={employeeId} onChange={e=>{setEmployeeId(e.target.value);setSelected([])}}><option value="">Select Employee</option>{employees.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>Route date</span><input type="date" value={date} onChange={e=>{setDate(e.target.value);setSelected([])}}/></label><label><span>Search houses</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Customer, address or service"/></label><button className="btn btn-outline" disabled={busy} onClick={()=>void refresh()}>{busy?"Working…":"Refresh"}</button></div>
+  {message&&<div className="desktop-route-message">{message}</div>}
+  <div className="route-day-list">{route.map((home,index)=>{const id=visitId(home),status=home.canonicalVisitStatus||"scheduled",canChange=status==="scheduled",active=selected.includes(id);return <article className={`route-day-row ${status}`} key={id}><button className={`route-day-check ${active?"selected":""}`} disabled={!canChange} onClick={()=>canChange&&toggle(id)}><b>{home.routeOrder||index+1}</b></button><button className="route-day-service" onClick={()=>setSelectedVisitId(id)}><span><strong>{home.name}</strong><small>{home.address}</small><em>{home.service}</em></span><div><strong>{pretty(status)}</strong><small>{home.visitFinishedAt?`Finished · ${duration(home.visitDurationSeconds)}`:home.visitStartedAt?"Service in progress":"Scheduled service"}</small></div></button><div className="route-day-actions"><button onClick={()=>setSelectedVisitId(id)}>View service</button><button disabled={!canChange||busy} onClick={()=>{window.location.href=`/admin/routes?tab=move&visitId=${encodeURIComponent(id)}`}}>Move</button><button disabled={!canChange||busy} onClick={()=>void removeVisits([id])}>Remove from day</button><button className="danger" disabled={!canChange||busy} onClick={()=>void cancelService(home)}>Cancel service</button></div></article>})}{!route.length&&<div className="desktop-route-empty"><strong>No houses on this Employee route for the selected date.</strong><p>Choose another Employee/date or publish a route in Route Advisor.</p></div>}</div>
+  {!!removable.length&&<section className="route-day-bulk"><div><label><span>Remove-from-day reason</span><select value={reason} onChange={e=>setReason(e.target.value)}><option>Customer requested a different service day</option><option>Weather or access issue</option><option>Operational capacity adjustment</option><option>Other administrative reason</option></select></label><label><span>Cancellation reason</span><select value={cancelReason} onChange={e=>setCancelReason(e.target.value)}><option>Customer cancelled this service</option><option>Customer no longer needs service</option><option>Duplicate scheduled service</option><option>Company cancelled service</option><option>Other cancellation reason</option></select></label></div><footer><button className="btn btn-outline" disabled={busy} onClick={()=>setSelected(selected.length===removable.length?[]:removable.map(visitId))}>{selected.length===removable.length?"Clear scheduled":"Select all scheduled"}</button><button className="btn btn-primary" disabled={!selected.length||busy} onClick={()=>void removeVisits(selected)}>Remove selected from day ({selected.length})</button></footer></section>}
+  <CanonicalVisitDetailDrawer visitId={selectedVisitId} onClose={()=>setSelectedVisitId(null)}/>
+  <style jsx global>{`
+   .route-day-view{display:grid;gap:14px;margin-top:18px;padding:18px;border:1px solid #bfd7cc;border-radius:22px;background:#fff;box-shadow:0 12px 30px rgba(19,52,39,.05)}.route-day-view>header{display:flex;justify-content:space-between;gap:20px}.route-day-view>header span{color:#0b7655;font-size:10px;font-weight:950;letter-spacing:.12em}.route-day-view>header h2{margin:5px 0;font-size:25px}.route-day-view>header p{margin:0;color:#64748b}.route-day-view>header>strong{height:max-content;padding:9px 12px;border-radius:999px;background:#e8f5ee;color:#0b684c}.route-day-controls{display:grid;grid-template-columns:1fr 210px 1.25fr auto;gap:10px;align-items:end}.route-day-controls label,.route-day-bulk label{display:grid;gap:5px}.route-day-controls label>span,.route-day-bulk label>span{font-size:9px;font-weight:900;color:#607168;text-transform:uppercase}.route-day-controls input,.route-day-controls select,.route-day-bulk select{min-height:46px;border:1px solid #cbdad2;border-radius:11px;padding:0 12px;background:#fff}.route-day-list{display:grid;gap:8px}.route-day-row{display:grid;grid-template-columns:42px minmax(250px,1fr) auto;gap:10px;align-items:center;padding:10px;border:1px solid #dde8e2;border-radius:15px;background:#fff}.route-day-row:hover{border-color:#b6d1c5;box-shadow:0 8px 22px rgba(13,61,44,.05)}.route-day-row.in_progress{background:#f0f8f4;border-color:#9cc6b4}.route-day-row.completed{background:#f7faf8}.route-day-check{border:0;background:transparent;padding:0}.route-day-check b{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;background:#e9f2ed;color:#0b684c}.route-day-check.selected b{background:#1d4ed8;color:#fff}.route-day-service{display:grid;grid-template-columns:1fr auto;gap:14px;border:0;background:transparent;text-align:left;cursor:pointer}.route-day-service span strong,.route-day-service span small,.route-day-service span em,.route-day-service div strong,.route-day-service div small{display:block}.route-day-service span small{margin-top:2px;color:#5f7167}.route-day-service span em{margin-top:4px;color:#0b684c;font-size:11px;font-style:normal;font-weight:800}.route-day-service div{text-align:right}.route-day-service div strong{font-size:10px;color:#0b684c}.route-day-service div small{margin-top:3px;color:#75847c}.route-day-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}.route-day-actions button{border:1px solid #cddbd3;border-radius:9px;background:#fff;color:#315b4b;padding:7px 9px;font-size:10px;font-weight:850}.route-day-actions button.danger{color:#a33b33;border-color:#e5c2be}.route-day-actions button:disabled{opacity:.4}.route-day-bulk{display:grid;gap:10px;padding:13px;border:1px solid #e0e9e4;border-radius:15px;background:#f8fbf9}.route-day-bulk>div{display:grid;grid-template-columns:1fr 1fr;gap:10px}.route-day-bulk footer{display:flex;justify-content:flex-end;gap:8px}@media(max-width:1100px){.route-day-controls{grid-template-columns:1fr 1fr}.route-day-row{grid-template-columns:42px 1fr}.route-day-actions{grid-column:2;justify-content:flex-start}}@media(max-width:680px){.route-day-view>header{flex-direction:column}.route-day-controls,.route-day-bulk>div{grid-template-columns:1fr}.route-day-service{grid-template-columns:1fr}.route-day-service div{text-align:left}.route-day-bulk footer{flex-direction:column}}
+  `}</style>
+ </section>;
 }

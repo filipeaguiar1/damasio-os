@@ -20,7 +20,7 @@ async function requireAdmin(request: NextRequest) {
   if (error || !profile?.active || profile.role !== "admin") throw new Error("Only a company Admin can view offers.");
   const companyId = profile.company_id || profile.organization_id;
   if (!companyId) throw new Error("Admin profile is not linked to a company.");
-  return { client, companyId };
+  return { client, companyId: String(companyId) };
 }
 
 export async function GET(request: NextRequest) {
@@ -37,9 +37,16 @@ export async function GET(request: NextRequest) {
     const ids = (customers || []).map((item: any) => item.id);
     const propertyMap = new Map<string, any>();
     if (ids.length) {
-      const { data: properties, error: propertyError } = await client.from("properties").select("id,customer_id,address_line1,city,province,postal_code,official_photo_url").in("customer_id", ids).order("created_at");
+      const { data: properties, error: propertyError } = await client
+        .from("properties")
+        .select("id,customer_id,address_line1,city,province,postal_code,official_photo_url,company_id,organization_id")
+        .in("customer_id", ids)
+        .or(`company_id.eq.${companyId},organization_id.eq.${companyId}`)
+        .order("created_at");
       if (propertyError) throw new Error(propertyError.message);
-      for (const property of properties || []) if (!propertyMap.has(property.customer_id)) propertyMap.set(property.customer_id, property);
+      for (const property of properties || []) {
+        if (!propertyMap.has(property.customer_id)) propertyMap.set(property.customer_id, property);
+      }
     }
     return NextResponse.json({ offers: (customers || []).map((customer: any) => ({
       id: customer.id,

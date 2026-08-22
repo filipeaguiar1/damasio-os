@@ -17,6 +17,7 @@ const match = workerEmail.match(/^ops-sim-([0-9a-f]{8})-([a-z0-9]+)-worker-\d+@4
 if (!match) throw new Error(`V1 simulator purge refused an unexpected worker marker: ${workerEmail || "missing"}`);
 
 const runId = match[2].toLowerCase();
+const VISIT_CLEANUP_BATCH_SIZE = 12;
 const service = createClient(url, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
@@ -109,7 +110,7 @@ if (customers.error) throw new Error(`V1 simulator purge Customer inventory: ${c
 const customerIds = [...new Set((customers.data || []).map(row => String(row.id)).filter(Boolean))];
 
 let visitsRemoved = 0;
-for (const batch of chunks(customerIds, 4)) {
+for (const batch of chunks(customerIds, VISIT_CLEANUP_BATCH_SIZE)) {
   visitsRemoved += await cleanupVisitBatch(companyId, batch);
 }
 

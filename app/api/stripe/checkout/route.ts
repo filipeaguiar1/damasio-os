@@ -39,15 +39,21 @@ function invoiceAccessAllowed(
     service_company_id?: string | null;
     company_id?: string | null;
     organization_id?: string | null;
+    archived_at?: string | null;
   } | null,
   userId: string,
   companyId: string
 ) {
-  if (customer?.profile_id === userId) return true;
-  if (!profile?.active) return false;
-
+  if (!profile?.active || !customer) return false;
   const role = String(profile.role);
   const operatorCompanyId = profileCompanyId(profile);
+
+  if (role === "customer") {
+    if (customer.archived_at || customer.profile_id !== userId) return false;
+    const customerCompanyId = customer.company_id || customer.organization_id;
+    return !(operatorCompanyId && customerCompanyId && operatorCompanyId !== customerCompanyId);
+  }
+
   if (role === "master") return true;
   if (!["admin", "manager"].includes(role) || operatorCompanyId !== companyId) return false;
 
@@ -63,9 +69,10 @@ function manualRequestAllowed(
     origin_company_id?: string | null;
     company_id?: string | null;
     organization_id?: string | null;
+    archived_at?: string | null;
   } | null,
 ) {
-  if (!profile?.active || !customer) return false;
+  if (!profile?.active || !customer || customer.archived_at) return false;
   const role = String(profile.role);
   if (role === "master") return true;
   if (!["admin", "manager"].includes(role) || isPlatformCustomer(customer)) return false;
@@ -74,9 +81,29 @@ function manualRequestAllowed(
   return Boolean(companyId && customerOwnerCompanyId === companyId);
 }
 
+function userClient(token: string) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) throw new Error("Finance authorization is not configured.");
+  return createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  }) as any;
+}
+
+async function requireManagerFinancePermission(token: string, profile: { role?: string } | null) {
+  if (String(profile?.role) !== "manager") return;
+  const result = await userClient(token).rpc("require_company_module_permission", {
+    p_module: "finance",
+    p_required: "manage",
+  });
+  if (result.error) throw new Error(result.error.message || "Finance manage permission is required.");
+}
+
 async function createManualInvoice(
   db: any,
   auth: { user: { id: string; email?: string | null } },
+  token: string,
   body: { customerId?: string; amountCents?: number; description?: string },
 ) {
   const customerId = String(body.customerId || "").trim();
@@ -89,9 +116,10 @@ async function createManualInvoice(
 
   const [{ data: profile }, { data: customer, error: customerError }] = await Promise.all([
     db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
-    db.from("customers").select("id,profile_id,email,full_name,acquisition_source,platform_managed,origin_company_id,service_company_id,company_id,organization_id").eq("id", customerId).maybeSingle(),
+    db.from("customers").select("id,profile_id,email,full_name,acquisition_source,platform_managed,origin_company_id,service_company_id,company_id,organization_id,archived_at").eq("id", customerId).maybeSingle(),
   ]);
   if (customerError || !customer) return { error: failure("Customer not found.", 404) };
+  await requireManagerFinancePermission(token, profile);
   if (!manualRequestAllowed(profile, customer)) {
     return { error: failure("This customer cannot receive payment requests from this account.", 403) };
   }
@@ -154,7 +182,7 @@ export async function POST(request: NextRequest) {
     let invoiceId = String(body.invoiceId || "").trim();
     let createdManualInvoice: { invoiceId?: string; invoiceNumber?: string } = {};
     if (!invoiceId) {
-      const manual = await createManualInvoice(db, auth as any, body);
+      const manual = await createManualInvoice(db, auth as any, token, body);
       if ("error" in manual) return manual.error;
       invoiceId = manual.invoiceId;
       createdManualInvoice = manual;
@@ -163,16 +191,17 @@ export async function POST(request: NextRequest) {
 
     const { data: invoice, error: invoiceError } = await db
       .from("invoices")
-      .select("id,company_id,organization_id,customer_id,invoice_number,status,total,stripe_checkout_session_id")
+      .select("id,organization_id,customer_id,invoice_number,status,total,stripe_checkout_session_id")
       .eq("id", invoiceId)
       .single();
     if (invoiceError || !invoice) return failure("Invoice not found.", 404);
 
-    const companyId = invoice.company_id || invoice.organization_id;
+    const companyId = String(invoice.organization_id || "");
     const [{ data: profile }, { data: customer }] = await Promise.all([
       db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
-      db.from("customers").select("id,profile_id,email,full_name,acquisition_source,platform_managed,origin_company_id,service_company_id,company_id,organization_id").eq("id", invoice.customer_id).maybeSingle()
+      db.from("customers").select("id,profile_id,email,full_name,acquisition_source,platform_managed,origin_company_id,service_company_id,company_id,organization_id,archived_at").eq("id", invoice.customer_id).maybeSingle()
     ]);
+    await requireManagerFinancePermission(token, profile);
     if (!invoiceAccessAllowed(profile, customer, auth.user.id, companyId)) {
       return failure("You cannot pay this invoice.", 403);
     }
@@ -224,7 +253,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ url: session.url, ...createdManualInvoice });
   } catch (error) {
     console.error("Stripe checkout failed", error);
-    return failure("Could not start card checkout.", 500);
+    const message = error instanceof Error ? error.message : "Could not start card checkout.";
+    const status = /session expired|sign in/i.test(message) ? 401 : /permission|finance|cannot receive|cannot pay/i.test(message) ? 403 : 500;
+    return failure(status === 500 ? "Could not start card checkout." : message, status);
   }
 }
 
@@ -248,16 +279,17 @@ export async function DELETE(request: NextRequest) {
 
     const { data: invoice, error: invoiceError } = await db
       .from("invoices")
-      .select("id,company_id,organization_id,customer_id,status,stripe_checkout_session_id")
+      .select("id,organization_id,customer_id,status,stripe_checkout_session_id")
       .eq("id", invoiceId)
       .maybeSingle();
     if (invoiceError || !invoice) return failure("Invoice not found.", 404);
 
-    const companyId = invoice.company_id || invoice.organization_id;
+    const companyId = String(invoice.organization_id || "");
     const [{ data: profile }, { data: customer }] = await Promise.all([
       db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
-      db.from("customers").select("profile_id,acquisition_source,platform_managed,origin_company_id,service_company_id,company_id,organization_id").eq("id", invoice.customer_id).maybeSingle()
+      db.from("customers").select("profile_id,acquisition_source,platform_managed,origin_company_id,service_company_id,company_id,organization_id,archived_at").eq("id", invoice.customer_id).maybeSingle()
     ]);
+    await requireManagerFinancePermission(token, profile);
     if (!invoiceAccessAllowed(profile, customer, auth.user.id, companyId)) {
       return failure("You cannot cancel this checkout.", 403);
     }
@@ -283,6 +315,8 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ cancelled: true });
   } catch (error) {
     console.error("Stripe checkout cancellation failed", error);
-    return failure("Could not cancel card checkout.", 500);
+    const message = error instanceof Error ? error.message : "Could not cancel card checkout.";
+    const status = /session expired|sign in/i.test(message) ? 401 : /permission|finance|cannot cancel/i.test(message) ? 403 : 500;
+    return failure(status === 500 ? "Could not cancel card checkout." : message, status);
   }
 }

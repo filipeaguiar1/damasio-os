@@ -13,7 +13,7 @@ export default function HomePage() {
     <>
       <AuthLinkRouter />
       <Header />
-      <main>
+      <main className="public-home">
         <Hero />
         <Features />
         <Services />

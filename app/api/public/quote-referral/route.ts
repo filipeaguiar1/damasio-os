@@ -34,57 +34,24 @@ const quoteReferral = z.object({
   referralCode: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{4,12}$/).optional().or(z.literal("")),
   estimatedTotal: z.number().nonnegative().nullable().optional(),
   propertyDetails: propertyDetails.optional(),
+  prequoteLeadId: z.string().uuid().optional(),
+  prequoteToken: z.string().uuid().optional(),
   website: z.string().max(0).optional()
-}).strict();
+}).strict().refine(value => Boolean(value.prequoteLeadId) === Boolean(value.prequoteToken), {
+  message: "Prequote reference is incomplete.",
+});
 
 const detailLabels: Record<string, string> = {
-  lawn: "Lawn",
-  cleanup: "Seasonal cleanup",
-  snow: "Snow removal",
-  xs: "XS",
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  legacy: "Large",
-  oversize: "Oversize",
-  "2in": "2 inches",
-  "3in": "3 inches",
-  "4in": "4 inches",
-  "5in": "5 inches",
-  mulched: "Mulched",
-  bag_green_bin: "Bag to green bin",
-  bag_leave_property: "Bag and leave on property",
-  removed: "Removed",
-  no_preference: "No preference",
-  yes: "Yes",
-  no: "No",
-  light: "Light",
-  moderate: "Moderate",
-  heavy: "Heavy",
-  not_sure: "Not sure",
-  typical: "Typical branches/debris",
-  wooded: "Large / wooded property",
-  haul_away: "Haul away debris",
-  mulch_wooded_area: "Mulch or blow into wooded area",
-  quote_both: "Quote both",
-  one: "One visit",
-  two: "Two visits",
-  unlimited: "Unlimited visits",
-  one_car: "1-car driveway",
-  two_car: "2-car driveway",
-  three_car: "3-car driveway",
-  four_plus: "4+ car driveway",
-  custom: "Custom / long driveway",
-  under_500: "Under 500 sq ft",
-  "500_1000": "500-1,000 sq ft",
-  "1000_1500": "1,000-1,500 sq ft",
-  "1500_plus": "1,500+ sq ft",
-  front_walk: "Front walkway",
-  sidewalk_steps: "Sidewalk and steps",
-  all_paved: "All paved surfaces",
-  per_storm: "Per storm",
-  seasonal: "Seasonal",
-  both: "Quote both",
+  lawn: "Lawn", cleanup: "Seasonal cleanup", snow: "Snow removal",
+  xs: "XS", small: "Small", medium: "Medium", large: "Large", legacy: "Large", oversize: "Oversize",
+  "2in": "2 inches", "3in": "3 inches", "4in": "4 inches", "5in": "5 inches",
+  mulched: "Mulched", bag_green_bin: "Bag to green bin", bag_leave_property: "Bag and leave on property", removed: "Removed", no_preference: "No preference",
+  yes: "Yes", no: "No", light: "Light", moderate: "Moderate", heavy: "Heavy", not_sure: "Not sure", typical: "Typical branches/debris", wooded: "Large / wooded property",
+  haul_away: "Haul away debris", mulch_wooded_area: "Mulch or blow into wooded area", quote_both: "Quote both",
+  one: "One visit", two: "Two visits", unlimited: "Unlimited visits",
+  one_car: "1-car driveway", two_car: "2-car driveway", three_car: "3-car driveway", four_plus: "4+ car driveway", custom: "Custom / long driveway",
+  under_500: "Under 500 sq ft", "500_1000": "500-1,000 sq ft", "1000_1500": "1,000-1,500 sq ft", "1500_plus": "1,500+ sq ft",
+  front_walk: "Front walkway", sidewalk_steps: "Sidewalk and steps", all_paved: "All paved surfaces", per_storm: "Per storm", seasonal: "Seasonal", both: "Quote both",
 };
 
 function detailLabel(value?: string) {
@@ -96,7 +63,6 @@ function propertyValues(details?: z.infer<typeof propertyDetails>) {
   const values: Record<string, string> = {};
   if (details.lawnSize) values.lot_size = details.lawnSize;
   if (details.grassHeight) values.grass_height = details.grassHeight;
-
   const propertyNotes = [
     details.serviceCategory ? `Service category: ${detailLabel(details.serviceCategory)}` : null,
     details.lawnSize ? `Property size: ${detailLabel(details.lawnSize)}` : null,
@@ -115,6 +81,24 @@ function propertyValues(details?: z.infer<typeof propertyDetails>) {
   ].filter(Boolean).join(" | ");
   if (propertyNotes) values.property_notes = propertyNotes;
   return values;
+}
+
+function canonicalAddress(value: string) {
+  const pieces = value.split(",").map(part => part.trim()).filter(Boolean);
+  const postalMatch = value.toUpperCase().match(/\b[A-Z]\d[A-Z]\s?\d[A-Z]\d\b/);
+  const postalCode = postalMatch ? postalMatch[0].replace(/\s+/g, "").replace(/^(.{3})(.{3})$/, "$1 $2") : null;
+  const provinceIndex = pieces.findIndex(part => /^(ON|Ontario)$/i.test(part));
+  const postalIndex = pieces.findIndex(part => /\b[A-Z]\d[A-Z]\s?\d[A-Z]\d\b/i.test(part));
+  let cityIndex = provinceIndex > 0 ? provinceIndex - 1 : postalIndex > 1 ? postalIndex - 1 : pieces.length > 1 ? 1 : -1;
+  if (cityIndex >= 0 && /^(Canada)$/i.test(pieces[cityIndex])) cityIndex = -1;
+  const city = cityIndex >= 0 ? pieces[cityIndex] : "";
+  return {
+    address_line1: pieces[0] || value,
+    city,
+    province: "ON",
+    postal_code: postalCode,
+    country: "Canada",
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -140,51 +124,32 @@ export async function POST(request: NextRequest) {
     }
 
     const detailsMarker = body.propertyDetails ? `PROPERTY_DETAILS:${JSON.stringify(body.propertyDetails)}` : null;
-    const notes = [
-      body.notes,
-      typeof body.estimatedTotal === "number" ? `Average estimate shown: $${body.estimatedTotal.toFixed(2)}` : null,
-      body.referralCode ? `Company referral code: ${body.referralCode}` : null,
-      detailsMarker,
-    ].filter(Boolean).join(" | ") || null;
+    const notes = [body.notes, typeof body.estimatedTotal === "number" ? `Average estimate shown: $${body.estimatedTotal.toFixed(2)}` : null, body.referralCode ? `Company referral code: ${body.referralCode}` : null, detailsMarker].filter(Boolean).join(" | ") || null;
 
     let customerId: string | null = null;
     let propertyId: string | null = null;
-
     if (companyId) {
       const existingCustomer = await client.from("customers").select("id").eq("company_id", companyId).ilike("email", body.email).maybeSingle();
       if (existingCustomer.error) throw existingCustomer.error;
-
       if (existingCustomer.data?.id) {
         customerId = existingCustomer.data.id;
         const updated = await client.from("customers").update({ full_name: body.name, phone: body.phone || null, notes: body.notes || null }).eq("id", customerId);
         if (updated.error) throw updated.error;
       } else {
-        const created = await client.from("customers").insert({
-          organization_id: companyId,
-          company_id: companyId,
-          full_name: body.name,
-          email: body.email,
-          phone: body.phone || null,
-          notes: body.notes || null,
-        }).select("id").single();
+        const created = await client.from("customers").insert({ organization_id: companyId, company_id: companyId, full_name: body.name, email: body.email, phone: body.phone || null, notes: body.notes || null }).select("id").single();
         if (created.error) throw created.error;
         customerId = created.data.id;
       }
 
       const existingProperty = await client.from("properties").select("id").eq("company_id", companyId).eq("customer_id", customerId).order("created_at", { ascending: true }).limit(1).maybeSingle();
       if (existingProperty.error) throw existingProperty.error;
-
       const canonicalProperty = {
         organization_id: companyId,
         company_id: companyId,
         customer_id: customerId,
-        address_line1: body.address,
-        city: "Hamilton",
-        province: "ON",
-        country: "Canada",
+        ...canonicalAddress(body.address),
         ...propertyValues(body.propertyDetails),
       };
-
       if (existingProperty.data?.id) {
         propertyId = existingProperty.data.id;
         const updated = await client.from("properties").update(canonicalProperty).eq("id", propertyId);
@@ -196,7 +161,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { data, error } = await client.from("lead_center").insert({
+    const leadPayload = {
       assigned_company_id: companyId,
       customer_id: customerId,
       property_id: propertyId,
@@ -206,11 +171,28 @@ export async function POST(request: NextRequest) {
       address: body.address,
       service_requested: body.service,
       notes,
-      status: companyId ? "offered" : "new"
-    }).select("id").single();
-    if (error) throw error;
+      status: companyId ? "offered" : "new",
+      updated_at: new Date().toISOString(),
+    };
 
-    return NextResponse.json({ saved: true, leadId: data.id, customerId, propertyId, companyName }, { status: 201 });
+    let leadId: string | null = null;
+    if (body.prequoteLeadId && body.prequoteToken) {
+      const prequote = await client.from("lead_center").select("id,notes").eq("id", body.prequoteLeadId).maybeSingle();
+      if (prequote.error) throw prequote.error;
+      const validToken = typeof prequote.data?.notes === "string" && prequote.data.notes.includes(`PREQUOTE_TOKEN:${body.prequoteToken}`);
+      if (validToken) {
+        const updated = await client.from("lead_center").update(leadPayload).eq("id", body.prequoteLeadId).select("id").single();
+        if (updated.error) throw updated.error;
+        leadId = updated.data.id;
+      }
+    }
+    if (!leadId) {
+      const inserted = await client.from("lead_center").insert(leadPayload).select("id").single();
+      if (inserted.error) throw inserted.error;
+      leadId = inserted.data.id;
+    }
+
+    return NextResponse.json({ saved: true, leadId, customerId, propertyId, companyName }, { status: 201 });
   } catch (error) {
     console.error("Quote referral failed", error);
     return NextResponse.json({ error: "Quote referral could not be saved." }, { status: 500 });

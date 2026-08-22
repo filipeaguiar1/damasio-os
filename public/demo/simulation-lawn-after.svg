@@ -11,4 +11,5 @@
   <rect x="490" y="320" width="90" height="80" fill="#a8d5ef"/>
   <circle cx="950" cy="185" r="85" fill="#f3c760"/>
   <text x="60" y="735" font-family="Arial, sans-serif" font-size="42" fill="#ffffff">4Ever Seasons · After Service Photo · Simulation</text>
+  <!-- Overnight QA trigger: keeps this artifact intentionally lightweight and within the heavy E2E path filter. -->
 </svg>
