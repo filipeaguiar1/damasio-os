@@ -26,7 +26,6 @@ const quickActions: NavLink[] = [
   ["Build Route", "/admin/routes?tab=build"],
   ["Request Approval", "/admin/requests"],
   ["Message Center", "/admin/notifications"],
-  ["Database Health", "/admin/database"],
 ];
 
 function navActive(active:string,label:string){
@@ -101,7 +100,7 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
         <strong>Quick Actions</strong>
         <nav>{quickActions.map(([label, href], index) => <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)} className={index === 0 ? "primary" : ""}><span className="quick-action-icon"><ActionIcon label={label}/></span><strong className="quick-action-label">{label}</strong></Link>)}</nav>
         <section className="studio-rail-summary"><span>Today</span><div><small>Pending Requests</small><b>{pendingRequests}</b></div><div><small>Unread Alerts</small><b>{unread}</b></div></section>
-        <Link href="/admin/production" className="studio-system-status"><i></i><span>System Status</span><small>Production checklist</small></Link>
+        <section className="studio-system-status" aria-label="System Status"><i></i><span>System Status</span><small>Production checklist</small></section>
         <section className="studio-rail-filler" aria-label="Workspace status"><div><small>Workspace</small><strong>Company isolated</strong></div><p>Admin tools use company-scoped data so each company stays separated.</p><Link href="/admin/saas">Tenant readiness</Link></section>
       </aside>
       <main className="studio-main">{children}</main>

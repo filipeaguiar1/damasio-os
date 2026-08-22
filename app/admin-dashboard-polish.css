@@ -19,9 +19,12 @@
 
 /* Strong, quiet application chrome */
 .studio-shell .studio-topnav{
-  position:sticky!important;
+  position:fixed!important;
   top:0!important;
+  left:0!important;
+  right:0!important;
   z-index:120!important;
+  width:100%!important;
   min-height:70px!important;
   background:#082f23!important;
   border-bottom:1px solid rgba(255,255,255,.09)!important;
@@ -60,6 +63,10 @@
 }
 
 @media(min-width:901px){
+  .studio-shell .studio-main{
+    padding-top:106px!important;
+  }
+
   .studio-shell .studio-rail{
     top:0!important;
     padding-top:94px!important;
@@ -153,6 +160,11 @@
   color:#083525!important;
 }
 
+.studio-shell .studio-system-status{
+  cursor:default!important;
+  pointer-events:none!important;
+}
+
 .studio-shell .studio-main{
   background:var(--admin-bg)!important;
 }
@@ -202,7 +214,7 @@
   flex-wrap:wrap!important;
 }
 
-.studio-shell .studio-head-actions>span{
+.studio-shell .studio-head-actionssþspan{
   min-height:36px!important;
   display:inline-flex!important;
   align-items:center!important;
@@ -223,7 +235,7 @@
 }
 
 .studio-shell .studio-head-actions .btn-outline{
-  color:#17372b!important;
+  color:color:#17372b!important;
   background:#f3efe4!important;
   border-color:#f3efe4!important;
 }

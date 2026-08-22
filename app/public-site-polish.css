@@ -621,6 +621,7 @@
 @media(max-width:1000px){
   .public-home-site-hero{
     min-height:auto;
+    align-items:start;
   }
 
   .public-hero-layout,
@@ -634,6 +635,10 @@
 
   .public-hero-layout{
     padding:54px 0 42px;
+  }
+
+  .public-home .hero-actions{
+    display:none;
   }
 
   .public-home .hero-proof-grid{
@@ -667,7 +672,7 @@
   }
 
   .public-hero-layout{
-    padding:30px 0 32px;
+    padding:18px 0 30px;
     gap:18px;
   }
 
@@ -690,10 +695,6 @@
     margin-top:14px;
     font-size:15px;
     line-height:1.45;
-  }
-
-  .public-home .hero-actions{
-    display:none;
   }
 
   .public-home .hero-quote-panel{
