@@ -107,7 +107,7 @@
 
   /* Employee keeps the complete operational flow but receives the approved visual system. */
   main.mobile-app-shell:has(.employee-mobile-topbar){max-width:820px;margin:0 auto;min-height:100dvh;padding:0 16px 100px;background:linear-gradient(180deg,var(--pm-green) 0 365px,var(--pm-cream) 365px 100%);color:var(--pm-ink);}
-  main.mobile-app-shell:has(.employee-mobile-topbar):before{content:"♣  4EVER SEASONS\A     DAMASIO OS";white-space:pre;display:block;height:78px;padding:20px 72px 0;color:var(--pm-gold);font-family:Georgia,"Times New Roman",serif;font-size:19px;line-height:1.15;letter-spacing:.08em;text-align:center;background:var(--pm-green);margin:0 -16px;}
+  main.mobile-app-shell:has(.employee-mobile-topbar):before{content:"4S  4EVER SEASONS\A     DAMASIO OS";white-space:pre;display:block;height:78px;padding:20px 72px 0;color:var(--pm-gold);font-family:Georgia,"Times New Roman",serif;font-size:19px;line-height:1.15;letter-spacing:.08em;text-align:center;background:var(--pm-green);margin:0 -16px;}
   .employee-mobile-topbar{margin:0 -16px;padding:12px 18px 24px!important;background:var(--pm-green)!important;color:#fff!important;border:0!important;box-shadow:none!important;}
   .employee-mobile-topbar .employee-top-back{color:#fff!important;border-color:rgba(255,255,255,.25)!important;background:transparent!important;}
   .employee-mobile-brand>span{width:64px!important;height:64px!important;border-radius:50%!important;background:radial-gradient(circle at 35% 25%,rgba(233,189,102,.2),rgba(0,73,51,.9))!important;border:1px solid rgba(233,189,102,.5)!important;color:var(--pm-gold)!important;font-size:20px!important;}
