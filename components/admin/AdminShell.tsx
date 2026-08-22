@@ -37,6 +37,10 @@ function navActive(active:string,label:string){
   return false;
 }
 
+function BellIcon(){
+  return <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+}
+
 export function AdminShell({ children, active }: { children: React.ReactNode; active: string }) {
   const [unread, setUnread] = useState(0);
   const [pendingRequests, setPendingRequests] = useState(0);
@@ -76,7 +80,7 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
             <Link key={href} href={href} className={navActive(active,label)?"active":""}>{label}</Link>
           ))}
         </nav>
-        <Link href="/admin/alerts" onClick={openNotifications} className="studio-icon" aria-label="Alerts"><span className="studio-alert-bulb" aria-hidden="true">AL</span>{unread > 0 && <b>{unread}</b>}</Link>
+        <Link href="/admin/alerts" onClick={openNotifications} className="studio-icon" aria-label="Alerts"><span className="studio-alert-bulb" aria-hidden="true"><BellIcon/></span>{unread > 0 && <b>{unread}</b>}</Link>
         <Link href="/admin/settings" className="studio-user"><span>AD</span><div><strong>Company Admin</strong><small>Administrator</small></div></Link>
         <button type="button" className="studio-signout" onClick={() => void signOutAccount()}>Sign out</button>
         <button type="button" className="studio-menu" onClick={() => setMobileMenuOpen(true)}>Menu</button>
@@ -103,9 +107,11 @@ export function AdminShell({ children, active }: { children: React.ReactNode; ac
         .studio-brand,.studio-user,.studio-nav{min-width:0!important}
         .studio-nav{max-width:100%!important;overflow-x:auto!important;overflow-y:hidden!important;overscroll-behavior-x:contain;scrollbar-width:thin;white-space:nowrap}
         .studio-nav>a{flex:0 0 auto!important;white-space:nowrap!important;max-width:none!important}
-        .studio-alert-bulb{display:block;font-size:11px;line-height:1;font-weight:900;letter-spacing:.04em}
-        .studio-icon{color:#8a6314!important;background:#fffaf0!important;border-color:#e1c46b!important}
-        .studio-icon:hover{background:#fff4c9!important}
+        .studio-alert-bulb{display:grid;place-items:center;line-height:1}
+        .studio-alert-bulb:before{content:none!important}
+        .studio-alert-bulb svg{display:block}
+        .studio-icon{color:#f4f7f5!important;background:rgba(255,255,255,.08)!important;border-color:rgba(255,255,255,.16)!important}
+        .studio-icon:hover{background:rgba(255,255,255,.14)!important}
         .desktop-route-modes{min-width:0!important;max-width:100%!important;overflow-x:auto!important;overflow-y:hidden!important;flex-wrap:nowrap!important;scrollbar-width:thin}
         .desktop-route-modes>button{flex:0 0 auto!important;white-space:nowrap!important}
         .route-simple-summary>.btn.btn-primary{background:#fbfffc!important;color:#075239!important;border:2px solid #d8f0df!important;box-shadow:0 10px 24px rgba(0,0,0,.14)!important;text-shadow:none!important;opacity:1!important}
