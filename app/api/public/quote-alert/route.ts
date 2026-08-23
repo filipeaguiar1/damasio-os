@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { sendQuoteAlert } from "@/lib/server/quoteEmail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,20 +53,16 @@ export async function POST(request: NextRequest) {
     const client = serverClient();
     let preQuoteId: string | null = null;
     let companyId: string | null = null;
-    let companyName: string | null = null;
 
     if (client) {
       if (body.referralCode) {
         const company = await client.from("organizations")
-          .select("id,name")
+          .select("id")
           .eq("referral_code", body.referralCode)
           .eq("active", true)
           .is("deleted_at", null)
           .maybeSingle();
-        if (!company.error && company.data) {
-          companyId = String(company.data.id);
-          companyName = String(company.data.name || "");
-        }
+        if (!company.error && company.data) companyId = String(company.data.id);
       }
 
       const notes = [
@@ -122,19 +117,8 @@ export async function POST(request: NextRequest) {
       console.error("Pre-quote persistence skipped: Supabase server credentials are not configured");
     }
 
-    const emailDelivered = await sendQuoteAlert({
-      stage: "prequote",
-      name: body.name,
-      email: body.email,
-      phone: body.phone,
-      address: body.address,
-      service: body.service,
-      estimatedTotal: body.estimatedTotal ?? null,
-      leadId: preQuoteId,
-      companyName,
-    });
-
-    return NextResponse.json({ ok: true, preQuoteId, emailDelivered });
+    // Pre-quotes remain visible in Master Quote Review, but do not send email alerts.
+    return NextResponse.json({ ok: true, preQuoteId, emailDelivered: false });
   } catch (error) {
     console.error("Pre-quote alert route failed", error);
     return NextResponse.json({ ok: true, preQuoteId: null, emailDelivered: false });
