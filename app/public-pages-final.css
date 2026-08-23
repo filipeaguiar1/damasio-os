@@ -280,18 +280,37 @@
   /* Center-snap proof cards while leaving a visible preview of the neighbours. */
   .public-home-site-hero .hero-proof-grid {
     margin: 0 -16px !important;
-    padding: 4px 11% 12px !important;
+    padding: 4px 12% 12px !important;
     gap: 12px !important;
     overflow-x: auto !important;
     scroll-snap-type: x mandatory !important;
-    scroll-padding-inline: 11%;
+    scroll-padding-inline: 12%;
     overscroll-behavior-inline: contain;
     -webkit-mask-image: none !important;
     mask-image: none !important;
   }
 
   .public-home-site-hero .hero-proof {
-    flex: 0 0 78% !important;
+    flex: 0 0 76% !important;
+    scroll-snap-align: center !important;
+    scroll-snap-stop: always;
+  }
+
+  /* Use the same centered carousel treatment for the maintenance-plan cards. */
+  .public-home .membership-grid {
+    margin: 0 -16px !important;
+    padding: 0 9% 10px !important;
+    gap: 12px !important;
+    overflow-x: auto !important;
+    scroll-snap-type: x mandatory !important;
+    scroll-padding-inline: 9%;
+    overscroll-behavior-inline: contain;
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+  }
+
+  .public-home .membership-grid .plan-card {
+    flex: 0 0 82% !important;
     scroll-snap-align: center !important;
     scroll-snap-stop: always;
   }
