@@ -23,7 +23,6 @@ export function Header() {
           <a href="/#plans">Plans</a>
           <Link href="/about">About</Link>
           <Link href="/contact">Contact</Link>
-          <Link href="/login">Customer Portal</Link>
         </nav>
         <Link className="btn btn-primary header-login" href="/login">
           <span className="header-login-desktop">Sign in</span>
