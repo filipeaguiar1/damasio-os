@@ -15,8 +15,8 @@ import styles from "./ContractPaymentsWorkspace.module.css";
 
 type Scope = "master" | "company";
 type Tab = "overview" | "contracts" | "requests" | "holds" | "payouts";
-
 type CollectionTiming = "after_visit" | "period_prepaid" | "manual";
+type ServiceFrequency = "one_time" | "weekly" | "biweekly" | "monthly";
 
 function money(cents?: number | null) {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format((cents || 0) / 100);
@@ -47,7 +47,8 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
   const [customerQuery, setCustomerQuery] = useState("");
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [selectedJobId, setSelectedJobId] = useState("");
-  const [collectionTiming, setCollectionTiming] = useState<CollectionTiming>("after_visit");
+  const [serviceFrequency, setServiceFrequency] = useState<ServiceFrequency>("weekly");
+  const [collectionTiming, setCollectionTiming] = useState<CollectionTiming>("period_prepaid");
   const [requestingInvoiceId, setRequestingInvoiceId] = useState("");
   const [requestAmount, setRequestAmount] = useState("");
   const [requestDescription, setRequestDescription] = useState("Service payment");
@@ -105,9 +106,14 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
   }, [companyRestricted, tab]);
 
   useEffect(() => {
-    setCollectionTiming((selectedAgreement?.collectionTiming || "after_visit") as CollectionTiming);
-  }, [selectedAgreement?.id]);
+    const nextFrequency = (selectedAgreement?.serviceFrequency || "weekly") as ServiceFrequency;
+    setServiceFrequency(nextFrequency);
+    setCollectionTiming(nextFrequency === "one_time"
+      ? ((selectedAgreement?.collectionTiming === "manual" ? "manual" : "after_visit") as CollectionTiming)
+      : "period_prepaid");
+  }, [selectedAgreement?.id, selectedAgreement?.serviceFrequency, selectedAgreement?.collectionTiming]);
 
+  const recurringBilling = serviceFrequency !== "one_time";
   const visibleCustomers = selectedCustomer ? [selectedCustomer] : filteredCustomers;
   const visiblePaymentRequests = workspace.invoices.filter((invoice) =>
     (!selectedCustomerId || invoice.customerId === selectedCustomerId)
@@ -193,12 +199,18 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
     const form = new FormData(event.currentTarget);
     const customerAmount = Math.round(Number(form.get("customerAmount") || 0) * 100);
     const providerPayout = Math.round(Number(form.get("providerPayout") || 0) * 100);
-    const frequency = String(form.get("frequency") || "one_time");
-    const billingModel = String(form.get("billingModel") || "manual");
+    const frequency = String(form.get("frequency") || serviceFrequency) as ServiceFrequency;
+    const recurring = frequency !== "one_time";
+    const effectiveCollectionTiming: CollectionTiming = recurring ? "period_prepaid" : collectionTiming;
+    const submittedModel = String(form.get("billingModel") || (scope === "master" ? "per_visit_fixed_payout" : "per_visit_percentage_fee"));
+    const effectiveBillingModel = recurring
+      ? "monthly_fixed_subscription"
+      : effectiveCollectionTiming === "manual"
+        ? "manual"
+        : submittedModel;
     const startsOn = String(form.get("startsOn") || today());
     const endsOn = String(form.get("endsOn") || "") || null;
     const feedbackHours = Number(form.get("feedbackHours") || 24);
-    const prepaidPlanType = collectionTiming === "period_prepaid" ? String(form.get("prepaidPlanType") || "monthly") : null;
 
     if (!customerAmount || customerAmount < 0) return setMessage("Enter the customer contract amount.");
     if (scope === "master" && providerPayout <= 0) return setMessage("Master contracts require the exact company payout.");
@@ -209,8 +221,8 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
     try {
       const agreementId = await saveAgreement({
         jobId: selectedJob.id,
-        billingModel,
-        collectionTiming,
+        billingModel: effectiveBillingModel,
+        collectionTiming: effectiveCollectionTiming,
         serviceFrequency: frequency,
         customerAmountCents: customerAmount,
         providerPayoutCents: scope === "master" ? providerPayout : null,
@@ -218,13 +230,15 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
         contractStartsOn: startsOn,
         contractEndsOn: endsOn,
         feedbackWindowHours: feedbackHours,
-        prepaidPlanType,
-        planBillingDay: collectionTiming === "period_prepaid" ? Number(form.get("billingDay") || 1) : 1,
-        serviceStartDay: collectionTiming === "period_prepaid" ? Number(form.get("serviceStartDay") || 0) || null : null,
+        prepaidPlanType: recurring ? "monthly" : null,
+        planBillingDay: recurring ? Number(form.get("billingDay") || 1) : 1,
+        serviceStartDay: recurring ? Number(form.get("serviceStartDay") || 0) || null : null,
       });
-      await syncAgreementToStripe(agreementId);
+      if (effectiveCollectionTiming !== "manual") await syncAgreementToStripe(agreementId);
       const created = await generateAgreementVisits(agreementId);
-      setMessage(`Contract saved, synced with Stripe, and ${created} future visit${created === 1 ? "" : "s"} created.`);
+      setMessage(recurring
+        ? `Monthly billing contract saved and synced with Stripe. ${created} future visit${created === 1 ? "" : "s"} created; Visits do not create separate customer charges.`
+        : `One-time contract saved${effectiveCollectionTiming === "manual" ? "" : ", synced with Stripe"}, and ${created} future visit${created === 1 ? "" : "s"} created.`);
       await load();
       setTab("overview");
     } catch (error) {
@@ -236,8 +250,8 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
 
   const title = scope === "master" ? "Platform Payments" : "Payments";
   const subtitle = scope === "master"
-    ? "Define platform-owned customer contracts, customer collection, company payout, and protected release rules."
-    : "Manage company-owned customer contracts and operational payments. Platform-owned commercial terms stay private.";
+    ? "Define monthly customer billing, platform-owned contracts, company payout, and protected release rules."
+    : "Manage monthly recurring customer billing and company-owned operational payments. Platform-owned commercial terms stay private.";
   const tabs: Tab[] = companyRestricted ? ["overview", "requests"] : ["overview", "contracts", "requests", "holds", "payouts"];
 
   const customerPicker = (mode: "compact" | "full" = "full") => <div className={mode === "compact" ? styles.inlineCustomerPicker : styles.customerFind}>
@@ -250,7 +264,7 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
       <div><small>{scope === "master" ? "Master financial control" : "Company financial operations"}</small><h1>{title}</h1><p>{subtitle}</p></div>
       <div className={styles.heroActions}>
         <button type="button" className={`${styles.button} ${styles.heroButton}`} onClick={() => setTab("requests")}>Request Payment Link</button>
-        <div className={styles.heroBadge}><i>✓</i><div><strong>Canonical billing</strong><span>One contract source · Stripe synced</span></div></div>
+        <div className={styles.heroBadge}><i>✓</i><div><strong>Canonical monthly billing</strong><span>One monthly customer charge · Visits remain operational</span></div></div>
       </div>
     </section>
 
@@ -285,7 +299,7 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
         </section>}
 
         {tab === "contracts" && !companyRestricted && <section className={styles.panel}>
-          <header className={styles.panelHeader}><div><span>Contract builder</span><h2>Define service and billing</h2><p>Select the customer above, then choose the active service job.</p></div></header>
+          <header className={styles.panelHeader}><div><span>Contract builder</span><h2>Define service and monthly billing</h2><p>Recurring weekly, biweekly or monthly service is collected once per month. Visits never create an extra recurring charge.</p></div></header>
           <form className={styles.form} onSubmit={submitContract} key={`${selectedCustomerId}-${selectedAgreement?.id || "new"}`}>
             <div className={styles.embeddedPicker}>
               <div><strong>{selectedCustomer?.name || "Choose a customer"}</strong><small>{selectedCustomer ? `${selectedCustomer.email || "No email"} · ${label(selectedCustomer.origin)}` : "Search by name or email to edit the contract faster."}</small></div>
@@ -294,22 +308,27 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
             <div className={styles.formGrid}>
               <div className={`${styles.field} ${styles.wide}`}><label>Selected customer</label><input value={selectedCustomer?.name || "None"} readOnly /></div>
               <div className={`${styles.field} ${styles.wide}`}><label>Service job</label><select value={selectedJob?.id || ""} onChange={(event) => setSelectedJobId(event.target.value)} disabled={!selectedCustomer}><option value="">None</option>{customerJobs.map((job) => <option key={job.id} value={job.id}>{job.serviceName}</option>)}</select></div>
-              <div className={styles.field}><label>Frequency</label><select name="frequency" defaultValue={selectedAgreement?.serviceFrequency || "weekly"}><option value="one_time">One time</option><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option></select></div>
-              <div className={styles.field}><label>Collection</label><select name="collectionTiming" value={collectionTiming} onChange={(event) => setCollectionTiming(event.target.value as CollectionTiming)}><option value="after_visit">After each visit</option><option value="period_prepaid">Prepaid plan</option><option value="manual">Manual</option></select></div>
-              <div className={styles.field}><label>Billing model</label><select name="billingModel" defaultValue={selectedAgreement?.billingModel || (scope === "master" ? "per_visit_fixed_payout" : "per_visit_percentage_fee")}><option value="per_visit_fixed_payout">Per visit · fixed company payout</option><option value="per_visit_percentage_fee">Per visit · percentage model</option><option value="monthly_fixed_subscription">Monthly fixed plan</option><option value="weekly_subscription">Weekly subscription</option><option value="biweekly_subscription">Biweekly subscription</option><option value="manual">Manual</option></select></div>
-              <div className={styles.field}><label>Customer amount (CAD)</label><input name="customerAmount" type="number" min="0" step="0.01" defaultValue={selectedAgreement ? (selectedAgreement.customerAmountCents || 0) / 100 : ""} required /></div>
-              {scope === "master" && <div className={styles.field}><label>Exact company payout (CAD)</label><input name="providerPayout" type="number" min="0" step="0.01" defaultValue={selectedAgreement ? (selectedAgreement.providerPayoutCents || 0) / 100 : ""} required /></div>}
+              <div className={styles.field}><label>Service frequency</label><select name="frequency" value={serviceFrequency} onChange={(event) => { const next = event.target.value as ServiceFrequency; setServiceFrequency(next); setCollectionTiming(next === "one_time" ? "after_visit" : "period_prepaid"); }}><option value="one_time">One time</option><option value="weekly">Weekly service</option><option value="biweekly">Biweekly service</option><option value="monthly">Monthly service</option></select></div>
+              {recurringBilling ? <>
+                <div className={styles.field}><label>Customer collection</label><input value="Monthly · one invoice per month" readOnly /></div>
+                <div className={styles.field}><label>Billing model</label><input value="Monthly fixed subscription" readOnly /><input type="hidden" name="billingModel" value="monthly_fixed_subscription" /></div>
+              </> : <>
+                <div className={styles.field}><label>Customer collection</label><select name="collectionTiming" value={collectionTiming} onChange={(event) => setCollectionTiming(event.target.value as CollectionTiming)}><option value="after_visit">One-time · after service</option><option value="manual">Manual</option></select></div>
+                <div className={styles.field}><label>Billing model</label><select name="billingModel" defaultValue={selectedAgreement?.billingModel === "manual" ? "manual" : scope === "master" ? "per_visit_fixed_payout" : "per_visit_percentage_fee"}><option value="per_visit_fixed_payout">One-time · fixed company payout</option><option value="per_visit_percentage_fee">One-time · percentage model</option><option value="manual">Manual</option></select></div>
+              </>}
+              <div className={styles.field}><label>{recurringBilling ? "Monthly customer amount (CAD)" : "Customer amount (CAD)"}</label><input name="customerAmount" type="number" min="0" step="0.01" defaultValue={selectedAgreement ? (selectedAgreement.customerAmountCents || 0) / 100 : ""} required /></div>
+              {scope === "master" && <div className={styles.field}><label>{recurringBilling ? "Monthly company payout (CAD)" : "Exact company payout (CAD)"}</label><input name="providerPayout" type="number" min="0" step="0.01" defaultValue={selectedAgreement ? (selectedAgreement.providerPayoutCents || 0) / 100 : ""} required /></div>}
               <div className={styles.field}><label>Starts on</label><input name="startsOn" type="date" defaultValue={selectedAgreement?.contractStartsOn || today()} required /></div>
               <div className={styles.field}><label>Ends on</label><input name="endsOn" type="date" defaultValue={selectedAgreement?.contractEndsOn || ""} /></div>
               <div className={styles.field}><label>Feedback window</label><select name="feedbackHours" defaultValue={selectedAgreement?.feedbackWindowHours || 24}><option value="24">24 hours</option><option value="48">48 hours</option><option value="72">72 hours</option></select></div>
-              {collectionTiming === "period_prepaid" && <>
-                <div className={styles.field}><label>Prepaid plan</label><select name="prepaidPlanType" defaultValue={selectedAgreement?.prepaidPlanType || "monthly"}><option value="monthly">Monthly</option><option value="seasonal">Seasonal</option><option value="annual">Annual</option></select></div>
-                <div className={styles.field}><label>Billing day</label><input name="billingDay" type="number" min="1" max="28" defaultValue="1" /></div>
-                <div className={styles.field}><label>Service starts day</label><input name="serviceStartDay" type="number" min="1" max="28" placeholder="5" /></div>
+              {recurringBilling && <>
+                <div className={styles.field}><label>Plan cadence</label><input value="Monthly" readOnly /></div>
+                <div className={styles.field}><label>Billing day</label><input name="billingDay" type="number" min="1" max="28" defaultValue={1} /></div>
+                <div className={styles.field}><label>Service starts day</label><input name="serviceStartDay" type="number" min="1" max="28" placeholder="Optional" /></div>
               </>}
             </div>
-            {!selectedCustomer ? <div className={styles.scopeLock}>No customer selected. Choose one in Customer workspace.</div> : !canEditSelected ? <div className={`${styles.scopeLock} ${styles.notice}`}>This platform customer is managed by Master. Commercial terms are hidden from the company.</div> : <div className={styles.notice}>{scope === "master" ? "The company receives the exact payout configured. Stripe processing is absorbed by the platform share." : "Company-owned customer contract. Platform deductions happen automatically and are not configured here."}</div>}
-            <div className={styles.actions}><button type="submit" className={styles.button} disabled={saving || !selectedJob || !canEditSelected}>{saving ? "Saving and syncing…" : "Save contract, sync Stripe & generate visits"}</button></div>
+            {!selectedCustomer ? <div className={styles.scopeLock}>No customer selected. Choose one in Customer workspace.</div> : !canEditSelected ? <div className={`${styles.scopeLock} ${styles.notice}`}>This platform customer is managed by Master. Commercial terms are hidden from the company.</div> : <div className={styles.notice}>{recurringBilling ? "Customer billing is monthly. Visits, Start/Done, feedback and Tasks control operational history and company payout release; they do not create a separate customer charge." : scope === "master" ? "One-time service. The company receives the exact payout configured after the service release checks." : "One-time company-owned service. Platform deductions happen automatically and are not configured here."}</div>}
+            <div className={styles.actions}><button type="submit" className={styles.button} disabled={saving || !selectedJob || !canEditSelected}>{saving ? "Saving and syncing…" : recurringBilling ? "Save monthly contract, sync Stripe & generate visits" : "Save one-time contract & generate visit"}</button></div>
           </form>
         </section>}
 
@@ -325,7 +344,7 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
               <div className={styles.field}><label>Description</label><input value={requestDescription} onChange={(event) => setRequestDescription(event.target.value)} placeholder="Service payment" /></div>
               <button type="submit" className={styles.button} disabled={!selectedCustomer || companyRestricted || creatingManualRequest}>{creatingManualRequest ? "Creating..." : "Create & open link"}</button>
             </div>
-            {!selectedCustomer ? <div className={styles.scopeLock}>Choose a customer to create a payment request.</div> : companyRestricted ? <div className={`${styles.scopeLock} ${styles.requestLock}`}>This is a Master/platform customer. The company cannot create payment requests for this account.</div> : <div className={styles.notice}>This creates an open invoice for the selected amount and opens Stripe Checkout.</div>}
+            {!selectedCustomer ? <div className={styles.scopeLock}>Choose a customer to create a payment request.</div> : companyRestricted ? <div className={`${styles.scopeLock} ${styles.requestLock}`}>This is a Master/platform customer. The company cannot create payment requests for this account.</div> : <div className={styles.notice}>Manual payment requests are separate from recurring monthly billing and create a standalone invoice.</div>}
           </form>
           {scope === "company" && selectedCustomer?.origin === "platform" && <div className={`${styles.scopeLock} ${styles.requestLock}`}>This is a Master/platform customer. The company can see operational context, but payment requests are not available for this account.</div>}
           <div className={styles.cards}>
@@ -353,8 +372,8 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
       </main>
 
       <aside className={styles.side}>
-        <section className={styles.sideCard}><span>How it works</span><h3>{scope === "master" ? "Master customer control" : "Company customer control"}</h3><p>{scope === "master" ? "Choose a platform customer, define what the customer pays, and set the exact company payout. Stripe processing is paid from the platform share." : "Choose a company-owned customer and define billing terms. Platform-owned contracts, holds, and payout details remain private."}</p><dl><div><dt>No selection</dt><dd>None</dd></div><div><dt>Contract editor</dt><dd>{scope === "master" ? "Platform customers" : "Company customers only"}</dd></div><div><dt>Stripe</dt><dd>Synced on save</dd></div></dl></section>
-        <section className={styles.panel}><header className={styles.panelHeader}><div><span>Selected account</span><h2>{selectedCustomer?.name || "None"}</h2><p>{selectedJob?.serviceName || "No service selected"}</p></div></header><div className={styles.form}>{selectedAgreement && !companyRestricted ? <div className={styles.notice}><strong>{label(selectedAgreement.serviceFrequency)}</strong><br />{label(selectedAgreement.billingModel)}<br />{selectedAgreement.contractStartsOn || "No start date"} → {selectedAgreement.contractEndsOn || "Open ended"}</div> : <div className={styles.scopeLock}>{companyRestricted ? "Commercial details are managed privately by Master." : selectedCustomer ? "No active billing agreement for this job." : "Choose a customer to open the account."}</div>}</div></section>
+        <section className={styles.sideCard}><span>How it works</span><h3>{scope === "master" ? "Master customer control" : "Company customer control"}</h3><p>{scope === "master" ? "Recurring customers are billed once per month. Visits document delivery and control protected company payout release; the customer is not charged again per Visit." : "Recurring company-owned customers are billed once per month. Platform-owned contracts, holds, and payout details remain private."}</p><dl><div><dt>Recurring billing</dt><dd>Monthly</dd></div><div><dt>Contract editor</dt><dd>{scope === "master" ? "Platform customers" : "Company customers only"}</dd></div><div><dt>Stripe</dt><dd>Synced on save</dd></div></dl></section>
+        <section className={styles.panel}><header className={styles.panelHeader}><div><span>Selected account</span><h2>{selectedCustomer?.name || "None"}</h2><p>{selectedJob?.serviceName || "No service selected"}</p></div></header><div className={styles.form}>{selectedAgreement && !companyRestricted ? <div className={styles.notice}><strong>{label(selectedAgreement.serviceFrequency)}</strong><br />{label(selectedAgreement.billingModel)}<br />{selectedAgreement.collectionTiming === "period_prepaid" ? "Monthly collection" : label(selectedAgreement.collectionTiming)}<br />{selectedAgreement.contractStartsOn || "No start date"} → {selectedAgreement.contractEndsOn || "Open ended"}</div> : <div className={styles.scopeLock}>{companyRestricted ? "Commercial details are managed privately by Master." : selectedCustomer ? "No active billing agreement for this job." : "Choose a customer to open the account."}</div>}</div></section>
       </aside>
     </section>
   </div>;
