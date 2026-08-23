@@ -76,7 +76,10 @@ export function QuoteWizardConversion() {
       if (weekly.hidden) weekly.hidden = false;
 
       const selected = originals.find(([, button]) => button.classList.contains("active"))?.[0] || null;
-      weekly.classList.toggle("lawn-category-selected", Boolean(selected));
+      const categorySelected = Boolean(selected);
+      if (weekly.classList.contains("lawn-category-selected") !== categorySelected) {
+        weekly.classList.toggle("lawn-category-selected", categorySelected);
+      }
 
       let picker = grid.querySelector<HTMLDivElement>(".quote-lawn-frequency-picker");
       if (!picker) {
@@ -93,13 +96,20 @@ export function QuoteWizardConversion() {
         weekly.insertAdjacentElement("afterend", picker);
       }
 
-      if (picker.hidden === lawnPickerExpanded) picker.hidden = !lawnPickerExpanded;
+      const shouldHidePicker = !lawnPickerExpanded;
+      if (picker.hidden !== shouldHidePicker) picker.hidden = shouldHidePicker;
       picker.querySelectorAll<HTMLButtonElement>("button[data-frequency-service]").forEach(button => {
         const key = button.dataset.frequencyService as ServiceKey;
-        button.classList.toggle("active", key === selected);
+        const active = key === selected;
+        if (button.classList.contains("active") !== active) button.classList.toggle("active", active);
         const label = lawnFrequencyLabels[key];
         if (label) button.setAttribute("aria-label", `${label} lawn care`);
       });
+    };
+
+    const scheduleSync = () => {
+      queueMicrotask(syncLawnCategory);
+      requestAnimationFrame(syncLawnCategory);
     };
 
     const handleClick = (event: Event) => {
@@ -108,7 +118,7 @@ export function QuoteWizardConversion() {
 
       if (target.dataset.lawnCategory === "true") {
         lawnPickerExpanded = true;
-        queueMicrotask(syncLawnCategory);
+        scheduleSync();
         return;
       }
 
@@ -118,11 +128,11 @@ export function QuoteWizardConversion() {
       event.preventDefault();
       lawnPickerExpanded = true;
       findOriginalButton(frequencyService)?.click();
-      queueMicrotask(syncLawnCategory);
+      scheduleSync();
     };
 
     const observer = new MutationObserver(syncLawnCategory);
-    observer.observe(root, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class"] });
+    observer.observe(root, { childList: true, subtree: true });
     root.addEventListener("click", handleClick);
     syncLawnCategory();
 
