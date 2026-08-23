@@ -14,15 +14,15 @@ export function Hero() {
         <div className="hero-actions">
           <a className="btn btn-outline hero-customer-link" href="/login">Already a customer?</a>
         </div>
-        <div className="hero-proof-grid" aria-label="Service highlights">
-          <div className="hero-proof"><span>Local routing</span><strong>Neighbourhood scheduling</strong><small>Recurring work is planned around practical local routes.</small></div>
-          <div className="hero-proof"><span>Visit history</span><strong>Notes and photos</strong><small>Service details stay connected to the property.</small></div>
-          <div className="hero-proof"><span>Four seasons</span><strong>One property plan</strong><small>Lawn, cleanup, garden and winter work stay organized together.</small></div>
-        </div>
       </div>
       <aside id="quote" className="hero-quote-panel" aria-label="Request a quote">
         <QuoteWizardConversion />
       </aside>
+      <div className="hero-proof-grid" aria-label="Service highlights">
+        <div className="hero-proof"><span>Local routing</span><strong>Neighbourhood scheduling</strong><small>Recurring work is planned around practical local routes.</small></div>
+        <div className="hero-proof"><span>Visit history</span><strong>Notes and photos</strong><small>Service details stay connected to the property.</small></div>
+        <div className="hero-proof"><span>Four seasons</span><strong>One property plan</strong><small>Lawn, cleanup, garden and winter work stay organized together.</small></div>
+      </div>
     </div>
   </section>;
 }
