@@ -1,12 +1,19 @@
 {
-  "name": "4Ever Seasons",
-  "short_name": "4Ever Seasons",
-  "description": "Four-season property care and field operations.",
-  "start_url": "/mobile",
+  "name": "4 Ever Seasons",
+  "short_name": "4 Ever Seasons",
+  "description": "Lawn care and four-season property maintenance in Hamilton, Burlington and Oakville.",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#043d2e",
   "theme_color": "#043d2e",
   "orientation": "portrait-primary",
-  "icons": [],
+  "icons": [
+    {
+      "src": "/brand/4ever-seasons-logo-mark.jpg",
+      "sizes": "any",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ],
   "scope": "/"
 }

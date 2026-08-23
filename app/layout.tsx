@@ -41,21 +41,60 @@ import { EmployeeMobilePolish } from "@/components/mobile/EmployeeMobilePolish";
 import { PricingBootstrap } from "@/components/PricingBootstrap";
 import { getSiteUrl } from "@/lib/seo/siteUrl";
 
-const siteUrl = getSiteUrl();
+const siteUrl = getSiteUrl().replace(/\/$/, "");
+const brandLogoUrl = `${siteUrl}/brand/4ever-seasons-logo-mark.jpg`;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: "4Ever Seasons | Property Maintenance in Hamilton, Burlington & Oakville",
-  description: "Local lawn care, seasonal cleanups, garden maintenance and winter property service across Hamilton, Burlington and Oakville, Ontario.",
-  applicationName: "4Ever Seasons",
+  title: "Lawn Care & Property Maintenance | Hamilton, Burlington & Oakville | 4 Ever Seasons",
+  description: "Local lawn care, seasonal cleanups, garden maintenance and snow removal across Hamilton, Burlington and Oakville, Ontario. Request a property quote from 4 Ever Seasons.",
+  applicationName: "4 Ever Seasons",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/brand/4ever-seasons-logo-mark.jpg",
+    shortcut: "/brand/4ever-seasons-logo-mark.jpg",
+    apple: "/brand/4ever-seasons-logo-mark.jpg",
+  },
   robots: { index: true, follow: true, googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1, "max-video-preview": -1 } },
-  openGraph: { type: "website", locale: "en_CA", url: siteUrl, siteName: "4Ever Seasons", title: "4Ever Seasons | Property Maintenance in Hamilton, Burlington & Oakville", description: "Local lawn care, seasonal cleanups, garden maintenance and winter property service across Hamilton, Burlington and Oakville, Ontario." },
-  twitter: { card: "summary_large_image", title: "4Ever Seasons | Property Maintenance in Hamilton, Burlington & Oakville", description: "Local four-season property maintenance across Hamilton, Burlington and Oakville, Ontario." },
+  openGraph: { type: "website", locale: "en_CA", url: siteUrl, siteName: "4 Ever Seasons", title: "Lawn Care & Property Maintenance | Hamilton, Burlington & Oakville", description: "Local lawn care, seasonal cleanups, garden maintenance and snow removal across Hamilton, Burlington and Oakville, Ontario.", images: [{ url: brandLogoUrl, alt: "4 Ever Seasons" }] },
+  twitter: { card: "summary", title: "4 Ever Seasons | Lawn Care & Property Maintenance", description: "Local lawn care, seasonal cleanup, garden and snow service across Hamilton, Burlington and Oakville.", images: [brandLogoUrl] },
 };
 
 export const viewport: Viewport = { themeColor: "#043d2e", width: "device-width", initialScale: 1, viewportFit: "cover" };
 
+const siteStructuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": `${siteUrl}/#organization`,
+      name: "4 Ever Seasons",
+      alternateName: "4Ever Seasons",
+      url: siteUrl,
+      logo: {
+        "@type": "ImageObject",
+        url: brandLogoUrl,
+      },
+      email: "support@4everseasons.com",
+      areaServed: [
+        { "@type": "City", name: "Hamilton", containedInPlace: { "@type": "AdministrativeArea", name: "Ontario" } },
+        { "@type": "City", name: "Burlington", containedInPlace: { "@type": "AdministrativeArea", name: "Ontario" } },
+        { "@type": "City", name: "Oakville", containedInPlace: { "@type": "AdministrativeArea", name: "Ontario" } },
+      ],
+      knowsAbout: ["Lawn care", "Lawn cutting", "Seasonal cleanups", "Garden maintenance", "Snow removal", "Property maintenance"],
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${siteUrl}/#website`,
+      url: siteUrl,
+      name: "4 Ever Seasons",
+      publisher: { "@id": `${siteUrl}/#organization` },
+      inLanguage: "en-CA",
+    },
+  ],
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="en-CA" data-season="summer"><body><SeasonThemeProvider><PricingBootstrap/><CustomerLegacyDataGuard/><RouteAdvisorFeedbackNavigator/><EmployeeMobilePolish/><AdvisorHouseQuickAccess/><RouteWorkerConsistencyEnhancer/><CustomerSelectSearchEnhancer/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
+  const structuredData = JSON.stringify(siteStructuredData).replace(/</g, "\\u003c");
+  return <html lang="en-CA" data-season="summer"><body><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structuredData }}/><SeasonThemeProvider><PricingBootstrap/><CustomerLegacyDataGuard/><RouteAdvisorFeedbackNavigator/><EmployeeMobilePolish/><AdvisorHouseQuickAccess/><RouteWorkerConsistencyEnhancer/><CustomerSelectSearchEnhancer/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
 }
