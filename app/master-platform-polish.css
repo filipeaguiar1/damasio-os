@@ -268,3 +268,53 @@
   .master-header{min-height:0!important;padding:18px!important}
   .master-content{background:#e9efea!important}
 }
+
+/* master-quote-review-groups-20260823 */
+.master-quote-toolbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin:0 0 14px;
+}
+.master-quote-toolbar .input{width:min(520px,100%)}
+.master-quote-group{
+  margin:0 0 14px;
+  border:1px solid #dce5df;
+  border-radius:14px;
+  background:#fff;
+  overflow:hidden;
+}
+.master-quote-group>summary{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  padding:15px 18px;
+  cursor:pointer;
+  list-style:none;
+  background:#f7faf8;
+}
+.master-quote-group>summary::-webkit-details-marker{display:none}
+.master-quote-group>summary span{display:grid;gap:3px;min-width:0}
+.master-quote-group>summary strong{color:#173b2c;font-size:15px}
+.master-quote-group>summary small{color:#6d7b73;font-size:12px;line-height:1.35}
+.master-quote-group>summary b{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:30px;
+  height:30px;
+  padding:0 8px;
+  border-radius:999px;
+  background:#e8f1eb;
+  color:#24533d;
+  font-size:12px;
+}
+.master-quote-group[open]>summary{border-bottom:1px solid #e3e9e5}
+.master-quote-group>.master-table-wrap{margin:0;border:0;border-radius:0;box-shadow:none}
+@media(max-width:720px){
+  .master-quote-toolbar{align-items:stretch;flex-direction:column}
+  .master-quote-toolbar .input{width:100%;max-width:none}
+  .master-quote-group>summary{padding:13px 14px}
+  .master-quote-group>.master-table-wrap{overflow-x:auto}
+}

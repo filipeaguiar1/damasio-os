@@ -33,6 +33,7 @@ const quoteReferral = z.object({
   service: z.string().trim().min(2).max(120),
   notes: z.string().trim().max(1500).optional().default(""),
   referralCode: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{4,12}$/).optional().or(z.literal("")),
+  preQuoteId: z.string().uuid().optional().or(z.literal("")),
   estimatedTotal: z.number().nonnegative().nullable().optional(),
   propertyDetails: propertyDetails.optional(),
   website: z.string().max(0).optional()
@@ -142,6 +143,7 @@ export async function POST(request: NextRequest) {
 
     const detailsMarker = body.propertyDetails ? `PROPERTY_DETAILS:${JSON.stringify(body.propertyDetails)}` : null;
     const notes = [
+      "QUOTE_STAGE:submitted",
       body.notes,
       typeof body.estimatedTotal === "number" ? `Average estimate shown: $${body.estimatedTotal.toFixed(2)}` : null,
       body.referralCode ? `Company referral code: ${body.referralCode}` : null,
@@ -211,7 +213,19 @@ export async function POST(request: NextRequest) {
     }).select("id").single();
     if (error) throw error;
 
-    await sendQuoteAlert({
+    if (body.preQuoteId) {
+      const existingPreQuote = await client.from("lead_center").select("notes").eq("id", body.preQuoteId).maybeSingle();
+      if (!existingPreQuote.error && existingPreQuote.data) {
+        const closed = await client.from("lead_center").update({
+          status: "converted",
+          notes: [existingPreQuote.data.notes, `PREQUOTE_COMPLETED_BY:${data.id}`].filter(Boolean).join(" | "),
+          updated_at: new Date().toISOString(),
+        }).eq("id", body.preQuoteId);
+        if (closed.error) console.error("Linked pre-quote could not be closed", closed.error);
+      }
+    }
+
+    const emailDelivered = await sendQuoteAlert({
       stage: "complete",
       name: body.name,
       email: body.email,
@@ -223,7 +237,7 @@ export async function POST(request: NextRequest) {
       companyName,
     });
 
-    return NextResponse.json({ saved: true, leadId: data.id, customerId, propertyId, companyName }, { status: 201 });
+    return NextResponse.json({ saved: true, leadId: data.id, customerId, propertyId, companyName, emailDelivered }, { status: 201 });
   } catch (error) {
     console.error("Quote referral failed", error);
     return NextResponse.json({ error: "Quote referral could not be saved." }, { status: 500 });

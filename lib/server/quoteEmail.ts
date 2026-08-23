@@ -12,7 +12,7 @@ type QuoteAlertInput = {
   companyName?: string | null;
 };
 
-const SUPPORT_EMAIL = "support@4everseasons.com";
+const SUPPORT_EMAIL = process.env.QUOTE_ALERT_TO_EMAIL || "support@4everseasons.com";
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>'"]/g, char => ({
