@@ -43,11 +43,159 @@
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 
+/* Maintenance plan contrast */
+.public-home .plan-card:not(.plan-card-featured):not(.plan-card-year) small {
+  color: #3f574a !important;
+}
+
+.public-home .plan-card:not(.plan-card-featured):not(.plan-card-year) h3 {
+  color: #14291f !important;
+}
+
+.public-home .plan-card:not(.plan-card-featured):not(.plan-card-year) p {
+  color: #3f5047 !important;
+}
+
+.public-home .plan-card:not(.plan-card-featured):not(.plan-card-year) .plan-list span {
+  color: #31463a !important;
+}
+
+.public-home .plan-card-featured h3 {
+  color: #fff !important;
+}
+
+.public-home .plan-card-featured small {
+  color: #d5eadf !important;
+}
+
+.public-home .plan-card-featured p {
+  color: rgba(255, 255, 255, .9) !important;
+}
+
+.public-home .plan-card-featured .plan-list span {
+  color: #eff8f3 !important;
+}
+
+.public-home .plan-card-featured .plan-badge {
+  background: #eef7f1 !important;
+  color: #153f2f !important;
+}
+
+/* Lawn Care is one category; frequency expands below it. */
+.public-home .option[data-lawn-category="true"] {
+  grid-column: 1 / -1;
+  min-height: 78px;
+  padding: 16px 17px;
+}
+
+.public-home .option[data-lawn-category="true"].lawn-category-selected {
+  border-color: #0e5b3d !important;
+  background: #0d4b35 !important;
+  color: #fff !important;
+  box-shadow: 0 8px 18px rgba(13, 75, 53, .14) !important;
+}
+
+.public-home .option[data-lawn-category="true"].lawn-category-selected .option-copy small {
+  color: rgba(255, 255, 255, .76) !important;
+}
+
+.public-home .quote-lawn-frequency-picker {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  margin-top: -1px;
+  padding: 14px;
+  border: 1px solid #d5dfd9;
+  border-radius: 13px;
+  background: #f4f7f5;
+}
+
+.public-home .quote-lawn-frequency-picker[hidden] {
+  display: none !important;
+}
+
+.public-home .quote-lawn-frequency-label {
+  color: #314c3e;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.public-home .quote-lawn-frequency-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.public-home .quote-lawn-frequency-options button {
+  display: grid;
+  gap: 3px;
+  min-height: 58px;
+  padding: 10px 11px;
+  border: 1px solid #cfd9d3;
+  border-radius: 10px;
+  background: #fff;
+  color: #1d3428;
+  text-align: left;
+  cursor: pointer;
+}
+
+.public-home .quote-lawn-frequency-options button strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.public-home .quote-lawn-frequency-options button small {
+  color: #748179;
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.public-home .quote-lawn-frequency-options button.active {
+  border-color: #216a4c;
+  background: #e8f2ec;
+  box-shadow: inset 0 0 0 1px rgba(33, 106, 76, .08);
+}
+
+.public-home .quote-lawn-frequency-options button.active strong {
+  color: #174c36;
+}
+
+/* Give the premium option its own breathing room without changing the Year Care plan card. */
+.public-home .option.year-care-option {
+  grid-column: 1 / -1;
+  min-height: 84px;
+  padding: 16px 18px !important;
+  gap: 20px;
+}
+
+.public-home .option.year-care-option .option-copy {
+  gap: 5px;
+}
+
+.public-home .option.year-care-option .option-copy strong {
+  font-size: 15px !important;
+}
+
+.public-home .option.year-care-option .option-copy small {
+  line-height: 1.35;
+}
+
+.public-home .option.year-care-option .year-care-price {
+  margin-left: auto;
+  padding: 7px 10px;
+  font-size: 11px;
+}
+
 @media (hover:hover) {
   .public-page .public-page-panel:hover,
   .public-page .process-card:hover {
     border-color: #bfd0c6;
     box-shadow: 0 16px 34px rgba(21, 53, 39, .07);
+  }
+
+  .public-home .quote-lawn-frequency-options button:hover {
+    border-color: #86a394;
+    background: #fbfdfb;
   }
 }
 
@@ -66,5 +214,33 @@
 
   .public-home .plan-card-year .plan-price {
     margin-bottom: 12px;
+  }
+
+  .public-home .option[data-lawn-category="true"],
+  .public-home .option.year-care-option {
+    grid-column: 1;
+  }
+
+  .public-home .quote-lawn-frequency-picker {
+    grid-column: 1;
+    padding: 12px;
+  }
+
+  .public-home .quote-lawn-frequency-options {
+    grid-template-columns: 1fr;
+  }
+
+  .public-home .quote-lawn-frequency-options button {
+    min-height: 52px;
+  }
+
+  .public-home .option.year-care-option {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .public-home .option.year-care-option .year-care-price {
+    margin-left: 0;
   }
 }
