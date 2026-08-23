@@ -1,0 +1,43 @@
+name: Temporary Fix Operational Photo PNG
+
+on:
+  push:
+    branches:
+      - monthly-billing-payment-health-20260823
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: monthly-billing-payment-health-20260823
+          fetch-depth: 0
+      - name: Replace unsupported simulator SVG with PNG
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app/api/admin/operational-simulator/route.ts')
+          text = path.read_text()
+          text = text.replace('operational-simulation/after.svg', 'operational-simulation/after.png')
+          old = 'const photoAsset = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800"><rect width="1200" height="800" fill="#dce9f5"/><rect y="470" width="1200" height="330" fill="#4d8f4b"/><rect x="180" y="260" width="430" height="260" fill="#f4efe4"/><polygon points="140,280 395,90 650,280" fill="#744d3b"/><text x="60" y="735" font-family="Arial" font-size="42" fill="#ffffff">4Ever Seasons · Employee After-Service Photo · Simulation</text></svg>`;'
+          new = 'const photoAsset = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");'
+          if old not in text:
+              raise SystemExit('Expected SVG simulator asset declaration was not found')
+          text = text.replace(old, new, 1)
+          text = text.replace('contentType: "image/svg+xml"', 'contentType: "image/png"')
+          path.write_text(text)
+          PY
+          git rm -f scripts/patch-operational-simulator-photo.py
+          git rm -f .github/workflows/temp-fix-operational-photo-png.yml
+      - name: Commit validated patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/admin/operational-simulator/route.ts
+          git commit -m "Fix operational simulator work photo MIME"
+          git push origin HEAD:monthly-billing-payment-health-20260823
