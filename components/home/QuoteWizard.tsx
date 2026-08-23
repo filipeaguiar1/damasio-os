@@ -72,6 +72,7 @@ export function QuoteWizard() {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [preQuoteAlerted, setPreQuoteAlerted] = useState(false);
+  const [preQuoteId, setPreQuoteId] = useState("");
 
   const isCustom = service === "extra_service";
   const isYearCare = service === "year_care";
@@ -157,8 +158,13 @@ export function QuoteWizard() {
           address: lead.address,
           service: serviceLabels[service],
           estimatedTotal: isManualQuote ? null : quote.total,
+          notes: [lead.notes, detailsSummary].filter(Boolean).join(" | "),
+          referralCode,
           website: "",
         }),
+      }).then(async response => {
+        const result = await response.json().catch(() => ({}));
+        if (response.ok && result.preQuoteId) setPreQuoteId(String(result.preQuoteId));
       }).catch(error => console.error("Pre-quote alert request failed", error));
     }
   }
@@ -201,6 +207,7 @@ export function QuoteWizard() {
           notes: quoteNotes,
           service: serviceLabels[service],
           referralCode,
+          preQuoteId,
           estimatedTotal: isManualQuote ? null : quote.total,
           propertyDetails,
         }),
@@ -264,7 +271,7 @@ export function QuoteWizard() {
 
       {step === 1 && <div className="stack quote-step">
         <div className="quote-step-intro"><strong>What can we help with?</strong><span>Choose the closest match. You can add property details on the next step.</span></div>
-        <div className="option-grid">{services.map(item => <button key={item.key} className={`${service === item.key ? "option active" : "option"} ${item.key === "year_care" ? "year-care-option" : ""}`} onClick={() => { setService(item.key); setPreQuoteAlerted(false); setMsg(""); }}>
+        <div className="option-grid">{services.map(item => <button key={item.key} className={`${service === item.key ? "option active" : "option"} ${item.key === "year_care" ? "year-care-option" : ""}`} onClick={() => { setService(item.key); setPreQuoteAlerted(false); setPreQuoteId(""); setMsg(""); }}>
           <span className="option-copy"><strong>{serviceLabels[item.key]}</strong>{item.note && <small>{item.note}</small>}</span>
           {item.price && <span className="year-care-price">{item.price}</span>}
         </button>)}</div>
@@ -325,7 +332,7 @@ export function QuoteWizard() {
         <div className="row quote-actions"><button className="btn btn-outline" onClick={() => setStep(2)}>Back</button><button className="btn btn-primary" onClick={showQuote}>Review quote</button></div>
       </div>}
 
-      {step === 4 && <div className="stack quote-step">
+      {step === 4 && <div className="stack quote-step quote-step-review">
         <div className="quote-result">
           <small>{quoteNumber ? "Request received" : "Review before sending"}</small>
           <div className="quote-price">{quoteNumber || (isYearCare ? "From $249/month" : isCustom ? "Custom quote" : `$${quote.total.toFixed(2)}`)}</div>
@@ -337,7 +344,7 @@ export function QuoteWizard() {
           {isYearCare && <p>Year Care is a premium service with priority scheduling and route planning.</p>}
           {!isYearCare && <p>We review the property details before sending the final approved price.</p>}
         </div>}
-        {quoteNumber ? <div className="notice">Quote reference: {quoteNumber}</div> : <div className="row quote-actions quote-actions-final"><button className="btn btn-outline" disabled={busy} onClick={() => setStep(2)}>Edit service</button><button className="btn btn-outline" disabled={busy} onClick={() => setStep(3)}>Edit contact</button><button className="btn btn-primary" disabled={busy} onClick={() => void submit()}>{busy ? "Sending..." : "Send quote request"}</button></div>}
+        {quoteNumber ? <div className="notice">Quote reference: {quoteNumber}</div> : <div className="row quote-actions quote-actions-final"><button className="btn btn-outline" disabled={busy} onClick={() => { setPreQuoteAlerted(false); setStep(2); }}>Edit service</button><button className="btn btn-outline" disabled={busy} onClick={() => { setPreQuoteAlerted(false); setStep(3); }}>Edit contact</button><button className="btn btn-primary" disabled={busy} onClick={() => void submit()}>{busy ? "Sending..." : "Send quote request"}</button></div>}
         {msg && <div className="payment-message">{msg}</div>}
       </div>}
     </div>

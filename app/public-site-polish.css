@@ -839,3 +839,40 @@
     justify-self:stretch;
   }
 }
+
+/* quote-review-containment-20260823 */
+.public-home .hero-quote-panel,
+.public-home .quote-card,
+.public-home .quote-step,
+.public-home .quote-result,
+.public-home .quote-scope-summary{
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  box-sizing:border-box;
+}
+.public-home .quote-card{overflow:hidden}
+.public-home .quote-step-review{gap:10px}
+.public-home .quote-step-review .quote-result{padding:14px}
+.public-home .quote-step-review .quote-scope-summary{gap:10px;padding:12px}
+.public-home .quote-step-review .quote-scope-summary dl{gap:7px}
+.public-home .quote-step-review .quote-scope-summary dl div{padding:8px}
+.public-home .quote-step-review .quote-actions-final{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  width:100%;
+  min-width:0;
+  gap:8px;
+}
+.public-home .quote-step-review .quote-actions-final .btn{
+  width:100%;
+  min-width:0;
+  padding-left:9px;
+  padding-right:9px;
+}
+@media(max-width:640px){
+  .public-home .quote-step-review .quote-scope-summary dl{grid-template-columns:1fr}
+  .public-home .quote-step-review .quote-actions-final{grid-template-columns:1fr}
+  .public-home .quote-step-review .quote-result{padding:12px}
+  .public-home .quote-step-review .quote-scope-summary{padding:10px}
+}
