@@ -51,13 +51,14 @@ export async function GET(request: NextRequest) {
   try {
     const db = await requireMaster(request);
     const stripeKey = process.env.STRIPE_SECRET_KEY;
+    const platformFeeValue = process.env.STRIPE_PLATFORM_FEE_PERCENT;
     const config = {
       stripeSecret: Boolean(stripeKey),
       stripeWebhook: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
       stripeConnectWebhook: Boolean(process.env.STRIPE_CONNECT_WEBHOOK_SECRET),
       cronSecret: Boolean(process.env.CRON_SECRET),
       siteUrl: Boolean(process.env.NEXT_PUBLIC_SITE_URL),
-      platformFeeConfigured: Number.isFinite(Number(process.env.STRIPE_PLATFORM_FEE_PERCENT || "")),
+      platformFeeConfigured: Boolean(platformFeeValue) && Number.isFinite(Number(platformFeeValue)),
     };
 
     let stripeReachable = false;
@@ -68,7 +69,7 @@ export async function GET(request: NextRequest) {
         const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
         const balance = await stripe.balance.retrieve();
         stripeReachable = true;
-        stripeMode = balance.livemode ? "live" : "test";
+        stripeMode = (balance as Stripe.Balance & { livemode?: boolean }).livemode ? "live" : "test";
       } catch (error) {
         stripeError = error instanceof Error ? error.message.slice(0, 300) : "Stripe API could not be reached.";
       }
