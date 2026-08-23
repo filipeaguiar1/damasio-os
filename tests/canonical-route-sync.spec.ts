@@ -142,7 +142,7 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await adminDesktop.goto(`${baseURL}/login`);
   await adminDesktop.evaluate(() => { window.localStorage.clear(); window.sessionStorage.clear(); });
   await adminDesktop.reload();
-  await adminDesktop.getByLabel("Email").fill(process.env.E2E_ADMIN_EMAIL!);
+  await adminDesktop.getByRole("textbox", { name: "Email" }).fill(process.env.E2E_ADMIN_EMAIL!);
   await adminDesktop.getByLabel("Password").fill(process.env.E2E_ADMIN_PASSWORD!);
   await adminDesktop.getByRole("button", { name: "Sign In" }).click();
   await adminDesktop.waitForURL("**/admin", { timeout: 30_000 });
