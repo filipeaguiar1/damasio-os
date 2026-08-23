@@ -28,6 +28,7 @@ import "./portal-desktop-polish.css";
 import "./master-platform-polish.css";
 import "./public-pages.css";
 import "./public-pages-final.css";
+import "./quote-review-overflow-fix.css";
 import "./master-pricing-final.css";
 import { SeasonThemeProvider } from "@/components/SeasonThemeProvider";
 import { AdminAccessFallback } from "@/components/master/AdminAccessFallback";
