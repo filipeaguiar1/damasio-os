@@ -1,0 +1,70 @@
+.quote-success-hero {
+  max-width: 900px;
+}
+
+.quote-success-icon {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  margin-bottom: 22px;
+  border-radius: 50%;
+  background: #0d5a40;
+  color: #fff;
+  font-size: 28px;
+  font-weight: 900;
+  box-shadow: 0 14px 30px rgba(13, 90, 64, .16);
+}
+
+.quote-reference {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 20px;
+  padding: 9px 12px;
+  border: 1px solid #d9e2dc;
+  border-radius: 999px;
+  background: #fff;
+  color: #53675d;
+  font-size: 12px;
+}
+
+.quote-reference strong {
+  color: #17382a;
+  font-size: 12px;
+}
+
+.public-page .public-page-panel,
+.public-page .process-card,
+.public-page .contact-support-card,
+.public-page .contact-form-card,
+.public-page .legal-sidebar,
+.public-page .legal-copy {
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+@media (hover:hover) {
+  .public-page .public-page-panel:hover,
+  .public-page .process-card:hover {
+    border-color: #bfd0c6;
+    box-shadow: 0 16px 34px rgba(21, 53, 39, .07);
+  }
+}
+
+@media (max-width:700px) {
+  .quote-success-icon {
+    width: 54px;
+    height: 54px;
+    margin-bottom: 17px;
+    font-size: 24px;
+  }
+
+  .public-home .plan-card-year .premium-note {
+    display: block !important;
+    margin: 0 0 13px !important;
+  }
+
+  .public-home .plan-card-year .plan-price {
+    margin-bottom: 12px;
+  }
+}
