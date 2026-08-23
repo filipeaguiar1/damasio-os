@@ -28,6 +28,7 @@ import "./portal-desktop-polish.css";
 import "./master-platform-polish.css";
 import "./public-pages.css";
 import "./public-pages-final.css";
+import "./master-pricing-final.css";
 import { SeasonThemeProvider } from "@/components/SeasonThemeProvider";
 import { AdminAccessFallback } from "@/components/master/AdminAccessFallback";
 import { CustomerLegacyDataGuard } from "@/components/customer/CustomerLegacyDataGuard";
@@ -36,6 +37,7 @@ import { AdvisorHouseQuickAccess } from "@/components/admin/AdvisorHouseQuickAcc
 import { RouteWorkerConsistencyEnhancer } from "@/components/admin/RouteWorkerConsistencyEnhancer";
 import { CustomerSelectSearchEnhancer } from "@/components/payments/CustomerSelectSearchEnhancer";
 import { EmployeeMobilePolish } from "@/components/mobile/EmployeeMobilePolish";
+import { PricingBootstrap } from "@/components/PricingBootstrap";
 import { getSiteUrl } from "@/lib/seo/siteUrl";
 
 const siteUrl = getSiteUrl();
@@ -54,5 +56,5 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: "#043d2e", width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="en-CA" data-season="summer"><body><SeasonThemeProvider><CustomerLegacyDataGuard/><RouteAdvisorFeedbackNavigator/><EmployeeMobilePolish/><AdvisorHouseQuickAccess/><RouteWorkerConsistencyEnhancer/><CustomerSelectSearchEnhancer/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
+  return <html lang="en-CA" data-season="summer"><body><SeasonThemeProvider><PricingBootstrap/><CustomerLegacyDataGuard/><RouteAdvisorFeedbackNavigator/><EmployeeMobilePolish/><AdvisorHouseQuickAccess/><RouteWorkerConsistencyEnhancer/><CustomerSelectSearchEnhancer/>{children}</SeasonThemeProvider><AdminAccessFallback/></body></html>;
 }
