@@ -4,13 +4,15 @@ on:
   push:
     branches:
       - fix/quote-review-prequote-layout-email-20260823
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   patch-and-build:
-    if: ${{ !contains(github.event.head_commit.message, '[quote-autopatch]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
