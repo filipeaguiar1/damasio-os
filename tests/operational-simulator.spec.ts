@@ -152,7 +152,7 @@ test("production-like Admin, Employee and Customer recovery flow", async ({ brow
   await expect(finish).toBeEnabled({ timeout: 30_000 });
   employee.once("dialog", dialog => dialog.accept());
   await finish.click();
-  await expect(employee.getByText("Done", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(employee.locator("strong").filter({ hasText: /^Done$/ }).first()).toBeVisible({ timeout: 30_000 });
   await employee.screenshot({ path: "employee-live-route.png", fullPage: true });
 
   const customerMobileContext = await browser.newContext({ ...torontoContext, viewport: { width: 412, height: 915 } });
