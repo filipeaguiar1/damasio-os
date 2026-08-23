@@ -249,4 +249,68 @@
   .public-home .option.year-care-option .year-care-price {
     margin-left: 0;
   }
+
+  /* Give the public mobile header consistent breathing room on both sides. */
+  .header .container.header-inner {
+    width: calc(100% - 40px) !important;
+    min-width: 0;
+    gap: 12px !important;
+  }
+
+  .header .brand {
+    min-width: 0 !important;
+    gap: 10px !important;
+  }
+
+  .header .brand-logo.brand-logo-mark {
+    width: 56px !important;
+    height: 56px !important;
+    margin: 0 !important;
+    flex: 0 0 56px;
+    object-fit: cover;
+  }
+
+  .header .header-login {
+    margin-left: auto;
+    min-height: 52px;
+    padding-left: 18px !important;
+    padding-right: 18px !important;
+  }
+
+  /* Center-snap proof cards while leaving a visible preview of the neighbours. */
+  .public-home-site-hero .hero-proof-grid {
+    margin: 0 -16px !important;
+    padding: 4px 11% 12px !important;
+    gap: 12px !important;
+    overflow-x: auto !important;
+    scroll-snap-type: x mandatory !important;
+    scroll-padding-inline: 11%;
+    overscroll-behavior-inline: contain;
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+  }
+
+  .public-home-site-hero .hero-proof {
+    flex: 0 0 78% !important;
+    scroll-snap-align: center !important;
+    scroll-snap-stop: always;
+  }
+}
+
+@media (max-width:430px) {
+  .header .container.header-inner {
+    width: calc(100% - 36px) !important;
+  }
+
+  .header .brand-logo.brand-logo-mark {
+    width: 52px !important;
+    height: 52px !important;
+    flex-basis: 52px;
+  }
+
+  .header .header-login {
+    min-height: 50px;
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
 }
