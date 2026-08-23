@@ -28,7 +28,10 @@ export async function POST(request: NextRequest) {
 
     const [{ data: profile }, { data: agreement, error: agreementError }] = await Promise.all([
       db.from("profiles").select("id,role,active,organization_id,company_id").eq("id", auth.user.id).maybeSingle(),
-      db.from("billing_agreements").select("id,company_id,customer_id,job_id,contract_owner_role,billing_model,collection_timing,customer_amount_cents,provider_payout_cents,platform_fee_basis_points,prepaid_plan_type,stripe_product_id,stripe_price_id").eq("id", agreementId).maybeSingle(),
+      db.from("billing_agreements")
+        .select("id,company_id,customer_id,job_id,contract_owner_role,billing_model,collection_timing,customer_amount_cents,provider_payout_cents,platform_fee_basis_points,prepaid_plan_type,plan_billing_day,service_frequency,stripe_product_id,stripe_price_id")
+        .eq("id", agreementId)
+        .maybeSingle(),
     ]);
 
     if (agreementError || !agreement) return failure("Agreement not found.", 404);
@@ -43,11 +46,17 @@ export async function POST(request: NextRequest) {
     if (agreement.collection_timing === "manual" || agreement.billing_model === "manual") {
       return failure("Manual agreements do not create automatic Stripe Products or Prices.", 409);
     }
-    if (agreement.collection_timing !== "after_visit") {
-      return failure("Only validated after-visit billing can be synchronized automatically right now.", 409);
+
+    const monthly = agreement.collection_timing === "period_prepaid" && agreement.billing_model === "monthly_fixed_subscription";
+    const oneTime = agreement.collection_timing === "after_visit"
+      && agreement.service_frequency === "one_time"
+      && ["per_visit_fixed_payout", "per_visit_percentage_fee"].includes(String(agreement.billing_model));
+
+    if (!monthly && !oneTime) {
+      return failure("Recurring services must use monthly billing. Per-Visit collection is reserved for one-time work.", 409);
     }
-    if (!["per_visit_fixed_payout", "per_visit_percentage_fee"].includes(String(agreement.billing_model))) {
-      return failure("This billing model is not supported by the active after-visit engine.", 409);
+    if (monthly && agreement.prepaid_plan_type && agreement.prepaid_plan_type !== "monthly") {
+      return failure("Recurring customer collection is monthly.", 409);
     }
 
     const [{ data: customer }, { data: job }] = await Promise.all([
@@ -64,7 +73,8 @@ export async function POST(request: NextRequest) {
       ownerRole: agreement.contract_owner_role,
       providerPayoutCents: String(agreement.provider_payout_cents || 0),
       platformFeeBasisPoints: String(agreement.platform_fee_basis_points || 0),
-      collectionTiming: "after_visit",
+      collectionTiming: monthly ? "monthly" : "one_time_after_service",
+      billingDay: String(agreement.plan_billing_day || 1),
     };
 
     const product = agreement.stripe_product_id
@@ -75,13 +85,27 @@ export async function POST(request: NextRequest) {
     if (!Number.isSafeInteger(amount) || amount < 50) return failure("Agreement amount must be at least $0.50 CAD.", 409);
 
     let priceId = agreement.stripe_price_id as string | null;
+    if (priceId) {
+      try {
+        const existing = await stripe.prices.retrieve(priceId);
+        const compatible = existing.active
+          && existing.currency === "cad"
+          && existing.unit_amount === amount
+          && (monthly ? existing.recurring?.interval === "month" : !existing.recurring);
+        if (!compatible) priceId = null;
+      } catch {
+        priceId = null;
+      }
+    }
+
     if (!priceId) {
       const price = await stripe.prices.create({
         currency: "cad",
         unit_amount: amount,
         product: product.id,
+        ...(monthly ? { recurring: { interval: "month" as const } } : {}),
         metadata,
-      }, { idempotencyKey: `agreement-price-${agreement.id}-${amount}-after-visit` });
+      }, { idempotencyKey: `agreement-price-${agreement.id}-${amount}-${monthly ? "monthly" : "one-time"}` });
       priceId = price.id;
     }
 
@@ -94,7 +118,7 @@ export async function POST(request: NextRequest) {
     }).eq("id", agreement.id);
     if (update.error) throw new Error(update.error.message);
 
-    return NextResponse.json({ synced: true, productId: product.id, priceId });
+    return NextResponse.json({ synced: true, billingCadence: monthly ? "monthly" : "one_time", productId: product.id, priceId });
   } catch (error) {
     console.error("Stripe agreement sync failed", error);
     return failure(error instanceof Error ? error.message : "Could not sync agreement with Stripe.", 500);
