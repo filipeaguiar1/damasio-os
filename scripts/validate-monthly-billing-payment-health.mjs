@@ -44,4 +44,17 @@ if (!simulator.includes('contentType: "image/png"') || !simulator.includes("oper
   throw new Error("Operational Simulator PNG work-photo contract is missing.");
 }
 
-console.log("PASS monthly billing, payment health, and simulator photo contracts");
+const operationalE2E = source("tests/operational-simulator.spec.ts");
+if (operationalE2E.includes('getByText("Done", { exact: true })')) {
+  throw new Error("Operational Simulator uses an ambiguous Done locator.");
+}
+
+const canonicalRouteE2E = source("tests/canonical-route-sync.spec.ts");
+if (canonicalRouteE2E.includes('getByLabel("Email")')) {
+  throw new Error("Canonical route E2E uses the ambiguous login Email label locator.");
+}
+if (!canonicalRouteE2E.includes('getByRole("textbox", { name: "Email" })')) {
+  throw new Error("Canonical route E2E is missing the explicit Email textbox locator.");
+}
+
+console.log("PASS monthly billing, payment health, and simulator QA contracts");
