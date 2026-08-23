@@ -6,7 +6,6 @@ import { Features } from "@/components/home/Features";
 import { Services } from "@/components/home/Services";
 import { Membership } from "@/components/home/Membership";
 import { Portals } from "@/components/home/Portals";
-import { FAQ } from "@/components/home/FAQ";
 import { AuthLinkRouter } from "@/components/auth/AuthLinkRouter";
 import { getSiteUrl } from "@/lib/seo/siteUrl";
 
@@ -53,7 +52,6 @@ export default function HomePage() {
         <Services />
         <Membership />
         <Portals />
-        <FAQ />
       </main>
       <Footer />
     </>
