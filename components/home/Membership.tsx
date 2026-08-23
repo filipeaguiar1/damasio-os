@@ -1,7 +1,22 @@
 const plans = [
-  ["Routine", "Weekly or biweekly lawn route", "Best for homeowners who want clean weekly curb appeal without extra coordination.", "Lawn cuts", "Basic trimming", "Online invoices"],
-  ["Seasonal", "Lawn plus cleanup planning", "The practical choice for properties that need spring and fall attention on top of lawn care.", "Route priority", "Cleanup reminders", "Service history"],
-  ["Year Care", "Year-round property care", "One property calendar for lawn routes, cleanups, garden work, winter visits and recurring special instructions.", "All-season scope", "Winter options", "Property notes"],
+  {
+    name: "Routine",
+    title: "Weekly or biweekly lawn care",
+    copy: "A straightforward recurring lawn route for homeowners who want the property kept tidy without having to rebook every visit.",
+    features: ["Recurring lawn cuts", "Trimming and tidy finish", "Online service history"],
+  },
+  {
+    name: "Seasonal",
+    title: "Lawn care plus seasonal work",
+    copy: "For properties that need regular lawn care with spring and fall cleanup planning built into the year.",
+    features: ["Priority route planning", "Seasonal cleanup reminders", "Connected service history"],
+  },
+  {
+    name: "Year Care",
+    title: "Year-round property care",
+    copy: "One plan for lawn care, seasonal cleanups, garden work and winter service, tailored to the property after review.",
+    features: ["All-season planning", "Priority service and routing", "Property-specific notes"],
+  },
 ];
 
 function planClass(index: number) {
@@ -15,18 +30,20 @@ export function Membership() {
     <div className="container">
       <div className="membership-head">
         <span className="section-kicker">Maintenance plans</span>
-        <h2 id="plans-title">Choose the route level, then confirm the exact scope.</h2>
-        <p className="section-intro">Recurring service depends on area, property size and seasonal capacity. Start with the route level, then the team confirms the exact scope.</p>
+        <h2 id="plans-title">Choose the level of care that fits your property.</h2>
+        <p className="section-intro">Start with the service level. We confirm the property size, scope and route availability before the final price is approved.</p>
       </div>
       <div className="membership-grid">
-        {plans.map(([name, title, copy, a, b, c], index) => <article className={planClass(index)} key={name}>
+        {plans.map((plan, index) => <article className={planClass(index)} key={plan.name}>
           {index === 1 && <span className="plan-badge">Priority route</span>}
-          {index === 2 && <span className="plan-badge">Year care</span>}
-          <small>{name}</small>
-          <h3>{title}</h3>
-          <p>{copy}</p>
-          <div className="plan-list"><span>{a}</span><span>{b}</span><span>{c}</span></div>
-          <a className={index === 1 ? "btn btn-primary" : "btn btn-outline"} href="#quote">Check availability</a>
+          {index === 2 && <span className="plan-badge">Premium</span>}
+          <small>{plan.name}</small>
+          <h3>{plan.title}</h3>
+          {index === 2 && <div className="plan-price"><strong>From $249</strong><span>/ month</span></div>}
+          <p>{plan.copy}</p>
+          <div className="plan-list">{plan.features.map(feature => <span key={feature}>{feature}</span>)}</div>
+          {index === 2 && <p className="premium-note">* Premium service receives priority scheduling and route planning.</p>}
+          <a className={index === 1 ? "btn btn-primary" : "btn btn-outline"} href={index === 2 ? "#quote?service=year_care" : "#quote"}>{index === 2 ? "Build my Year Care plan" : "Check availability"}</a>
         </article>)}
       </div>
     </div>

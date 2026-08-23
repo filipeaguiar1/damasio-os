@@ -8,21 +8,21 @@ export function Hero() {
     <div className="public-hero-overlay" />
     <div className="container public-hero-layout">
       <div className="public-hero-copy">
-        <span className="section-kicker">Oakville, Burlington, Hamilton</span>
-        <h1>Property maintenance, done on schedule.</h1>
-        <p className="hero-text">Local lawn care, seasonal cleanups, garden work and winter visits with clear scope, visit notes and photos after the work is done.</p>
+        <span className="section-kicker">Oakville · Burlington · Hamilton</span>
+        <h1>Property care that stays on schedule.</h1>
+        <p className="hero-text">Lawn care, seasonal cleanups, garden work and winter service with clear quotes, organized visits and property details kept in one place.</p>
         <div className="hero-actions">
           <a className="btn btn-outline hero-customer-link" href="/login">Already a customer?</a>
-        </div>
-        <div className="hero-proof-grid" aria-label="Service technology highlights">
-          <div className="hero-proof"><span>Smart scheduling</span><strong>Neighbourhood routes</strong><small>Planned service with organized local coverage.</small></div>
-          <div className="hero-proof"><span>Visit tracking</span><strong>Notes and photos</strong><small>Property history stays connected.</small></div>
-          <div className="hero-proof"><span>Seasonal care</span><strong>One property calendar</strong><small>Lawn, cleanup and winter planning together.</small></div>
         </div>
       </div>
       <aside id="quote" className="hero-quote-panel" aria-label="Request a quote">
         <QuoteWizardConversion />
       </aside>
+      <div className="hero-proof-grid" aria-label="Service highlights">
+        <div className="hero-proof"><span>Local routing</span><strong>Neighbourhood scheduling</strong><small>Recurring work is planned around practical local routes.</small></div>
+        <div className="hero-proof"><span>Visit history</span><strong>Notes and photos</strong><small>Service details stay connected to the property.</small></div>
+        <div className="hero-proof"><span>Four seasons</span><strong>One property plan</strong><small>Lawn, cleanup, garden and winter work stay organized together.</small></div>
+      </div>
     </div>
   </section>;
 }
