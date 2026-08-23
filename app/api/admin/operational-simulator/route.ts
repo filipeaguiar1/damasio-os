@@ -412,7 +412,7 @@ function createCompletedOperations(
             visit_id: visitId,
             uploaded_by: worker.profileId,
             storage_bucket: "work-photos",
-            storage_path: `${companyId}/operational-simulation/after.svg`,
+            storage_path: `${companyId}/operational-simulation/after.png`,
             public_url: null,
             photo_type: "after",
             caption: `${SIM_MARKER} Employee after-service evidence.`,
@@ -765,7 +765,7 @@ async function removeSimulation(service: any, companyId: string) {
   if (crewIds.length) await updateByIds("deactivate crews", "crews", { active: false }, "id", crewIds);
   if (profileIds.length) await updateByIds("deactivate profiles", "profiles", { active: false }, "id", profileIds);
 
-  const storageDelete = await service.storage.from("work-photos").remove([`${companyId}/operational-simulation/after.svg`]);
+  const storageDelete = await service.storage.from("work-photos").remove([`${companyId}/operational-simulation/after.png`]);
   if (storageDelete.error && !/not found/i.test(storageDelete.error.message || "")) {
     throw new Error(`work-photos: ${storageDelete.error.message}`);
   }
@@ -860,10 +860,10 @@ export async function POST(request: NextRequest) {
       await insertRowsWithFallback(service, "visits", operations.visits, ["company_id", "employee_notes", "customer_visible_summary"]);
       await initializeCanonicalRoutes(service, operations, workers, actorId);
 
-      const photoStoragePath = `${companyId}/operational-simulation/after.svg`;
-      const photoAsset = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800"><rect width="1200" height="800" fill="#dce9f5"/><rect y="470" width="1200" height="330" fill="#4d8f4b"/><rect x="180" y="260" width="430" height="260" fill="#f4efe4"/><polygon points="140,280 395,90 650,280" fill="#744d3b"/><text x="60" y="735" font-family="Arial" font-size="42" fill="#ffffff">4Ever Seasons · Employee After-Service Photo · Simulation</text></svg>`;
+      const photoStoragePath = `${companyId}/operational-simulation/after.png`;
+      const photoAsset = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
       const uploadedPhoto = await service.storage.from("work-photos").upload(photoStoragePath, photoAsset, {
-        contentType: "image/svg+xml",
+        contentType: "image/png",
         upsert: true,
       });
       if (uploadedPhoto.error) throw new Error(`work-photos: ${uploadedPhoto.error.message}`);
