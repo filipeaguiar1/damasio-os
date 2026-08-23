@@ -89,14 +89,20 @@
 }
 
 .public-home .option[data-lawn-category="true"].lawn-category-selected {
-  border-color: #0e5b3d !important;
-  background: #0d4b35 !important;
+  border-color: #5da98a !important;
+  background: linear-gradient(135deg, #24785b 0%, #176448 100%) !important;
   color: #fff !important;
-  box-shadow: 0 8px 18px rgba(13, 75, 53, .14) !important;
+  box-shadow: 0 10px 22px rgba(18, 92, 65, .22) !important;
 }
 
 .public-home .option[data-lawn-category="true"].lawn-category-selected .option-copy small {
-  color: rgba(255, 255, 255, .76) !important;
+  color: rgba(255, 255, 255, .84) !important;
+}
+
+/* The three lawn frequencies live only inside the picker. Hide their source cards everywhere. */
+.public-home .option[data-lawn-source="biweekly_lawn"],
+.public-home .option[data-lawn-source="one_time_lawn"] {
+  display: none !important;
 }
 
 .public-home .quote-lawn-frequency-picker {
