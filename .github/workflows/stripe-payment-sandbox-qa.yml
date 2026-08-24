@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "tests/stripe-payment-sandbox-qa.spec.ts"
+      - "tests/stripe-payment-sandbox-qa-v2.spec.ts"
       - ".github/workflows/stripe-payment-sandbox-qa.yml"
 
 permissions:
@@ -61,12 +62,15 @@ jobs:
           exit 1
 
       - name: Run Stripe sandbox payment/refund/dispute QA
-        run: pnpm exec playwright test tests/stripe-payment-sandbox-qa.spec.ts --reporter=line --workers=1
+        run: pnpm exec playwright test tests/stripe-payment-sandbox-qa-v2.spec.ts --reporter=line --workers=1
 
-      - name: Upload QA server log
+      - name: Upload QA evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: stripe-sandbox-payment-qa
-          path: /tmp/damasio-stripe-sandbox-qa.log
+          path: |
+            /tmp/damasio-stripe-sandbox-qa.log
+            stripe-*-after-pay.png
+            test-results/**
           if-no-files-found: ignore
