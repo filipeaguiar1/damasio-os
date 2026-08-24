@@ -174,8 +174,29 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { client, masterId } = await requireMaster(request);
-    const body = await request.json() as { id?: string; reason?: string };
+    const body = await request.json() as { id?: string; reason?: string; action?: "purge" };
     if (!body.id) throw new Error("Choose a company.");
+    if (body.action === "purge") {
+      const { data: company, error: companyError } = await client.from("organizations")
+        .select("id,name,deleted_at")
+        .eq("id", body.id)
+        .not("deleted_at", "is", null)
+        .maybeSingle();
+      if (companyError || !company) throw new Error(companyError?.message || "Only a company already in Trash can be permanently deleted.");
+      const { error: updateError } = await client.from("organizations").update({ purge_after: new Date().toISOString() }).eq("id", body.id);
+      if (updateError) throw new Error(updateError.message);
+      const { error: queueError } = await client.rpc("master_queue_expired_company_purges");
+      if (queueError) throw new Error(queueError.message);
+      await client.from("master_audit_log").insert({
+        master_profile_id: masterId,
+        company_id: body.id,
+        action: "company.purge_requested",
+        entity_type: "organization",
+        entity_id: body.id,
+        details: { requested_at: new Date().toISOString(), source: "master_trash_bulk_action" },
+      });
+      return NextResponse.json({ id: body.id, message: `${company.name} was queued for permanent synchronized removal.` });
+    }
     const { data, error } = await client.rpc("master_trash_company", {
       p_company_id: body.id,
       p_master_profile_id: masterId,

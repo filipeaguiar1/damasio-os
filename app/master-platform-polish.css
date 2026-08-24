@@ -318,3 +318,126 @@
   .master-quote-group>summary{padding:13px 14px}
   .master-quote-group>.master-table-wrap{overflow-x:auto}
 }
+
+
+/* master-list-controls-20260824 */
+.master-data-group{
+  margin:0 0 16px;
+  border:1px solid #c4d2c9;
+  border-radius:13px;
+  background:#f8faf8;
+  overflow:hidden;
+}
+.master-data-group>summary{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  padding:14px 17px;
+  cursor:pointer;
+  list-style:none;
+  background:#edf3ef;
+}
+.master-data-group>summary::-webkit-details-marker{display:none}
+.master-data-group>summary span{display:grid;gap:3px;min-width:0}
+.master-data-group>summary strong{color:#173b2c;font-size:15px}
+.master-data-group>summary small{color:#6d7b73;font-size:12px}
+.master-data-group>summary b{
+  min-width:30px;
+  padding:6px 9px;
+  border-radius:999px;
+  background:#dfeae3;
+  color:#24533d;
+  text-align:center;
+  font-size:12px;
+}
+.master-data-group[open]>summary{border-bottom:1px solid #d4ded8}
+.master-data-group>.master-list,
+.master-data-group>.master-company-grid{margin:0;padding:14px}
+.master-company-grid-compact{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+.master-company-grid-compact .master-company-card{
+  min-width:0;
+  padding:15px!important;
+}
+.master-company-grid-compact .master-company-top>span{width:36px;height:36px;font-size:16px}
+.master-company-grid-compact .master-company-card h3{
+  overflow:hidden;
+  margin:12px 0 4px;
+  font-size:18px;
+  line-height:1.2;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.master-company-grid-compact .master-company-card p{
+  overflow:hidden;
+  min-height:18px;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.master-company-grid-compact .master-company-card dl{margin:14px 0;gap:7px}
+.master-company-grid-compact .master-company-card dl>div{padding:7px 9px}
+.master-company-grid-compact .master-card-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.master-company-grid-compact .master-card-actions button{min-width:0;padding:9px 7px;font-size:12px}
+.master-selection-toolbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin:22px 0 14px;
+  padding:12px;
+  border:1px solid #bfd0c5;
+  border-radius:12px;
+  background:#dce8e0;
+}
+.master-selection-toolbar>input{flex:1;min-width:180px;padding:12px 14px}
+.master-selection-toolbar label{display:flex;align-items:center;gap:7px;color:#294b3a;font-size:13px;font-weight:850;white-space:nowrap}
+.master-selection-toolbar input[type="checkbox"],
+.master-list>article>input[type="checkbox"],
+.master-table input[type="checkbox"]{width:17px;height:17px;accent-color:#126b49}
+.master-danger-button{
+  min-height:40px;
+  padding:9px 13px;
+  border:1px solid #b93b3b;
+  border-radius:8px;
+  background:#b93b3b;
+  color:#fff;
+  font-weight:900;
+  cursor:pointer;
+}
+.master-danger-button:disabled{opacity:.45;cursor:not-allowed}
+.master-pagination{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  padding:15px;
+  color:#51665b;
+  font-size:13px;
+}
+.master-pagination button{
+  padding:8px 12px;
+  border:1px solid #bfd1c5;
+  border-radius:8px;
+  background:#f7faf8;
+  color:#174934;
+  font-weight:850;
+  cursor:pointer;
+}
+.master-pagination button:disabled{opacity:.42;cursor:not-allowed}
+.master-list>article>input[type="checkbox"]{flex:0 0 auto}
+.master-payout-toolbar>input{min-width:220px;padding:11px 13px}
+
+@media(max-width:1180px){
+  .master-company-grid-compact{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+}
+@media(max-width:900px){
+  .master-company-grid-compact{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .master-selection-toolbar{align-items:stretch;flex-wrap:wrap}
+  .master-selection-toolbar>input{flex-basis:100%}
+}
+@media(max-width:620px){
+  .master-company-grid-compact{grid-template-columns:1fr!important}
+  .master-selection-toolbar{flex-direction:column}
+  .master-selection-toolbar>*{width:100%}
+  .master-selection-toolbar label{justify-content:flex-start}
+  .master-data-group>summary{padding:13px 14px}
+}
