@@ -50,22 +50,47 @@ async function companyAndAccount(request: NextRequest) {
   const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
   const { data: company, error } = await service
     .from("organizations")
-    .select("id,name,contact_email,stripe_connected_account_id,stripe_connect_status,stripe_connect_onboarded_at,stripe_payouts_enabled_at")
+    .select("id,name,contact_email,stripe_connected_account_id,stripe_connect_status,stripe_connect_onboarded_at,stripe_payouts_enabled_at,stripe_payout_schedule")
     .eq("id", companyId)
     .maybeSingle();
   if (error || !company) throw new Error(error?.message || "Company not found.");
   return { service, stripe, company };
 }
 
+async function enforceManualPayoutSchedule(service: any, accountId: string, companyId: string) {
+  const { stripeKey } = environment();
+  const response = await fetch("https://api.stripe.com/v1/balance_settings", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${stripeKey}`,
+      "Stripe-Account": accountId,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ "payments[payouts][schedule][interval]": "manual" }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Stripe could not enable manual payouts: ${detail.slice(0, 400)}`);
+  }
+  const saved = await service.from("organizations").update({
+    stripe_payout_schedule: "manual",
+    stripe_payout_schedule_updated_at: new Date().toISOString(),
+  }).eq("id", companyId);
+  if (saved.error) throw new Error(saved.error.message);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { service, stripe, company } = await companyAndAccount(request);
     if (!company.stripe_connected_account_id) {
-      return NextResponse.json({ status: "not_started", payoutsEnabled: false, accountId: null });
+      return NextResponse.json({ status: "not_started", payoutsEnabled: false, accountId: null, payoutSchedule: null });
     }
     const account = await stripe.accounts.retrieve(company.stripe_connected_account_id);
     const status = statusFor(account);
     const now = new Date().toISOString();
+    if (status === "enabled" && company.stripe_payout_schedule !== "manual") {
+      await enforceManualPayoutSchedule(service, account.id, company.id);
+    }
     const update = await service.from("organizations").update({
       stripe_connect_status: status,
       stripe_connect_onboarded_at: account.details_submitted ? company.stripe_connect_onboarded_at || now : null,
@@ -75,6 +100,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       status,
       payoutsEnabled: status === "enabled",
+      payoutSchedule: status === "enabled" ? "manual" : company.stripe_payout_schedule || null,
       accountId: account.id,
       detailsSubmitted: Boolean(account.details_submitted),
       requirementsDue: account.requirements?.currently_due || [],
@@ -127,8 +153,9 @@ export async function POST(request: NextRequest) {
     if (statusSaved.error) throw new Error(statusSaved.error.message);
 
     if (status === "enabled") {
+      await enforceManualPayoutSchedule(service, accountId, company.id);
       const login = await stripe.accounts.createLoginLink(accountId);
-      return NextResponse.json({ status, payoutsEnabled: true, url: login.url, destination: "dashboard" });
+      return NextResponse.json({ status, payoutsEnabled: true, payoutSchedule: "manual", url: login.url, destination: "dashboard" });
     }
 
     const link = await stripe.accountLinks.create({
@@ -143,7 +170,7 @@ export async function POST(request: NextRequest) {
     }).eq("id", company.id);
     if (linkSaved.error) throw new Error(linkSaved.error.message);
 
-    return NextResponse.json({ status, payoutsEnabled: false, url: link.url, destination: "onboarding" });
+    return NextResponse.json({ status, payoutsEnabled: false, payoutSchedule: company.stripe_payout_schedule || null, url: link.url, destination: "onboarding" });
   } catch (error) {
     return fail(error, 403);
   }
