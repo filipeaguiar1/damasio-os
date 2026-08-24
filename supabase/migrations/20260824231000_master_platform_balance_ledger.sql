@@ -89,7 +89,6 @@ declare
   v_gross_cents bigint:=0;
   v_pi text:=nullif(trim(coalesce(new.stripe_payment_intent_id,'')),'');
 begin
-  -- A canonical refund always removes the Master earning from available balance.
   if new.status::text='refunded' then
     update public.master_balance_entries
     set state='refunded',status_reason='Canonical Stripe payment refunded.',updated_at=now()
@@ -115,7 +114,7 @@ begin
     gross_payment_cents,amount_cents,state,status_reason
   ) values (
     new.id,new.invoice_id,
-    coalesce(v_invoice.company_id,v_invoice.organization_id),
+    v_invoice.organization_id,
     v_invoice.customer_id,
     v_pi,nullif(trim(coalesce(new.stripe_charge_id,'')),''),'cad',
     v_gross_cents,v_fee_cents,'available','Platform fee earned from a canonical paid invoice.'
@@ -205,7 +204,6 @@ $$;
 revoke all on function public.master_balance_summary() from public,anon,authenticated;
 grant execute on function public.master_balance_summary() to service_role;
 
--- Backfill only canonical invoice payments that already carry a platform fee.
 insert into public.master_balance_entries(
   payment_id,invoice_id,company_id,customer_id,
   stripe_payment_intent_id,stripe_charge_id,currency,
@@ -213,7 +211,7 @@ insert into public.master_balance_entries(
 )
 select
   p.id,p.invoice_id,
-  coalesce(i.company_id,i.organization_id),i.customer_id,
+  i.organization_id,i.customer_id,
   p.stripe_payment_intent_id,p.stripe_charge_id,'cad',
   greatest(0,round(coalesce(i.total,0)*100)::bigint),
   greatest(0,round(coalesce(i.stripe_platform_fee,0)*100)::bigint),
