@@ -1,0 +1,83 @@
+/*
+ * Universal press feedback
+ * Gives every button-like control immediate mouse, touch and keyboard feedback
+ * without changing the control's resting layout or application logic.
+ */
+:where(
+  button,
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"],
+  [role="button"],
+  summary,
+  a.btn,
+  a[class*="button"],
+  a[class*="action"],
+  .quick-action
+){
+  -webkit-tap-highlight-color:rgba(13,107,73,.18);
+  touch-action:manipulation;
+  transform-origin:center;
+  transition:
+    transform 90ms ease,
+    filter 90ms ease,
+    box-shadow 90ms ease,
+    opacity 90ms ease;
+}
+
+:where(
+  button,
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"],
+  [role="button"],
+  summary,
+  a.btn,
+  a[class*="button"],
+  a[class*="action"],
+  .quick-action
+):active:not(:disabled):not([aria-disabled="true"]){
+  transform:translateY(1px) scale(.975)!important;
+  filter:brightness(.92) saturate(.96);
+  box-shadow:
+    inset 0 2px 5px rgba(4,34,24,.22),
+    0 1px 2px rgba(4,34,24,.08)!important;
+}
+
+:where(
+  button,
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"],
+  [role="button"],
+  summary,
+  a.btn,
+  a[class*="button"],
+  a[class*="action"],
+  .quick-action
+):focus-visible{
+  outline:3px solid rgba(24,126,88,.32);
+  outline-offset:2px;
+}
+
+:where(button,input[type="button"],input[type="submit"],input[type="reset"]):disabled,
+[role="button"][aria-disabled="true"]{
+  cursor:not-allowed;
+}
+
+@media(prefers-reduced-motion:reduce){
+  :where(
+    button,
+    input[type="button"],
+    input[type="submit"],
+    input[type="reset"],
+    [role="button"],
+    summary,
+    a.btn,
+    a[class*="button"],
+    a[class*="action"],
+    .quick-action
+  ){
+    transition:none;
+  }
+}
