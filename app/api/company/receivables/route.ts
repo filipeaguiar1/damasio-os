@@ -27,7 +27,9 @@ async function context(request: NextRequest) {
   if (profileError || !profile?.active || profile.role !== "admin") throw new Error("Only the active Company Admin can view company receivables.");
   const companyId = String(profile.company_id || profile.organization_id || "");
   if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(companyId)) throw new Error("Company account could not be resolved.");
-  const { data: company, error: companyError } = await db.from("organizations").select("id,name,stripe_connected_account_id,stripe_connect_status,stripe_payout_schedule").eq("id", companyId).maybeSingle();
+  const { data: company, error: companyError } = await db.from("organizations")
+    .select("id,name,stripe_connected_account_id,stripe_connect_status,stripe_payout_schedule,stripe_payout_reconciliation_hold,stripe_payout_reconciliation_note,stripe_payout_reconciled_at")
+    .eq("id", companyId).maybeSingle();
   if (companyError || !company) throw new Error(companyError?.message || "Company not found.");
   return { db, stripe: new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" }), company };
 }
@@ -37,7 +39,7 @@ export async function GET(request: NextRequest) {
     const { db, stripe, company } = await context(request);
     const [entriesResult, withdrawalsResult] = await Promise.all([
       db.from("company_balance_entries").select("id,company_id,payout_item_id,payment_id,invoice_id,customer_id,visit_id,amount_cents,paid_out_cents,reserved_cents,state,hold_reason,stripe_transfer_id,released_at,created_at").eq("company_id", company.id).order("created_at", { ascending: false }).limit(150),
-      db.from("company_withdrawals").select("id,amount_cents,status,system_generated,stripe_payout_id,estimated_arrival_at,failure_message,requested_at,processed_at,paid_at").eq("company_id", company.id).order("requested_at", { ascending: false }).limit(80),
+      db.from("company_withdrawals").select("id,amount_cents,status,system_generated,origin,unmatched_cents,stripe_payout_id,estimated_arrival_at,failure_message,requested_at,processed_at,paid_at").eq("company_id", company.id).order("requested_at", { ascending: false }).limit(80),
     ]);
     if (entriesResult.error) throw new Error(entriesResult.error.message);
     if (withdrawalsResult.error) throw new Error(withdrawalsResult.error.message);
@@ -70,7 +72,8 @@ export async function GET(request: NextRequest) {
     const internalAvailableCents = entries.filter((row: any) => row.state === "available").reduce((sum: number, row: any) => sum + outstanding(row), 0);
     const processingCents = withdrawals.filter((row: any) => ["reserved", "processing"].includes(String(row.status))).reduce((sum: number, row: any) => sum + Number(row.amount_cents || 0), 0);
     const paidOutCents = withdrawals.filter((row: any) => row.status === "paid").reduce((sum: number, row: any) => sum + Number(row.amount_cents || 0), 0);
-    const withdrawableCents = Math.max(0, Math.min(internalAvailableCents, stripeAvailableCents));
+    const reconciliationHold = Boolean(company.stripe_payout_reconciliation_hold);
+    const withdrawableCents = reconciliationHold ? 0 : Math.max(0, Math.min(internalAvailableCents, stripeAvailableCents));
     const ledger = entries.map((row: any) => ({ ...row, customerName: customerNames.get(String(row.customer_id || "")) || "Customer", outstandingCents: outstanding(row) }));
 
     return NextResponse.json({
@@ -78,13 +81,18 @@ export async function GET(request: NextRequest) {
       stripe: { status: stripeStatus, payoutSchedule: company.stripe_payout_schedule || null, availableCents: stripeAvailableCents, pendingCents: stripePendingCents, error: stripeError },
       balances: { pendingCents, internalAvailableCents, processingCents, paidOutCents, withdrawableCents },
       reconciliation: {
-        safe: !stripeError && withdrawableCents <= internalAvailableCents && withdrawableCents <= stripeAvailableCents,
+        safe: !stripeError && !reconciliationHold && withdrawableCents <= internalAvailableCents && withdrawableCents <= stripeAvailableCents,
+        hold: reconciliationHold,
+        holdNote: company.stripe_payout_reconciliation_note || null,
+        lastReconciledAt: company.stripe_payout_reconciled_at || null,
         stripeDifferenceCents: stripeAvailableCents - internalAvailableCents,
-        note: stripeAvailableCents < internalAvailableCents
-          ? "Some released earnings are still settling at Stripe. Withdrawals are capped by Stripe's actually available CAD balance."
-          : stripeAvailableCents > internalAvailableCents
-            ? "Stripe contains more available CAD than the platform ledger has released. The extra amount is intentionally not withdrawable here."
-            : "Internal released balance and Stripe available balance are aligned.",
+        note: reconciliationHold
+          ? company.stripe_payout_reconciliation_note || "Withdrawals are blocked while Master reconciles an external Stripe payout."
+          : stripeAvailableCents < internalAvailableCents
+            ? "Some released earnings are still settling at Stripe. Withdrawals are capped by Stripe's actually available CAD balance."
+            : stripeAvailableCents > internalAvailableCents
+              ? "Stripe contains more available CAD than the platform ledger has released. The extra amount is intentionally not withdrawable here."
+              : "Internal released balance and Stripe available balance are aligned.",
       },
       ledger,
       withdrawals,

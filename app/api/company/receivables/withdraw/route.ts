@@ -20,9 +20,12 @@ async function context(request: NextRequest) {
   const { data: profile, error: profileError } = await db.from("profiles").select("id,role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle();
   if (profileError || !profile?.active || profile.role !== "admin") throw new Error("Only the active Company Admin can withdraw company funds.");
   const companyId = String(profile.company_id || profile.organization_id || "");
-  const { data: company, error: companyError } = await db.from("organizations").select("id,name,stripe_connected_account_id,stripe_connect_status,stripe_payout_schedule").eq("id", companyId).maybeSingle();
+  const { data: company, error: companyError } = await db.from("organizations")
+    .select("id,name,stripe_connected_account_id,stripe_connect_status,stripe_payout_schedule,stripe_payout_reconciliation_hold,stripe_payout_reconciliation_note")
+    .eq("id", companyId).maybeSingle();
   if (companyError || !company) throw new Error(companyError?.message || "Company not found.");
   if (company.stripe_connect_status !== "enabled" || !company.stripe_connected_account_id) throw new Error("Stripe Connect payouts must be fully enabled before withdrawing funds.");
+  if (company.stripe_payout_reconciliation_hold) throw new Error(company.stripe_payout_reconciliation_note || "Withdrawals are temporarily blocked while an external Stripe payout is reconciled by Master.");
   return { db, stripe: new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" }), profile, company };
 }
 
@@ -46,7 +49,11 @@ export async function POST(request: NextRequest) {
     reservedWithdrawalId = String(reserved.data || "");
     if (!reservedWithdrawalId) throw new Error("Withdrawal reservation was not created.");
 
-    const stamp = await db.from("company_withdrawals").update({ stripe_available_cents_at_request: stripeAvailableCents, updated_at: new Date().toISOString() }).eq("id", reservedWithdrawalId);
+    const stamp = await db.from("company_withdrawals").update({
+      stripe_available_cents_at_request: stripeAvailableCents,
+      origin: "platform",
+      updated_at: new Date().toISOString(),
+    }).eq("id", reservedWithdrawalId);
     if (stamp.error) throw new Error(stamp.error.message);
 
     const payout = await stripe.payouts.create({
@@ -56,7 +63,15 @@ export async function POST(request: NextRequest) {
     }, { stripeAccount: company.stripe_connected_account_id, idempotencyKey: `company-withdrawal-${reservedWithdrawalId}` });
 
     const arrival = payout.arrival_date ? new Date(payout.arrival_date * 1000).toISOString() : null;
-    const saved = await db.from("company_withdrawals").update({ status: "processing", stripe_payout_id: payout.id, estimated_arrival_at: arrival, processed_at: new Date().toISOString(), failure_code: null, failure_message: null, updated_at: new Date().toISOString() }).eq("id", reservedWithdrawalId);
+    const saved = await db.from("company_withdrawals").update({
+      status: "processing",
+      stripe_payout_id: payout.id,
+      estimated_arrival_at: arrival,
+      processed_at: new Date().toISOString(),
+      failure_code: null,
+      failure_message: null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", reservedWithdrawalId);
     if (saved.error) throw new Error(saved.error.message);
 
     if (payout.status === "paid") {

@@ -25,6 +25,18 @@ requireFragments("supabase/migrations/20260824001600_company_receivable_payout_t
   "provider_payout_cents",
   "platform_fee_basis_points",
 ]);
+requireFragments("supabase/migrations/20260824001700_external_payout_reconciliation.sql", [
+  "reserve_external_company_payout",
+  "stripe_payout_reconciliation_hold",
+  "stripe_dashboard",
+  "manual_description",
+  "clear_company_payout_reconciliation_hold",
+]);
+requireFragments("supabase/migrations/20260824001800_manual_invoice_visit_payout_link.sql", [
+  "attach_manual_invoice_visit_to_payout_item",
+  "new.visit_id:=v_visit",
+  "Waiting for completed service feedback or 3 days without open tasks.",
+]);
 
 requireFragments("components/payments/ContractPaymentsWorkspace.tsx", [
   "Weekly service · charged per completed Visit",
@@ -33,14 +45,12 @@ requireFragments("components/payments/ContractPaymentsWorkspace.tsx", [
   'scope === "master" && <button',
   'scope === "master" && <section',
 ]);
-
 const companyPayments = source("components/payments/ContractPaymentsWorkspace.tsx");
-if (companyPayments.includes('scope === "company" ? "Only company-owned customers can receive payment requests here')) {
-  throw new Error("Company payment-link creation UI is still present.");
-}
+if (companyPayments.includes('scope === "company" ? "Only company-owned customers can receive payment requests here')) throw new Error("Company payment-link creation UI is still present.");
 
 requireFragments("app/admin/finance/page.tsx", ["Receivables", "CompanyReceivablesWorkspace"]);
 if (source("app/admin/finance/page.tsx").includes("/admin/finance/actions")) throw new Error("Company Payment Actions route is still linked from Finance.");
+requireFragments("app/api/admin/payments/actions/route.ts", ["Standalone payment requests are Master-only", "action === \"advance\""]);
 
 requireFragments("app/api/stripe/checkout/route.ts", [
   'String(profile.role) === "master"',
@@ -48,22 +58,33 @@ requireFragments("app/api/stripe/checkout/route.ts", [
   "billingEventId",
   "visitId",
 ]);
-
 requireFragments("app/api/stripe/agreements/sync/route.ts", [
   '"weekly", "biweekly", "custom"',
   'collectionTiming: monthly ? "monthly" : "per_visit_after_service"',
   '"per_visit"',
 ]);
+requireFragments("app/api/stripe/webhook/route.ts", [
+  "reconcileConnectedPayout",
+  'case "payout.created"',
+  'case "payout.paid"',
+  'case "payout.failed"',
+]);
+requireFragments("lib/stripe/reconcileConnectedPayout.ts", [
+  "reserve_external_company_payout",
+  "complete_external_company_withdrawal",
+  "release_company_withdrawal_reservation",
+]);
 
 requireFragments("app/api/company/receivables/route.ts", [
   "Math.min(internalAvailableCents, stripeAvailableCents)",
-  "internalAvailableCents",
+  "stripe_payout_reconciliation_hold",
   "withdrawableCents",
 ]);
 requireFragments("app/api/company/receivables/withdraw/route.ts", [
   "reserve_company_withdrawal",
   "stripe.balance.retrieve",
   "stripe.payouts.create",
+  "stripe_payout_reconciliation_hold",
   "idempotencyKey: `company-withdrawal-${reservedWithdrawalId}`",
 ]);
 requireFragments("app/api/cron/company-receivables/route.ts", [
@@ -72,11 +93,29 @@ requireFragments("app/api/cron/company-receivables/route.ts", [
   "75 * 24 * 60 * 60 * 1000",
   "complete_company_withdrawal",
 ]);
+
+requireFragments("app/api/master/manual-invoices/route.ts", [
+  "Only an active Master can create manual customer invoices",
+  'String(visit.status) !== "completed"',
+  "manual_description",
+  "sendBrandedEmail",
+  "master_audit_log",
+]);
+requireFragments("components/payments/MasterManualInvoiceWorkspace.tsx", [
+  "Create & send invoice",
+  "completed Visit",
+  "This does not charge a stored card automatically",
+]);
+requireFragments("app/api/master/payout-reconciliation/route.ts", [
+  "clear_company_payout_reconciliation_hold",
+  "payout.reconciliation_hold_cleared",
+]);
 requireFragments("app/api/master/payment-health/route.ts", [
   "Customer billing modes",
   "Company receivables ledger",
-  "On-demand withdrawals",
-  "staleTransfers",
+  "On-demand & external payouts",
+  "external_payout_unmatched",
+  "payout_reconciliation_hold",
 ]);
 
 const vercel = source("vercel.json");
@@ -91,5 +130,7 @@ if (operationalE2E.includes('getByText("Done", { exact: true })')) throw new Err
 const canonicalRouteE2E = source("tests/canonical-route-sync.spec.ts");
 if (canonicalRouteE2E.includes('getByLabel("Email")')) throw new Error("Canonical route E2E uses the ambiguous login Email label locator.");
 if (!canonicalRouteE2E.includes('getByRole("textbox", { name: "Email" })')) throw new Error("Canonical route E2E is missing the explicit Email textbox locator.");
+if (canonicalRouteE2E.includes('getByText("Create, add, reorder or remove houses.")')) throw new Error("Canonical route E2E still depends on retired Advisor copy.");
+if (!canonicalRouteE2E.includes('locator(".advisor-controls")')) throw new Error("Canonical route E2E is missing the stable Advisor controls locator.");
 
-console.log("PASS per-Visit/monthly billing, company receivables, withdrawal safety, payment health, and simulator QA contracts");
+console.log("PASS per-Visit/monthly billing, Master invoice control, company receivables, external payout reconciliation, withdrawal safety, payment health, and simulator QA contracts");

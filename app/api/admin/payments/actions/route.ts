@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import Stripe from "stripe";
 import { z } from "zod";
-import { stripeReturnOrigin } from "@/lib/stripe/checkoutOrigin";
 
 export const dynamic = "force-dynamic";
 
@@ -72,73 +70,30 @@ export async function POST(request: NextRequest) {
     const { service, actorId, companyId } = await requireFinanceOperator(request);
     const customer = await customerForCompany(service, companyId, body.customerId);
 
-    if (body.action === "preference") {
-      const { error } = await service.from("customers")
-        .update({ service_payment_method: body.method })
-        .eq("id", customer.id);
-      if (error) throw new Error(error.message);
-      await service.from("activity_log").insert({
-        organization_id: companyId,
-        company_id: companyId,
-        actor_profile_id: actorId,
-        action: "customer.payment_method_updated",
-        entity_type: "customer",
-        entity_id: customer.id,
-        details: `Preferred service payment method changed to ${body.method}.`,
-      });
-      return NextResponse.json({ saved: true, method: body.method });
+    if (body.action === "advance") {
+      return NextResponse.json({
+        error: "Standalone payment requests are Master-only. Company Admins cannot create an advance or payment link for a customer.",
+      }, { status: 403 });
     }
 
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    if (!stripeKey) return NextResponse.json({ error: "Stripe is not configured." }, { status: 503 });
-    if (!customer.profile_id) return NextResponse.json({ error: "Customer must activate their account before an advance payment can be requested." }, { status: 409 });
-    const amountCents = Math.round(body.amount * 100);
-    if (!Number.isSafeInteger(amountCents) || amountCents < 500) return NextResponse.json({ error: "Choose a valid advance amount." }, { status: 400 });
-
-    const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
-    const metadata = {
-      paymentKind: "wallet_topup",
-      companyId,
-      customerId: String(customer.id),
-      profileId: String(customer.profile_id),
-      credits: String(Math.round(body.amount)),
-      amountCents: String(amountCents),
-      requestedBy: actorId,
-      requestKind: "admin_advance",
-    };
-    const origin = stripeReturnOrigin(request);
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      customer_email: customer.email || undefined,
-      line_items: [{ quantity: 1, price_data: {
-        currency: "cad",
-        unit_amount: amountCents,
-        product_data: {
-          name: "Advance service credit",
-          description: body.note || "Account credit requested by your service company. Credit is available for future canonical service invoices after Stripe confirms payment.",
-        },
-      } }],
-      metadata,
-      payment_intent_data: { metadata },
-      success_url: `${origin}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/payment/cancel?advance=1`,
-    });
-
+    const { error } = await service.from("customers")
+      .update({ service_payment_method: body.method })
+      .eq("id", customer.id);
+    if (error) throw new Error(error.message);
     await service.from("activity_log").insert({
       organization_id: companyId,
       company_id: companyId,
       actor_profile_id: actorId,
-      action: "customer.advance_payment_requested",
+      action: "customer.payment_method_updated",
       entity_type: "customer",
       entity_id: customer.id,
-      details: `Advance account credit requested: CAD ${(amountCents / 100).toFixed(2)}.`,
+      details: `Preferred service payment method changed to ${body.method}.`,
     });
-
-    return NextResponse.json({ created: true, url: session.url, sessionId: session.id, amount: amountCents / 100 });
+    return NextResponse.json({ saved: true, method: body.method });
   } catch (error) {
     console.error("admin-payment-actions", error);
     const message = error instanceof Error ? error.message : "Payment action failed.";
-    const status = /session expired|sign in/i.test(message) ? 401 : /does not belong|access required|permission/i.test(message) ? 403 : /Customer|amount|activate/i.test(message) ? 409 : 400;
+    const status = /session expired|sign in/i.test(message) ? 401 : /does not belong|access required|permission/i.test(message) ? 403 : /Customer/i.test(message) ? 409 : 400;
     return NextResponse.json({ error: message }, { status });
   }
 }

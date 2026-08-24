@@ -1,0 +1,17 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import styles from "./MasterPayoutReconciliation.module.css";
+
+type Hold = { id:string; name:string; stripe_connect_status?:string|null; stripe_payout_reconciliation_note?:string|null; stripe_payout_reconciled_at?:string|null };
+
+async function accessToken(){const client=getSupabaseBrowserClient() as any;const{data}=await client.auth.getSession();const token=data.session?.access_token;if(!token)throw new Error("Your Master session expired. Sign in again.");return token}
+
+export function MasterPayoutReconciliation(){
+  const[holds,setHolds]=useState<Hold[]>([]);const[notes,setNotes]=useState<Record<string,string>>({});const[message,setMessage]=useState("");const[busy,setBusy]=useState("");
+  const load=useCallback(async()=>{try{const token=await accessToken();const response=await fetch("/api/master/payout-reconciliation",{headers:{authorization:`Bearer ${token}`},cache:"no-store"});const body=await response.json();if(!response.ok)throw new Error(body.error||"Payout holds could not be loaded.");setHolds(body.holds||[])}catch(error){setMessage(error instanceof Error?error.message:"Payout holds could not be loaded.")}},[]);
+  useEffect(()=>{void load()},[load]);
+  async function clear(hold:Hold){const note=(notes[hold.id]||"").trim();if(note.length<8)return setMessage("Enter a Master review note before unlocking withdrawals.");setBusy(hold.id);setMessage("");try{const token=await accessToken();const response=await fetch("/api/master/payout-reconciliation",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},body:JSON.stringify({companyId:hold.id,note})});const body=await response.json();if(!response.ok)throw new Error(body.error||"Hold could not be cleared.");setMessage(body.message||"Payout reconciliation hold cleared.");setNotes(current=>({...current,[hold.id]:""}));await load()}catch(error){setMessage(error instanceof Error?error.message:"Hold could not be cleared.")}finally{setBusy("")}}
+  return <section className={styles.shell}><header><div><span>PAYOUT RECONCILIATION</span><h2>External Stripe payout review</h2><p>If somebody initiates a payout directly in Stripe and it exceeds the released internal ledger, company withdrawals lock automatically until Master reviews the mismatch.</p></div><b>{holds.length} HOLD{holds.length===1?"":"S"}</b></header>{message&&<div className={styles.message}>{message}</div>}{holds.length===0?<div className={styles.empty}>No company has an unresolved external payout mismatch.</div>:<div className={styles.list}>{holds.map(hold=><article key={hold.id}><div className={styles.info}><strong>{hold.name}</strong><span>{hold.stripe_payout_reconciliation_note||"External Stripe payout requires reconciliation."}</span><small>Stripe Connect: {hold.stripe_connect_status||"unknown"}{hold.stripe_payout_reconciled_at?` · last event ${new Date(hold.stripe_payout_reconciled_at).toLocaleString("en-CA")}`:""}</small></div><textarea value={notes[hold.id]||""} onChange={event=>setNotes(current=>({...current,[hold.id]:event.target.value}))} placeholder="Master review note: explain why the ledger is now safe to unlock."/><button disabled={busy===hold.id} onClick={()=>void clear(hold)}>{busy===hold.id?"Reviewing…":"Clear hold after review"}</button></article>)}</div>}</section>
+}

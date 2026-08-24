@@ -24,7 +24,7 @@ export async function GET(
 
     const invoiceResult = await db
       .from("invoices")
-      .select("id,organization_id,customer_id,property_id,quote_id,invoice_number,status,subtotal,tax,total,created_at,stripe_payment_intent_id,billing_cycle_id,visit_id,billing_event_id")
+      .select("id,organization_id,customer_id,property_id,quote_id,invoice_number,status,subtotal,tax,total,created_at,stripe_payment_intent_id,billing_cycle_id,visit_id,billing_event_id,manual_description")
       .eq("id", id)
       .eq("customer_id", identity.customerId)
       .maybeSingle();
@@ -32,7 +32,7 @@ export async function GET(
     if (!invoiceResult.data) return failure("Invoice not found for this customer.", 404);
     const invoice = invoiceResult.data as any;
 
-    const [organizationResult, propertyResult, paymentResult, cycleResult, quoteResult] = await Promise.all([
+    const [organizationResult, propertyResult, paymentResult, cycleResult, quoteResult, visitResult] = await Promise.all([
       invoice.organization_id
         ? db.from("organizations").select("id,name").eq("id", invoice.organization_id).maybeSingle()
         : Promise.resolve({ data: null, error: null }),
@@ -57,23 +57,32 @@ export async function GET(
             .eq("id", invoice.quote_id)
             .maybeSingle()
         : Promise.resolve({ data: null, error: null }),
+      invoice.visit_id
+        ? db.from("visits").select("id,job_id,scheduled_date,status").eq("id", invoice.visit_id).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
-    for (const result of [organizationResult, propertyResult, paymentResult, cycleResult, quoteResult]) {
+    for (const result of [organizationResult, propertyResult, paymentResult, cycleResult, quoteResult, visitResult]) {
       if ((result as any).error) throw new Error((result as any).error.message);
     }
 
     const cycle = cycleResult.data as any;
+    const visit = visitResult.data as any;
+    const jobId = cycle?.job_id || visit?.job_id || null;
     let job: any = null;
-    if (cycle?.job_id) {
-      const jobResult = await db.from("jobs").select("id,service_name").eq("id", cycle.job_id).maybeSingle();
+    if (jobId) {
+      const jobResult = await db.from("jobs").select("id,service_name").eq("id", jobId).maybeSingle();
       if (jobResult.error) throw new Error(jobResult.error.message);
       job = jobResult.data;
     }
 
     const quote = quoteResult.data as any;
     const serviceRequest = Array.isArray(quote?.service_requests) ? quote.service_requests[0] : quote?.service_requests;
-    const serviceName = job?.service_name || serviceRequest?.service_name || quote?.notes || (cycle ? "Monthly property maintenance plan" : "Property maintenance service");
+    const serviceName = invoice.manual_description
+      || job?.service_name
+      || serviceRequest?.service_name
+      || quote?.notes
+      || (cycle ? "Monthly property maintenance plan" : "Property maintenance service");
     const property = propertyResult.data as any;
     const payment = paymentResult.data as any;
 
@@ -87,10 +96,12 @@ export async function GET(
         total: Number(invoice.total || 0),
         createdAt: invoice.created_at,
         serviceName,
+        manualDescription: invoice.manual_description || null,
         cadence: cycle ? "monthly" : "one_time",
         periodStartsOn: cycle?.period_starts_on || null,
         periodEndsOn: cycle?.period_ends_on || null,
         dueOn: cycle?.charge_due_on || null,
+        visit: visit ? { id: visit.id, date: visit.scheduled_date || null, status: visit.status || null } : null,
         company: {
           name: organizationResult.data?.name || "4 Ever Seasons service partner",
         },

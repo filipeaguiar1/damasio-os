@@ -44,8 +44,8 @@ export async function GET(request: NextRequest) {
     }
 
     const [orgsR,invoicesR,paymentsR,webhooksR,agreementsR,cyclesR,eventsR,payoutsR,balancesR,withdrawalsR] = await Promise.all([
-      db.from("organizations").select("id,active,stripe_connect_status,stripe_connected_account_id,stripe_payouts_enabled_at,stripe_payout_schedule").is("deleted_at", null).limit(5000),
-      db.from("invoices").select("id,status,total,created_at,stripe_payment_intent_id,stripe_checkout_session_id,billing_cycle_id,billing_event_id,visit_id").order("created_at", { ascending:false }).limit(5000),
+      db.from("organizations").select("id,active,stripe_connect_status,stripe_connected_account_id,stripe_payouts_enabled_at,stripe_payout_schedule,stripe_payout_reconciliation_hold,stripe_payout_reconciliation_note,stripe_payout_reconciled_at").is("deleted_at", null).limit(5000),
+      db.from("invoices").select("id,status,total,created_at,stripe_payment_intent_id,stripe_checkout_session_id,billing_cycle_id,billing_event_id,visit_id,manual_created_by_profile_id").order("created_at", { ascending:false }).limit(5000),
       db.from("payments").select("id,status,amount,invoice_id,stripe_payment_intent_id,created_at").order("created_at", { ascending:false }).limit(5000),
       db.from("stripe_webhook_events").select("event_id,event_type,status,attempts,last_error,received_at,processed_at").order("received_at", { ascending:false }).limit(250),
       db.from("billing_agreements").select("id,active,payment_status,collection_timing,billing_model,service_frequency,stripe_sync_status").eq("active", true).limit(5000),
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
       db.from("visit_billing_events").select("id,state,visit_id,last_error,created_at").order("created_at", { ascending:false }).limit(5000),
       db.from("company_payout_items").select("id,status,invoice_id,payment_id,transfer_amount,stripe_transfer_id,created_at").order("created_at", { ascending:false }).limit(5000),
       db.from("company_balance_entries").select("id,company_id,state,amount_cents,paid_out_cents,reserved_cents,stripe_transfer_id,released_at,created_at,updated_at").order("created_at", { ascending:false }).limit(5000),
-      db.from("company_withdrawals").select("id,company_id,status,amount_cents,stripe_payout_id,requested_at,processed_at,paid_at,failure_message").order("requested_at", { ascending:false }).limit(3000),
+      db.from("company_withdrawals").select("id,company_id,status,amount_cents,origin,unmatched_cents,stripe_payout_id,requested_at,processed_at,paid_at,failure_message").order("requested_at", { ascending:false }).limit(3000),
     ]);
     for (const r of [orgsR,invoicesR,paymentsR,webhooksR,agreementsR,cyclesR,eventsR,payoutsR,balancesR,withdrawalsR]) if (r.error) throw new Error(r.error.message);
 
@@ -71,11 +71,14 @@ export async function GET(request: NextRequest) {
     const connectEnabled=orgs.filter((o:any)=>o.active!==false&&o.stripe_connect_status==="enabled"&&o.stripe_connected_account_id&&o.stripe_payouts_enabled_at).length;
     const activeCompanies=orgs.filter((o:any)=>o.active!==false).length;
     const manualSchedules=orgs.filter((o:any)=>o.stripe_connect_status==="enabled"&&o.stripe_payout_schedule==="manual").length;
+    const payoutReconciliationHolds=orgs.filter((o:any)=>o.stripe_payout_reconciliation_hold===true);
     const impossibleBalance=balances.filter((b:any)=>Number(b.paid_out_cents||0)+Number(b.reserved_cents||0)>Number(b.amount_cents||0));
     const staleTransfers=balances.filter((b:any)=>b.state==="transferring"&&Date.parse(b.updated_at)<Date.now()-30*60*1000);
     const oldAvailable=balances.filter((b:any)=>b.state==="available"&&b.released_at&&Date.parse(b.released_at)<Date.now()-75*86400000);
     const failedWithdrawals=withdrawals.filter((w:any)=>w.status==="failed");
     const staleWithdrawals=withdrawals.filter((w:any)=>w.status==="processing"&&Date.parse(w.requested_at)<Date.now()-7*86400000);
+    const externalWithdrawals=withdrawals.filter((w:any)=>w.origin==="stripe_dashboard");
+    const unmatchedExternal=externalWithdrawals.filter((w:any)=>Number(w.unmatched_cents||0)>0&&!["failed","cancelled"].includes(String(w.status)));
     const transferredMissingId=payouts.filter((p:any)=>p.status==="transferred"&&!p.stripe_transfer_id);
 
     const stages:Array<{key:string;label:string;status:Status;detail:string}>=[];
@@ -85,12 +88,12 @@ export async function GET(request: NextRequest) {
     stages.push({key:"webhook",label:"Stripe reconciliation",status:failedWebhooks.length||staleWebhook.length?"critical":"healthy",detail:`${failedWebhooks.length} failed and ${staleWebhook.length} stale webhook event(s).`});
     stages.push({key:"connect",label:"Company Stripe Connect",status:activeCompanies>0&&connectEnabled===0?"critical":connectEnabled<activeCompanies||manualSchedules<connectEnabled?"warning":"healthy",detail:`${connectEnabled}/${activeCompanies} active company account(s) payout-enabled; ${manualSchedules} use protected manual payout schedule.`});
     stages.push({key:"balance",label:"Company receivables ledger",status:impossibleBalance.length||staleTransfers.length||transferredMissingId.length?"critical":oldAvailable.length?"warning":"healthy",detail:`${balances.length} ledger entry(s), ${staleTransfers.length} stale transfer(s), ${oldAvailable.length} balance(s) near safety-payout threshold.`});
-    stages.push({key:"withdrawal",label:"On-demand withdrawals",status:failedWithdrawals.length?"critical":staleWithdrawals.length?"warning":"healthy",detail:`${withdrawals.length} withdrawal(s), ${failedWithdrawals.length} failed, ${staleWithdrawals.length} stale processing.`});
+    stages.push({key:"withdrawal",label:"On-demand & external payouts",status:payoutReconciliationHolds.length||unmatchedExternal.length?"critical":failedWithdrawals.length?"critical":staleWithdrawals.length?"warning":"healthy",detail:`${withdrawals.length} withdrawal(s), ${externalWithdrawals.length} external Stripe payout(s), ${unmatchedExternal.length} unmatched, ${payoutReconciliationHolds.length} company hold(s).`});
 
     const issues:Array<{severity:Status;code:string;message:string}>=[];
     if(!stripeReachable)issues.push({severity:"critical",code:"stripe_unreachable",message:stripeError||"Stripe API is not reachable."});
     if(!process.env.STRIPE_WEBHOOK_SECRET)issues.push({severity:"critical",code:"webhook_secret_missing",message:"STRIPE_WEBHOOK_SECRET is missing."});
-    if(!process.env.STRIPE_CONNECT_WEBHOOK_SECRET)issues.push({severity:"warning",code:"connect_webhook_missing",message:"STRIPE_CONNECT_WEBHOOK_SECRET is missing; account status relies on active refresh."});
+    if(!process.env.STRIPE_CONNECT_WEBHOOK_SECRET)issues.push({severity:"warning",code:"connect_webhook_missing",message:"STRIPE_CONNECT_WEBHOOK_SECRET is missing; connected-account payout events cannot be reconciled immediately."});
     if(!process.env.CRON_SECRET)issues.push({severity:"critical",code:"cron_secret_missing",message:"CRON_SECRET is missing; billing and receivables reconciliation cannot run safely."});
     if(invalidAgreements.length)issues.push({severity:"critical",code:"invalid_billing_mode",message:`${invalidAgreements.length} active agreement(s) do not match canonical per-Visit/monthly billing rules.`});
     if(paidWithoutPayment.length)issues.push({severity:"critical",code:"invoice_without_payment",message:`${paidWithoutPayment.length} paid invoice(s) have no matching paid payment record.`});
@@ -99,9 +102,11 @@ export async function GET(request: NextRequest) {
     if(impossibleBalance.length)issues.push({severity:"critical",code:"ledger_overallocated",message:`${impossibleBalance.length} company balance entry/entries are over-allocated.`});
     if(staleTransfers.length)issues.push({severity:"critical",code:"stale_transfer",message:`${staleTransfers.length} company earning transfer(s) are stuck in processing.`});
     if(failedWithdrawals.length)issues.push({severity:"critical",code:"withdrawal_failed",message:`${failedWithdrawals.length} company withdrawal(s) failed and need review.`});
+    if(unmatchedExternal.length)issues.push({severity:"critical",code:"external_payout_unmatched",message:`${unmatchedExternal.length} Stripe Dashboard payout(s) exceed the internally released balance and require Master reconciliation.`});
+    if(payoutReconciliationHolds.length)issues.push({severity:"critical",code:"payout_reconciliation_hold",message:`${payoutReconciliationHolds.length} company account(s) have withdrawals locked pending Master review.`});
     if(oldAvailable.length)issues.push({severity:"warning",code:"manual_payout_age",message:`${oldAvailable.length} available balance entry/entries reached the 75-day safety threshold.`});
 
-    return NextResponse.json({generatedAt:new Date().toISOString(),overallStatus:worst(stages.map(s=>s.status)),stripe:{reachable:stripeReachable,mode:stripeMode,error:stripeError},stages,issues,metrics:{activeCompanies,connectEnabled,manualSchedules,invoices:countBy(invoices,"status"),payments:countBy(payments,"status"),webhooks:countBy(webhooks,"status"),agreements:{active:agreements.length,perVisit:perVisit.length,monthly:monthly.length,invalid:invalidAgreements.length},cycles:countBy(cycles,"state"),visitBilling:countBy(events,"state"),payoutItems:countBy(payouts,"status"),companyBalance:countBy(balances,"state"),withdrawals:countBy(withdrawals,"status"),reconciliation:{paidWithoutPayment:paidWithoutPayment.length,amountMismatches:mismatches.length,staleTransfers:staleTransfers.length,oldAvailable:oldAvailable.length}}});
+    return NextResponse.json({generatedAt:new Date().toISOString(),overallStatus:worst(stages.map(s=>s.status)),stripe:{reachable:stripeReachable,mode:stripeMode,error:stripeError},stages,issues,metrics:{activeCompanies,connectEnabled,manualSchedules,payoutReconciliationHolds:payoutReconciliationHolds.length,invoices:countBy(invoices,"status"),payments:countBy(payments,"status"),webhooks:countBy(webhooks,"status"),agreements:{active:agreements.length,perVisit:perVisit.length,monthly:monthly.length,invalid:invalidAgreements.length},cycles:countBy(cycles,"state"),visitBilling:countBy(events,"state"),payoutItems:countBy(payouts,"status"),companyBalance:countBy(balances,"state"),withdrawals:countBy(withdrawals,"status"),externalPayouts:{total:externalWithdrawals.length,unmatched:unmatchedExternal.length},reconciliation:{paidWithoutPayment:paidWithoutPayment.length,amountMismatches:mismatches.length,staleTransfers:staleTransfers.length,oldAvailable:oldAvailable.length}}});
   } catch (error) {
     console.error("Payment Health failed", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Payment Health could not be loaded." }, { status: 401 });
