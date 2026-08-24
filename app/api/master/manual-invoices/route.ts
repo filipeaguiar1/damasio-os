@@ -6,6 +6,7 @@ import { sendBrandedEmail } from "@/lib/server/brandedEmail";
 export const dynamic = "force-dynamic";
 
 const createSchema = z.object({
+  requestId: z.string().uuid(),
   customerId: z.string().uuid(),
   visitId: z.string().uuid(),
   amountCents: z.number().int().min(50).max(1_000_000),
@@ -44,11 +45,6 @@ function niceDate(value?: string | null) {
   return new Date(`${value.length === 10 ? `${value}T12:00:00` : value}`).toLocaleDateString("en-CA", {
     month: "short", day: "numeric", year: "numeric",
   });
-}
-
-function invoiceNumber() {
-  const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-  return `MINV-${stamp}-${crypto.randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`;
 }
 
 async function loadWorkspace(db: any, customerId?: string | null) {
@@ -100,10 +96,7 @@ async function loadWorkspace(db: any, customerId?: string | null) {
   if (propertiesResult.error) throw new Error(propertiesResult.error.message);
   if (invoicesResult.error) throw new Error(invoicesResult.error.message);
   const jobNames = new Map((jobsResult.data || []).map((row: any) => [String(row.id), String(row.service_name || "Property maintenance")]));
-  const addresses = new Map((propertiesResult.data || []).map((row: any) => [
-    String(row.id),
-    [row.address_line1, row.city, row.province].filter(Boolean).join(", "),
-  ]));
+  const addresses = new Map((propertiesResult.data || []).map((row: any) => [String(row.id), [row.address_line1, row.city, row.province].filter(Boolean).join(", ")]));
 
   return {
     companies: companies || [],
@@ -157,11 +150,33 @@ export async function POST(request: NextRequest) {
 
     const companyId = String(customer.service_company_id || customer.company_id || customer.organization_id || customer.origin_company_id || "");
     if (!z.string().uuid().safeParse(companyId).success) throw new Error("This customer is not connected to a billing company.");
-    const [{ data: company, error: companyError }, { data: job, error: jobError }, { data: agreement, error: agreementError }] = await Promise.all([
+    const [{ data: company, error: companyError }, { data: job, error: jobError }] = await Promise.all([
       db.from("organizations").select("id,name").eq("id", companyId).maybeSingle(),
       db.from("jobs").select("id,service_name").eq("id", visit.job_id).maybeSingle(),
+    ]);
+    if (companyError || !company) throw new Error(companyError?.message || "Billing company could not be loaded.");
+    if (jobError || !job) throw new Error(jobError?.message || "Selected Visit Job could not be loaded.");
+
+    const createdRpc = await db.rpc("create_master_manual_invoice", {
+      p_request_id: body.requestId,
+      p_master_id: masterId,
+      p_company_id: companyId,
+      p_customer_id: customer.id,
+      p_visit_id: visit.id,
+      p_amount_cents: body.amountCents,
+      p_description: body.description,
+    });
+    if (createdRpc.error) throw new Error(createdRpc.error.message);
+    const invoiceId = String(createdRpc.data || "");
+    if (!z.string().uuid().safeParse(invoiceId).success) throw new Error("Manual invoice transaction did not return an invoice.");
+
+    const [{ data: created, error: invoiceError }, { data: agreement, error: agreementError }] = await Promise.all([
+      db.from("invoices")
+        .select("id,invoice_number,status,subtotal,tax,total,created_at,customer_notified_at,customer_notification_attempted_at,customer_notification_error")
+        .eq("id", invoiceId)
+        .maybeSingle(),
       db.from("billing_agreements")
-        .select("id,job_id,tax_rate_basis_points,tax_label,provider_payout_cents,platform_fee_basis_points,version,active,payment_status")
+        .select("id,tax_label,version")
         .eq("job_id", visit.job_id)
         .eq("active", true)
         .eq("payment_status", "active")
@@ -169,55 +184,31 @@ export async function POST(request: NextRequest) {
         .limit(1)
         .maybeSingle(),
     ]);
-    if (companyError || !company) throw new Error(companyError?.message || "Billing company could not be loaded.");
-    if (jobError || !job) throw new Error(jobError?.message || "Selected Visit Job could not be loaded.");
-    if (agreementError || !agreement) throw new Error(agreementError?.message || "Set an active billing agreement for this Job before creating an extra invoice.");
-    const taxBasisPoints = Number(agreement.tax_rate_basis_points);
-    if (!Number.isSafeInteger(taxBasisPoints) || taxBasisPoints < 0 || taxBasisPoints > 3000) {
-      throw new Error("The billing agreement does not have a verified tax rate.");
-    }
-    const hasPayoutTerms = agreement.provider_payout_cents !== null || agreement.platform_fee_basis_points !== null;
-    if (!hasPayoutTerms) throw new Error("The billing agreement has no canonical company payout terms.");
+    if (invoiceError || !created) throw new Error(invoiceError?.message || "Created invoice could not be loaded.");
+    if (agreementError || !agreement) throw new Error(agreementError?.message || "Billing agreement could not be reloaded.");
 
-    // Manual amount is the final customer total, tax included, matching canonical Visit invoices.
-    const totalCents = body.amountCents;
-    const taxCents = taxBasisPoints > 0
-      ? Math.round(totalCents * taxBasisPoints / (10_000 + taxBasisPoints))
-      : 0;
-    const subtotalCents = totalCents - taxCents;
-    const payload = {
-      organization_id: companyId,
-      customer_id: customer.id,
-      property_id: visit.property_id || null,
-      visit_id: visit.id,
-      invoice_number: invoiceNumber(),
-      status: "waiting_payment",
-      subtotal: subtotalCents / 100,
-      tax: taxCents / 100,
-      total: totalCents / 100,
-      manual_description: body.description,
-      manual_created_by_profile_id: masterId,
-    };
-    const created = await db.from("invoices").insert(payload).select("id,invoice_number,status,subtotal,tax,total,created_at").single();
-    if (created.error || !created.data) throw new Error(created.error?.message || "Invoice could not be created.");
-
+    const subtotalCents = Math.round(Number(created.subtotal || 0) * 100);
+    const taxCents = Math.round(Number(created.tax || 0) * 100);
+    const totalCents = Math.round(Number(created.total || 0) * 100);
     const rootUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://www.4everseasons.com").replace(/\/$/, "");
-    let emailSent = false;
-    let emailError: string | null = null;
-    if (body.sendEmail) {
+    let emailSent = Boolean(created.customer_notified_at);
+    let emailError: string | null = created.customer_notification_error || null;
+
+    if (body.sendEmail && !created.customer_notified_at) {
       if (!customer.email) {
         emailError = "Customer email is missing.";
       } else {
         emailSent = await sendBrandedEmail({
           to: customer.email,
-          subject: `4 Ever Seasons — Invoice ${created.data.invoice_number}`,
+          idempotencyKey: `manual-invoice-${body.requestId}`,
+          subject: `4 Ever Seasons — Invoice ${created.invoice_number}`,
           eyebrow: "Service adjustment invoice",
           title: "A service invoice is ready for review",
           intro: `Hello ${customer.full_name || "there"}. A Master-reviewed invoice was created for a completed service Visit. Review the details before paying securely.`,
           highlight: { label: "Amount due", value: money(totalCents), note: `Visit ${niceDate(visit.scheduled_date)} · tax included` },
           sectionTitle: "Invoice details",
           details: [
-            { label: "Invoice", value: String(created.data.invoice_number) },
+            { label: "Invoice", value: String(created.invoice_number) },
             { label: "Company", value: String(company.name || "4 Ever Seasons service partner") },
             { label: "Service", value: String(job.service_name || "Property maintenance") },
             { label: "Visit", value: niceDate(visit.scheduled_date) },
@@ -226,54 +217,38 @@ export async function POST(request: NextRequest) {
             { label: String(agreement.tax_label || "Tax"), value: money(taxCents) },
             { label: "Total", value: money(totalCents) },
           ],
-          cta: { label: "View & pay invoice", href: `${rootUrl}/customer/invoices/${created.data.id}` },
+          cta: { label: "View & pay invoice", href: `${rootUrl}/customer/invoices/${created.id}` },
           footer: "4 Ever Seasons · Secure Master-reviewed customer billing",
         });
         if (!emailSent) emailError = "Email provider did not confirm delivery.";
+        else emailError = null;
       }
 
       const notificationUpdate = await db.from("invoices").update({
         customer_notification_attempted_at: new Date().toISOString(),
         customer_notified_at: emailSent ? new Date().toISOString() : null,
         customer_notification_error: emailError,
-      }).eq("id", created.data.id);
-      if (notificationUpdate.error) throw new Error(`Invoice created but delivery audit could not be recorded: ${notificationUpdate.error.message}`);
+      }).eq("id", created.id);
+      if (notificationUpdate.error) {
+        console.error("Manual invoice delivery audit could not be recorded", notificationUpdate.error);
+        emailError = emailError || "Delivery was processed but its local audit stamp is pending reconciliation.";
+      }
     }
-
-    const audit = await db.from("master_audit_log").insert({
-      master_profile_id: masterId,
-      company_id: companyId,
-      action: body.sendEmail ? "invoice.manual_created_and_sent" : "invoice.manual_created",
-      entity_type: "invoice",
-      entity_id: created.data.id,
-      details: {
-        customer_id: customer.id,
-        visit_id: visit.id,
-        billing_agreement_id: agreement.id,
-        subtotal_cents: subtotalCents,
-        tax_cents: taxCents,
-        total_cents: totalCents,
-        tax_label: agreement.tax_label || null,
-        description: body.description,
-        email_sent: emailSent,
-        email_error: emailError,
-      },
-    });
-    if (audit.error) throw new Error(`Invoice created but audit logging failed: ${audit.error.message}`);
 
     return NextResponse.json({
       created: true,
-      invoice: created.data,
+      invoice: created,
       emailSent,
       emailError,
-      invoiceUrl: `${rootUrl}/customer/invoices/${created.data.id}`,
+      invoiceUrl: `${rootUrl}/customer/invoices/${created.id}`,
+      requestId: body.requestId,
     });
   } catch (error) {
     console.error("Master manual invoice failed", error);
     const message = error instanceof Error ? error.message : "Manual invoice could not be created.";
     const status = /session expired|sign in/i.test(message) ? 401
       : /Only an active Master/i.test(message) ? 403
-      : /completed Visit|not connected|does not belong|billing agreement|payout terms|verified tax|canonical Job/i.test(message) ? 409
+      : /completed Visit|not connected|does not belong|billing agreement|payout terms|verified tax|canonical Job|idempotency/i.test(message) ? 409
       : 400;
     return fail(error, status);
   }

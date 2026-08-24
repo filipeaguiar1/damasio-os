@@ -15,10 +15,6 @@ function checkoutOrigin(request: NextRequest) {
   return configured || request.nextUrl.origin;
 }
 
-function invoiceNumber(count: number) {
-  return `INV-${new Date().getFullYear()}-${String(count + 1).padStart(6, "0")}`;
-}
-
 function uuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(value);
 }
@@ -65,58 +61,6 @@ function invoiceAccessAllowed(
   return !isPlatformCustomer(customer) && customerOwnerCompanyId === companyId;
 }
 
-function manualRequestAllowed(
-  profile: { role?: string; active?: boolean } | null,
-  customer: { id?: string | null } | null,
-) {
-  return Boolean(profile?.active && customer && String(profile.role) === "master");
-}
-
-async function createManualInvoice(
-  db: any,
-  auth: { user: { id: string; email?: string | null } },
-  body: { customerId?: string; amountCents?: number; description?: string },
-) {
-  const customerId = String(body.customerId || "").trim();
-  if (!uuid(customerId)) return { error: failure("Choose a valid customer.", 400) };
-  const amountCents = Math.round(Number(body.amountCents || 0));
-  if (!Number.isSafeInteger(amountCents) || amountCents < 50) return { error: failure("Enter an amount of at least $0.50.", 400) };
-
-  const [{ data: profile }, { data: customer, error: customerError }] = await Promise.all([
-    db.from("profiles").select("role,active,company_id,organization_id").eq("id", auth.user.id).maybeSingle(),
-    db.from("customers").select("id,profile_id,email,full_name,acquisition_source,platform_managed,origin_company_id,service_company_id,company_id,organization_id").eq("id", customerId).maybeSingle(),
-  ]);
-  if (customerError || !customer) return { error: failure("Customer not found.", 404) };
-  if (!manualRequestAllowed(profile, customer)) return { error: failure("Only Master can create standalone customer payment requests.", 403) };
-
-  const companyId = String(customer.service_company_id || customer.company_id || customer.organization_id || profileCompanyId(profile) || "");
-  if (!uuid(companyId)) return { error: failure("This customer is not connected to a billing company yet.", 409) };
-
-  const [{ count }, { data: property }] = await Promise.all([
-    db.from("invoices").select("id", { count: "exact", head: true }).eq("organization_id", companyId),
-    db.from("properties").select("id").eq("customer_id", customer.id).limit(1).maybeSingle(),
-  ]);
-  const total = amountCents / 100;
-  const insertPayload: Record<string, unknown> = {
-    organization_id: companyId,
-    company_id: companyId,
-    customer_id: customer.id,
-    property_id: property?.id || null,
-    invoice_number: invoiceNumber(count || 0),
-    status: "waiting_payment",
-    subtotal: total,
-    tax: 0,
-    total,
-  };
-  let created = await db.from("invoices").insert(insertPayload).select("id,invoice_number").single();
-  if (created.error && missingColumn(created.error, "company_id")) {
-    const { company_id: _companyId, ...withoutCompanyId } = insertPayload;
-    created = await db.from("invoices").insert(withoutCompanyId).select("id,invoice_number").single();
-  }
-  if (created.error || !created.data) throw new Error(created.error?.message || "Invoice could not be created.");
-  return { invoiceId: String(created.data.id), invoiceNumber: String(created.data.invoice_number || "") };
-}
-
 export async function POST(request: NextRequest) {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -134,15 +78,11 @@ export async function POST(request: NextRequest) {
     const { data: auth, error: authError } = await db.auth.getUser(token);
     if (authError || !auth.user) return failure("Your session expired. Sign in again.", 401);
 
-    const body = (await request.json()) as { invoiceId?: string; customerId?: string; amountCents?: number; description?: string };
-    let invoiceId = String(body.invoiceId || "").trim();
-    let createdManualInvoice: { invoiceId?: string; invoiceNumber?: string } = {};
-    if (!invoiceId) {
-      const manual = await createManualInvoice(db, auth as any, body);
-      if ("error" in manual) return manual.error;
-      invoiceId = manual.invoiceId;
-      createdManualInvoice = manual;
-    }
+    // Checkout never creates money obligations. Invoices must already exist through the
+    // canonical billing engine or the Master-only, Visit-linked manual invoice workflow.
+    const body = (await request.json()) as { invoiceId?: string };
+    const invoiceId = String(body.invoiceId || "").trim();
+    if (!invoiceId) return failure("Create or select an invoice before starting card checkout.", 400);
     if (!uuid(invoiceId)) return failure("Choose a valid invoice.", 400);
 
     const { data: invoice, error: invoiceError } = await loadInvoice(db, invoiceId);
@@ -159,8 +99,8 @@ export async function POST(request: NextRequest) {
     ]);
     if (!invoiceAccessAllowed(profile, customer, auth.user.id, companyId)) return failure("You cannot pay this invoice.", 403);
 
+    const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
     if (invoice.status === "processing" && invoice.stripe_checkout_session_id) {
-      const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
       const currentSession = await stripe.checkout.sessions.retrieve(invoice.stripe_checkout_session_id);
       if (currentSession.payment_status === "paid") return failure("This invoice payment is already being confirmed.", 409);
       if (currentSession.status === "open" && currentSession.url) return NextResponse.json({ url: currentSession.url, reused: true });
@@ -172,12 +112,11 @@ export async function POST(request: NextRequest) {
 
     const cents = Math.round(Number(invoice.total) * 100);
     if (!Number.isSafeInteger(cents) || cents < 50) return failure("This invoice has no valid amount to charge.", 409);
-    const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
     const transferGroup = `invoice-${invoice.id}`;
     const metadata = {
       invoiceId: String(invoice.id), companyId, customerId: String(invoice.customer_id || ""),
       billingCycleId: String(invoice.billing_cycle_id || ""), billingEventId: String(invoice.billing_event_id || ""),
-      visitId: String(invoice.visit_id || ""), requestDescription: String(body.description || "").slice(0, 400),
+      visitId: String(invoice.visit_id || ""),
     };
     const origin = checkoutOrigin(request);
     const defaultName = invoice.billing_cycle_id ? `Monthly service plan · ${invoice.invoice_number}` : invoice.visit_id ? `Completed service visit · ${invoice.invoice_number}` : `Invoice ${invoice.invoice_number}`;
@@ -185,7 +124,7 @@ export async function POST(request: NextRequest) {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: customer?.email || auth.user.email || undefined,
-      line_items: [{ quantity: 1, price_data: { currency: "cad", unit_amount: cents, product_data: { name: String(body.description || "").trim() || defaultName } } }],
+      line_items: [{ quantity: 1, price_data: { currency: "cad", unit_amount: cents, product_data: { name: defaultName } } }],
       metadata,
       payment_intent_data: { metadata, transfer_group: transferGroup },
       success_url: `${origin}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
@@ -194,7 +133,7 @@ export async function POST(request: NextRequest) {
 
     const stripeUpdate = await db.from("invoices").update({ stripe_checkout_session_id: session.id, stripe_transfer_group: transferGroup, status: "processing" }).eq("id", invoice.id);
     if (stripeUpdate.error) throw new Error(stripeUpdate.error.message);
-    return NextResponse.json({ url: session.url, billingCadence: invoice.billing_cycle_id ? "monthly" : invoice.visit_id ? "per_visit" : "one_time", ...createdManualInvoice });
+    return NextResponse.json({ url: session.url, billingCadence: invoice.billing_cycle_id ? "monthly" : invoice.visit_id ? "per_visit" : "one_time" });
   } catch (error) {
     console.error("Stripe checkout failed", error);
     return failure("Could not start card checkout.", 500);

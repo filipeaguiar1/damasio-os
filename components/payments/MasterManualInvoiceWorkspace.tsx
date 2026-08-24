@@ -39,6 +39,7 @@ export function MasterManualInvoiceWorkspace() {
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [manualRequestId, setManualRequestId] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -54,6 +55,12 @@ export function MasterManualInvoiceWorkspace() {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || "Master billing request failed.");
     return body;
+  }
+
+  function invalidateAuthorization() {
+    setConfirmed(false);
+    setManualRequestId("");
+    setResultUrl("");
   }
 
   async function loadBase() {
@@ -72,8 +79,7 @@ export function MasterManualInvoiceWorkspace() {
   async function loadCustomer(id: string) {
     setCustomerId(id);
     setVisitId("");
-    setConfirmed(false);
-    setResultUrl("");
+    invalidateAuthorization();
     if (!id) {
       setWorkspace(current => ({ ...current, visits: [], invoices: [] }));
       return;
@@ -102,6 +108,8 @@ export function MasterManualInvoiceWorkspace() {
 
   async function create(sendEmail: boolean) {
     if (!ready || !customer || !visit) return;
+    const requestId = manualRequestId || crypto.randomUUID();
+    if (!manualRequestId) setManualRequestId(requestId);
     setBusy(true);
     setMessage("");
     setResultUrl("");
@@ -109,7 +117,7 @@ export function MasterManualInvoiceWorkspace() {
       const data = await request("/api/master/manual-invoices", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ customerId: customer.id, visitId: visit.id, amountCents, description: description.trim(), sendEmail }),
+        body: JSON.stringify({ requestId, customerId: customer.id, visitId: visit.id, amountCents, description: description.trim(), sendEmail }),
       });
       setResultUrl(data.invoiceUrl || "");
       setMessage(sendEmail
@@ -120,6 +128,7 @@ export function MasterManualInvoiceWorkspace() {
       setAmount("");
       setDescription("");
       setConfirmed(false);
+      setManualRequestId("");
       await loadCustomer(customer.id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Manual invoice could not be created.");
@@ -143,14 +152,14 @@ export function MasterManualInvoiceWorkspace() {
     <div className={styles.grid}>
       <article className={styles.card}>
         <div className={styles.cardHead}><span>1 · CONTEXT</span><h3>Choose company and customer</h3></div>
-        <label className={styles.field}><span>Company</span><select value={companyId} onChange={event => { setCompanyId(event.target.value); void loadCustomer(""); }}><option value="">All companies</option>{workspace.companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
+        <label className={styles.field}><span>Company</span><select value={companyId} onChange={event => { setCompanyId(event.target.value); setManualRequestId(""); void loadCustomer(""); }}><option value="">All companies</option>{workspace.companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
         <label className={styles.field}><span>Customer</span><select value={customerId} onChange={event => void loadCustomer(event.target.value)}><option value="">Select customer</option>{customers.map(item => <option key={item.id} value={item.id}>{item.name} · {item.companyName}</option>)}</select></label>
         {customer && <div className={styles.customer}><strong>{customer.name}</strong><span>{customer.email || "No email on file"}</span><small>{customer.platformManaged ? "Platform-managed customer" : customer.companyName}</small></div>}
       </article>
 
       <article className={styles.card}>
         <div className={styles.cardHead}><span>2 · SERVICE PROOF</span><h3>Select completed Visit</h3></div>
-        <label className={styles.field}><span>Completed Visit</span><select value={visitId} disabled={!customerId || loading} onChange={event => { setVisitId(event.target.value); setConfirmed(false); }}><option value="">Select Visit</option>{completedVisits.map(item => <option key={item.id} value={item.id}>{date(item.date)} · {item.serviceName} · {item.address}</option>)}</select></label>
+        <label className={styles.field}><span>Completed Visit</span><select value={visitId} disabled={!customerId || loading} onChange={event => { setVisitId(event.target.value); invalidateAuthorization(); }}><option value="">Select Visit</option>{completedVisits.map(item => <option key={item.id} value={item.id}>{date(item.date)} · {item.serviceName} · {item.address}</option>)}</select></label>
         {customerId && !loading && completedVisits.length === 0 && <div className={styles.notice}>No completed Visit is available. A manual invoice cannot be created without completed service proof.</div>}
         {visit && <div className={styles.visit}><b>{visit.serviceName}</b><span>{date(visit.date)}</span><small>{visit.address}</small></div>}
       </article>
@@ -158,13 +167,13 @@ export function MasterManualInvoiceWorkspace() {
       <article className={`${styles.card} ${styles.billingCard}`}>
         <div className={styles.cardHead}><span>3 · BILLING</span><h3>Reason and amount</h3></div>
         <div className={styles.amountRow}>
-          <label className={styles.field}><span>Amount (CAD)</span><input inputMode="decimal" type="number" min="0.50" max="10000" step="0.01" value={amount} onChange={event => { setAmount(event.target.value); setConfirmed(false); }} placeholder="0.00" /></label>
+          <label className={styles.field}><span>Invoice total (CAD · tax included)</span><input inputMode="decimal" type="number" min="0.50" max="10000" step="0.01" value={amount} onChange={event => { setAmount(event.target.value); invalidateAuthorization(); }} placeholder="0.00" /></label>
           <div className={styles.amountPreview}><span>Invoice total</span><strong>{validAmount ? money(amountCents / 100) : "$0.00"}</strong></div>
         </div>
-        <label className={styles.field}><span>Description / reason</span><textarea rows={4} value={description} onChange={event => { setDescription(event.target.value); setConfirmed(false); }} placeholder="Describe exactly why this additional charge is required and what happened on the selected Visit." /></label>
+        <label className={styles.field}><span>Description / reason</span><textarea rows={4} value={description} onChange={event => { setDescription(event.target.value); invalidateAuthorization(); }} placeholder="Describe exactly why this additional charge is required and what happened on the selected Visit." /></label>
         <label className={styles.confirm}><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><span>I reviewed the Customer, completed Visit, reason and amount. This invoice is ready for Master authorization.</span></label>
         <div className={styles.actions}><button type="button" disabled={!ready} onClick={() => void create(false)}>Create invoice only</button><button type="button" className={styles.primary} disabled={!ready} onClick={() => void create(true)}>{busy ? "Creating…" : "Create & send invoice"}</button></div>
-        <p className={styles.guardrail}>This does not charge a stored card automatically. The customer receives a secure invoice and chooses to pay through the canonical Stripe Checkout flow.</p>
+        <p className={styles.guardrail}>This does not charge a stored card automatically. The customer receives a secure invoice and chooses to pay through the canonical Stripe Checkout flow. Repeated requests reuse one idempotency key, so a network retry cannot create a duplicate invoice.</p>
         {resultUrl && <a className={styles.link} href={resultUrl} target="_blank" rel="noreferrer">Open generated customer invoice ↗</a>}
       </article>
     </div>

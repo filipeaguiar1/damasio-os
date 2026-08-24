@@ -18,6 +18,7 @@ export type BrandedEmailMessage = {
   to: string | string[];
   subject: string;
   replyTo?: string;
+  idempotencyKey?: string;
   eyebrow: string;
   title: string;
   intro?: string;
@@ -52,7 +53,7 @@ function renderDetails(details: BrandedEmailDetail[]) {
   }).join("");
 }
 
-export function renderBrandedEmail(message: Omit<BrandedEmailMessage, "to" | "replyTo">) {
+export function renderBrandedEmail(message: Omit<BrandedEmailMessage, "to" | "replyTo" | "idempotencyKey">) {
   const rootUrl = siteUrl();
   const logoUrl = `${rootUrl}/brand/4ever-seasons-logo-mark.jpg`;
   const details = (message.details || []).filter(detail => detail.value.trim());
@@ -130,7 +131,11 @@ export async function sendBrandedEmail(message: BrandedEmailMessage) {
   try {
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        ...(message.idempotencyKey ? { "Idempotency-Key": message.idempotencyKey } : {}),
+      },
       body: JSON.stringify({
         from,
         to: Array.isArray(message.to) ? message.to : [message.to],

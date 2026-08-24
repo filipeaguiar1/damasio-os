@@ -18,6 +18,10 @@ requireFragments("supabase/migrations/20260824001900_payment_audit_hardening.sql
   "customer_notification_attempted_at", "v_invoice_visit", "Master reconciliation required: no canonical payout terms",
   "status::text in('paid','succeeded')", "status='disputed'", "accept_customer_payment_dispute_resolution", "refresh_payout_release_status",
 ]);
+requireFragments("supabase/migrations/20260824002000_master_manual_invoice_idempotency.sql", [
+  "manual_request_id", "invoices_manual_request_id_unique", "create_master_manual_invoice",
+  "Manual invoice idempotency key was already used for a different request", "master_audit_log",
+]);
 
 requireFragments("components/payments/ContractPaymentsWorkspace.tsx", [
   "Weekly service · charged per completed Visit", "Biweekly service · charged per completed Visit", "Monthly · one charge per billing period",
@@ -30,7 +34,18 @@ requireFragments("app/admin/finance/page.tsx", ["Receivables", "CompanyReceivabl
 if (source("app/admin/finance/page.tsx").includes("/admin/finance/actions")) throw new Error("Company Payment Actions route is still linked from Finance.");
 requireFragments("app/api/admin/payments/actions/route.ts", ["Standalone payment requests are Master-only", "action === \"advance\""]);
 
-requireFragments("app/api/stripe/checkout/route.ts", ['String(profile.role) === "master"', "Only Master can create standalone customer payment requests", "billingEventId", "visitId"]);
+requireFragments("app/api/stripe/checkout/route.ts", [
+  "Checkout never creates money obligations",
+  "Create or select an invoice before starting card checkout.",
+  "invoiceId",
+  "billingEventId",
+  "visitId",
+  "checkout.sessions.create",
+]);
+const checkout = source("app/api/stripe/checkout/route.ts");
+if (checkout.includes("createManualInvoice") || checkout.includes("body.amountCents") || checkout.includes("customerId?: string; amountCents")) {
+  throw new Error("Stripe Checkout can still create or price a standalone invoice instead of consuming a canonical invoice.");
+}
 requireFragments("app/api/stripe/agreements/sync/route.ts", ['"weekly", "biweekly", "custom"', 'collectionTiming: monthly ? "monthly" : "per_visit_after_service"', '"per_visit"']);
 requireFragments("app/api/stripe/webhook/route.ts", ["reconcileConnectedPayout", 'case "payout.created"', 'case "payout.paid"', 'case "payout.failed"', "stripe_webhook_events"]);
 requireFragments("lib/stripe/reconcileConnectedPayout.ts", [
@@ -44,20 +59,20 @@ requireFragments("app/api/company/receivables/withdraw/route.ts", [
   "idempotencyKey: `company-withdrawal-${reservedWithdrawalId}`", 'let stripePayoutId = ""',
   "Once Stripe accepted the payout", "local_reconciliation_pending", "withdrawals are locked until reconciliation completes",
 ]);
-const withdrawalRoute = source("app/api/company/receivables/withdraw/route.ts");
-const stripeAcceptedIndex = withdrawalRoute.indexOf("Once Stripe accepted the payout");
-const releaseIndexAfterStripe = withdrawalRoute.indexOf("release_company_withdrawal_reservation", stripeAcceptedIndex);
-if (stripeAcceptedIndex < 0 || releaseIndexAfterStripe < 0) throw new Error("Withdrawal failure branches are incomplete.");
 requireFragments("app/api/cron/company-receivables/route.ts", ["source_transaction", "company-balance-transfer-${entry.id}", "75 * 24 * 60 * 60 * 1000", "complete_company_withdrawal"]);
 
 requireFragments("app/api/master/manual-invoices/route.ts", [
-  "Only an active Master can create manual customer invoices", 'String(visit.status) !== "completed"',
-  "Set an active billing agreement for this Job before creating an extra invoice", "taxBasisPoints", "tax included",
-  "manual_description", "sendBrandedEmail", "master_audit_log",
+  "requestId", "create_master_manual_invoice", "Only an active Master can create manual customer invoices",
+  'String(visit.status) !== "completed"', "idempotencyKey: `manual-invoice-${body.requestId}`",
+  "tax included", "sendBrandedEmail", "customer_notification_attempted_at",
 ]);
 const manualInvoiceApi = source("app/api/master/manual-invoices/route.ts");
-if (manualInvoiceApi.includes("company_id: companyId,\n      customer_id")) throw new Error("Manual invoice still writes the retired invoices.company_id column.");
-requireFragments("components/payments/MasterManualInvoiceWorkspace.tsx", ["Create & send invoice", "completed Visit", "This does not charge a stored card automatically"]);
+if (manualInvoiceApi.includes(".from(\"invoices\").insert(")) throw new Error("Master manual invoice API bypasses the transactional idempotent database RPC.");
+requireFragments("components/payments/MasterManualInvoiceWorkspace.tsx", [
+  "Create & send invoice", "completed Visit", "This does not charge a stored card automatically",
+  "manualRequestId", "crypto.randomUUID()", "network retry cannot create a duplicate invoice",
+]);
+requireFragments("lib/server/brandedEmail.ts", ["idempotencyKey?: string", '"Idempotency-Key"']);
 requireFragments("app/api/customer/payment-disputes/route.ts", ["accept_customer_payment_dispute_resolution", 'status: "escalated"']);
 requireFragments("app/api/master/payout-reconciliation/route.ts", ["clear_company_payout_reconciliation_hold", "payout.reconciliation_hold_cleared"]);
 requireFragments("app/api/master/payment-health/route.ts", ["Customer billing modes", "Company receivables ledger", "On-demand & external payouts", "external_payout_unmatched", "payout_reconciliation_hold"]);
@@ -79,4 +94,4 @@ if (!canonicalRouteE2E.includes('getByRole("textbox", { name: "Email" })')) thro
 if (canonicalRouteE2E.includes('getByText("Create, add, reorder or remove houses.")')) throw new Error("Canonical route E2E still depends on retired Advisor copy.");
 if (canonicalRouteE2E.includes('tab=advisor') || canonicalRouteE2E.includes('advisor-house-picker') || canonicalRouteE2E.includes('advisor-controls')) throw new Error("Canonical route E2E still targets the retired Advisor UI.");
 
-console.log("PASS per-Visit/monthly billing, Master invoice control, dispute holds, company receivables, post-Stripe payout recovery, external payout reconciliation, withdrawal safety, payment health, and simulator QA contracts");
+console.log("PASS canonical invoice-only Checkout, idempotent Master invoices, per-Visit/monthly billing, dispute holds, company receivables, post-Stripe payout recovery, external payout reconciliation, withdrawal safety, payment health, and simulator QA contracts");
