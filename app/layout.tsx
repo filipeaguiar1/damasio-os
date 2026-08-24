@@ -30,6 +30,7 @@ import "./public-pages.css";
 import "./public-pages-final.css";
 import "./quote-review-overflow-fix.css";
 import "./master-pricing-final.css";
+import "./universal-press-feedback.css";
 import { SeasonThemeProvider } from "@/components/SeasonThemeProvider";
 import { AdminAccessFallback } from "@/components/master/AdminAccessFallback";
 import { CustomerLegacyDataGuard } from "@/components/customer/CustomerLegacyDataGuard";
