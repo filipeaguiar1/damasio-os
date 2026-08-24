@@ -16,10 +16,11 @@ type InvoiceDetail = {
   total: number;
   createdAt: string;
   serviceName: string;
-  cadence: "monthly" | "one_time";
+  cadence: "monthly" | "per_visit" | "one_time";
   periodStartsOn: string | null;
   periodEndsOn: string | null;
   dueOn: string | null;
+  visit: { id: string; date: string | null; status: string | null } | null;
   company: { name: string };
   customer: { name: string; email: string | null; phone: string | null };
   property: { addressLine1: string | null; city: string | null; province: string | null; postalCode: string | null } | null;
@@ -104,6 +105,16 @@ export default function CustomerInvoicePage() {
     ? [invoice.property.addressLine1, invoice.property.city, invoice.property.province, invoice.property.postalCode].filter(Boolean).join(", ")
     : "—";
   const paid = invoice?.status === "paid";
+  const invoiceKicker = invoice?.cadence === "monthly"
+    ? "Monthly service invoice"
+    : invoice?.cadence === "per_visit"
+      ? "Completed Visit invoice"
+      : "Service invoice";
+  const lineNote = invoice?.cadence === "monthly"
+    ? "Monthly property maintenance plan. Individual Visits are not charged separately."
+    : invoice?.cadence === "per_visit"
+      ? "Charged once for this completed service Visit."
+      : "Property maintenance service.";
 
   return (
     <PortalShell type="Customer" active="Invoices">
@@ -129,7 +140,7 @@ export default function CustomerInvoicePage() {
           </header>
 
           <section className={styles.documentIntro}>
-            <div><span className={styles.kicker}>{invoice.cadence === "monthly" ? "Monthly service invoice" : "Service invoice"}</span><h1>{invoice.serviceName}</h1><p>Issued {niceDate(invoice.createdAt)}{invoice.dueOn ? ` · Due ${niceDate(invoice.dueOn)}` : ""}</p></div>
+            <div><span className={styles.kicker}>{invoiceKicker}</span><h1>{invoice.serviceName}</h1><p>Issued {niceDate(invoice.createdAt)}{invoice.dueOn ? ` · Due ${niceDate(invoice.dueOn)}` : ""}</p></div>
             <span className={`${styles.status} ${paid ? styles.paid : ""}`}>{statusLabel(invoice.status)}</span>
           </section>
 
@@ -145,9 +156,15 @@ export default function CustomerInvoicePage() {
             <div><span>Customer charge</span><strong>One invoice for this month</strong></div>
           </section>}
 
+          {invoice.cadence === "per_visit" && <section className={styles.period}>
+            <div><span>Billing cadence</span><strong>Per completed Visit</strong></div>
+            <div><span>Service date</span><strong>{niceDate(invoice.visit?.date)}</strong></div>
+            <div><span>Customer charge</span><strong>One charge for this Visit</strong></div>
+          </section>}
+
           <section className={styles.lineItems}>
             <div className={styles.lineHeader}><span>Description</span><span>Amount</span></div>
-            <div className={styles.line}><div><strong>{invoice.serviceName}</strong><small>{invoice.cadence === "monthly" ? "Monthly property maintenance plan. Individual Visits are not charged separately." : "Property maintenance service."}</small></div><strong>{money(invoice.subtotal)}</strong></div>
+            <div className={styles.line}><div><strong>{invoice.serviceName}</strong><small>{lineNote}</small></div><strong>{money(invoice.subtotal)}</strong></div>
           </section>
 
           <section className={styles.totals}>
