@@ -4,10 +4,7 @@ import Stripe from "stripe";
 
 export const dynamic = "force-dynamic";
 
-function fail(message: string, status = 400) {
-  return NextResponse.json({ error: message }, { status });
-}
-
+function fail(message: string, status = 400) { return NextResponse.json({ error: message }, { status }); }
 function cadAmount(rows: Array<{ currency?: string; amount?: number }>) {
   return rows.filter((row) => String(row.currency || "").toLowerCase() === "cad")
     .reduce((sum, row) => sum + Number(row.amount || 0), 0);
@@ -37,14 +34,19 @@ async function context(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const { db, stripe, company } = await context(request);
-    const [entriesResult, withdrawalsResult] = await Promise.all([
+    // The ledger list is intentionally recent/paginated for UI performance, but all money
+    // totals come from a database aggregate across the complete company history.
+    const [entriesResult, withdrawalsResult, summaryResult] = await Promise.all([
       db.from("company_balance_entries").select("id,company_id,payout_item_id,payment_id,invoice_id,customer_id,visit_id,amount_cents,paid_out_cents,reserved_cents,state,hold_reason,stripe_transfer_id,released_at,created_at").eq("company_id", company.id).order("created_at", { ascending: false }).limit(150),
       db.from("company_withdrawals").select("id,amount_cents,status,system_generated,origin,unmatched_cents,stripe_payout_id,estimated_arrival_at,failure_message,requested_at,processed_at,paid_at").eq("company_id", company.id).order("requested_at", { ascending: false }).limit(80),
+      db.rpc("company_receivables_summary", { p_company_id: company.id }),
     ]);
     if (entriesResult.error) throw new Error(entriesResult.error.message);
     if (withdrawalsResult.error) throw new Error(withdrawalsResult.error.message);
+    if (summaryResult.error) throw new Error(`Full receivables summary failed: ${summaryResult.error.message}`);
     const entries = entriesResult.data || [];
     const withdrawals = withdrawalsResult.data || [];
+    const summary = summaryResult.data || {};
     const customerIds = Array.from(new Set(entries.map((row: any) => row.customer_id).filter(Boolean)));
     let customerNames = new Map<string, string>();
     if (customerIds.length) {
@@ -67,19 +69,20 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const outstanding = (row: any) => Math.max(0, Number(row.amount_cents || 0) - Number(row.paid_out_cents || 0) - Number(row.reserved_cents || 0));
-    const pendingCents = entries.filter((row: any) => ["pending", "hold", "release_ready", "transferring"].includes(String(row.state))).reduce((sum: number, row: any) => sum + outstanding(row), 0);
-    const internalAvailableCents = entries.filter((row: any) => row.state === "available").reduce((sum: number, row: any) => sum + outstanding(row), 0);
-    const processingCents = withdrawals.filter((row: any) => ["reserved", "processing"].includes(String(row.status))).reduce((sum: number, row: any) => sum + Number(row.amount_cents || 0), 0);
-    const paidOutCents = withdrawals.filter((row: any) => row.status === "paid").reduce((sum: number, row: any) => sum + Number(row.amount_cents || 0), 0);
+    const pendingCents = Number(summary.pendingCents || 0);
+    const internalAvailableCents = Number(summary.internalAvailableCents || 0);
+    const processingCents = Number(summary.processingCents || 0);
+    const paidOutCents = Number(summary.paidOutCents || 0);
     const reconciliationHold = Boolean(company.stripe_payout_reconciliation_hold);
     const withdrawableCents = reconciliationHold ? 0 : Math.max(0, Math.min(internalAvailableCents, stripeAvailableCents));
+    const outstanding = (row: any) => Math.max(0, Number(row.amount_cents || 0) - Number(row.paid_out_cents || 0) - Number(row.reserved_cents || 0));
     const ledger = entries.map((row: any) => ({ ...row, customerName: customerNames.get(String(row.customer_id || "")) || "Customer", outstandingCents: outstanding(row) }));
 
     return NextResponse.json({
       company: { id: company.id, name: company.name },
       stripe: { status: stripeStatus, payoutSchedule: company.stripe_payout_schedule || null, availableCents: stripeAvailableCents, pendingCents: stripePendingCents, error: stripeError },
       balances: { pendingCents, internalAvailableCents, processingCents, paidOutCents, withdrawableCents },
+      totals: { entryCount: Number(summary.entryCount || 0), withdrawalCount: Number(summary.withdrawalCount || 0), source: "full-ledger-database-aggregate" },
       reconciliation: {
         safe: !stripeError && !reconciliationHold && withdrawableCents <= internalAvailableCents && withdrawableCents <= stripeAvailableCents,
         hold: reconciliationHold,

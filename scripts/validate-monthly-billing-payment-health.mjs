@@ -22,6 +22,11 @@ requireFragments("supabase/migrations/20260824002000_master_manual_invoice_idemp
   "manual_request_id", "invoices_manual_request_id_unique", "create_master_manual_invoice",
   "Manual invoice idempotency key was already used for a different request", "master_audit_log",
 ]);
+requireFragments("supabase/migrations/20260824002100_master_dispute_resolution_and_receivables_summary.sql", [
+  "master_outcome", "company_receivables_summary", "resolve_master_payment_dispute_for_company",
+  "mark_master_payment_dispute_refund_pending", "finalize_master_refund_without_payout",
+  "payment_refund_finalizes_master_dispute", "Master refund dispute", "stripe_payout_reconciliation_hold",
+]);
 
 requireFragments("components/payments/ContractPaymentsWorkspace.tsx", [
   "Weekly service · charged per completed Visit", "Biweekly service · charged per completed Visit", "Monthly · one charge per billing period",
@@ -37,10 +42,7 @@ requireFragments("app/api/admin/payments/actions/route.ts", ["Standalone payment
 requireFragments("app/api/stripe/checkout/route.ts", [
   "Checkout never creates money obligations",
   "Create or select an invoice before starting card checkout.",
-  "invoiceId",
-  "billingEventId",
-  "visitId",
-  "checkout.sessions.create",
+  "invoiceId", "billingEventId", "visitId", "checkout.sessions.create",
 ]);
 const checkout = source("app/api/stripe/checkout/route.ts");
 if (checkout.includes("createManualInvoice") || checkout.includes("body.amountCents") || checkout.includes("customerId?: string; amountCents")) {
@@ -53,7 +55,14 @@ requireFragments("lib/stripe/reconcileConnectedPayout.ts", [
   "reservedWithdrawalFromMetadata", "payout.metadata?.withdrawalId", "localRecoveryHold",
 ]);
 
-requireFragments("app/api/company/receivables/route.ts", ["Math.min(internalAvailableCents, stripeAvailableCents)", "stripe_payout_reconciliation_hold", "withdrawableCents"]);
+requireFragments("app/api/company/receivables/route.ts", [
+  "company_receivables_summary", "full-ledger-database-aggregate", "Math.min(internalAvailableCents, stripeAvailableCents)",
+  "stripe_payout_reconciliation_hold", "withdrawableCents",
+]);
+const receivablesApi = source("app/api/company/receivables/route.ts");
+if (receivablesApi.includes('entries.filter((row: any) => row.state === "available").reduce')) {
+  throw new Error("Company receivables totals are still derived from the truncated recent-entry UI list.");
+}
 requireFragments("app/api/company/receivables/withdraw/route.ts", [
   "reserve_company_withdrawal", "stripe.balance.retrieve", "stripe.payouts.create", "stripe_payout_reconciliation_hold",
   "idempotencyKey: `company-withdrawal-${reservedWithdrawalId}`", 'let stripePayoutId = ""',
@@ -74,6 +83,15 @@ requireFragments("components/payments/MasterManualInvoiceWorkspace.tsx", [
 ]);
 requireFragments("lib/server/brandedEmail.ts", ["idempotencyKey?: string", '"Idempotency-Key"']);
 requireFragments("app/api/customer/payment-disputes/route.ts", ["accept_customer_payment_dispute_resolution", 'status: "escalated"']);
+requireFragments("app/api/master/payment-disputes/route.ts", [
+  "resolve_master_payment_dispute_for_company", "mark_master_payment_dispute_refund_pending",
+  "stripe.refunds.create", "idempotencyKey: `master-dispute-refund-${disputeId}`",
+  "finalize_master_refund_without_payout", "refund_pending",
+]);
+requireFragments("components/payments/PaymentDisputeWorkspace.tsx", [
+  "Resolve for company", "Refund customer", "This is a real financial action",
+  "Stripe refund reconciliation in progress", "resolveMaster",
+]);
 requireFragments("app/api/master/payout-reconciliation/route.ts", ["clear_company_payout_reconciliation_hold", "payout.reconciliation_hold_cleared"]);
 requireFragments("app/api/master/payment-health/route.ts", ["Customer billing modes", "Company receivables ledger", "On-demand & external payouts", "external_payout_unmatched", "payout_reconciliation_hold"]);
 
@@ -94,4 +112,4 @@ if (!canonicalRouteE2E.includes('getByRole("textbox", { name: "Email" })')) thro
 if (canonicalRouteE2E.includes('getByText("Create, add, reorder or remove houses.")')) throw new Error("Canonical route E2E still depends on retired Advisor copy.");
 if (canonicalRouteE2E.includes('tab=advisor') || canonicalRouteE2E.includes('advisor-house-picker') || canonicalRouteE2E.includes('advisor-controls')) throw new Error("Canonical route E2E still targets the retired Advisor UI.");
 
-console.log("PASS canonical invoice-only Checkout, idempotent Master invoices, per-Visit/monthly billing, dispute holds, company receivables, post-Stripe payout recovery, external payout reconciliation, withdrawal safety, payment health, and simulator QA contracts");
+console.log("PASS canonical invoice-only Checkout, idempotent Master invoices, full-ledger receivables totals, Master dispute decisions/refund reconciliation, per-Visit/monthly billing, dispute holds, company receivables, post-Stripe payout recovery, external payout reconciliation, withdrawal safety, payment health, and simulator QA contracts");
