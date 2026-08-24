@@ -31,11 +31,14 @@ async function context(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   let reservedWithdrawalId = "";
+  let stripePayoutId = "";
+  let companyId = "";
   let db: any = null;
   try {
     const ctx = await context(request);
     db = ctx.db;
     const { stripe, profile, company } = ctx;
+    companyId = String(company.id);
     const body = await request.json() as { amountCents?: number };
     const amountCents = Math.round(Number(body.amountCents || 0));
     if (!Number.isSafeInteger(amountCents) || amountCents < 100) return fail("Enter a withdrawal of at least $1.00 CAD.", 400);
@@ -61,6 +64,7 @@ export async function POST(request: NextRequest) {
       currency: "cad",
       metadata: { withdrawalId: reservedWithdrawalId, companyId: company.id, requestedBy: profile.id, platform: "4ever-seasons" },
     }, { stripeAccount: company.stripe_connected_account_id, idempotencyKey: `company-withdrawal-${reservedWithdrawalId}` });
+    stripePayoutId = payout.id;
 
     const arrival = payout.arrival_date ? new Date(payout.arrival_date * 1000).toISOString() : null;
     const saved = await db.from("company_withdrawals").update({
@@ -81,11 +85,37 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, withdrawalId: reservedWithdrawalId, payoutId: payout.id, status: payout.status, amountCents, estimatedArrivalAt: arrival });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Stripe payout failed.";
     if (reservedWithdrawalId && db) {
-      const released = await db.rpc("release_company_withdrawal_reservation", { p_withdrawal_id: reservedWithdrawalId, p_failure_code: "stripe_payout_failed", p_failure_message: error instanceof Error ? error.message : "Stripe payout failed." });
-      if (released.error) console.error("Could not release failed withdrawal reservation", released.error);
+      if (stripePayoutId) {
+        // Once Stripe accepted the payout, never free the internal reservation merely because
+        // a later local write failed. Lock the company until the connected-account webhook
+        // proves that this exact Stripe payout is linked back to this reservation.
+        const pending = await db.from("company_withdrawals").update({
+          status: "processing",
+          stripe_payout_id: stripePayoutId,
+          failure_code: "local_reconciliation_pending",
+          failure_message: message.slice(0, 800),
+          processed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq("id", reservedWithdrawalId);
+        if (pending.error) console.error("Could not persist post-Stripe payout state", pending.error);
+        if (companyId) {
+          const held = await db.from("organizations").update({
+            stripe_payout_reconciliation_hold: true,
+            stripe_payout_reconciliation_note: `Stripe payout ${stripePayoutId} was created but local completion failed. Withdrawals stay locked until its webhook reconciliation succeeds.`,
+            updated_at: new Date().toISOString(),
+          }).eq("id", companyId);
+          if (held.error) console.error("Could not place payout reconciliation hold", held.error);
+        }
+      } else {
+        const released = await db.rpc("release_company_withdrawal_reservation", { p_withdrawal_id: reservedWithdrawalId, p_failure_code: "stripe_payout_failed", p_failure_message: message });
+        if (released.error) console.error("Could not release failed withdrawal reservation", released.error);
+      }
     }
     console.error("Company withdrawal failed", error);
-    return fail(error instanceof Error ? error.message : "Withdrawal could not be created.", 409);
+    return fail(stripePayoutId
+      ? "Stripe accepted the payout, but local reconciliation is still pending. The funds remain reserved and withdrawals are locked until reconciliation completes."
+      : message, 409);
   }
 }

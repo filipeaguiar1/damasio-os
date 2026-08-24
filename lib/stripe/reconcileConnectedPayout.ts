@@ -14,7 +14,7 @@ async function companyForEvent(db: Db, event: Stripe.Event) {
   const accountId = typeof event.account === "string" ? event.account : "";
   if (!accountId) return null;
   const result = await db.from("organizations")
-    .select("id,name,stripe_connected_account_id,stripe_payout_reconciliation_hold")
+    .select("id,name,stripe_connected_account_id,stripe_payout_reconciliation_hold,stripe_payout_reconciliation_note")
     .eq("stripe_connected_account_id", accountId)
     .maybeSingle();
   requireDatabaseSuccess(result.error, "Find Stripe connected company");
@@ -30,12 +30,36 @@ async function withdrawalForPayout(db: Db, payoutId: string) {
   return result.data || null;
 }
 
+async function reservedWithdrawalFromMetadata(db: Db, payout: Stripe.Payout, companyId: string) {
+  const withdrawalId = String(payout.metadata?.withdrawalId || "");
+  const metadataCompanyId = String(payout.metadata?.companyId || "");
+  if (!withdrawalId || (metadataCompanyId && metadataCompanyId !== companyId)) return null;
+  const result = await db.from("company_withdrawals")
+    .select("id,company_id,status,origin,unmatched_cents,stripe_payout_id")
+    .eq("id", withdrawalId)
+    .eq("company_id", companyId)
+    .in("status", ["reserved", "processing"])
+    .maybeSingle();
+  requireDatabaseSuccess(result.error, "Find Stripe payout metadata withdrawal");
+  if (!result.data) return null;
+  const existingPayoutId = String(result.data.stripe_payout_id || "");
+  if (existingPayoutId && existingPayoutId !== payout.id) throw new Error("Stripe payout metadata points to a withdrawal already linked to a different payout.");
+  const linked = await db.from("company_withdrawals").update({
+    stripe_payout_id: payout.id,
+    origin: "platform",
+    updated_at: new Date().toISOString(),
+  }).eq("id", withdrawalId).eq("company_id", companyId);
+  requireDatabaseSuccess(linked.error, "Link Stripe payout to reserved withdrawal");
+  return { ...result.data, stripe_payout_id: payout.id, origin: "platform" };
+}
+
 export async function reconcileConnectedPayout(db: Db, event: Stripe.Event) {
   const payout = event.data.object as Stripe.Payout;
   const company = await companyForEvent(db, event);
   if (!company) return;
 
   let withdrawal = await withdrawalForPayout(db, payout.id);
+  if (!withdrawal) withdrawal = await reservedWithdrawalFromMetadata(db, payout, String(company.id));
   if (!withdrawal) {
     const reserved = await db.rpc("reserve_external_company_payout", {
       p_company_id: company.id,
@@ -86,7 +110,15 @@ export async function reconcileConnectedPayout(db: Db, event: Stripe.Event) {
     requireDatabaseSuccess(processing.error, "Mark Stripe payout processing");
   }
 
-  const reconciled = await db.from("organizations").update({
+  const localRecoveryHold = company.stripe_payout_reconciliation_hold === true
+    && String(company.stripe_payout_reconciliation_note || "").includes(payout.id)
+    && withdrawal.origin === "platform"
+    && Number(withdrawal.unmatched_cents || 0) === 0;
+  const reconciled = await db.from("organizations").update(localRecoveryHold ? {
+    stripe_payout_reconciliation_hold: false,
+    stripe_payout_reconciliation_note: null,
+    stripe_payout_reconciled_at: new Date().toISOString(),
+  } : {
     stripe_payout_reconciled_at: new Date().toISOString(),
   }).eq("id", company.id);
   requireDatabaseSuccess(reconciled.error, "Stamp Stripe payout reconciliation");
