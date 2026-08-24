@@ -95,8 +95,13 @@ test("Isabelly CAD 100 payment and dispute through Stripe sandbox", async ({ req
     await saveInfo.uncheck();
   }
 
-  const submit = page.locator("button[type='submit']").filter({ hasText: /pay/i }).last();
-  await submit.waitFor({ state: "visible", timeout: 20_000 });
+  const aiAgentDisclosure = page.getByRole("checkbox", { name: /i am an ai agent acting on behalf of someone else/i }).first();
+  if (await aiAgentDisclosure.count() && !(await aiAgentDisclosure.isChecked().catch(() => false))) {
+    await aiAgentDisclosure.check();
+  }
+
+  const submit = page.getByRole("button", { name: /^pay/i }).last();
+  await submit.waitFor({ state: "visible", timeout: 30_000 });
   await submit.click();
 
   let paidSession: any = null;
