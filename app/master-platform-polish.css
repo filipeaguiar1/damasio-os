@@ -351,6 +351,35 @@
   text-align:center;
   font-size:12px;
 }
+.master-data-group>summary::after,
+.master-quote-group>summary::after{
+  content:"⌄";
+  display:grid;
+  place-items:center;
+  flex:0 0 auto;
+  width:30px;
+  height:30px;
+  border:1px solid #bfd1c5;
+  border-radius:9px;
+  background:#f8fbf9;
+  color:#174934;
+  font-size:20px;
+  font-weight:950;
+  line-height:1;
+  transform:rotate(0deg);
+  transition:transform .16s ease,background .16s ease,border-color .16s ease;
+}
+.master-data-group[open]>summary::after,
+.master-quote-group[open]>summary::after{
+  transform:rotate(180deg);
+  background:#dfece5;
+  border-color:#9fbdad;
+}
+.master-data-group>summary:hover::after,
+.master-quote-group>summary:hover::after{
+  background:#e8f2ec;
+  border-color:#a9c3b5;
+}
 .master-data-group[open]>summary{border-bottom:1px solid #d4ded8}
 .master-data-group>.master-list,
 .master-data-group>.master-company-grid{margin:0;padding:14px}

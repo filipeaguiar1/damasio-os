@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -20,6 +20,8 @@ export function AdvisorWeekPickerEnhancer(){
   const[selectedWeek,setSelectedWeek]=useState("");
   const[viewMonth,setViewMonth]=useState("");
   const[open,setOpen]=useState(false);
+  const triggerRef=useRef<HTMLButtonElement|null>(null);
+  const[popoverPosition,setPopoverPosition]=useState({left:0,top:0});
 
   useEffect(()=>{
     let disposed=false;
@@ -54,6 +56,27 @@ export function AdvisorWeekPickerEnhancer(){
     return()=>{disposed=true;observer?.disconnect();detach?.();};
   },[input]);
 
+  const positionPopover=useCallback(()=>{
+    const trigger=triggerRef.current;
+    if(!trigger)return;
+    const rect=trigger.getBoundingClientRect();
+    const width=Math.min(300,window.innerWidth-24);
+    const height=330;
+    const left=Math.max(12,Math.min(rect.left,window.innerWidth-width-12));
+    const below=rect.bottom+7;
+    const top=below+height<=window.innerHeight-12?below:Math.max(12,rect.top-height-7);
+    setPopoverPosition({left,top});
+  },[]);
+
+  useEffect(()=>{
+    if(!open)return;
+    positionPopover();
+    const sync=()=>positionPopover();
+    window.addEventListener("resize",sync);
+    window.addEventListener("scroll",sync,true);
+    return()=>{window.removeEventListener("resize",sync);window.removeEventListener("scroll",sync,true)};
+  },[open,positionPopover]);
+
   const cells=useMemo(()=>{
     if(!viewMonth)return[];
     const[y,m]=viewMonth.split("-").map(Number);
@@ -79,26 +102,26 @@ export function AdvisorWeekPickerEnhancer(){
   const[y,m]=viewMonth.split("-").map(Number);
 
   return createPortal(<div className="advisor-week-picker">
-    <button type="button" className="advisor-week-trigger" aria-expanded={open} onClick={()=>setOpen(current=>!current)}>
+    <button ref={triggerRef} type="button" className="advisor-week-trigger" aria-expanded={open} onClick={()=>setOpen(current=>{if(!current)requestAnimationFrame(positionPopover);return !current})}>
       <span><strong>{formatWeek(selectedWeek)}</strong><small>Monday → Sunday</small></span><b aria-hidden="true">▾</b>
     </button>
-    {open&&<div className="advisor-week-popover" role="dialog" aria-label="Choose route week">
+    {open&&createPortal(<div className="advisor-week-popover advisor-week-popover-fixed" style={{left:popoverPosition.left,top:popoverPosition.top}} role="dialog" aria-label="Choose route week">
       <div className="advisor-week-month-head"><button type="button" aria-label="Previous month" onClick={()=>setViewMonth(current=>shiftMonth(current,-1))}>‹</button><strong>{MONTHS[m-1]} {y}</strong><button type="button" aria-label="Next month" onClick={()=>setViewMonth(current=>shiftMonth(current,1))}>›</button></div>
       <div className="advisor-week-day-head">{DAYS.map((day,index)=><span key={`${day}-${index}`}>{day}</span>)}</div>
       <div className="advisor-week-grid">{cells.map(value=>{const date=fromKey(value);const inside=value>=selectedWeek&&value<=selectedEnd;const start=value===selectedWeek;const end=value===selectedEnd;const outside=date.getUTCMonth()!==m-1;return <button type="button" key={value} className={`${inside?"selected":""}${start?" selected-start":""}${end?" selected-end":""}${outside?" outside":""}`} aria-label={`Select week containing ${value}`} aria-pressed={inside} onClick={()=>choose(value)}>{date.getUTCDate()}</button>;})}</div>
       <div className="advisor-week-caption">Selected week: <strong>{formatWeek(selectedWeek)}</strong></div>
-    </div>}
+    </div>,document.body)}
     <style jsx global>{`
       .advanced-planner-v7 .advisor-week-native-input{display:none!important}
       .advanced-planner-v7 .advisor-week-picker{position:relative;width:100%;margin-top:1px}
       .advanced-planner-v7 .advisor-week-trigger{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:48px;padding:8px 12px;border:1px solid #cfdfd6;border-radius:13px;background:#fcfefd;color:#173a2c;text-align:left;cursor:pointer}
       .advanced-planner-v7 .advisor-week-trigger span{display:grid;gap:1px}.advanced-planner-v7 .advisor-week-trigger strong{font-size:14px;line-height:1.25}.advanced-planner-v7 .advisor-week-trigger small{font-size:11px;color:#718078}.advanced-planner-v7 .advisor-week-trigger>b{font-size:16px;color:#527065}
-      .advanced-planner-v7 .advisor-week-popover{position:absolute;left:0;top:calc(100% + 7px);z-index:1200;width:300px;max-width:min(300px,calc(100vw - 30px));padding:12px;border:1px solid #cfded6;border-radius:15px;background:#fff;box-shadow:0 18px 42px rgba(18,61,47,.2)}
-      .advanced-planner-v7 .advisor-week-month-head{display:grid;grid-template-columns:34px 1fr 34px;align-items:center;gap:6px;margin-bottom:8px}.advanced-planner-v7 .advisor-week-month-head strong{text-align:center;font-size:14px;color:#183b2e}.advanced-planner-v7 .advisor-week-month-head button{height:32px;border:0;border-radius:9px;background:#eff5f2;color:#174b38;font-size:22px;line-height:1;cursor:pointer}
-      .advanced-planner-v7 .advisor-week-day-head,.advanced-planner-v7 .advisor-week-grid{display:grid;grid-template-columns:repeat(7,1fr)}
-      .advanced-planner-v7 .advisor-week-day-head span{padding:4px 0 6px;text-align:center;font-size:10px;font-weight:900;color:#7b8982}
-      .advanced-planner-v7 .advisor-week-grid{overflow:hidden;border-radius:9px}.advanced-planner-v7 .advisor-week-grid button{height:34px;border:0;border-radius:0;background:transparent;color:#223f34;font-size:12px;font-weight:750;cursor:pointer}.advanced-planner-v7 .advisor-week-grid button:hover:not(.selected){background:#eef5f2}.advanced-planner-v7 .advisor-week-grid button.outside:not(.selected){color:#b8c1bd}.advanced-planner-v7 .advisor-week-grid button.selected{background:#1769e0;color:#fff!important;font-weight:950}.advanced-planner-v7 .advisor-week-grid button.selected-start{border-radius:9px 0 0 9px}.advanced-planner-v7 .advisor-week-grid button.selected-end{border-radius:0 9px 9px 0}
-      .advanced-planner-v7 .advisor-week-caption{margin-top:9px;padding:7px 9px;border-radius:9px;background:#eef5ff;color:#33516e;font-size:10px}.advanced-planner-v7 .advisor-week-caption strong{color:#174a88}
+      .advisor-week-popover.advisor-week-popover-fixed{position:fixed;z-index:100000;width:300px;max-width:calc(100vw - 24px);padding:12px;border:1px solid #cfded6;border-radius:15px;background:#fff;box-shadow:0 24px 56px rgba(7,45,31,.28)}
+      .advisor-week-popover-fixed .advisor-week-month-head{display:grid;grid-template-columns:34px 1fr 34px;align-items:center;gap:6px;margin-bottom:8px}.advisor-week-popover-fixed .advisor-week-month-head strong{text-align:center;font-size:14px;color:#183b2e}.advisor-week-popover-fixed .advisor-week-month-head button{height:32px;border:0;border-radius:9px;background:#eff5f2;color:#174b38;font-size:22px;line-height:1;cursor:pointer}
+      .advisor-week-popover-fixed .advisor-week-day-head,.advisor-week-popover-fixed .advisor-week-grid{display:grid;grid-template-columns:repeat(7,1fr)}
+      .advisor-week-popover-fixed .advisor-week-day-head span{padding:4px 0 6px;text-align:center;font-size:10px;font-weight:900;color:#7b8982}
+      .advisor-week-popover-fixed .advisor-week-grid{overflow:hidden;border-radius:9px}.advisor-week-popover-fixed .advisor-week-grid button{height:34px;border:0;border-radius:0;background:transparent;color:#223f34;font-size:12px;font-weight:750;cursor:pointer}.advisor-week-popover-fixed .advisor-week-grid button:hover:not(.selected){background:#eef5f2}.advisor-week-popover-fixed .advisor-week-grid button.outside:not(.selected){color:#b8c1bd}.advisor-week-popover-fixed .advisor-week-grid button.selected{background:#1769e0;color:#fff!important;font-weight:950}.advisor-week-popover-fixed .advisor-week-grid button.selected-start{border-radius:9px 0 0 9px}.advisor-week-popover-fixed .advisor-week-grid button.selected-end{border-radius:0 9px 9px 0}
+      .advisor-week-popover-fixed .advisor-week-caption{margin-top:9px;padding:7px 9px;border-radius:9px;background:#eef5ff;color:#33516e;font-size:10px}.advisor-week-popover-fixed .advisor-week-caption strong{color:#174a88}
     `}</style>
   </div>,host);
 }
