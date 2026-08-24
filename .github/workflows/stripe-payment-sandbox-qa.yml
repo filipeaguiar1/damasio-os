@@ -5,8 +5,7 @@ on:
     branches:
       - main
     paths:
-      - "tests/stripe-payment-sandbox-qa.spec.ts"
-      - "tests/stripe-payment-sandbox-qa-v2.spec.ts"
+      - "tests/stripe-isabelly-sandbox-qa.spec.ts"
       - ".github/workflows/stripe-payment-sandbox-qa.yml"
 
 permissions:
@@ -50,23 +49,6 @@ jobs:
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Prepare headless Stripe Checkout
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('tests/stripe-payment-sandbox-qa-v2.spec.ts')
-          s = p.read_text()
-          needle = '  const submit = page.locator("button[type=\'submit\']").filter({ hasText: /pay/i }).last();\n'
-          insertion = '''  const saveInfo = page.getByRole("checkbox", { name: /save my information/i }).first();
-          if (await saveInfo.count() && await saveInfo.isChecked().catch(() => false)) {
-            await saveInfo.uncheck();
-          }
-          '''
-          if needle not in s:
-              raise SystemExit('Stripe submit hook not found')
-          p.write_text(s.replace(needle, insertion + needle, 1))
-          PY
-
       - name: Start isolated QA server
         run: |
           pnpm exec next dev > /tmp/damasio-stripe-sandbox-qa.log 2>&1 &
@@ -78,16 +60,16 @@ jobs:
           cat /tmp/damasio-stripe-sandbox-qa.log
           exit 1
 
-      - name: Run Stripe sandbox payment/refund/dispute QA
-        run: pnpm exec playwright test tests/stripe-payment-sandbox-qa-v2.spec.ts --reporter=line --workers=1
+      - name: Run focused Isabelly payment/dispute QA
+        run: pnpm exec playwright test tests/stripe-isabelly-sandbox-qa.spec.ts --reporter=line --workers=1
 
       - name: Upload QA evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stripe-sandbox-payment-qa
+          name: stripe-isabelly-sandbox-qa
           path: |
             /tmp/damasio-stripe-sandbox-qa.log
-            stripe-*-after-pay.png
+            stripe-isabelly-unpaid.png
             test-results/**
           if-no-files-found: ignore
