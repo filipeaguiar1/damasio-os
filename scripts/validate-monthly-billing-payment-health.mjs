@@ -131,6 +131,6 @@ const canonicalRouteE2E = source("tests/canonical-route-sync.spec.ts");
 if (canonicalRouteE2E.includes('getByLabel("Email")')) throw new Error("Canonical route E2E uses the ambiguous login Email label locator.");
 if (!canonicalRouteE2E.includes('getByRole("textbox", { name: "Email" })')) throw new Error("Canonical route E2E is missing the explicit Email textbox locator.");
 if (canonicalRouteE2E.includes('getByText("Create, add, reorder or remove houses.")')) throw new Error("Canonical route E2E still depends on retired Advisor copy.");
-if (!canonicalRouteE2E.includes('locator(".advisor-controls")')) throw new Error("Canonical route E2E is missing the stable Advisor controls locator.");
+if (canonicalRouteE2E.includes('tab=advisor') || canonicalRouteE2E.includes('advisor-house-picker') || canonicalRouteE2E.includes('advisor-controls')) throw new Error("Canonical route E2E still targets the retired Advisor UI.");
 
 console.log("PASS per-Visit/monthly billing, Master invoice control, company receivables, external payout reconciliation, withdrawal safety, payment health, and simulator QA contracts");
