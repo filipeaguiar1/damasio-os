@@ -37,6 +37,15 @@ requireFragments("supabase/migrations/20260824001800_manual_invoice_visit_payout
   "new.visit_id:=v_visit",
   "Waiting for completed service feedback or 3 days without open tasks.",
 ]);
+requireFragments("supabase/migrations/20260824001900_payment_audit_hardening.sql", [
+  "customer_notification_attempted_at",
+  "v_invoice_visit",
+  "Master reconciliation required: no canonical payout terms",
+  "status::text in('paid','succeeded')",
+  "status='disputed'",
+  "accept_customer_payment_dispute_resolution",
+  "refresh_payout_release_status",
+]);
 
 requireFragments("components/payments/ContractPaymentsWorkspace.tsx", [
   "Weekly service · charged per completed Visit",
@@ -68,6 +77,7 @@ requireFragments("app/api/stripe/webhook/route.ts", [
   'case "payout.created"',
   'case "payout.paid"',
   'case "payout.failed"',
+  "stripe_webhook_events",
 ]);
 requireFragments("lib/stripe/reconcileConnectedPayout.ts", [
   "reserve_external_company_payout",
@@ -97,14 +107,23 @@ requireFragments("app/api/cron/company-receivables/route.ts", [
 requireFragments("app/api/master/manual-invoices/route.ts", [
   "Only an active Master can create manual customer invoices",
   'String(visit.status) !== "completed"',
+  "Set an active billing agreement for this Job before creating an extra invoice",
+  "taxBasisPoints",
+  "tax included",
   "manual_description",
   "sendBrandedEmail",
   "master_audit_log",
 ]);
+const manualInvoiceApi = source("app/api/master/manual-invoices/route.ts");
+if (manualInvoiceApi.includes("company_id: companyId,\n      customer_id")) throw new Error("Manual invoice still writes the retired invoices.company_id column.");
 requireFragments("components/payments/MasterManualInvoiceWorkspace.tsx", [
   "Create & send invoice",
   "completed Visit",
   "This does not charge a stored card automatically",
+]);
+requireFragments("app/api/customer/payment-disputes/route.ts", [
+  "accept_customer_payment_dispute_resolution",
+  'status: "escalated"',
 ]);
 requireFragments("app/api/master/payout-reconciliation/route.ts", [
   "clear_company_payout_reconciliation_hold",
@@ -125,6 +144,16 @@ if (!vercel.includes('"/api/cron/company-receivables"')) throw new Error("Compan
 const simulator = source("app/api/admin/operational-simulator/route.ts");
 if (simulator.includes("image/svg+xml") || simulator.includes("operational-simulation/after.svg")) throw new Error("Operational Simulator still references unsupported SVG work photo.");
 if (!simulator.includes('contentType: "image/png"') || !simulator.includes("operational-simulation/after.png")) throw new Error("Operational Simulator PNG work-photo contract is missing.");
+requireFragments("lib/simulator/safeAdvancedSimulationPhotos.ts", [
+  "SAFE_SIMULATION_PNG",
+  'contentType: "image/png"',
+  'replace(/\\/after\\.svg$/i, "/after.png")',
+]);
+requireFragments("app/api/admin/operational-simulator/v2/route.ts", [
+  "withSafeAdvancedSimulationPhotos",
+  "const simulationService = withSafeAdvancedSimulationPhotos(service)",
+  "createAdvancedSimulationData(simulationService",
+]);
 const operationalE2E = source("tests/operational-simulator.spec.ts");
 if (operationalE2E.includes('getByText("Done", { exact: true })')) throw new Error("Operational Simulator uses an ambiguous Done locator.");
 const canonicalRouteE2E = source("tests/canonical-route-sync.spec.ts");
@@ -133,4 +162,4 @@ if (!canonicalRouteE2E.includes('getByRole("textbox", { name: "Email" })')) thro
 if (canonicalRouteE2E.includes('getByText("Create, add, reorder or remove houses.")')) throw new Error("Canonical route E2E still depends on retired Advisor copy.");
 if (canonicalRouteE2E.includes('tab=advisor') || canonicalRouteE2E.includes('advisor-house-picker') || canonicalRouteE2E.includes('advisor-controls')) throw new Error("Canonical route E2E still targets the retired Advisor UI.");
 
-console.log("PASS per-Visit/monthly billing, Master invoice control, company receivables, external payout reconciliation, withdrawal safety, payment health, and simulator QA contracts");
+console.log("PASS per-Visit/monthly billing, Master invoice control, dispute holds, company receivables, external payout reconciliation, withdrawal safety, payment health, and simulator QA contracts");

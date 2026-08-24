@@ -25,21 +25,49 @@ export async function POST(request: NextRequest) {
     if (!identity.customerId || !identity.companyId) return failure("Customer account is not linked to a company.", 403);
     const body = await request.json() as { action?: "open" | "decision"; visitId?: string; reason?: string; disputeId?: string; decision?: "accepted" | "insist" };
     if (body.action === "decision") {
-      const disputeId = String(body.disputeId || ""); const decision = body.decision;
+      const disputeId = String(body.disputeId || "");
+      const decision = body.decision;
       if (!disputeId || !["accepted", "insist"].includes(String(decision))) return failure("Choose how to proceed with the company response.");
-      const { data: current, error: readError } = await service.from("service_requests").select("id,status,company_response").eq("id", disputeId).eq("customer_id", identity.customerId).eq("company_id", identity.companyId).eq("request_type", "payment_dispute").maybeSingle();
+
+      if (decision === "accepted") {
+        const resolution = await service.rpc("accept_customer_payment_dispute_resolution", {
+          p_customer_id: identity.customerId,
+          p_company_id: identity.companyId,
+          p_request_id: disputeId,
+        });
+        if (resolution.error) throw new Error(resolution.error.message);
+        return NextResponse.json(resolution.data || { saved: true, status: "resolved" });
+      }
+
+      const { data: current, error: readError } = await service.from("service_requests")
+        .select("id,status,company_response")
+        .eq("id", disputeId)
+        .eq("customer_id", identity.customerId)
+        .eq("company_id", identity.companyId)
+        .eq("request_type", "payment_dispute")
+        .maybeSingle();
       if (readError || !current) return failure("Payment dispute was not found.", 404);
       if (current.status !== "company_responded" || !current.company_response) return failure("Wait for the company response before choosing the next step.");
-      const nextStatus = decision === "insist" ? "escalated" : "resolved";
-      const { error } = await service.from("service_requests").update({ status: nextStatus, customer_decision: decision, customer_decision_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", disputeId).eq("customer_id", identity.customerId);
+      const { error } = await service.from("service_requests").update({
+        status: "escalated",
+        customer_decision: "insist",
+        customer_decision_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", disputeId).eq("customer_id", identity.customerId).eq("company_id", identity.companyId);
       if (error) throw new Error(error.message);
-      return NextResponse.json({ saved: true, status: nextStatus });
+      return NextResponse.json({ saved: true, status: "escalated" });
     }
 
-    const visitId = String(body.visitId || "").trim(); const reason = String(body.reason || "").trim();
+    const visitId = String(body.visitId || "").trim();
+    const reason = String(body.reason || "").trim();
     if (!visitId) return failure("Choose a completed service first.");
     if (reason.length < 5) return failure("Please explain the payment issue in at least 5 characters.");
-    const result = await service.rpc("open_customer_payment_dispute_protected", { p_customer_id: identity.customerId, p_company_id: identity.companyId, p_visit_id: visitId, p_reason: reason });
+    const result = await service.rpc("open_customer_payment_dispute_protected", {
+      p_customer_id: identity.customerId,
+      p_company_id: identity.companyId,
+      p_visit_id: visitId,
+      p_reason: reason,
+    });
     if (result.error) throw new Error(result.error.message);
     return NextResponse.json(result.data || { saved: true });
   } catch (error) {
