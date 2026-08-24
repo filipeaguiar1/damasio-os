@@ -11,6 +11,7 @@ const groups = [
   ["Requests", "+", "/mobile/admin/requests"],
   ["Employees", "W", "/mobile/admin/employees"],
   ["Payments", "$", "/mobile/admin/finance"],
+  ["Receivables", "↙", "/mobile/admin/receivables"],
   ["Reports", "R", "/mobile/admin/reports"],
   ["App Opening", "4", "/mobile/admin/opening"],
   ["Database", "DB", "/admin/database"],
