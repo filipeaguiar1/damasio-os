@@ -19,7 +19,7 @@ async function requireMaster(request: NextRequest) {
   if (authError || !auth.user) throw new Error("Your Master session expired. Sign in again.");
   const { data: profile, error } = await db.from("profiles").select("id,role,active").eq("id", auth.user.id).maybeSingle();
   if (error || !profile?.active || profile.role !== "master") throw new Error("Only an active Master can manage payout reconciliation holds.");
-  return { db, masterId: auth.user.id };
+  return { db, masterId: String(auth.user.id) };
 }
 
 function fail(error: unknown, status = 400) {
@@ -53,7 +53,12 @@ export async function POST(request: NextRequest) {
     if (companyError || !company) throw new Error(companyError?.message || "Company not found.");
     if (!company.stripe_payout_reconciliation_hold) return NextResponse.json({ cleared: false, message: "This company has no active payout reconciliation hold." });
 
-    const cleared = await db.rpc("clear_company_payout_reconciliation_hold", { p_company_id: body.companyId });
+    // The database revalidates Master identity and refuses to clear a hold while any
+    // customer refund still depends on Stripe transfer / payout reconciliation.
+    const cleared = await db.rpc("clear_company_payout_reconciliation_hold", {
+      p_company_id: body.companyId,
+      p_master_id: masterId,
+    });
     if (cleared.error) throw new Error(cleared.error.message);
     const audit = await db.from("master_audit_log").insert({
       master_profile_id: masterId,
@@ -67,6 +72,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ cleared: true, message: `${company.name || "Company"} withdrawals were unlocked after Master review.` });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Payout reconciliation hold could not be cleared.";
-    return fail(error, /session expired|sign in/i.test(message) ? 401 : /Only an active Master/i.test(message) ? 403 : 400);
+    const status = /session expired|sign in/i.test(message) ? 401
+      : /Only an active Master/i.test(message) ? 403
+      : /Cannot clear payout hold/i.test(message) ? 409
+      : 400;
+    return fail(error, status);
   }
 }

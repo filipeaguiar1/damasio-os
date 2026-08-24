@@ -27,6 +27,12 @@ requireFragments("supabase/migrations/20260824002100_master_dispute_resolution_a
   "mark_master_payment_dispute_refund_pending", "finalize_master_refund_without_payout",
   "payment_refund_finalizes_master_dispute", "Master refund dispute", "stripe_payout_reconciliation_hold",
 ]);
+requireFragments("supabase/migrations/20260824002200_refund_pending_dispute_and_hold_lock.sql", [
+  "refund_pending", "service_requests_one_open_payment_dispute_idx",
+  "clear_company_payout_reconciliation_hold", "p_master_id uuid",
+  "Cannot clear payout hold while a Master customer refund still requires Stripe payout reconciliation",
+  "v_other_refund", "next_refund_hold_request_id",
+]);
 
 requireFragments("components/payments/ContractPaymentsWorkspace.tsx", [
   "Weekly service · charged per completed Visit", "Biweekly service · charged per completed Visit", "Monthly · one charge per billing period",
@@ -82,7 +88,10 @@ requireFragments("components/payments/MasterManualInvoiceWorkspace.tsx", [
   "manualRequestId", "crypto.randomUUID()", "network retry cannot create a duplicate invoice",
 ]);
 requireFragments("lib/server/brandedEmail.ts", ["idempotencyKey?: string", '"Idempotency-Key"']);
-requireFragments("app/api/customer/payment-disputes/route.ts", ["accept_customer_payment_dispute_resolution", 'status: "escalated"']);
+requireFragments("app/api/customer/payment-disputes/route.ts", [
+  "accept_customer_payment_dispute_resolution", 'status: "escalated"', "OPEN_DISPUTE_STATUSES",
+  '"refund_pending"', "partial unique index is the race-condition backstop",
+]);
 requireFragments("app/api/master/payment-disputes/route.ts", [
   "resolve_master_payment_dispute_for_company", "mark_master_payment_dispute_refund_pending",
   "stripe.refunds.create", "idempotencyKey: `master-dispute-refund-${disputeId}`",
@@ -92,7 +101,10 @@ requireFragments("components/payments/PaymentDisputeWorkspace.tsx", [
   "Resolve for company", "Refund customer", "This is a real financial action",
   "Stripe refund reconciliation in progress", "resolveMaster",
 ]);
-requireFragments("app/api/master/payout-reconciliation/route.ts", ["clear_company_payout_reconciliation_hold", "payout.reconciliation_hold_cleared"]);
+requireFragments("app/api/master/payout-reconciliation/route.ts", [
+  "clear_company_payout_reconciliation_hold", "p_master_id: masterId",
+  "refund still depends on Stripe transfer / payout reconciliation", "payout.reconciliation_hold_cleared",
+]);
 requireFragments("app/api/master/payment-health/route.ts", ["Customer billing modes", "Company receivables ledger", "On-demand & external payouts", "external_payout_unmatched", "payout_reconciliation_hold"]);
 
 const vercel = source("vercel.json");
@@ -112,4 +124,4 @@ if (!canonicalRouteE2E.includes('getByRole("textbox", { name: "Email" })')) thro
 if (canonicalRouteE2E.includes('getByText("Create, add, reorder or remove houses.")')) throw new Error("Canonical route E2E still depends on retired Advisor copy.");
 if (canonicalRouteE2E.includes('tab=advisor') || canonicalRouteE2E.includes('advisor-house-picker') || canonicalRouteE2E.includes('advisor-controls')) throw new Error("Canonical route E2E still targets the retired Advisor UI.");
 
-console.log("PASS canonical invoice-only Checkout, idempotent Master invoices, full-ledger receivables totals, Master dispute decisions/refund reconciliation, per-Visit/monthly billing, dispute holds, company receivables, post-Stripe payout recovery, external payout reconciliation, withdrawal safety, payment health, and simulator QA contracts");
+console.log("PASS canonical invoice-only Checkout, idempotent Master invoices, full-ledger receivables totals, Master dispute decisions/refund reconciliation, refund-pending duplicate lock, protected payout-hold clearing, per-Visit/monthly billing, dispute holds, company receivables, post-Stripe payout recovery, external payout reconciliation, withdrawal safety, payment health, and simulator QA contracts");
