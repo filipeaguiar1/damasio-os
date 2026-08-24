@@ -1,0 +1,72 @@
+name: Stripe Sandbox Payment QA
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "tests/stripe-payment-sandbox-qa.spec.ts"
+      - ".github/workflows/stripe-payment-sandbox-qa.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: damasio-stripe-sandbox-payment-qa
+  cancel-in-progress: true
+
+jobs:
+  stripe-payment-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: whsec_damasio_local_qa_20260824
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright test package
+        run: pnpm add --save-dev --ignore-workspace-root-check @playwright/test@1.55.0
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start isolated QA server
+        run: |
+          pnpm exec next dev > /tmp/damasio-stripe-sandbox-qa.log 2>&1 &
+          echo $! > /tmp/damasio-stripe-sandbox-qa.pid
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/damasio-stripe-sandbox-qa.log
+          exit 1
+
+      - name: Run Stripe sandbox payment/refund/dispute QA
+        run: pnpm exec playwright test tests/stripe-payment-sandbox-qa.spec.ts --reporter=line --workers=1
+
+      - name: Upload QA server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stripe-sandbox-payment-qa
+          path: /tmp/damasio-stripe-sandbox-qa.log
+          if-no-files-found: ignore
