@@ -55,6 +55,19 @@ async function fillIfVisible(page: any, selectors: string[], value: string) {
   return false;
 }
 
+async function findDispute(stripe: Stripe, chargeId: string) {
+  for (let attempt = 0; attempt < 45; attempt += 1) {
+    const disputes = await stripe.disputes.list({ limit: 100 });
+    const dispute = disputes.data.find((item: any) => {
+      const charge = typeof item.charge === "string" ? item.charge : item.charge?.id;
+      return charge === chargeId;
+    }) || null;
+    if (dispute) return dispute;
+    await sleep(1000);
+  }
+  return null;
+}
+
 test("Isabelly CAD 100 payment and dispute through Stripe sandbox", async ({ request, page }) => {
   test.setTimeout(150_000);
   if (!stripeKey.startsWith("sk_test_")) throw new Error("Live Stripe key is forbidden in QA.");
@@ -64,19 +77,66 @@ test("Isabelly CAD 100 payment and dispute through Stripe sandbox", async ({ req
   const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
 
   const before = await service.from("invoices")
-    .select("status,total,stripe_checkout_session_id,stripe_payment_intent_id")
+    .select("status,total,stripe_checkout_session_id,stripe_payment_intent_id,stripe_platform_fee,stripe_transfer_amount")
     .eq("id", invoiceId).single();
   expect(before.error, before.error?.message).toBeNull();
   expect(Number(before.data?.total)).toBe(100);
   expect(before.data?.stripe_checkout_session_id).toBe(sessionId);
-  expect(before.data?.stripe_payment_intent_id).toBeNull();
 
   const session = await stripe.checkout.sessions.retrieve(sessionId);
   expect(session.livemode).toBe(false);
-  expect(session.status).toBe("open");
-  expect(session.payment_status).toBe("unpaid");
   expect(session.amount_total).toBe(expectedAmount);
   expect(session.metadata?.invoiceId).toBe(invoiceId);
+
+  if (before.data?.stripe_payment_intent_id) {
+    const paymentIntentId = String(before.data.stripe_payment_intent_id);
+    expect(before.data?.status).toBe("paid");
+    expect(session.status).toBe("complete");
+    expect(session.payment_status).toBe("paid");
+    expect(session.payment_intent).toBe(paymentIntentId);
+    expect(Number(before.data?.stripe_platform_fee)).toBeCloseTo(expectedFee, 2);
+    expect(Number(before.data?.stripe_transfer_amount)).toBeCloseTo(expectedTransfer, 2);
+
+    const intent = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ["latest_charge"] });
+    expect(intent.livemode).toBe(false);
+    expect(intent.amount_received).toBe(expectedAmount);
+    expect(intent.metadata.invoiceId).toBe(invoiceId);
+
+    const payment = await service.from("payments")
+      .select("id,status,amount,stripe_charge_id")
+      .eq("stripe_payment_intent_id", paymentIntentId).single();
+    expect(payment.error, payment.error?.message).toBeNull();
+    expect(payment.data?.status).toBe("paid");
+    expect(Number(payment.data?.amount)).toBe(100);
+
+    const payout = await service.from("company_payout_items")
+      .select("id,status,platform_fee,transfer_amount,hold_reason")
+      .eq("payment_id", payment.data.id).single();
+    expect(payout.error, payout.error?.message).toBeNull();
+    expect(payout.data?.status).toBe("disputed");
+    expect(Number(payout.data?.platform_fee)).toBeCloseTo(expectedFee, 2);
+    expect(Number(payout.data?.transfer_amount)).toBeCloseTo(expectedTransfer, 2);
+
+    const chargeId = typeof intent.latest_charge === "string" ? intent.latest_charge : intent.latest_charge?.id;
+    expect(String(chargeId || "").startsWith("ch_")).toBeTruthy();
+    const dispute = await findDispute(stripe, String(chargeId));
+    expect(dispute, "Stripe did not retain the expected test dispute").toBeTruthy();
+    expect(String(payout.data?.hold_reason || "")).toContain(String(dispute.id));
+
+    console.log(JSON.stringify({
+      checkpoint: "isabelly-sandbox-payment-dispute-already-complete",
+      paymentIntentId,
+      chargeId,
+      disputeId: dispute.id,
+      platformFee: expectedFee,
+      companyTransfer: expectedTransfer,
+      livemode: false,
+    }));
+    return;
+  }
+
+  expect(session.status).toBe("open");
+  expect(session.payment_status).toBe("unpaid");
   expect(session.url).toBeTruthy();
 
   await page.goto(String(session.url), { waitUntil: "domcontentloaded", timeout: 45_000 });
@@ -159,16 +219,7 @@ test("Isabelly CAD 100 payment and dispute through Stripe sandbox", async ({ req
   const chargeId = typeof intent.latest_charge === "string" ? intent.latest_charge : intent.latest_charge?.id;
   expect(String(chargeId || "").startsWith("ch_")).toBeTruthy();
 
-  let dispute: any = null;
-  for (let attempt = 0; attempt < 45; attempt += 1) {
-    const disputes = await stripe.disputes.list({ limit: 100 });
-    dispute = disputes.data.find((item: any) => {
-      const charge = typeof item.charge === "string" ? item.charge : item.charge?.id;
-      return charge === chargeId;
-    }) || null;
-    if (dispute) break;
-    await sleep(1000);
-  }
+  const dispute = await findDispute(stripe, String(chargeId));
   expect(dispute, "Stripe did not create the expected test dispute").toBeTruthy();
 
   await deliver(request, qaEvent("charge.dispute.created", dispute, `evt_qa_isabelly_dispute_${Date.now()}`));
