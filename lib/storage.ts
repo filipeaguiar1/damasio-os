@@ -557,11 +557,8 @@ export function saveEstimate(
     ...totals,
   };
   write(K.est, [e, ...getEstimates()]);
-  addNotification(
-    "estimate",
-    "Estimate created",
-    `${e.number} created for ${e.customer}.`,
-  );
+  // Creating an estimate is an internal workflow event, not a company alert.
+  // Master quote work must never leak into the company notification center.
   return e;
 }
 
@@ -1634,7 +1631,12 @@ export function confirmDailyChecklist(
   return c;
 }
 export function getNotifications(): Notification[] {
-  return read<Notification[]>(K.noti, []);
+  const notifications=read<Notification[]>(K.noti, []);
+  // "Estimate created" is an internal creation event. Older Master demo flows
+  // wrote it into the company browser feed, so remove those leaked records.
+  const companyNotifications=notifications.filter(notification=>!(notification.type==="estimate"&&notification.title==="Estimate created"));
+  if(companyNotifications.length!==notifications.length)write(K.noti,companyNotifications);
+  return companyNotifications;
 }
 export function addNotification(
   type: Notification["type"],

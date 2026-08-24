@@ -106,10 +106,6 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
   }, [selectedCustomerId, selectedJob?.id]);
 
   useEffect(() => {
-    if (companyRestricted && tab !== "overview") setTab("overview");
-  }, [companyRestricted, tab]);
-
-  useEffect(() => {
     const nextFrequency = (selectedAgreement?.serviceFrequency || "weekly") as ServiceFrequency;
     setServiceFrequency(nextFrequency);
     if (nextFrequency === "monthly") setCollectionTiming("period_prepaid");
@@ -243,11 +239,9 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
   const subtitle = scope === "master"
     ? "Define customer billing, platform-owned contracts, exact company earnings, and protected release rules."
     : "Manage company-owned customer contracts. Manual customer charge links are reserved for Master; company earnings are handled in Receivables.";
-  const tabs: Tab[] = companyRestricted
-    ? ["overview"]
-    : scope === "master"
-      ? ["overview", "contracts", "requests", "holds", "payouts"]
-      : ["overview", "contracts", "holds", "payouts"];
+  const tabs: Tab[] = scope === "master"
+    ? ["overview", "contracts", "requests", "holds", "payouts"]
+    : ["overview", "contracts", "holds", "payouts"];
 
   const customerPicker = (mode: "compact" | "full" = "full") => <div className={mode === "compact" ? styles.inlineCustomerPicker : styles.customerFind}>
     <label><span>Find customer</span><input value={customerQuery} onChange={(event) => setCustomerQuery(event.target.value)} placeholder="Search name, email or origin" /></label>
@@ -282,7 +276,7 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
         <nav className={styles.tabs}>{tabs.map((item) => <button key={item} type="button" className={tab === item ? styles.active : ""} onClick={() => setTab(item)}>{tabLabel(item)}</button>)}</nav>
 
         {tab === "overview" && <section className={styles.panel}>
-          <header className={styles.panelHeader}><div><span>Live contract board</span><h2>{selectedCustomer ? "Selected customer" : "Customers and service plans"}</h2><p>{companyRestricted ? "This platform customer is operational only. Commercial terms and release rules are private to Master." : selectedCustomer ? "Showing only the selected account." : "Select a customer above or review all available accounts."}</p></div><button type="button" className={`${styles.button} ${styles.secondary}`} onClick={() => void load()} disabled={loading}>{loading ? "Syncing…" : "Refresh"}</button></header>
+          <header className={styles.panelHeader}><div><span>Live contract board</span><h2>{selectedCustomer ? "Selected customer" : "Customers and service plans"}</h2><p>{companyRestricted ? "Customer price and platform margin stay private. Open Contracts to see only your company earning, contract term and feedback window." : selectedCustomer ? "Showing only the selected account." : "Select a customer above or review all available accounts."}</p></div><button type="button" className={`${styles.button} ${styles.secondary}`} onClick={() => void load()} disabled={loading}>{loading ? "Syncing…" : "Refresh"}</button></header>
           <div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>Customer</th><th>Origin</th><th>Service</th><th>Next visit</th><th>Contract</th><th>Owner</th></tr></thead><tbody>
             {visibleCustomers.length === 0 ? <tr><td colSpan={6}>No customers available in this scope.</td></tr> : visibleCustomers.map((customer) => {
               const job = workspace.jobs.find((item) => item.customerId === customer.id);
@@ -291,6 +285,16 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
               return <tr key={customer.id}><td><strong>{customer.name}</strong><small>{customer.email || "No email"}</small></td><td><span className={styles.pill}>{label(customer.origin)}</span></td><td>{job?.serviceName || "No active job"}</td><td>{job?.nextVisitDate || "Not generated"}</td><td>{hideCommercial ? "Managed by Master" : agreement ? `${label(agreement.serviceFrequency)} · ${label(agreement.billingModel)}` : "Needs setup"}</td><td>{customer.origin === "platform" ? "Master" : "Company"}</td></tr>;
             })}
           </tbody></table></div>
+        </section>}
+
+        {tab === "contracts" && companyRestricted && <section className={styles.panel}>
+          <header className={styles.panelHeader}><div><span>Platform customer contract</span><h2>Your company terms</h2><p>Only the amount paid to your company, the contract term and the customer feedback window are shown. Customer pricing and platform margin remain private.</p></div></header>
+          {!selectedAgreement ? <div className={styles.empty}>No active contract is available for this customer yet.</div> : <div className={styles.cards}>
+            <article className={styles.metric}><span>Your company earns</span><strong>{money(selectedAgreement.providerPayoutCents)}</strong><small>{selectedAgreement.serviceFrequency === "monthly" ? "per billing period" : selectedAgreement.serviceFrequency === "one_time" ? "for this service" : "per completed Visit"}</small></article>
+            <article className={styles.metric}><span>Contract term</span><strong>{selectedAgreement.contractEndsOn ? `${selectedAgreement.contractStartsOn || "Starts when accepted"} – ${selectedAgreement.contractEndsOn}` : "Open-ended"}</strong><small>{selectedAgreement.contractStartsOn ? `Starts ${selectedAgreement.contractStartsOn}` : "Starts when accepted"}</small></article>
+            <article className={styles.metric}><span>Feedback window</span><strong>{selectedAgreement.feedbackWindowHours} hours</strong><small>Time allowed for customer feedback after each Visit</small></article>
+          </div>}
+          <div className={styles.notice}>These terms are read-only. Master controls the customer contract; your company receives the amount shown above after the service and feedback checks are completed.</div>
         </section>}
 
         {tab === "contracts" && !companyRestricted && <section className={styles.panel}>
@@ -338,7 +342,7 @@ export function ContractPaymentsWorkspace({ scope }: { scope: Scope }) {
 
       <aside className={styles.side}>
         <section className={styles.sideCard}><span>How it works</span><h3>{scope === "master" ? "Master customer control" : "Company customer control"}</h3><p>{scope === "master" ? "Weekly and biweekly are per-Visit. Monthly is per billing period. Customer payment and company earning release are separate, reconciled steps." : "The company can manage its own customer contracts, but cannot create manual payment links. Platform customers remain commercially controlled by Master."}</p><dl><div><dt>Weekly / biweekly</dt><dd>Per Visit</dd></div><div><dt>Monthly</dt><dd>Per period</dd></div><div><dt>Manual charges</dt><dd>Master only</dd></div></dl></section>
-        <section className={styles.panel}><header className={styles.panelHeader}><div><span>Selected account</span><h2>{selectedCustomer?.name || "None"}</h2><p>{selectedJob?.serviceName || "No service selected"}</p></div></header><div className={styles.form}>{selectedAgreement && !companyRestricted ? <div className={styles.notice}><strong>{label(selectedAgreement.serviceFrequency)}</strong><br />{label(selectedAgreement.billingModel)}<br />{selectedAgreement.collectionTiming === "period_prepaid" ? "Monthly period collection" : label(selectedAgreement.collectionTiming)}<br />{selectedAgreement.contractStartsOn || "No start date"} → {selectedAgreement.contractEndsOn || "Open ended"}</div> : <div className={styles.scopeLock}>{companyRestricted ? "Commercial details are managed privately by Master." : selectedCustomer ? "No active billing agreement for this job." : "Choose a customer to open the account."}</div>}</div></section>
+        <section className={styles.panel}><header className={styles.panelHeader}><div><span>Selected account</span><h2>{selectedCustomer?.name || "None"}</h2><p>{selectedJob?.serviceName || "No service selected"}</p></div></header><div className={styles.form}>{selectedAgreement && !companyRestricted ? <div className={styles.notice}><strong>{label(selectedAgreement.serviceFrequency)}</strong><br />{label(selectedAgreement.billingModel)}<br />{selectedAgreement.collectionTiming === "period_prepaid" ? "Monthly period collection" : label(selectedAgreement.collectionTiming)}<br />{selectedAgreement.contractStartsOn || "No start date"} → {selectedAgreement.contractEndsOn || "Open ended"}</div> : <div className={styles.scopeLock}>{companyRestricted ? "Open Contracts to view your company earning, contract term and feedback window." : selectedCustomer ? "No active billing agreement for this job." : "Choose a customer to open the account."}</div>}</div></section>
       </aside>
     </section>
   </div>;
