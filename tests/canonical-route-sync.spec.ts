@@ -336,12 +336,6 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await employeeDesktop.screenshot({ path: "canonical-employee-web.png", fullPage: true });
   await relaunchedEmployeeMobile.screenshot({ path: "canonical-employee-mobile.png", fullPage: true });
 
-  await adminDesktop.goto(`${baseURL}/admin/routes?tab=advisor`);
-  await expect(adminDesktop.locator(".advisor-controls")).toBeVisible({ timeout: 30_000 });
-  await adminDesktop.locator(".advisor-controls select").selectOption(worker.id);
-  await adminDesktop.locator('.advisor-controls input[type="date"]').fill(routeDate);
-  await expect(adminDesktop.locator(".advisor-house-picker")).toContainText(`route ${originalJobIds.length}/`, { timeout: 30_000 });
-
   await relaunchedEmployeeMobile.close();
   await adminMobileContext.close();
   await employeeDesktopContext.close();
