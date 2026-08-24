@@ -20,7 +20,7 @@ export default function Invoices() {
         <div>
           <span className="eyebrow">Billing documents</span>
           <h1>Invoices</h1>
-          <p>One reliable list for approved work, totals and payment status.</p>
+          <p>4 Ever Seasons branded invoices, monthly plan charges and verified payment status in one place.</p>
         </div>
         <Link className="btn btn-primary" href="/customer/payments">
           Open payments
@@ -45,7 +45,7 @@ export default function Invoices() {
         {loading ? (
           <div className="billing-empty"><i>…</i><strong>Loading invoices</strong></div>
         ) : invoices.length === 0 ? (
-          <div className="billing-empty"><i>≡</i><strong>No invoices yet</strong><p>Approved quotes will create billing records here.</p></div>
+          <div className="billing-empty"><i>≡</i><strong>No invoices yet</strong><p>Monthly billing and approved one-time work will create documents here.</p></div>
         ) : (
           <div className="billing-invoice-list">
             {invoices.map((invoice) => (
@@ -58,9 +58,10 @@ export default function Invoices() {
                 </div>
                 <div className="billing-invoice-total">
                   <strong>{money(invoice.total)}</strong>
+                  <Link className="btn btn-secondary" href={`/customer/invoices/${invoice.id}`}>View invoice</Link>
                   {invoice.status === "paid"
                     ? <span>Paid</span>
-                    : <Link className="btn btn-primary" href="/customer/payments">Pay invoice</Link>}
+                    : <Link className="btn btn-primary" href={`/customer/invoices/${invoice.id}`}>Pay securely</Link>}
                 </div>
               </article>
             ))}

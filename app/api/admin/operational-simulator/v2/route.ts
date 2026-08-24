@@ -14,6 +14,7 @@ import {
   createAdvancedSimulationData,
   removeAdvancedSimulationData,
 } from "@/lib/simulator/advancedSimulationData";
+import { withSafeAdvancedSimulationPhotos } from "@/lib/simulator/safeAdvancedSimulationPhotos";
 import { reconcileAdvancedSimulationAtScale } from "@/lib/simulator/advancedScaleReconciliation";
 import {
   beginAdvancedSimulationReset,
@@ -98,8 +99,6 @@ async function removeAdvancedSimulationDataWithTimeoutRetry(
         reason: /deadlock/i.test(message) ? "deadlock" : "database-contention",
         message,
       });
-      // Cleanup is idempotent and every retry re-reads namespace-scoped state.
-      // Back off so a competing QA transaction can release its locks first.
       await new Promise(resolve => setTimeout(resolve, attempt * 600));
     }
   }
@@ -230,7 +229,8 @@ export async function POST(request: NextRequest) {
     });
 
     try {
-      const created = await createAdvancedSimulationData(service, {
+      const simulationService = withSafeAdvancedSimulationPhotos(service);
+      const created = await createAdvancedSimulationData(simulationService, {
         scope,
         scenarioKey,
         input,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { reconcileConnectedPayout } from "@/lib/stripe/reconcileConnectedPayout";
 
 export const dynamic = "force-dynamic";
 
@@ -691,6 +692,13 @@ export async function POST(request: NextRequest) {
         break;
       case "account.updated":
         await updateConnectedAccount(db, event.data.object as Stripe.Account);
+        break;
+      case "payout.created":
+      case "payout.updated":
+      case "payout.paid":
+      case "payout.failed":
+      case "payout.canceled":
+        await reconcileConnectedPayout(db, event);
         break;
       case "charge.refunded":
       case "charge.dispute.created":

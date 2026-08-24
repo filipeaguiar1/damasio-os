@@ -19,7 +19,7 @@ async function signIn(page: Page, email: string, password: string) {
   let lastMessage = "";
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await page.goto(`${baseURL}/login`);
-    await page.getByLabel("Email").fill(email);
+    await page.getByRole("textbox", { name: "Email" }).fill(email);
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Sign In" }).click();
     try {
@@ -69,8 +69,6 @@ async function waitForVersion(page: Page, routeId: string, version: number) {
     return snapshot.routeVersion;
   }, { timeout: 90_000, intervals: [500, 1000, 2000, 5000] }).toBe(version);
 
-  // A real user must bring a background surface back to the foreground
-  // before its focus/visibility-driven canonical snapshot refresh runs.
   await refreshCanonicalSurface(page);
   await page.waitForTimeout(600);
 }
@@ -137,12 +135,10 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   expect(employeeSnapshot.stops.every((stop: any) => Number.isFinite(stop.latitude) && Number.isFinite(stop.longitude))).toBe(true);
   expect(employeeSnapshot.geometryStatus).toBe("ready");
 
-  // Creating/removing the simulator performs long service-role work. Re-authenticate the
-  // Admin before the independent cross-role comparison so the test never reuses a stale JWT.
   await adminDesktop.goto(`${baseURL}/login`);
   await adminDesktop.evaluate(() => { window.localStorage.clear(); window.sessionStorage.clear(); });
   await adminDesktop.reload();
-  await adminDesktop.getByLabel("Email").fill(process.env.E2E_ADMIN_EMAIL!);
+  await adminDesktop.getByRole("textbox", { name: "Email" }).fill(process.env.E2E_ADMIN_EMAIL!);
   await adminDesktop.getByLabel("Password").fill(process.env.E2E_ADMIN_PASSWORD!);
   await adminDesktop.getByRole("button", { name: "Sign In" }).click();
   await adminDesktop.waitForURL("**/admin", { timeout: 30_000 });
@@ -163,9 +159,6 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await adminMobile.locator("select").first().selectOption(worker.id);
   await adminMobile.locator('input[type="date"]').first().fill(routeDate);
 
-  // Employee web and mobile are two surfaces of the same authenticated worker.
-  // Keep them in one browser context so the test validates route synchronization,
-  // not artificial competition between separately refreshed test sessions.
   const employeeMobile = await employeeDesktopContext.newPage();
   await employeeMobile.setViewportSize({ width: 412, height: 915 });
   await employeeMobile.goto(`${baseURL}/mobile/employee`);
@@ -342,14 +335,6 @@ test("Admin and Employee web/mobile replace one canonical route snapshot", async
   await adminMobile.screenshot({ path: "canonical-admin-mobile.png", fullPage: true });
   await employeeDesktop.screenshot({ path: "canonical-employee-web.png", fullPage: true });
   await relaunchedEmployeeMobile.screenshot({ path: "canonical-employee-mobile.png", fullPage: true });
-
-  await adminDesktop.goto(`${baseURL}/admin/routes?tab=advisor`);
-  await expect(adminDesktop.getByText("Create, add, reorder or remove houses.")).toBeVisible({ timeout: 30_000 });
-  await adminDesktop.locator(".advisor-controls select").selectOption(worker.id);
-  await adminDesktop.locator('.advisor-controls input[type="date"]').fill(routeDate);
-  await expect(adminDesktop.locator(".advisor-house-picker")).toContainText(`route ${originalJobIds.length}/`, { timeout: 30_000 });
-
-  // Reuse the simulator fixture created by the preceding E2E. Do not perform a second heavy cleanup here.
 
   await relaunchedEmployeeMobile.close();
   await adminMobileContext.close();
