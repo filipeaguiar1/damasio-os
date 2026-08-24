@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { loadSchedulingDispatchBoard } from "@/lib/services/schedulingService";
@@ -47,6 +47,7 @@ async function accessToken() {
 }
 
 export default function CustomerProfilePage({ params }: { params: { id: string } }) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [record, setRecord] = useState<AdminRecord | null>(null);
   const [lead, setLead] = useState<Lead | null>(null);
@@ -163,6 +164,7 @@ export default function CustomerProfilePage({ params }: { params: { id: string }
   const visitStatus = calculateVisitStatus(lead);
 
   return <AdminShell active="Customers">
+    <button type="button" className="btn btn-outline" aria-label="Back to previous page" onClick={() => router.back()} style={{ marginBottom: 16 }}>← Back</button>
     {message && <div className="payment-message" style={{ marginBottom: 16 }}>{message}</div>}
 
     {record.offer.status === "offered" && <section className="card profile-card" style={{ borderColor: "#d8a73d", marginBottom: 18 }}>
