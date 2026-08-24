@@ -2,7 +2,9 @@
 import {useEffect,useState} from "react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
-import {getSupabaseBrowserClient,isSupabaseConfigured} from "@/lib/supabase/client";
+import {getSupabaseBrowserClient,isSupabaseConfigured,setAuthPersistencePreference} from "@/lib/supabase/client";
+
+function roleHome(role:string,hasPhone:boolean){if(role==="master")return"/master";if(role==="admin"||role==="manager")return hasPhone?"/admin":"/company/setup";if(role==="employee")return"/employee";return"/customer"}
 
 export default function LoginPage(){
   const router=useRouter();
@@ -14,13 +16,16 @@ export default function LoginPage(){
   const[loading,setLoading]=useState(false);
 
   useEffect(()=>{
+    let active=true;
     const savedEmail=window.localStorage.getItem("damasio_login_email")||"";
     const savedRemember=Boolean(savedEmail);
     const savedKeep=window.localStorage.getItem("damasio_keep_connected");
     if(savedEmail)setEmail(savedEmail);
     setRememberEmail(savedRemember);
     if(savedKeep)setKeepConnected(savedKeep==="true");
-  },[]);
+    void(async()=>{if(!isSupabaseConfigured())return;try{const supabase=getSupabaseBrowserClient() as any;const{data}=await supabase.auth.getSession();const user=data.session?.user;if(!user||!active)return;const{data:profile}=await supabase.from("profiles").select("role,active,phone").eq("id",user.id).maybeSingle();if(profile?.active&&active)router.replace(roleHome(profile.role,Boolean(profile.phone)))}catch{/* keep the login form available */}})();
+    return()=>{active=false};
+  },[router]);
 
   async function login(){
     if(!isSupabaseConfigured()){
@@ -29,6 +34,7 @@ export default function LoginPage(){
     }
     setLoading(true);setMessage("Signing in...");
     try{
+      setAuthPersistencePreference(keepConnected);
       const supabase=getSupabaseBrowserClient() as any;
       const {data,error}=await supabase.auth.signInWithPassword({email,password});
       if(error){setMessage(error.message);return;}
