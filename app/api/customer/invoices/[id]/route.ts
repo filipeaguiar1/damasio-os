@@ -71,7 +71,7 @@ export async function GET(
     const jobId = cycle?.job_id || visit?.job_id || null;
     let job: any = null;
     if (jobId) {
-      const jobResult = await db.from("jobs").select("id,service_name").eq("id", jobId).maybeSingle();
+      const jobResult = await db.from("jobs").select("id,service_name,frequency,service_frequency").eq("id", jobId).maybeSingle();
       if (jobResult.error) throw new Error(jobResult.error.message);
       job = jobResult.data;
     }
@@ -85,6 +85,14 @@ export async function GET(
       || (cycle ? "Monthly property maintenance plan" : "Property maintenance service");
     const property = propertyResult.data as any;
     const payment = paymentResult.data as any;
+    const jobFrequency = String(job?.service_frequency || job?.frequency || "").toLowerCase();
+    const cadence: "monthly" | "per_visit" | "one_time" = cycle
+      ? "monthly"
+      : invoice.manual_description
+        ? "one_time"
+        : ["weekly", "biweekly", "custom"].includes(jobFrequency)
+          ? "per_visit"
+          : "one_time";
 
     return NextResponse.json({
       invoice: {
@@ -97,7 +105,7 @@ export async function GET(
         createdAt: invoice.created_at,
         serviceName,
         manualDescription: invoice.manual_description || null,
-        cadence: cycle ? "monthly" : "one_time",
+        cadence,
         periodStartsOn: cycle?.period_starts_on || null,
         periodEndsOn: cycle?.period_ends_on || null,
         dueOn: cycle?.charge_due_on || null,
