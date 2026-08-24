@@ -26,9 +26,10 @@ export default function MobileAdminApp(){
   {href:"/mobile/admin/estimates",icon:"▤",label:"Estimates",detail:"Quotes & approvals"},
   {href:"/mobile/admin/requests",icon:"＋",label:"Requests",detail:"Customer needs"},
   {href:"/mobile/admin/employees",icon:"♧",label:"Employees",detail:"Real company users"},
-  {href:"/mobile/admin/finance",icon:"$",label:"Payments",detail:"Payments & visits"},
+  {href:"/mobile/admin/finance",icon:"$",label:"Payments",detail:"Payments & contracts"},
+  {href:"/mobile/admin/receivables",icon:"↙",label:"Receivables",detail:"Balance & withdrawals"},
  ];
- const actionPages=[actions.slice(0,5),actions.slice(5,10)];
+ const actionPages=[actions.slice(0,5),actions.slice(5,10),actions.slice(10)];
  function goToActionPage(index:number){const scroller=actionScroller.current;if(!scroller)return;scroller.scrollTo({left:scroller.clientWidth*index,behavior:"smooth"});setActionPage(index)}
  return <MobileRoleGuard allowed={["admin","manager"]}><main className="mobile-app-shell role-mobile-shell role-admin-mobile"><header className="role-mobile-topbar"><MobileBackButton/><div><strong>Operations</strong><span>Admin workspace</span></div><button type="button" className="role-mobile-avatar" onClick={()=>void signOutAccount("/mobile/login")} aria-label="Sign out">A</button></header>
  {error&&<p className="mobile-message mobile-error" role="alert">{error}</p>}
