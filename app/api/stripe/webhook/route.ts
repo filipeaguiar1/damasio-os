@@ -625,23 +625,77 @@ async function expireCheckout(db: any, session: Stripe.Checkout.Session) {
   requireDatabaseSuccess(result.error, "Restore expired checkout");
 }
 
-export async function POST(request: NextRequest) {
-  const stripeKey = process.env.STRIPE_SECRET_KEY;
-  const webhookSecrets = Array.from(new Set([
+async function activeWebhookSecrets(db: any) {
+  const environmentSecrets = [
     process.env.STRIPE_WEBHOOK_SECRET,
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
-  ].filter((secret): secret is string => Boolean(secret))));
+  ].filter((secret): secret is string => Boolean(secret));
+
+  const stored = await db.from("stripe_webhook_signing_secrets")
+    .select("secret")
+    .eq("active", true);
+  if (stored.error) {
+    console.error("Stripe webhook rotation store could not be read", stored.error);
+    return Array.from(new Set(environmentSecrets));
+  }
+  const storedSecrets = (stored.data || [])
+    .map((row: any) => String(row.secret || ""))
+    .filter(Boolean);
+  return Array.from(new Set([...environmentSecrets, ...storedSecrets]));
+}
+
+async function authenticatePlatformEventViaStripeApi(
+  stripe: Stripe,
+  stripeKey: string,
+  payload: string,
+) {
+  let candidate: any;
+  try {
+    candidate = JSON.parse(payload);
+  } catch {
+    return null;
+  }
+  if (!candidate || candidate.object !== "event" || typeof candidate.id !== "string") return null;
+  if (candidate.account) return null;
+
+  const expectsLive = stripeKey.startsWith("sk_live_");
+  if (Boolean(candidate.livemode) !== expectsLive) return null;
+  const created = Number(candidate.created || 0);
+  if (!Number.isFinite(created) || created <= 0 || Math.abs(Date.now() / 1000 - created) > 7 * 86400) return null;
+
+  try {
+    const verified = await stripe.events.retrieve(candidate.id);
+    if (!verified || verified.id !== candidate.id) return null;
+    if (verified.type !== candidate.type) return null;
+    if (Boolean(verified.livemode) !== expectsLive) return null;
+    return verified;
+  } catch (error) {
+    console.error("Stripe Events API fallback verification failed", candidate.id, error);
+    return null;
+  }
+}
+
+export async function POST(request: NextRequest) {
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!stripeKey || !webhookSecrets.length || !url || !serviceKey) {
+  if (!stripeKey || !url || !serviceKey) {
     const missing = [
       !stripeKey && "STRIPE_SECRET_KEY",
-      !webhookSecrets.length && "STRIPE_WEBHOOK_SECRET or STRIPE_CONNECT_WEBHOOK_SECRET",
       !url && "NEXT_PUBLIC_SUPABASE_URL",
       !serviceKey && "SUPABASE_SERVICE_ROLE_KEY",
     ].filter(Boolean);
     console.error("Stripe webhook configuration missing", missing);
     return bad("Stripe webhook is not configured.", 503);
+  }
+
+  const db = createClient(url, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  }) as any;
+  const webhookSecrets = await activeWebhookSecrets(db);
+  if (!webhookSecrets.length) {
+    console.error("Stripe webhook has no active signing secret.");
+    return bad("Stripe webhook signing is not configured.", 503);
   }
 
   const stripe = new Stripe(stripeKey, { apiVersion: "2026-06-24.dahlia" });
@@ -660,13 +714,15 @@ export async function POST(request: NextRequest) {
     }
   }
   if (!event) {
+    event = await authenticatePlatformEventViaStripeApi(stripe, stripeKey, payload);
+    if (event) {
+      console.warn("Stripe webhook authenticated through Events API fallback", event.id, event.type);
+    }
+  }
+  if (!event) {
     console.error("Invalid Stripe webhook signature", signatureError);
     return bad("Invalid Stripe signature.");
   }
-
-  const db = createClient(url, serviceKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  }) as any;
 
   try {
     const shouldProcess = await claimEvent(db, event);
