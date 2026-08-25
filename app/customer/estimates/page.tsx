@@ -11,6 +11,10 @@ function money(value: number) {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(value);
 }
 
+function QuotePrice({ quote }: { quote: CustomerPortalQuote }) {
+  return <span>{money(Number(quote.subtotal || 0))}<small style={{ fontSize: "0.72em", opacity: 0.7, marginLeft: 5, fontWeight: 600 }}>+ HST</small></span>;
+}
+
 export default function CustomerEstimatesPage() {
   const [quotes, setQuotes] = useState<CustomerPortalQuote[]>([]);
   const [message, setMessage] = useState("");
@@ -36,7 +40,7 @@ export default function CustomerEstimatesPage() {
       return;
     }
     const text = approve
-      ? "Approve this quote? The service company can then schedule the work. Billing will follow the agreed payment model; approval does not charge your card by itself."
+      ? "Approve this quote? The service company can then schedule the work. HST is added to the service price when billed. Approval does not charge your card by itself."
       : "Decline this quote? This decision closes the quote.";
     if (!window.confirm(text)) return;
 
@@ -56,13 +60,13 @@ export default function CustomerEstimatesPage() {
   }
 
   return <PortalShell type="Customer" active="Estimates">
-    <div className="app-top"><div><span className="eyebrow">Customer Portal</span><h1>My Estimates</h1><p className="section-intro">Review the live quote from your service company. Approval creates the service Job; payment happens only according to the agreed billing model.</p></div></div>
+    <div className="app-top"><div><span className="eyebrow">Customer Portal</span><h1>My Estimates</h1><p className="section-intro">Review the live quote from your service company. Displayed service prices are before HST; applicable HST is added when billed.</p></div></div>
     {message && <div className="notice" style={{ marginBottom: 18 }}>{message}</div>}
     <div className="estimate-list compact-estimates">
       {loading ? <div className="card profile-card"><h3>Loading estimates...</h3></div> : quotes.length === 0 ? <div className="card profile-card"><h3>No estimates yet</h3><p>Quotes connected to your account will appear here.</p></div> : quotes.map(quote => {
         const closed = ["approved", "declined", "expired"].includes(quote.status);
         return <div className="estimate-preview compact" key={quote.id}>
-          <div className="estimate-compact-head"><div><span className={`estimate-status ${quote.status}`}>{quote.status}</span><h3>{quote.serviceName || "Property service"}</h3><p>{quote.quoteNumber} · {money(quote.total)}</p></div></div>
+          <div className="estimate-compact-head"><div><span className={`estimate-status ${quote.status}`}>{quote.status}</span><h3>{quote.serviceName || "Property service"}</h3><p>{quote.quoteNumber} · <QuotePrice quote={quote} /></p></div></div>
           <p className="estimate-description">{quote.notes || quote.address || "Service quote"}</p>
           {quote.status === "approved" && <div className="confirm-box"><h3>Approved</h3><p>The service can now be scheduled. Billing will appear when it becomes due.</p><div className="row"><Link className="btn btn-outline" href="/customer/invoices">View Invoices</Link><Link className="btn btn-outline" href="/customer/services">View Services</Link></div></div>}
           {quote.status === "declined" && <div className="confirm-box"><h3>Declined</h3><p>This quote is closed.</p></div>}
