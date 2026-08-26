@@ -1,10 +1,11 @@
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { MobileBackButton } from "@/components/mobile/MobileBackButton";
 import { MobileCustomerNav } from "@/components/mobile/MobileCustomerNav";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getSupabaseBrowserClient, setAuthPersistencePreference } from "@/lib/supabase/client";
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -20,6 +21,7 @@ async function accessToken() {
 }
 
 export default function CustomerAccountPage() {
+  const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -105,6 +107,22 @@ export default function CustomerAccountPage() {
     }
   }
 
+  async function signOut() {
+    setBusy(true);
+    setMessage("Signing out...");
+    try {
+      const client = getSupabaseBrowserClient() as any;
+      await client.auth.signOut();
+    } catch {
+      // Local cleanup below is authoritative for switching accounts on this device.
+    } finally {
+      setAuthPersistencePreference(false);
+      window.localStorage.setItem("damasio_keep_connected", "false");
+      window.localStorage.removeItem("damasio_login_email");
+      router.replace("/mobile/login?signedout=1");
+    }
+  }
+
   return <MobileRoleGuard allowed={["customer"]}><main className="mobile-app-shell role-mobile-shell mobile-customer-subpage">
     <header className="role-mobile-topbar"><MobileBackButton fallback="/mobile/customer"/><div><strong>Customer profile</strong><span>Personal account details</span></div><span className="role-mobile-avatar role-mobile-profile-avatar">{displayPhoto?<img src={displayPhoto} alt="Customer profile"/>:customerInitials}</span></header>
     <section className="customer-native-hero profile"><span>PERSONAL PROFILE</span><h1>{fullName || "Customer"}</h1><p>{email || "Connected account"}</p></section>
@@ -120,6 +138,7 @@ export default function CustomerAccountPage() {
       <label>Phone<input value={phone} onChange={(event)=>setPhone(event.target.value)} /></label>
       <button className="customer-profile-save" disabled={busy||fullName.trim().length<2} onClick={()=>void save()}>{busy?"Saving...":"Save profile"}</button>
       <p className="customer-profile-note">Email is locked to preserve account identity. Property address and service specifications are controlled by Admin or Master.</p>
+      <button type="button" className="customer-profile-signout" disabled={busy} onClick={()=>void signOut()}>Sign out of this account</button>
     </section>
     <MobileCustomerNav active="more"/>
   </main></MobileRoleGuard>;
