@@ -10,8 +10,8 @@ android {
         applicationId "ca.damasio.employee.test"
         minSdk 24
         targetSdk 35
-        versionCode 21
-        versionName "52.2.4-test"
+        versionCode 22
+        versionName "52.3.0-test"
     }
 
     // Public TEST signing only for ca.damasio.employee.test. This keeps direct
@@ -42,6 +42,18 @@ android {
     }
 }
 
+// AndroidX Biometric 1.1.0 still references the split Kotlin JDK7/JDK8
+// artifacts. Align them with the stdlib version already selected by modern
+// AndroidX Core so Gradle does not package duplicate Kotlin classes.
+configurations.configureEach {
+    resolutionStrategy.force(
+        "org.jetbrains.kotlin:kotlin-stdlib:1.8.22",
+        "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22",
+        "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22"
+    )
+}
+
 dependencies {
     implementation "androidx.core:core:1.15.0"
+    implementation "androidx.biometric:biometric:1.1.0"
 }

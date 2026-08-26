@@ -1,16 +1,21 @@
 package ca.damasio.employee;
 
 import android.Manifest;
-import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.KeyguardManager;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
@@ -19,29 +24,38 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
+import android.webkit.WebStorage;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.fragment.app.FragmentActivity;
+
+import org.json.JSONObject;
 
 import java.io.File;
 import java.io.IOException;
 
-public class MainActivity extends Activity {
-    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5223";
-    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5223";
+public class MainActivity extends FragmentActivity {
+    private static final String APP_URL = "https://damasio-os-h1mc.vercel.app/mobile?v=5230";
+    private static final String LOGIN_URL = "https://damasio-os-h1mc.vercel.app/mobile/login?v=5230";
     private static final String APP_HOST = "damasio-os-h1mc.vercel.app";
     private static final String MOBILE_PATH = "/mobile";
     private static final int FILE_CHOOSER_REQUEST = 4101;
     private static final int PERMISSION_REQUEST = 4102;
+    private static final String SECURITY_PREFS = "four_seasons_device_security";
+    private static final String DEVICE_AUTH_ENABLED = "device_auth_enabled";
+    private static final long BACKGROUND_RELOCK_MS = 30_000L;
 
     private WebView webView;
     private ProgressBar progressBar;
@@ -49,12 +63,20 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private Uri cameraOutputUri;
     private long lastBackPressedAt = 0L;
+    private long backgroundedAt = 0L;
+    private SharedPreferences securityPrefs;
+    private BiometricPrompt biometricPrompt;
+    private boolean authInProgress = false;
+    private boolean startupUnlocked = false;
+    private String pendingAuthAction = "authenticate";
+    private Runnable pendingAuthSuccess;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        securityPrefs = getSharedPreferences(SECURITY_PREFS, Context.MODE_PRIVATE);
         webView = findViewById(R.id.employeeWebView);
         progressBar = findViewById(R.id.pageProgress);
         FrameLayout openingLayer = findViewById(R.id.openingLayer);
@@ -64,15 +86,31 @@ public class MainActivity extends Activity {
         progressBar.setVisibility(android.view.View.GONE);
         applySystemBarInsets();
         configureWebView();
+        configureBiometricPrompt();
+
+        final boolean lockEnabled = isDeviceAuthEnabledInternal();
+        startupUnlocked = !lockEnabled;
+        webView.setVisibility(lockEnabled ? android.view.View.INVISIBLE : android.view.View.VISIBLE);
 
         if (savedInstanceState == null) {
-            webView.loadUrl(APP_URL);
             openingController.start();
-            webView.postDelayed(this::requestOptionalPermissions, 4700L);
+            if (lockEnabled) {
+                webView.postDelayed(() -> authenticateForStartup(() -> {
+                    webView.loadUrl(APP_URL);
+                    webView.postDelayed(this::requestOptionalPermissions, 4700L);
+                }), 250L);
+            } else {
+                webView.loadUrl(APP_URL);
+                webView.postDelayed(this::requestOptionalPermissions, 4700L);
+            }
         } else {
             webView.restoreState(savedInstanceState);
             openingController.finish();
-            requestOptionalPermissions();
+            if (lockEnabled) {
+                webView.postDelayed(() -> authenticateForStartup(this::requestOptionalPermissions), 250L);
+            } else {
+                requestOptionalPermissions();
+            }
         }
     }
 
@@ -96,11 +134,11 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.2.3 NativeOpening/2");
+        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.3.0 NativeOpening/2 DeviceAuth/1");
 
-        // Allows the remote web shell to switch only between launcher icons
-        // that were already bundled in this APK. No arbitrary native action is exposed.
-        webView.addJavascriptInterface(new LauncherIconBridge(), "FourSeasonsNative");
+        // This bridge never returns passwords or Supabase tokens. It only exposes
+        // local device-auth state/actions and the existing bundled-icon switch.
+        webView.addJavascriptInterface(new NativeBridge(), "FourSeasonsNative");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -173,7 +211,167 @@ public class MainActivity extends Activity {
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, length) -> openExternal(Uri.parse(url)));
     }
 
-    private final class LauncherIconBridge {
+    private void configureBiometricPrompt() {
+        biometricPrompt = new BiometricPrompt(this, ContextCompat.getMainExecutor(this), new BiometricPrompt.AuthenticationCallback() {
+            @Override
+            public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                super.onAuthenticationSucceeded(result);
+                authInProgress = false;
+                if ("enable".equals(pendingAuthAction)) {
+                    securityPrefs.edit().putBoolean(DEVICE_AUTH_ENABLED, true).apply();
+                } else if ("disable".equals(pendingAuthAction)) {
+                    securityPrefs.edit().putBoolean(DEVICE_AUTH_ENABLED, false).apply();
+                }
+                startupUnlocked = true;
+                backgroundedAt = 0L;
+                webView.setVisibility(android.view.View.VISIBLE);
+                emitDeviceAuthResult(pendingAuthAction, true, "ok");
+                Runnable success = pendingAuthSuccess;
+                pendingAuthSuccess = null;
+                if (success != null) success.run();
+            }
+
+            @Override
+            public void onAuthenticationError(int errorCode, CharSequence errString) {
+                super.onAuthenticationError(errorCode, errString);
+                authInProgress = false;
+                String action = pendingAuthAction;
+                pendingAuthSuccess = null;
+                emitDeviceAuthResult(action, false, errString == null ? "cancelled" : errString.toString());
+                if ("startup".equals(action) || "resume".equals(action)) showLockedFallbackDialog();
+            }
+        });
+    }
+
+    private BiometricPrompt.PromptInfo buildPromptInfo(String action) {
+        String title = "enable".equals(action) ? "Enable secure device unlock" :
+            "disable".equals(action) ? "Confirm before disabling" : "Unlock 4Ever Seasons";
+        BiometricPrompt.PromptInfo.Builder builder = new BiometricPrompt.PromptInfo.Builder()
+            .setTitle(title)
+            .setSubtitle("Use biometrics or your device screen lock")
+            .setConfirmationRequired(false);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            builder.setAllowedAuthenticators(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG |
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            );
+        } else {
+            // AndroidX uses the system PIN/pattern/password fallback on API 24-29.
+            builder.setDeviceCredentialAllowed(true);
+        }
+        return builder.build();
+    }
+
+    private boolean isDeviceAuthAvailableInternal() {
+        BiometricManager manager = BiometricManager.from(this);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return manager.canAuthenticate(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG |
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            ) == BiometricManager.BIOMETRIC_SUCCESS;
+        }
+
+        int biometric = manager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK);
+        KeyguardManager keyguard = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+        boolean credential = keyguard != null && keyguard.isDeviceSecure();
+        return biometric == BiometricManager.BIOMETRIC_SUCCESS || credential;
+    }
+
+    private boolean isDeviceAuthEnabledInternal() {
+        return securityPrefs != null && securityPrefs.getBoolean(DEVICE_AUTH_ENABLED, false);
+    }
+
+    private void authenticateForStartup(Runnable onSuccess) {
+        if (!isDeviceAuthAvailableInternal()) {
+            securityPrefs.edit().putBoolean(DEVICE_AUTH_ENABLED, false).apply();
+            clearWebSessionAndUsePassword("Device security changed. Sign in again to protect this device.");
+            return;
+        }
+        authenticateDeviceInternal("startup", onSuccess);
+    }
+
+    private void authenticateDeviceInternal(String action, Runnable onSuccess) {
+        if (authInProgress) return;
+        if (!isDeviceAuthAvailableInternal()) {
+            emitDeviceAuthResult(action, false, "device_auth_unavailable");
+            return;
+        }
+        pendingAuthAction = action;
+        pendingAuthSuccess = onSuccess;
+        authInProgress = true;
+        biometricPrompt.authenticate(buildPromptInfo(action));
+    }
+
+    private void showLockedFallbackDialog() {
+        if (isFinishing() || isDestroyed()) return;
+        new AlertDialog.Builder(this)
+            .setTitle("4Ever Seasons is locked")
+            .setMessage("Authenticate with this device, or clear the local session and sign in with your account password.")
+            .setPositiveButton("Try again", (dialog, which) -> authenticateDeviceInternal("startup", null))
+            .setNegativeButton("Use account password", (dialog, which) -> clearWebSessionAndUsePassword(null))
+            .setCancelable(false)
+            .show();
+    }
+
+    private void clearWebSessionAndUsePassword(String toastMessage) {
+        startupUnlocked = true;
+        backgroundedAt = 0L;
+        WebStorage.getInstance().deleteAllData();
+        CookieManager.getInstance().removeAllCookies(null);
+        CookieManager.getInstance().flush();
+        webView.clearHistory();
+        webView.setVisibility(android.view.View.VISIBLE);
+        webView.loadUrl(LOGIN_URL);
+        openingController.finish();
+        if (toastMessage != null) Toast.makeText(this, toastMessage, Toast.LENGTH_LONG).show();
+    }
+
+    private void emitDeviceAuthResult(String action, boolean success, String reason) {
+        if (webView == null) return;
+        String js = "window.dispatchEvent(new CustomEvent('fourSeasonsDeviceAuth',{detail:{action:" +
+            JSONObject.quote(action == null ? "authenticate" : action) + ",success:" + success +
+            ",enabled:" + isDeviceAuthEnabledInternal() + ",reason:" + JSONObject.quote(reason == null ? "" : reason) + "}}));";
+        webView.post(() -> webView.evaluateJavascript(js, null));
+    }
+
+    private final class NativeBridge {
+        @JavascriptInterface
+        public String getDeviceAuthPlatform() {
+            return "android";
+        }
+
+        @JavascriptInterface
+        public boolean isDeviceAuthAvailable() {
+            return isDeviceAuthAvailableInternal();
+        }
+
+        @JavascriptInterface
+        public boolean isDeviceAuthEnabled() {
+            return isDeviceAuthEnabledInternal();
+        }
+
+        @JavascriptInterface
+        public void requestEnableDeviceAuth() {
+            runOnUiThread(() -> authenticateDeviceInternal("enable", null));
+        }
+
+        @JavascriptInterface
+        public void disableDeviceAuth() {
+            runOnUiThread(() -> {
+                if (!isDeviceAuthEnabledInternal()) {
+                    emitDeviceAuthResult("disable", true, "already_disabled");
+                    return;
+                }
+                authenticateDeviceInternal("disable", null);
+            });
+        }
+
+        @JavascriptInterface
+        public void authenticateDevice() {
+            runOnUiThread(() -> authenticateDeviceInternal("authenticate", null));
+        }
+
         @JavascriptInterface
         public void setLauncherIcon(String icon) {
             final boolean legacy = "legacy".equalsIgnoreCase(icon);
@@ -296,7 +494,25 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStop() {
+        if (isDeviceAuthEnabledInternal() && startupUnlocked && !authInProgress && !isChangingConfigurations()) {
+            backgroundedAt = System.currentTimeMillis();
+        }
+        super.onStop();
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (webView == null || !isDeviceAuthEnabledInternal() || !startupUnlocked || authInProgress || backgroundedAt <= 0L) return;
+        if (System.currentTimeMillis() - backgroundedAt < BACKGROUND_RELOCK_MS) return;
+        webView.setVisibility(android.view.View.INVISIBLE);
+        webView.postDelayed(() -> authenticateDeviceInternal("resume", () -> webView.setVisibility(android.view.View.VISIBLE)), 150L);
+    }
+
+    @Override
     public void onBackPressed() {
+        if (isDeviceAuthEnabledInternal() && !startupUnlocked) return;
         Uri current = Uri.parse(webView.getUrl() == null ? APP_URL : webView.getUrl());
         String path = current.getPath() == null ? "" : current.getPath();
         if (!isEmployeeUrl(current)) { webView.loadUrl(APP_URL); return; }

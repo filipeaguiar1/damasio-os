@@ -50,7 +50,13 @@ export function getSupabaseBrowserClient() {
 
   if (!browserClient) {
     browserClient = createClient<Database>(url, anonKey, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storage: rememberAwareStorage },
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storage: rememberAwareStorage,
+        experimental: { passkey: true },
+      },
     });
   }
 
