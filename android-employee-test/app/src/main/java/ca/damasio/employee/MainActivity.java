@@ -55,7 +55,7 @@ public class MainActivity extends FragmentActivity {
     private static final int PERMISSION_REQUEST = 4102;
     private static final String SECURITY_PREFS = "four_seasons_device_security";
     private static final String DEVICE_AUTH_ENABLED = "device_auth_enabled";
-    private static final long BACKGROUND_RELOCK_MS = 30_000L;
+    private static final long BACKGROUND_RELOCK_MS = 0L;
 
     private WebView webView;
     private ProgressBar progressBar;
@@ -134,7 +134,7 @@ public class MainActivity extends FragmentActivity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.3.0 NativeOpening/2 DeviceAuth/1");
+        settings.setUserAgentString(settings.getUserAgentString() + " 4EverSeasonsAndroid/52.3.1 NativeOpening/2 DeviceAuth/1");
 
         // This bridge never returns passwords or Supabase tokens. It only exposes
         // local device-auth state/actions and the existing bundled-icon switch.
@@ -253,7 +253,7 @@ public class MainActivity extends FragmentActivity {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             builder.setAllowedAuthenticators(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG |
+                BiometricManager.Authenticators.BIOMETRIC_WEAK |
                 BiometricManager.Authenticators.DEVICE_CREDENTIAL
             );
         } else {
@@ -267,7 +267,7 @@ public class MainActivity extends FragmentActivity {
         BiometricManager manager = BiometricManager.from(this);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             return manager.canAuthenticate(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG |
+                BiometricManager.Authenticators.BIOMETRIC_WEAK |
                 BiometricManager.Authenticators.DEVICE_CREDENTIAL
             ) == BiometricManager.BIOMETRIC_SUCCESS;
         }

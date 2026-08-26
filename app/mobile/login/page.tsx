@@ -13,7 +13,6 @@ export default function MobileLogin(){
   const[email,setEmail]=useState("");
   const[password,setPassword]=useState("");
   const[rememberEmail,setRememberEmail]=useState(false);
-  const[keepConnected,setKeepConnected]=useState(true);
   const[nativeStatus,setNativeStatus]=useState<NativeDeviceAuthStatus>(EMPTY_NATIVE_STATUS);
   const[enableDeviceUnlock,setEnableDeviceUnlock]=useState(false);
   const[message,setMessage]=useState("");
@@ -22,13 +21,18 @@ export default function MobileLogin(){
   useEffect(()=>{
     let active=true;
     const savedEmail=window.localStorage.getItem("damasio_login_email")||"";
-    const savedKeep=window.localStorage.getItem("damasio_keep_connected");
     if(savedEmail){setEmail(savedEmail);setRememberEmail(true)}
-    if(savedKeep)setKeepConnected(savedKeep==="true");
 
     const status=getNativeDeviceAuthStatus();
     setNativeStatus(status);
     if(status.available&&!status.enabled)setEnableDeviceUnlock(true);
+
+    // For now there is no general "keep me signed in" mode on mobile.
+    // A persistent Supabase session is kept only when the native app lock is
+    // already enabled, because that session is hidden behind device auth.
+    const protectedSession=status.available&&status.enabled;
+    setAuthPersistencePreference(protectedSession);
+    window.localStorage.setItem("damasio_keep_connected",String(protectedSession));
 
     void(async()=>{
       if(!isSupabaseConfigured())return;
@@ -49,8 +53,7 @@ export default function MobileLogin(){
     setBusy(true);setMessage("Signing in…");
     try{
       const shouldEnableDeviceUnlock=nativeStatus.available&&!nativeStatus.enabled&&enableDeviceUnlock;
-      const persist=shouldEnableDeviceUnlock?true:keepConnected;
-      if(shouldEnableDeviceUnlock&&!keepConnected)setKeepConnected(true);
+      const persist=nativeStatus.available&&(nativeStatus.enabled||shouldEnableDeviceUnlock);
       setAuthPersistencePreference(persist);
 
       const client=getSupabaseBrowserClient() as any;
@@ -83,9 +86,8 @@ export default function MobileLogin(){
       <label>Password<input className="input" type="password" autoComplete="current-password" value={password} onChange={event=>setPassword(event.target.value)} placeholder="Your password"/></label>
       <div className="auth-login-options mobile">
         <label><input type="checkbox" checked={rememberEmail} onChange={event=>setRememberEmail(event.target.checked)}/><span>Remember email</span></label>
-        <label><input type="checkbox" checked={keepConnected} onChange={event=>setKeepConnected(event.target.checked)}/><span>Keep me signed in</span></label>
-        {nativeStatus.available&&!nativeStatus.enabled&&<label><input type="checkbox" checked={enableDeviceUnlock} onChange={event=>{setEnableDeviceUnlock(event.target.checked);if(event.target.checked)setKeepConnected(true)}}/><span>{nativeLabel} on this device</span></label>}
-        {nativeStatus.available&&nativeStatus.enabled&&<span className="mobile-security-status">Device unlock is active on this device.</span>}
+        {nativeStatus.available&&!nativeStatus.enabled&&<label><input type="checkbox" checked={enableDeviceUnlock} onChange={event=>setEnableDeviceUnlock(event.target.checked)}/><span>{nativeLabel} on this device</span></label>}
+        {nativeStatus.available&&nativeStatus.enabled&&<span className="mobile-security-status">Device unlock is active. Your saved session is protected by this device.</span>}
       </div>
       <button className="mobile-primary" disabled={busy||!email||!password} onClick={()=>void login()}>{busy?"Signing in…":"Sign in securely"}</button>
       {message&&<p className="mobile-message mobile-error">{message}</p>}
