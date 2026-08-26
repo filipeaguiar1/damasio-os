@@ -10,6 +10,10 @@ function keepConnected() {
   return window.localStorage.getItem(KEEP_CONNECTED_KEY) !== "false";
 }
 
+function isSupabaseAuthTokenKey(key: string | null) {
+  return Boolean(key?.startsWith("sb-") && key.includes("-auth-token"));
+}
+
 const rememberAwareStorage = {
   getItem(key: string) {
     if (typeof window === "undefined") return null;
@@ -31,12 +35,30 @@ const rememberAwareStorage = {
 
 export function setAuthPersistencePreference(value: boolean) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(KEEP_CONNECTED_KEY, String(value));
-  if (!value) {
-    for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
-      const key = window.localStorage.key(index);
-      if (key?.startsWith("sb-") && key.endsWith("-auth-token")) window.localStorage.removeItem(key);
+
+  if (value) {
+    // Promote only an already-authenticated session from temporary storage
+    // after native device protection has actually succeeded.
+    const pending: Array<[string, string]> = [];
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const key = window.sessionStorage.key(index);
+      if (!isSupabaseAuthTokenKey(key) || !key) continue;
+      const stored = window.sessionStorage.getItem(key);
+      if (stored != null) pending.push([key, stored]);
     }
+    window.localStorage.setItem(KEEP_CONNECTED_KEY, "true");
+    for (const [key, stored] of pending) {
+      window.localStorage.setItem(key, stored);
+      window.sessionStorage.removeItem(key);
+    }
+    return;
+  }
+
+  window.localStorage.setItem(KEEP_CONNECTED_KEY, "false");
+  // Turning persistence off must never revive an old persistent session.
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.localStorage.key(index);
+    if (isSupabaseAuthTokenKey(key) && key) window.localStorage.removeItem(key);
   }
 }
 
