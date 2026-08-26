@@ -10,8 +10,8 @@ android {
         applicationId "ca.damasio.employee.test"
         minSdk 24
         targetSdk 35
-        versionCode 21
-        versionName "52.2.4-test"
+        versionCode 22
+        versionName "52.3.0-test"
     }
 
     // Public TEST signing only for ca.damasio.employee.test. This keeps direct
@@ -44,4 +44,5 @@ android {
 
 dependencies {
     implementation "androidx.core:core:1.15.0"
+    implementation "androidx.biometric:biometric:1.1.0"
 }
