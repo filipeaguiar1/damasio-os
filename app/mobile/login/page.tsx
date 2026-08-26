@@ -27,12 +27,10 @@ export default function MobileLogin(){
     setNativeStatus(status);
     if(status.available&&!status.enabled)setEnableDeviceUnlock(true);
 
-    // For now there is no general "keep me signed in" mode on mobile.
-    // A persistent Supabase session is kept only when the native app lock is
-    // already enabled, because that session is hidden behind device auth.
+    // There is no general "keep me signed in" mode on mobile.
+    // Persistent auth exists only when the native device lock is already active.
     const protectedSession=status.available&&status.enabled;
     setAuthPersistencePreference(protectedSession);
-    window.localStorage.setItem("damasio_keep_connected",String(protectedSession));
 
     void(async()=>{
       if(!isSupabaseConfigured())return;
@@ -53,24 +51,45 @@ export default function MobileLogin(){
     setBusy(true);setMessage("Signing in…");
     try{
       const shouldEnableDeviceUnlock=nativeStatus.available&&!nativeStatus.enabled&&enableDeviceUnlock;
-      const persist=nativeStatus.available&&(nativeStatus.enabled||shouldEnableDeviceUnlock);
-      setAuthPersistencePreference(persist);
+      const alreadyProtected=nativeStatus.available&&nativeStatus.enabled;
+
+      // Never persist a new session before the native protection succeeds.
+      setAuthPersistencePreference(alreadyProtected);
 
       const client=getSupabaseBrowserClient() as any;
       const{data,error}=await client.auth.signInWithPassword({email:email.trim(),password});
       if(error)throw new Error(error.message);
       const{data:profile,error:profileError}=await client.from("profiles").select("role,active").eq("id",data.user.id).single();
-      if(profileError||!profile)throw new Error("This account has no platform role yet.");
-      if(!profile.active){await client.auth.signOut();throw new Error("This account is inactive. Contact the company Admin.")}
+      if(profileError||!profile){
+        await client.auth.signOut();
+        setAuthPersistencePreference(false);
+        throw new Error("This account has no platform role yet.");
+      }
+      if(!profile.active){
+        await client.auth.signOut();
+        setAuthPersistencePreference(false);
+        throw new Error("This account is inactive. Contact the company Admin.");
+      }
 
       if(rememberEmail)window.localStorage.setItem("damasio_login_email",email.trim());
       else window.localStorage.removeItem("damasio_login_email");
-      window.localStorage.setItem("damasio_keep_connected",String(persist));
 
       if(shouldEnableDeviceUnlock){
         setMessage("Confirm fingerprint, face or device lock…");
         const result=await enableNativeDeviceAuth();
-        if(result.success)setNativeStatus(getNativeDeviceAuthStatus());
+        if(!result.success){
+          await client.auth.signOut();
+          setAuthPersistencePreference(false);
+          throw new Error("Device unlock was not enabled. Sign in again or turn off the device-unlock option.");
+        }
+        const updatedStatus=getNativeDeviceAuthStatus();
+        if(!updatedStatus.enabled){
+          await client.auth.signOut();
+          setAuthPersistencePreference(false);
+          throw new Error("Device unlock could not be verified. Sign in again.");
+        }
+        setNativeStatus(updatedStatus);
+        setAuthPersistencePreference(true);
       }
 
       router.replace(roleHome(profile.role));
