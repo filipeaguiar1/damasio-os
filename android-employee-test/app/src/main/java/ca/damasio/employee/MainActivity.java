@@ -253,7 +253,7 @@ public class MainActivity extends FragmentActivity {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             builder.setAllowedAuthenticators(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG |
+                BiometricManager.Authenticators.BIOMETRIC_WEAK |
                 BiometricManager.Authenticators.DEVICE_CREDENTIAL
             );
         } else {
@@ -267,7 +267,7 @@ public class MainActivity extends FragmentActivity {
         BiometricManager manager = BiometricManager.from(this);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             return manager.canAuthenticate(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG |
+                BiometricManager.Authenticators.BIOMETRIC_WEAK |
                 BiometricManager.Authenticators.DEVICE_CREDENTIAL
             ) == BiometricManager.BIOMETRIC_SUCCESS;
         }
