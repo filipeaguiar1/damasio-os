@@ -14,7 +14,7 @@ export function Header() {
             decoding="async"
           />
           <span className="brand-copy">
-            <strong>4 Ever Seasons</strong>
+            <strong>Jorge Cabeça de Bilola</strong>
             <small>Property Maintenance</small>
           </span>
         </Link>
