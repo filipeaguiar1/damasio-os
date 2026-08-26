@@ -14,6 +14,13 @@ function isSupabaseAuthTokenKey(key: string | null) {
   return Boolean(key?.startsWith("sb-") && key.includes("-auth-token"));
 }
 
+function removeAuthTokens(storage: Storage) {
+  for (let index = storage.length - 1; index >= 0; index -= 1) {
+    const key = storage.key(index);
+    if (isSupabaseAuthTokenKey(key) && key) storage.removeItem(key);
+  }
+}
+
 const rememberAwareStorage = {
   getItem(key: string) {
     if (typeof window === "undefined") return null;
@@ -32,6 +39,13 @@ const rememberAwareStorage = {
     window.sessionStorage.removeItem(key);
   },
 };
+
+export function clearAuthSessionStorage() {
+  if (typeof window === "undefined") return;
+  removeAuthTokens(window.localStorage);
+  removeAuthTokens(window.sessionStorage);
+  window.localStorage.setItem(KEEP_CONNECTED_KEY, "false");
+}
 
 export function setAuthPersistencePreference(value: boolean) {
   if (typeof window === "undefined") return;
@@ -56,10 +70,7 @@ export function setAuthPersistencePreference(value: boolean) {
 
   window.localStorage.setItem(KEEP_CONNECTED_KEY, "false");
   // Turning persistence off must never revive an old persistent session.
-  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
-    const key = window.localStorage.key(index);
-    if (isSupabaseAuthTokenKey(key) && key) window.localStorage.removeItem(key);
-  }
+  removeAuthTokens(window.localStorage);
 }
 
 export function getSupabaseBrowserClient() {
