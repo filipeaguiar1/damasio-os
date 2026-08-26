@@ -1,11 +1,11 @@
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { MobileRoleGuard } from "@/components/mobile/MobileRoleGuard";
 import { MobileBackButton } from "@/components/mobile/MobileBackButton";
 import { MobileCustomerNav } from "@/components/mobile/MobileCustomerNav";
-import { getSupabaseBrowserClient, setAuthPersistencePreference } from "@/lib/supabase/client";
+import { signOutAccount } from "@/lib/auth/signOut";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -21,7 +21,6 @@ async function accessToken() {
 }
 
 export default function CustomerAccountPage() {
-  const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -91,41 +90,31 @@ export default function CustomerAccountPage() {
     try {
       const token = await accessToken();
       const response = await fetch("/api/customer/profile", {
-        method: "PATCH",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-        body: JSON.stringify({ fullName, phone }),
+        method:"PATCH",
+        headers:{"content-type":"application/json",authorization:`Bearer ${token}`},
+        body:JSON.stringify({fullName,phone}),
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Profile could not be saved.");
-      setFullName(result.profile.fullName || fullName);
-      setPhone(result.profile.phone || "");
+      const result=await response.json();
+      if(!response.ok)throw new Error(result.error||"Profile could not be saved.");
+      setFullName(result.profile.fullName||fullName);
+      setPhone(result.profile.phone||"");
       setMessage("Profile updated successfully.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Profile could not be saved.");
-    } finally {
+    }catch(error){
+      setMessage(error instanceof Error?error.message:"Profile could not be saved.");
+    }finally{
       setBusy(false);
     }
   }
 
-  async function signOut() {
+  async function signOut(){
     setBusy(true);
     setMessage("Signing out...");
-    try {
-      const client = getSupabaseBrowserClient() as any;
-      await client.auth.signOut();
-    } catch {
-      // Local cleanup below is authoritative for switching accounts on this device.
-    } finally {
-      setAuthPersistencePreference(false);
-      window.localStorage.setItem("damasio_keep_connected", "false");
-      window.localStorage.removeItem("damasio_login_email");
-      router.replace("/mobile/login?signedout=1");
-    }
+    await signOutAccount("/mobile/login?signedout=1");
   }
 
   return <MobileRoleGuard allowed={["customer"]}><main className="mobile-app-shell role-mobile-shell mobile-customer-subpage">
     <header className="role-mobile-topbar"><MobileBackButton fallback="/mobile/customer"/><div><strong>Customer profile</strong><span>Personal account details</span></div><span className="role-mobile-avatar role-mobile-profile-avatar">{displayPhoto?<img src={displayPhoto} alt="Customer profile"/>:customerInitials}</span></header>
-    <section className="customer-native-hero profile"><span>PERSONAL PROFILE</span><h1>{fullName || "Customer"}</h1><p>{email || "Connected account"}</p></section>
+    <section className="customer-native-hero profile"><span>PERSONAL PROFILE</span><h1>{fullName||"Customer"}</h1><p>{email||"Connected account"}</p></section>
     {message&&<div className="customer-native-message">{message}</div>}
     <section className="customer-profile-native customer-edit-form">
       <div className="customer-avatar-editor">
@@ -133,9 +122,9 @@ export default function CustomerAccountPage() {
         <div><strong>Profile photo</strong><small>Choose a clear square photo. It will appear as a circular thumbnail.</small><label className="customer-photo-select">Choose photo<input type="file" accept="image/*" onChange={chooseAvatar}/></label></div>
       </div>
       {pendingFile&&<div className="customer-photo-confirm"><button type="button" onClick={()=>{if(previewUrl)URL.revokeObjectURL(previewUrl);setPreviewUrl(null);setPendingFile(null);}}>Cancel</button><button type="button" className="primary" disabled={busy} onClick={()=>void confirmAvatar()}>{busy?"Saving...":"Confirm photo"}</button></div>}
-      <label>Full name<input value={fullName} onChange={(event)=>setFullName(event.target.value)} /></label>
-      <label>Email<input value={email} disabled readOnly /></label>
-      <label>Phone<input value={phone} onChange={(event)=>setPhone(event.target.value)} /></label>
+      <label>Full name<input value={fullName} onChange={event=>setFullName(event.target.value)}/></label>
+      <label>Email<input value={email} disabled readOnly/></label>
+      <label>Phone<input value={phone} onChange={event=>setPhone(event.target.value)}/></label>
       <button className="customer-profile-save" disabled={busy||fullName.trim().length<2} onClick={()=>void save()}>{busy?"Saving...":"Save profile"}</button>
       <p className="customer-profile-note">Email is locked to preserve account identity. Property address and service specifications are controlled by Admin or Master.</p>
       <button type="button" className="customer-profile-signout" disabled={busy} onClick={()=>void signOut()}>Sign out of this account</button>

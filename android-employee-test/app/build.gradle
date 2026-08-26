@@ -10,8 +10,8 @@ android {
         applicationId "ca.damasio.employee.test"
         minSdk 24
         targetSdk 35
-        versionCode 24
-        versionName "52.3.2-test"
+        versionCode 25
+        versionName "52.3.3-test"
     }
 
     // Public TEST signing only for ca.damasio.employee.test. This keeps direct
