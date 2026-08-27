@@ -25,10 +25,10 @@ import java.security.MessageDigest;
 
 final class NativeOpeningController {
     private static final String MANIFEST_URL = "https://damasio-os-h1mc.vercel.app/api/mobile/opening";
-    private static final String REMOTE_OPENING_FILE = "opening-remote-v5223.mp4";
-    private static final String DEFAULT_OPENING_FILE = "opening-default-v5223.mp4";
+    private static final String REMOTE_OPENING_FILE = "opening-remote-v5236.mp4";
+    private static final String DEFAULT_OPENING_FILE = "opening-default-v5236.mp4";
     private static final String DEFAULT_OPENING_ASSET = "opening_default.mp4";
-    private static final String PREFS = "mobile_opening_v5";
+    private static final String PREFS = "mobile_opening_v6";
     private static final long TIMEOUT_MS = 7000L;
 
     private final Activity activity;
@@ -72,8 +72,10 @@ final class NativeOpeningController {
 
         File cached = new File(activity.getFilesDir(), REMOTE_OPENING_FILE);
         File bundled = ensureBundledOpening();
-        if (usable(cached)) requestPlayback(cached);
-        else if (usable(bundled)) requestPlayback(bundled);
+        // The APK-bundled opening is the approved reference and must win on
+        // every launch. The remote file remains only as a fallback/cache path.
+        if (usable(bundled)) requestPlayback(bundled);
+        else if (usable(cached)) requestPlayback(cached);
         else finish();
 
         refreshCache();
