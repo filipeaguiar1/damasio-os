@@ -14,8 +14,8 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@mipmap/ic_launcher_4s"
-        android:roundIcon="@mipmap/ic_launcher_4s"
+        android:icon="@drawable/ic_app_logo_premium"
+        android:roundIcon="@drawable/ic_app_logo_premium"
         android:label="4Ever Seasons"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
@@ -28,28 +28,12 @@
             android:exported="true"
             android:screenOrientation="portrait" />
 
-        <!-- New launcher component intentionally replaces the old aliases so
-             Android launchers cannot keep serving a cached placeholder icon. -->
-        <activity-alias
-            android:name=".Launcher4S"
-            android:enabled="true"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher_4s"
-            android:roundIcon="@mipmap/ic_launcher_4s"
-            android:label="4Ever Seasons"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity-alias>
-
         <activity-alias
             android:name=".LauncherDefault"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="true"
-            android:icon="@mipmap/ic_launcher_4s"
-            android:roundIcon="@mipmap/ic_launcher_4s"
+            android:icon="@drawable/ic_app_logo_premium"
+            android:roundIcon="@drawable/ic_app_logo_premium"
             android:label="4Ever Seasons"
             android:targetActivity=".MainActivity">
             <intent-filter>
@@ -62,8 +46,7 @@
             android:name=".LauncherLegacy"
             android:enabled="false"
             android:exported="true"
-            android:icon="@mipmap/ic_launcher_4s"
-            android:roundIcon="@mipmap/ic_launcher_4s"
+            android:icon="@drawable/ic_app_logo_legacy"
             android:label="4Ever Seasons"
             android:targetActivity=".MainActivity">
             <intent-filter>
