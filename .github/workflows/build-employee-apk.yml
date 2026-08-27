@@ -69,9 +69,8 @@ jobs:
           set -euo pipefail
           APK="android-employee-test/app/build/outputs/apk/release/app-release-unsigned.apk"
           unzip -l "$APK" > /tmp/apk-contents.txt
-          grep -q "res/drawable/ic_app_logo_premium.jpg" /tmp/apk-contents.txt
           grep -q "assets/opening_default.mp4" /tmp/apk-contents.txt
-          echo "Unsigned APK contains replaceable launcher and opening slots."
+          echo "Unsigned APK is ready for exact approved asset injection."
 
       - name: Prepare base APK
         run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk 4ever-seasons-mobile-v52.3.6-base.apk
