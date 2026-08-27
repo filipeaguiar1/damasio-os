@@ -47,23 +47,42 @@ jobs:
           cp public/brand/4ever-seasons-opening-native-cache-v2.mp4 android-employee-test/app/src/main/assets/opening_default.mp4
           test "$(stat -c%s android-employee-test/app/src/main/assets/opening_default.mp4)" -ge 100000
 
+      - name: Verify launcher source
+        shell: bash
+        run: |
+          set -euo pipefail
+          MANIFEST="android-employee-test/app/src/main/AndroidManifest.xml"
+          test -f android-employee-test/app/src/main/res/drawable/ic_launcher_4s_full.xml
+          test -f android-employee-test/app/src/main/res/drawable/ic_launcher_4s_foreground.xml
+          test -f android-employee-test/app/src/main/res/mipmap/ic_launcher_4s.xml
+          test -f android-employee-test/app/src/main/res/mipmap-anydpi-v26/ic_launcher_4s.xml
+          grep -q 'android:name=".Launcher4S"' "$MANIFEST"
+          grep -q 'android:icon="@mipmap/ic_launcher_4s"' "$MANIFEST"
+          if grep -q 'ic_launcher_current\|ic_app_logo_legacy' "$MANIFEST"; then
+            echo "Legacy/fallback launcher icon is still referenced" >&2
+            exit 1
+          fi
+
       - name: Build base and unsigned APKs
         run: gradle -p android-employee-test :app:assembleDebug :app:assembleRelease --no-daemon
 
-      - name: Verify launcher icon and opening video
+      - name: Verify packaged launcher and opening video
         shell: bash
         run: |
           set -euo pipefail
           APK="android-employee-test/app/build/outputs/apk/debug/app-debug.apk"
           unzip -l "$APK" > /tmp/apk-contents.txt
-          grep -q "ic_launcher_4s" /tmp/apk-contents.txt
+          grep -q "res/mipmap/ic_launcher_4s.xml" /tmp/apk-contents.txt
+          grep -q "res/mipmap-anydpi-v26/ic_launcher_4s.xml" /tmp/apk-contents.txt
+          grep -q "res/drawable/ic_launcher_4s_full.xml" /tmp/apk-contents.txt
+          grep -q "res/drawable/ic_launcher_4s_foreground.xml" /tmp/apk-contents.txt
           grep -q "assets/opening_default.mp4" /tmp/apk-contents.txt
           VIDEO_BYTES="$(unzip -p "$APK" assets/opening_default.mp4 | wc -c | tr -d ' ')"
           test "$VIDEO_BYTES" -ge 100000
-          echo "Verified 4S launcher resource and bundled opening video (${VIDEO_BYTES} bytes)."
+          echo "Verified vector 4S launcher and bundled opening video (${VIDEO_BYTES} bytes)."
 
       - name: Prepare base APK
-        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk 4ever-seasons-mobile-v52.3.4-base.apk
+        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk 4ever-seasons-mobile-v52.3.5-base.apk
 
       - name: Prepare local finalization kit
         shell: bash
@@ -71,7 +90,7 @@ jobs:
           set -euo pipefail
           BT="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           mkdir -p apk-buildkit/lib
-          cp android-employee-test/app/build/outputs/apk/release/app-release-unsigned.apk apk-buildkit/4ever-seasons-mobile-v52.3.4-unsigned.apk
+          cp android-employee-test/app/build/outputs/apk/release/app-release-unsigned.apk apk-buildkit/4ever-seasons-mobile-v52.3.5-unsigned.apk
           cp "$BT/apksigner" apk-buildkit/apksigner
           cp "$BT/zipalign" apk-buildkit/zipalign
           cp "$BT/lib/apksigner.jar" apk-buildkit/lib/apksigner.jar
@@ -80,14 +99,14 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: 4ever-seasons-mobile-v52.3.4-base
-          path: 4ever-seasons-mobile-v52.3.4-base.apk
+          name: 4ever-seasons-mobile-v52.3.5-base
+          path: 4ever-seasons-mobile-v52.3.5-base.apk
           if-no-files-found: error
           retention-days: 30
 
       - uses: actions/upload-artifact@v4
         with:
-          name: 4ever-seasons-mobile-v52.3.4-buildkit
+          name: 4ever-seasons-mobile-v52.3.5-buildkit
           path: apk-buildkit/
           if-no-files-found: error
           retention-days: 2

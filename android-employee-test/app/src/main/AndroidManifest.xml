@@ -28,9 +28,25 @@
             android:exported="true"
             android:screenOrientation="portrait" />
 
+        <!-- New launcher component intentionally replaces the old aliases so
+             Android launchers cannot keep serving a cached placeholder icon. -->
+        <activity-alias
+            android:name=".Launcher4S"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_4s"
+            android:roundIcon="@mipmap/ic_launcher_4s"
+            android:label="4Ever Seasons"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <activity-alias
             android:name=".LauncherDefault"
-            android:enabled="true"
+            android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_4s"
             android:roundIcon="@mipmap/ic_launcher_4s"
