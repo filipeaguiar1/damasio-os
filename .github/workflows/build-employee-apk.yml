@@ -5,11 +5,15 @@ on:
   pull_request:
     paths:
       - "android-employee-test/**"
+      - "assets/mobile-opening/**"
+      - "scripts/materialize-mobile-opening.mjs"
       - ".github/workflows/build-employee-apk.yml"
   push:
     branches: [main]
     paths:
       - "android-employee-test/**"
+      - "assets/mobile-opening/**"
+      - "scripts/materialize-mobile-opening.mjs"
       - ".github/workflows/build-employee-apk.yml"
 
 permissions:
@@ -34,11 +38,32 @@ jobs:
       - name: Restore stable QA signing key
         run: base64 -d android-employee-test/test-signing.keystore.b64 > android-employee-test/test-signing.keystore
 
+      - name: Restore bundled opening video
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/materialize-mobile-opening.mjs
+          mkdir -p android-employee-test/app/src/main/assets
+          cp public/brand/4ever-seasons-opening-native-cache-v2.mp4 android-employee-test/app/src/main/assets/opening_default.mp4
+          test "$(stat -c%s android-employee-test/app/src/main/assets/opening_default.mp4)" -ge 100000
+
       - name: Build base and unsigned APKs
         run: gradle -p android-employee-test :app:assembleDebug :app:assembleRelease --no-daemon
 
+      - name: Verify launcher icon and opening video
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="android-employee-test/app/build/outputs/apk/debug/app-debug.apk"
+          unzip -l "$APK" > /tmp/apk-contents.txt
+          grep -q "ic_launcher_4s" /tmp/apk-contents.txt
+          grep -q "assets/opening_default.mp4" /tmp/apk-contents.txt
+          VIDEO_BYTES="$(unzip -p "$APK" assets/opening_default.mp4 | wc -c | tr -d ' ')"
+          test "$VIDEO_BYTES" -ge 100000
+          echo "Verified 4S launcher resource and bundled opening video (${VIDEO_BYTES} bytes)."
+
       - name: Prepare base APK
-        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk 4ever-seasons-mobile-v52.3.2-base.apk
+        run: cp android-employee-test/app/build/outputs/apk/debug/app-debug.apk 4ever-seasons-mobile-v52.3.3-base.apk
 
       - name: Prepare local finalization kit
         shell: bash
@@ -46,7 +71,7 @@ jobs:
           set -euo pipefail
           BT="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           mkdir -p apk-buildkit/lib
-          cp android-employee-test/app/build/outputs/apk/release/app-release-unsigned.apk apk-buildkit/4ever-seasons-mobile-v52.3.2-unsigned.apk
+          cp android-employee-test/app/build/outputs/apk/release/app-release-unsigned.apk apk-buildkit/4ever-seasons-mobile-v52.3.3-unsigned.apk
           cp "$BT/apksigner" apk-buildkit/apksigner
           cp "$BT/zipalign" apk-buildkit/zipalign
           cp "$BT/lib/apksigner.jar" apk-buildkit/lib/apksigner.jar
@@ -55,14 +80,14 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: 4ever-seasons-mobile-v52.3.2-base
-          path: 4ever-seasons-mobile-v52.3.2-base.apk
+          name: 4ever-seasons-mobile-v52.3.3-base
+          path: 4ever-seasons-mobile-v52.3.3-base.apk
           if-no-files-found: error
           retention-days: 30
 
       - uses: actions/upload-artifact@v4
         with:
-          name: 4ever-seasons-mobile-v52.3.2-buildkit
+          name: 4ever-seasons-mobile-v52.3.3-buildkit
           path: apk-buildkit/
           if-no-files-found: error
           retention-days: 2
