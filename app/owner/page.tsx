@@ -17,12 +17,55 @@ type Overview = { customers: Customer[]; requests: Request[] };
 const money = (amount: number) => new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(Number(amount) || 0);
 const date = (value: string | null | undefined) => value ? new Date(value).toLocaleDateString("en-CA") : "—";
 
+function VisitPhotoUpload({ visitId }: { visitId: string }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [type, setType] = useState("before");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function upload() {
+    if (!file) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const { data } = await getSupabaseBrowserClient().auth.getSession();
+      if (!data.session) throw new Error("Sign in again.");
+      const form = new FormData();
+      form.append("visitId", visitId);
+      form.append("type", type);
+      form.append("file", file);
+      const response = await fetch("/api/owner/photos", {
+        method: "POST",
+        headers: { authorization: "Bearer " + data.session.access_token },
+        body: form,
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not save the photo.");
+      setMessage("Photo saved securely.");
+      window.location.reload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not upload photo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <div className={styles.upload}>
+    <select aria-label="Photo type" value={type} onChange={(event) => setType(event.target.value)}>
+      <option value="before">Before</option><option value="after">After</option><option value="completion">Completed work</option><option value="issue">Issue</option>
+    </select>
+    <input aria-label="Choose service photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setFile(event.target.files?.[0] || null)} />
+    <button className={styles.secondary} onClick={() => void upload()} type="button" disabled={!file || busy}>{busy ? "Saving..." : "Save photo"}</button>
+    {message && <small role="status">{message}</small>}
+  </div>;
+}
+
 export default function OwnerWorkspacePage() {
   const router = useRouter();
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(true);
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+  const [photoError, setPhotoError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -58,6 +101,22 @@ export default function OwnerWorkspacePage() {
   async function logout() {
     await getSupabaseBrowserClient().auth.signOut();
     router.replace("/owner/login");
+  }
+
+  async function openPhoto(photoId: string) {
+    setPhotoError("");
+    try {
+      const { data: session } = await getSupabaseBrowserClient().auth.getSession();
+      if (!session.session) throw new Error("Sign in again.");
+      const response = await fetch("/api/owner/photos?id=" + encodeURIComponent(photoId), {
+        headers: { authorization: "Bearer " + session.session.access_token }, cache: "no-store",
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Photo could not be loaded.");
+      setPhotoUrls((previous) => ({ ...previous, [photoId]: body.url }));
+    } catch (error) {
+      setPhotoError(error instanceof Error ? error.message : "Photo could not be loaded.");
+    }
   }
 
   return <main className={styles.page}>
@@ -98,9 +157,9 @@ export default function OwnerWorkspacePage() {
               {customer.invoices.map((invoice) => <tr key={invoice.id}><td>{date(invoice.date)}</td><td>{invoice.number}</td><td>{invoice.description}</td><td>{money(invoice.amount)}</td><td>{invoice.status}</td></tr>)}
             </tbody></table></div> : <p className={styles.muted}>No invoices recorded.</p>}
             <h3>Visit history</h3>
-            {customer.visits.length ? <ul>{customer.visits.map((visit) => <li key={visit.id}>{date(visit.date)} · {visit.status}{visit.summary ? " · " + visit.summary : ""}</li>)}</ul> : <p className={styles.muted}>No visits recorded.</p>}
+            {customer.visits.length ? <ul>{customer.visits.map((visit) => <li key={visit.id}><strong>{date(visit.date)} · {visit.status}</strong>{visit.summary ? " · " + visit.summary : ""}<VisitPhotoUpload visitId={visit.id} /></li>)}</ul> : <p className={styles.muted}>No visits recorded.</p>}
             <h3>Photo archive</h3>
-            {customer.photos.length ? <ul>{customer.photos.map((photo) => <li key={photo.id}>{date(photo.date)} · {photo.type || "Service photo"}{photo.caption ? " · " + photo.caption : ""}</li>)}</ul> : <p className={styles.muted}>No photos saved. Private photo viewing and uploads will be enabled with the photo workflow.</p>}
+            {customer.photos.length ? <ul>{customer.photos.map((photo) => <li key={photo.id}>{date(photo.date)} · {photo.type || "Service photo"}{photo.caption ? " · " + photo.caption : ""} <button type="button" className={styles.secondary} onClick={() => void openPhoto(photo.id)}>View photo</button>{photoUrls[photo.id] && <a href={photoUrls[photo.id]} target="_blank" rel="noopener noreferrer">Open secure image</a>}</li>)}</ul> : <p className={styles.muted}>No photos saved for this customer.</p>}{photoError && <p role="alert" className={styles.error}>{photoError}</p>}
           </div>
         </details>)}</div>
       </section>
